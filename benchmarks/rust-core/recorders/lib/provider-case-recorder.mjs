@@ -163,7 +163,11 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       // `date` is the one wall-clock header Node adds; fixed so the response heads the product records are stable.
       res.setHeader('date', 'Thu, 01 Jan 2026 00:00:00 GMT');
       res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
-      res.end(reply.body);
+      if (reply.chunks) {
+        // A scripted stream: every chunk is its own socket write (the write callback is the wait for it), the ordered input of the case.
+        for (const chunk of reply.chunks) await new Promise((resolve, reject) => res.write(chunk, (error) => (error ? reject(error) : resolve())));
+        res.end();
+      } else res.end(reply.body);
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const port = server.address().port;

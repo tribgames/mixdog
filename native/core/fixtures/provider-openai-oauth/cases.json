@@ -314,35 +314,7 @@
             },
             "partialToolCall": true
           }
-        },
-        "request": [
-          {
-            "url": "https://api.openai.com/v1/responses",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer k"
-              ],
-              [
-                "Content-Type",
-                "application/json"
-              ],
-              [
-                "Accept",
-                "text/event-stream"
-              ],
-              [
-                "x-client-request-id",
-                "2b94d07a22339d69c88f1e7d29672eb6"
-              ]
-            ],
-            "body": {
-              "$exact": "bytes",
-              "type": "Buffer",
-              "base64": "eyJtb2RlbCI6ImdwdCIsInRvb2xzIjpbXX0="
-            }
-          }
-        ]
+        }
       },
       "calls": [
         {
@@ -360,12 +332,73 @@
               "useModel": "gpt",
               "onToolCall": {
                 "$exact": "undefined"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.openai.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "api.openai.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer k"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "x-client-request-id",
+              "2b94d07a22339d69c88f1e7d29672eb6"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "26"
+            ]
+          ],
+          "body": "{\"model\":\"gpt\",\"tools\":[]}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"gpt\"}}\n\n",
+              "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fi_1\",\"name\":\"read\",\"call_id\":\"fc_1\"}}\n\n",
+              "event: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fi_1\",\"delta\":\"{\\\"path\\\":\"}\n\n",
+              "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -418,35 +451,7 @@
             "$exact": "undefined"
           },
           "generationMs": 0
-        },
-        "request": [
-          {
-            "url": "https://api.openai.com/v1/responses",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer k"
-              ],
-              [
-                "Content-Type",
-                "application/json"
-              ],
-              [
-                "Accept",
-                "text/event-stream"
-              ],
-              [
-                "x-client-request-id",
-                "15564abbf59b4dd1ed3fda0fab4c34a5"
-              ]
-            ],
-            "body": {
-              "$exact": "bytes",
-              "type": "Buffer",
-              "base64": "eyJtb2RlbCI6ImdwdCIsInRvb2xzIjpbXX0="
-            }
-          }
-        ]
+        }
       },
       "calls": [
         {
@@ -464,12 +469,74 @@
               "useModel": "gpt",
               "onToolCall": {
                 "$exact": "undefined"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.openai.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "api.openai.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer k"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "x-client-request-id",
+              "15564abbf59b4dd1ed3fda0fab4c34a5"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "26"
+            ]
+          ],
+          "body": "{\"model\":\"gpt\",\"tools\":[]}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"gpt\"}}\n\n",
+              "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fi_1\",\"name\":\"read\",\"call_id\":\"fc_1\"}}\n\n",
+              "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fi_1\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}\n\n",
+              "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fi_1\",\"call_id\":\"fc_1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}}\n\n",
+              "event: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -1094,59 +1161,7 @@
           "serviceTier": {
             "$exact": "undefined"
           }
-        },
-        "request": [
-          {
-            "url": "https://chatgpt.com/backend-api/codex/responses",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer token"
-              ],
-              [
-                "Content-Type",
-                "application/json"
-              ],
-              [
-                "Accept",
-                "text/event-stream"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses=experimental"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "chatgpt-account-id",
-                "account"
-              ],
-              [
-                "x-client-request-id",
-                "fa5cef1426129f0019f23db6aef1519f"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ]
-            ],
-            "body": {
-              "$exact": "bytes",
-              "type": "Buffer",
-              "base64": "eyJtb2RlbCI6ImdwdC01LjYtc29sIiwidG9vbHMiOltdfQ=="
-            }
-          }
-        ]
+        }
       },
       "calls": [
         {
@@ -1168,12 +1183,91 @@
               "useModel": "gpt-5.6-sol",
               "onToolCall": {
                 "$exact": "undefined"
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://chatgpt.com",
+          "path": "/backend-api/codex/responses",
+          "headers": [
+            [
+              "host",
+              "chatgpt.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "OpenAI-Beta",
+              "responses=experimental"
+            ],
+            [
+              "originator",
+              "codex_cli_rs"
+            ],
+            [
+              "chatgpt-account-id",
+              "account"
+            ],
+            [
+              "x-client-request-id",
+              "fa5cef1426129f0019f23db6aef1519f"
+            ],
+            [
+              "User-Agent",
+              "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+            ],
+            [
+              "version",
+              "0.166.0"
+            ],
+            [
+              "x-codex-beta-features",
+              "remote_compaction_v2"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "34"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.6-sol\",\"tools\":[]}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"gpt-5.6-sol\"}}\n\n",
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"model\":\"gpt-5.6-sol\",\"output\":[]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -1248,34 +1342,6 @@
           },
           "generationMs": 0
         },
-        "request": [
-          {
-            "url": "https://api.openai.com/v1/responses",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer k"
-              ],
-              [
-                "Content-Type",
-                "application/json"
-              ],
-              [
-                "Accept",
-                "text/event-stream"
-              ],
-              [
-                "x-client-request-id",
-                "b8cb844dd64432481fd40efeb9210bbd"
-              ]
-            ],
-            "body": {
-              "$exact": "bytes",
-              "type": "Buffer",
-              "base64": "eyJtb2RlbCI6ImdwdCIsInRvb2xzIjpbeyJuYW1lIjoiYXBwbHlfcGF0Y2gifSx7Im5hbWUiOiJzaGVsbCJ9XX0="
-            }
-          }
-        ],
         "emitted": [
           {
             "id": "cp_1",
@@ -1317,12 +1383,77 @@
               "useModel": "gpt",
               "onToolCall": {
                 "callback": ""
-              },
-              "fetchFn": {
-                "callback": "fetchFn"
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.openai.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "api.openai.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer k"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "x-client-request-id",
+              "b8cb844dd64432481fd40efeb9210bbd"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "65"
+            ]
+          ],
+          "body": "{\"model\":\"gpt\",\"tools\":[{\"name\":\"apply_patch\"},{\"name\":\"shell\"}]}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"r\",\"model\":\"gpt\"}}\n\n",
+              "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"custom_tool_call\",\"id\":\"ci_1\",\"call_id\":\"cp_1\",\"name\":\"apply_patch\"}}\n\n",
+              "event: response.custom_tool_call_input.delta\ndata: {\"type\":\"response.custom_tool_call_input.delta\",\"item_id\":\"ci_1\",\"delta\":\"*** Begin Patch\\n*** Add File: mixed.txt\\n+ok\\n*** End Patch\\n\"}\n\n",
+              "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"custom_tool_call\",\"id\":\"ci_1\",\"call_id\":\"cp_1\",\"name\":\"apply_patch\",\"input\":\"*** Begin Patch\\n*** Add File: mixed.txt\\n+ok\\n*** End Patch\\n\"}}\n\n",
+              "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fi_1\",\"call_id\":\"fs_1\",\"name\":\"shell\"}}\n\n",
+              "event: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fi_1\",\"arguments\":\"{\\\"command\\\":\\\"npm test\\\"}\"}\n\n",
+              "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fi_1\",\"call_id\":\"fs_1\",\"name\":\"shell\",\"arguments\":\"{\\\"command\\\":\\\"npm test\\\"}\"}}\n\n",
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"model\":\"gpt\",\"output\":[]}}\n\n"
+            ]
+          }
         }
       ]
     },
