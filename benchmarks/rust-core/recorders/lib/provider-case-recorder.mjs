@@ -67,11 +67,14 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x6d2b79f5) >>> 0;
     return seed / 4294967296;
   };
-  const clock = { seq: 0, timers: new Map(), armListeners: new Set() };
+  const clock = { seq: 0, timers: new Map(), armListeners: new Set(), eventListeners: new Set() };
+  // Every observable event of the world wakes the waiters of `clock.advance({ until })`: a timer armed or fired, a request arriving at the endpoint, an entry of the ws world.
+  clock.notify = () => { for (const listener of [...clock.eventListeners]) listener(); };
   globalThis.setTimeout = (fn, ms = 0, ...rest) => {
     const id = ++clock.seq;
     clock.timers.set(id, { id, due: world.now() + Math.max(0, Number(ms) || 0), fn, rest, site: new Error().stack });
     for (const listener of [...clock.armListeners]) listener();
+    clock.notify();
     return { id, unref() { return this; }, ref() { return this; }, hasRef: () => true, refresh() { return this; }, [Symbol.toPrimitive]: () => id };
   };
   globalThis.clearTimeout = (timer) => void clock.timers.delete(timer?.id ?? timer);
@@ -109,12 +112,20 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       const returned = next.fn(...next.rest);
       if (returned && typeof returned.then === 'function') await within(returned, `${what}: timer ${next.id} callback`);
       await within(turn(), `${what}: timer ${next.id} settle`);
+      clock.notify();
     }
     world.advance(Math.max(0, end - world.now()));
     if (until) {
-      const waitFor = async () => {
-        while (!until()) await turn();
-      };
+      // Woken by the events of the world (see `clock.notify`), not by turns of the event loop; the deadline names the step.
+      const waitFor = () => new Promise((resolve) => {
+        const check = () => {
+          if (!until()) return;
+          clock.eventListeners.delete(check);
+          resolve();
+        };
+        clock.eventListeners.add(check);
+        check();
+      });
       await within(waitFor(), `${what}: observable event`);
     }
     step.toMs = world.now() - T0;
@@ -184,6 +195,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       // For the recorder's own waits (not recorded): resolves when the client side of this connection closes.
       Object.defineProperty(record, 'whenClientClosed', { value: new Promise((resolve) => res.on('close', resolve)) });
       hub.records.push(record);
+      clock.notify();
       const reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
       record.reply = reply;
       if (reply.destroy) {
@@ -308,7 +320,13 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     /** A scripted fetch Response (status, headers, body chunks as delivered), recorded as such when handed to the product. */
     response: scriptedResponse,
     /** A real WebSocket server on loopback (lib/ws-world.mjs); closed when the recording finishes. */
-    wsWorld: async () => (wsWorld ??= await startWsWorld({ tree })),
+    wsWorld: async () => {
+      if (!wsWorld) {
+        wsWorld = await startWsWorld({ tree });
+        wsWorld.onNote = clock.notify;
+      }
+      return wsWorld;
+    },
     /** A product module as it is, its calls not logged (plumbing the recorder drives, not the entry under test). */
     raw: (rel) => import(pathToFileURL(join(tree, 'src/runtime', rel)).href),
     load: async (rel) => wrapModule(rel, await import(pathToFileURL(join(tree, rel)).href)),

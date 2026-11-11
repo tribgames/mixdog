@@ -43,11 +43,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
+      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "636c8a2a61f1766d1a8700f7e40ce3f90c1e93d5e551e31aaa4b47044768509b"
+      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
     }
   ],
   "levels": [

@@ -36,11 +36,13 @@ const written = (socket, chunk) => new Promise((resolve, reject) => {
 
 export async function startWsWorld({ tree }) {
   const { WebSocketServer } = createRequire(join(tree, 'package.json'))('ws');
-  const world = { trace: [], dials: [], script: {}, conns: [] };
+  // `honorLookup`: a dial goes through the `lookup` function the client passed (the product's DNS cache over the resolver the recorder scripts) instead of straight to the loopback address.
+  const world = { trace: [], dials: [], script: {}, conns: [], honorLookup: false, onNote: null };
   const waiters = new Set();
   const note = (entry) => {
     world.trace.push(entry);
     for (const w of [...waiters]) w();
+    world.onNote?.();
   };
   world.note = note;
   world.reset = (script = {}) => {
@@ -154,6 +156,7 @@ export async function startWsWorld({ tree }) {
   tls.connect = (options) => {
     note({ event: 'dial', host: options.host ?? null, port: options.port ?? null, servername: options.servername ?? null });
     world.dials.push({ host: options.host ?? null, port: options.port ?? null });
+    if (world.honorLookup) return net.connect({ host: options.host, port, lookup: options.lookup });
     return net.connect({ host: '127.0.0.1', port });
   };
   world.close = () => {
