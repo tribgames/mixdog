@@ -84,15 +84,14 @@
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
   "recorderSha256": "6e941057e28a692e815cdb5bf5dd70f8fd19cde3ea9abebad1d650fe71f7d5c0",
   "replay": {
-    "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
-    "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates; github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`).",
-    "existsButNotPublicOnO1": [
-      "mixdog-scm/src/service.rs:452 `github_request` (the handler behind github/request) is private; the method table is its public door"
-    ],
+    "compare": "mixdog-tools src/github/k1_replay.rs: the same request and tool calls with the recorded scripted answers at the client's runner (GhRunner, where Node's tests scripted run), each case compared whole: the commands built, the results or errors, the tool text and the raw file read back",
+    "entry": "Requests: GhClient::execute (mixdog-scm/src/gh/client.rs:294), the whole body of github/request (service.rs:452 github_request) and of the agent's tool. Tool cases 9-14: the registered agent tool GithubTool (mixdog-tools/src/github/mod.rs, Tool::call; registered at mixdog-app-server-daemon/src/compose_flip.rs real_core over the desktop's GhClient), which on o1 ran gh itself without tool.mjs's projection, cap and raw file. Pure cases 2 and 15 drive contract::validate and commands::build, as Node's test drove buildGithubCommand.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [],
     "normalised": {
       "cwd": "the process cwd is not recorded",
-      "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest"
+      "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest",
+      "textBytes": "recording defect: textBytes was counted over the text before its temp folder was written <tmp> (the recorder's os.tmpdir(), 54 bytes), so each text holding a raw path counts 49 bytes more than its normalised form; the replay counts the core's text with a 54-byte folder in place of its own"
     },
     "protocolMethods": [
       "github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`)"
@@ -109,18 +108,18 @@
         "path": "native/core/crates/mixdog-scm/src/gh/client.rs"
       },
       {
-        "line": 281,
-        "name": "run_args",
-        "path": "native/core/crates/mixdog-scm/src/gh/client.rs"
-      },
-      {
         "line": 294,
         "name": "execute",
         "path": "native/core/crates/mixdog-scm/src/gh/client.rs"
       },
       {
-        "line": 45,
+        "line": 34,
         "name": "github_call_mutates",
+        "path": "native/core/crates/mixdog-tools/src/github/mod.rs"
+      },
+      {
+        "line": 46,
+        "name": "GithubTool::new",
         "path": "native/core/crates/mixdog-tools/src/github/mod.rs"
       }
     ],

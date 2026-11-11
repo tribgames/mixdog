@@ -293,12 +293,13 @@ impl GhClient {
 
     pub async fn execute(&self, input: &Value, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let mut request = contract::validate(input)?;
+        dispatchable(cancel)?;
         if !crate::input::is_absolute(&cwd.to_string_lossy()) || cwd.to_string_lossy().contains('\0') {
-            return Err(ScmFailure::invalid("cwd", "an absolute project directory"));
+            return Err(contract::type_error("An absolute Project directory is required."));
         }
         let action = request.action();
         if matches!(action, "repo.create" | "repo.clone" | "repo.fork") && request.repo().is_none() {
-            return Err(ScmFailure::invalid("repo", "an explicit owner/name"));
+            return Err(contract::type_error("This action requires an explicit owner/name in repo."));
         }
         let hostname = request.hostname().to_owned();
         if !contract::is_repo_free(action) && request.repo().is_none() {
@@ -354,6 +355,7 @@ impl GhClient {
             // clone is left in place for recovery, never removed.
             std::fs::create_dir(dest)?;
         }
+        dispatchable(cancel)?;
         let raw = run_text(self.runner.as_ref(), &command, cwd, cancel).await?;
         finish(&request, &command, &repo_name, &hostname, &raw)
     }
@@ -419,9 +421,17 @@ fn finish(
     Ok(response)
 }
 
-/// A clone destination must be an explicit, absolute, new directory.
+/// `executeGithubRequest`'s check before it sends anything: a request whose caller already gave up is not dispatched.
+fn dispatchable(cancel: &CancellationToken) -> Result<(), ScmFailure> {
+    if cancel.is_cancelled() {
+        return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: "GitHub request cancelled before dispatch.".into() });
+    }
+    Ok(())
+}
+
+/// A clone destination must be an explicit, absolute, new directory (`cloneDestination`, client.mjs).
 fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
-    let invalid = || ScmFailure::invalid("destination", "an explicit absolute new directory");
+    let invalid = || contract::type_error("Clone destination must be an explicit absolute new directory.");
     let path = Path::new(value);
     let unsafe_chars = value.contains(['~', '$', '*', '?', '\0', '\r', '\n']);
     let device_prefix = value.starts_with("\\\\?") || value.starts_with("\\\\.");
@@ -430,14 +440,15 @@ fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
     }
     let home = crate::desktop::home_dir();
     if path.parent().is_none() || path_key(path) == path_key(&home) {
-        return Err(ScmFailure::invalid("destination", "a folder that is not a filesystem root or the home directory"));
+        return Err(contract::type_error("Cannot clone into a filesystem root or home directory."));
     }
     match std::fs::symlink_metadata(path) {
         Ok(_) => {
-            return Err(ScmFailure::refused(
-                "DESTINATION_EXISTS",
-                "Clone destination already exists. Choose a new directory; existing files are never removed.",
-            ));
+            return Err(ScmFailure::Refused {
+                domain: crate::error::GIT_DOMAIN,
+                code: "DESTINATION_EXISTS",
+                message: "Clone destination already exists. Choose a new directory; existing files are never removed.".into(),
+            });
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),

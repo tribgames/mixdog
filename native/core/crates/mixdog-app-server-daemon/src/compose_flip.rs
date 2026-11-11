@@ -1594,7 +1594,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         live: { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
         sessions: late_workspaces.clone(), // bound right after `SessionWorkspaces` is built; in `verify_bound`
     }))));
-    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new()));
+    // The agent's `github` is the desktop's GitHub client (one write queue per repository), its raw results kept in the data directory.
+    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new(scm.github.clone(), Some(b.data_dir.clone()))));
     tool_pool.push(Arc::new(mixdog_tools::exec::TaskTool::new(b.exec.clone())));
     tool_pool.push(Arc::new(mixdog_tools::fs::GrepTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));

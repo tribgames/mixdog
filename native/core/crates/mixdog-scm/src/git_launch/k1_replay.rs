@@ -121,26 +121,13 @@ impl Roots {
     /// `actual` (plain JSON, a failure written as the recorder's `$exact` error) against the recorded value, whole.
     fn compare(&self, actual: &Value, expected: &Exact, case: &str) {
         let actual = self.mask(&Exact::decode(actual).expect("the replay's own value decodes"));
-        if actual != *expected {
-            panic!("{case}: the core's outcome differs from Node's at {}", difference(&actual, expected, "$"));
+        if let Some(difference) = actual.difference(expected) {
+            panic!("{case}: the core's outcome differs from Node's at {difference}");
         }
     }
 
     fn env(&self, recorded: &Exact) -> Env {
         recorded.entries().iter().map(|(key, value)| (key.clone(), self.unmask(value.as_str()))).collect()
-    }
-}
-
-/// The first place two unequal values differ, with both sides there.
-fn difference(actual: &Exact, expected: &Exact, path: &str) -> String {
-    match (actual, expected) {
-        (Exact::Object(a), Exact::Object(b)) if a.iter().map(|(k, _)| k).eq(b.iter().map(|(k, _)| k)) => {
-            a.iter().zip(b).find(|((_, x), (_, y))| x != y).map_or_else(String::new, |((key, x), (_, y))| difference(x, y, &format!("{path}.{key}")))
-        }
-        (Exact::Array(a), Exact::Array(b)) if a.len() == b.len() => {
-            a.iter().zip(b).enumerate().find(|(_, (x, y))| x != y).map_or_else(String::new, |(index, (x, y))| difference(x, y, &format!("{path}[{index}]")))
-        }
-        _ => format!("{path}:\n  core: {actual:?}\n  node: {expected:?}"),
     }
 }
 
