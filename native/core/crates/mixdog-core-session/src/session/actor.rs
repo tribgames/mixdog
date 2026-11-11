@@ -3731,6 +3731,10 @@ impl SessionActor {
                 let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
                 self.accept_view(Change::Barrier, vec![note]);
             }
+            RunShown::Stage { stage, detail } => {
+                let note = Note::new("thread/stage/updated", &mixdog_app_protocol::v2::thread::ThreadStageUpdatedParams { thread_id: self.id.clone(), stage, detail });
+                self.accept_view(Change::Barrier, vec![note]);
+            }
             RunShown::ToolStream => self.stream_heartbeat(),
             RunShown::CompactUsage(report) => {
                 let now = self.deps.clock.now_ms();
