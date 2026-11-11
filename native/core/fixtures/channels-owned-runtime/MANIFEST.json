@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11276,
+      "bytes": 13115,
       "path": "golden.json",
-      "sha256": "d054966a0153b1f294c476a2130eb54adbc753d763a76488c56a7b5983da2e88"
+      "sha256": "a52226b135e8d711e3a1e8c8d390b9f6d153c63c47eb571bab4ff0082bfccc4c"
     }
   ],
   "inputs": [
@@ -54,11 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channels-owned-runtime.mjs",
-  "recorderSha256": "81960c3808de8f9c695107b5f86c0e209aba11548196f76e4ae8303a83dc2e16",
-  "replay": "Public Rust entries (mixdog-services channels/runtime.rs): ChannelLifecycle::start_bridge (:349), ChannelLifecycle::stop_owned_runtime (:354), ChannelRuntime::start_automation (:166), ChannelRuntime::reload_runtime (:316) and ChannelLifecycle::reload_config (:393); the private start_bridge_turn/reload_turn are reached through them. A replay drives them with a recording scheduler/webhook/pipeline and compares per case the ordered call list (names and every argument as recorded: notify method and params, scheduler.reload schedules and options, webhook.new/reload/start arguments, pipeline calls, snapshot/advert/locks calls), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries (advert, advert.clear, locks.release, snapshot.*, currentOwnerState, ownership logs) are Node-only calls, listed as work for the Rust side if parity is wanted",
+  "recorderSha256": "89b9a5e4a6c0fa774a33469d2fec2c29f70fa285ee9977a7a2f6a5a54ba98f39",
+  "replay": "Public Rust entries (mixdog-services channels/runtime.rs): ChannelLifecycle::start_bridge (:349), ChannelLifecycle::stop_owned_runtime (:354), ChannelRuntime::start_automation (:166), ChannelRuntime::reload_runtime (:316) and ChannelLifecycle::reload_config (:393); the private start_bridge_turn/reload_turn are reached through them. A replay drives them with a recording scheduler/webhook/pipeline and compares per case the ordered call list (names and every argument as recorded: notify method and params, scheduler.reload schedules and options, webhook.new/reload/start arguments, pipeline calls, snapshot/advert/locks calls), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries (advert, advert.clear, locks.release, snapshot.*, currentOwnerState, ownership logs) are Node-only calls, listed as work for the Rust side if parity is wanted. The acquisition (notify ↔ the core's remoteSession client event) is announced as the bridge connects, before the providers' init and the arming, on both sides (owned-start.mjs:52-56, channels/runtime.rs activate_bridge): an arming that fails afterwards (case 7) leaves it announced; only a call refused before the bridge connects announces nothing",
   "set": "channels-owned-runtime",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 11276,
+  "totalBytes": 13115,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
