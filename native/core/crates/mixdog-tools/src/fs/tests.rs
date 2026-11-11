@@ -1768,12 +1768,13 @@ sequence_tests! {
 
 /// The local file service, except that stating a file with one of `names` fails, and one with a name of the
 /// third list never answers (a dead mount).
-struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str]);
+struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str], Arc<std::sync::atomic::AtomicUsize>);
 
 #[async_trait::async_trait]
 impl FileService for StatFails {
     async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         if self.2.iter().any(|name| path.as_path().ends_with(name)) {
+            self.3.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             std::future::pending::<()>().await;
         }
         if self.1.iter().any(|name| path.as_path().ends_with(name)) {
@@ -1823,11 +1824,52 @@ async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
         std::fs::write(root.as_path().join(name), "x\n").unwrap();
     }
     std::fs::OpenOptions::new().write(true).open(root.as_path().join("b.txt")).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
-    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), &["a.txt", "C.txt"], &[])), Vec::new()).await;
+    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), &["a.txt", "C.txt"], &[], Default::default())), Vec::new()).await;
     let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt" })).await);
     assert!(!is_error, "{text}");
     // The walk visits names in byte order: `C.txt` before `a.txt`.
     assert_eq!(text.lines().collect::<Vec<_>>(), ["d.txt", "b.txt", "C.txt", "a.txt"]);
+}
+
+/// A glob-shaped `list` path awaits each candidate's metadata for at most 1 000 ms (Node
+/// `collectFindMatches` with `FIND_STAT_DEADLINE_MS`): a stat that never answers leaves its row with `-`
+/// once that much virtual time has passed, and not before.
+#[tokio::test]
+async fn a_glob_shaped_list_bounds_its_metadata_pass() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-list-stat").join("ws")).unwrap();
+    let seeds = ["a.ts", "hang.ts", "b.ts"].iter().map(|n| (n.to_string(), b"x\n".to_vec())).collect();
+    let hung = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ctx = context_seeded(&root, Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &["hang.ts"], hung.clone())), seeds).await;
+    tokio::time::pause();
+    let tool = ListTool::new();
+    let mut call = Box::pin(tool.call(&ctx, serde_json::json!({ "path": "*.ts", "limit": 1 })));
+    async fn poll_a_while<F: std::future::Future + Unpin>(f: &mut F, until: impl Fn() -> bool) -> Option<F::Output> {
+        // The walk runs on an I/O lane's thread; real time lets it finish while the virtual clock stands still.
+        for _ in 0..2_000 {
+            if let std::task::Poll::Ready(out) = futures::poll!(&mut *f) {
+                return Some(out);
+            }
+            if until() {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            tokio::task::yield_now().await;
+        }
+        None
+    }
+    let entered = || hung.load(std::sync::atomic::Ordering::SeqCst) == 1;
+    assert!(poll_a_while(&mut call, entered).await.is_none(), "answered before the metadata deadline");
+    assert!(entered(), "the hung stat was never started");
+    tokio::time::advance(std::time::Duration::from_millis(999)).await;
+    assert!(poll_a_while(&mut call, || false).await.is_none(), "answered before the metadata deadline");
+    // tokio rounds a timer up to its next whole millisecond tick.
+    tokio::time::advance(std::time::Duration::from_millis(2)).await;
+    let (is_error, text) = text_of(poll_a_while(&mut call, || false).await.expect("no answer once the deadline passed"));
+    assert!(!is_error, "{text}");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 3, "{text}");
+    assert!(lines[1].starts_with("[entries 1-1 of 3;"), "{text}");
+    assert_eq!(lines[2], "... 1 path(s) had no metadata within 1000ms; listed with \"-\" for size/date");
 }
 
 /// A glob or find rooted at a POSIX filesystem root walks neither `/proc`, `/sys` nor `/dev`;

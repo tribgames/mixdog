@@ -372,6 +372,9 @@ struct GlobRow {
     known: bool,
 }
 
+/// Node `FIND_STAT_DEADLINE_MS`: how long one candidate's metadata is awaited.
+const FIND_STAT_DEADLINE: std::time::Duration = std::time::Duration::from_millis(1_000);
+
 /// The name search Node runs for a glob-shaped `list` path: an rg inventory under the static base
 /// (`--files --directories --no-ignore`, the noise-tree excludes, `--iglob` of the rest), filtered by
 /// the compiled glob, newest first.
@@ -425,18 +428,32 @@ async fn glob_path_list(ctx: &ToolContext, raw: &str, hidden: bool, offset: usiz
         })
     }, FIND_ABSOLUTE_CAP)
     .await?;
-    let mut rows = Vec::with_capacity(walked.entries.len());
+    // Node `statPathsForMtime(candidates, …, 64, { deadlineMs: FIND_STAT_DEADLINE_MS })`: 64 stats at a time,
+    // each bounded by the metadata deadline; one that fails or does not answer in time is listed with `-`.
+    use futures::StreamExt as _;
+    let stats: Vec<_> = guarded(
+        ctx,
+        "list",
+        futures::stream::iter(walked.entries.into_iter().map(|entry| async move {
+            let stat = tokio::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat(ctx.io.interactive, entry.path.clone())).await;
+            (entry, stat.ok().and_then(Result::ok))
+        }))
+        .buffered(64)
+        .collect(),
+    )
+    .await?;
+    let mut rows = Vec::with_capacity(stats.len());
     let mut unstatted = 0usize;
-    for entry in walked.entries {
-        match ctx.files.stat(ctx.io.interactive, entry.path.clone()).await {
-            Ok(s) => rows.push(GlobRow {
+    for (entry, stat) in stats {
+        match stat {
+            Some(s) => rows.push(GlobRow {
                 path: entry.path,
                 kind: if s.kind == EntryKind::Dir { EntryKind::Dir } else { EntryKind::File },
                 size: s.len,
                 mtime: s.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos()),
                 known: true,
             }),
-            Err(_) => {
+            None => {
                 unstatted += 1;
                 rows.push(GlobRow { path: entry.path, kind: EntryKind::File, size: 0, mtime: 0, known: false });
             }
