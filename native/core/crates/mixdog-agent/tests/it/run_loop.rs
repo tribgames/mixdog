@@ -2357,33 +2357,42 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
     // A recorded value whole (`lib/exact.mjs`): plain JSON, an object's keys compared as a set.
     let whole = |v: &JsonValue| mixdog_testkit::exact::Exact::decode(v).and_then(|e| e.to_plain()).expect("a plain recorded value");
     // The error the turn ended with as Node's loop throws it (the provider's own error): name, message, status, code,
-    // and its `streamOutcome` (`providers/lib/stream-outcome.mjs`). The core holds a stream's outcome as the error's
-    // `Exposure`: Node's `textEmitted`, `sideEffectDispatched` and `pendingToolInput` are its three facts and are
-    // compared from it. Every other field of Node's record is either informational (`provider`, `transport`,
-    // `version`, the counts) or derived from those facts and stream signals the core's adapter consumes before the
-    // error exists (`_finalize`); the core keeps no counterpart, so those are carried over from the recording,
-    // named in `DERIVED`.
-    const DERIVED: [&str; 19] = [
-        "version", "provider", "transport", "terminalObserved", "continuation", "declaredContinuation", "textObservedChars",
-        "reasoningEmitted", "toolCallsStarted", "toolCallsComplete", "toolCallsDispatched", "dispatchAmbiguous", "userAbort",
-        "stallObserved", "truncatedStream", "visibleOutput", "observedOutput", "replayUnsafe", "replaySafe",
-    ];
-    let error_row = |error: &mixdog_agent::AgentError, recorded: &JsonValue| match error {
+    // and its `streamOutcome` (`providers/lib/stream-outcome.mjs`), every field of it built from the core's error:
+    // the stream's `Exposure` (its three facts), the transport fault that ended it and the fact that an error is no
+    // terminal event, put through Node's own derivations (`_signalsOf`, `deriveStreamOutcome`: `continuation`,
+    // `visibleOutput`, `observedOutput`, `sideEffectDispatched`, `replayUnsafe`, `replaySafe`, `successEligible`).
+    // The core keeps no counts, no provider name and no transport label on an error: a count is 1 for a fact that
+    // holds, `provider` is null and `transport` is 'unknown' as for an error that carries neither.
+    let stream_outcome = |e: &ProviderError| {
+        let truncated = e.transport == Some(TransportFault::TruncatedStream);
+        let stalled = matches!(e.transport, Some(TransportFault::KeepaliveExpired { .. }));
+        let (text, dispatched, pending) = (e.exposure.text_emitted, e.exposure.tool_dispatched, e.exposure.tool_input_cut);
+        let (reasoning, ambiguous, aborted, terminal) = (false, false, false, false);
+        let count = |fact: bool| u64::from(fact);
+        let started = text || dispatched;
+        let continuation = !terminal && (truncated || stalled || started);
+        let visible = text || reasoning;
+        let observed = visible || count(text) > 0 || count(dispatched) > 0;
+        let unsafe_replay = visible || dispatched || ambiguous;
+        json!({
+            "version": 1, "provider": null, "transport": "unknown",
+            "terminalObserved": terminal, "continuation": continuation, "declaredContinuation": false,
+            "textEmitted": text, "textObservedChars": count(text), "reasoningEmitted": reasoning,
+            "toolCallsStarted": dispatched, "toolCallsComplete": count(dispatched), "toolCallsDispatched": count(dispatched),
+            "dispatchAmbiguous": ambiguous, "pendingToolInput": pending, "userAbort": aborted,
+            "stallObserved": stalled, "truncatedStream": truncated,
+            "visibleOutput": visible, "observedOutput": observed, "sideEffectDispatched": dispatched,
+            "replayUnsafe": unsafe_replay, "replaySafe": !unsafe_replay && !aborted,
+            "successEligible": terminal && !continuation && !pending,
+        })
+    };
+    let error_row = |error: &mixdog_agent::AgentError| match error {
         mixdog_agent::AgentError::Provider(e) => {
             let mut props = json!({ "httpStatus": e.status });
             if let Some(code) = &e.code {
                 props["code"] = json!(code);
             }
-            let mut outcome = json!({
-                "textEmitted": e.exposure.text_emitted,
-                "sideEffectDispatched": e.exposure.tool_dispatched,
-                "pendingToolInput": e.exposure.tool_input_cut,
-            });
-            let node = &recorded["props"]["streamOutcome"];
-            for key in DERIVED.iter().chain(&["successEligible"]) {
-                outcome[*key] = node[*key].clone();
-            }
-            props["streamOutcome"] = outcome;
+            props["streamOutcome"] = stream_outcome(e);
             json!({ "name": "Error", "message": e.message, "props": props })
         }
         other => panic!("{other:?}"),
@@ -2393,8 +2402,6 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         if let Some(code) = v.get("code") {
             props["code"] = code.clone();
         }
-        let outcome = props["streamOutcome"].as_object().expect("Node's stream outcome");
-        assert_eq!(outcome.len(), DERIVED.len() + 4, "every field of Node's record is compared or named");
         json!({ "name": v["name"], "message": v["message"], "props": props })
     };
     let attempt_of = |step: &JsonValue| match (&step["error"], &step["reply"]) {
@@ -2417,7 +2424,7 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         let h = Harness::new(case["script"].as_array().expect("script").iter().map(attempt_of).collect());
         let (result, error, mut transcript) = match h.run(config(), vec![], messages).run().await {
             Ok(output) => (Some(output.response.content), JsonValue::Null, output.transcript),
-            Err(failure) => (None, error_row(&failure.error, &first["error"]), failure.transcript),
+            Err(failure) => (None, error_row(&failure.error), failure.transcript),
         };
         let recorded_sends: Vec<JsonValue> = first["sends"].as_array().expect("sends").iter().map(whole).collect();
         assert_eq!(sent(&h), recorded_sends, "{name}: what the provider was sent");
