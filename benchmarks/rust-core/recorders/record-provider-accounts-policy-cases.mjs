@@ -26,13 +26,14 @@ function rewrite(edit) {
   edit(raw.providers[provider]);
   writeFileSync(file, JSON.stringify(raw));
 }
-const idShape = (id) => ({ isString: typeof id === 'string', length: String(id).length });
-const poolView = (pool) => ({ policy: pool.policy, auto: pool.auto, accounts: (pool.accounts ?? []).length, selected: Boolean(pool.selectedId) });
-const rawView = () => { const p = JSON.parse(readFileSync(file, 'utf8')).providers[provider]; return { policy: p.policy ?? null, auto: p.auto ?? null, keys: Object.keys(p).sort() }; };
-const failure = (e) => ({ name: e?.name ?? null, message: String(e?.message ?? e) });
+const poolView = (pool) => pool;
+const rawView = () => readFileSync(file, 'utf8');
+const accountIds = [];
 
 await set.run('a roster saved before switching policies maps auto onto a policy', async () => {
-  await registerProviderAccount(provider, newProviderAccountId());
+  const accountId = newProviderAccountId();
+  accountIds.push(accountId);
+  await registerProviderAccount(provider, accountId);
   const log = [];
   rewrite((pool) => { delete pool.policy; pool.auto = false; });
   log.push({ step: 'file: no policy, auto false', read: poolView(readProviderAccountPool(provider)) });
@@ -50,8 +51,8 @@ await set.run('policy writes keep auto readable for builds that predate it', asy
     pool = await changeProviderAccounts(provider, change);
     log.push({ change, pool: poolView(pool), file: rawView() });
   }
-  let rejected = null;
-  try { await changeProviderAccounts(provider, { policy: 'fastest' }); } catch (e) { rejected = failure(e); }
+  let rejected;
+  try { await changeProviderAccounts(provider, { policy: 'fastest' }); } catch (e) { rejected = e; }
   log.push({ change: { policy: 'fastest' }, rejected });
   return { provider, log };
 });
@@ -70,7 +71,7 @@ await set.run('manual, limit and headroom pick accounts as their names say', () 
     ['headroom, session keeps its usable account', headroom, [], { sessionAccountId: 'c' }],
     ['headroom, session account hit a limit', headroom, ['c'], { sessionAccountId: 'c' }],
     ['headroom, unknown usage keeps roster order', unknown, [], undefined],
-  ].map(([label, pool, used, options]) => ({ label, pool, usedUp: used, options: options ?? null, now, picked: (options ? chooseProviderAccount(pool, new Set(used), now, 'm', options) : chooseProviderAccount(pool, new Set(used), now, 'm'))?.id ?? null }));
+  ].map(([label, pool, used, options]) => ({ label, pool, usedUp: used, options, now, picked: options ? chooseProviderAccount(pool, new Set(used), now, 'm', options) : chooseProviderAccount(pool, new Set(used), now, 'm') }));
   return { model: 'm', now, picks };
 });
 await set.run('a full model-family window limits that family only', () => {
@@ -88,7 +89,8 @@ await set.run('a full model-family window limits that family only', () => {
 
 await set.finish({
   entry: { runs: 'shared/provider-accounts.mjs (registerProviderAccount, changeProviderAccounts, readProviderAccountPool, chooseProviderAccount, providerAccountLimit, providerAccountExhaustedForModelOnly) over the real provider-accounts.json in a temp data dir', notRun: 'the owner-only ACL helper (a Windows side effect) is stubbed as in the test; no provider usage fetch' },
-  replay: { entry: 'mixdog-ai accounts/policy.rs (and the roster file reader/writer): replay the file edits and policy/auto writes (compare the pool view and the file keys), and the pure picks/limits on the recorded pools', normalised: { accountIds: 'the registered account id is random: not recorded', dataDir: 'temp, not in the recording' } },
+  replaceInText: [[accountIds[0], '<account-1>'], [dir, '<data>']],
+  replay: { entry: 'mixdog-ai accounts/policy.rs (and the roster file reader/writer): replay the file edits and policy/auto writes (compare the pool view and the file keys), and the pure picks/limits on the recorded pools', normalised: { accountIds: 'the registered account id is random: written <account-1> wherever it occurs (paths listed in normalised.paths)', dataDir: '<data> wherever it occurs' } },
 });
 rmSync(dir, { recursive: true, force: true });
 process.exit(0);
