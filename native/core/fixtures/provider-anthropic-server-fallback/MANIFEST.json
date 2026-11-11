@@ -1,25 +1,25 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-anthropic-server-fallback.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-ai providers::anthropic (body.rs:166-185, :795-815, betas.rs:55-57, decoder.rs:340-361): compare `eligibility`, the request bodies/beta headers, and for the SSE case the whole parsed `result` (model, contentBlockTypes, providerMetadata.anthropicFallbacks). The Rust decoder does not read the fallback block today (K1 gap G7): the replay will report that difference. The agent-loop deltas compare requestedModel vs model.",
+  "compare": "WIRE cases: serve each case's scripted answer (SSE events as writes, or 404 then JSON for the non-streaming case) from a loopback endpoint through the Rust Anthropic send and compare the request as it arrived (body bytes, every header in order incl. anthropic-beta) and `result` / `deltas` (model, providerMetadata.anthropicFallbacks, content without the fallback block). The Rust decoder does not read the fallback block today (K1 gap G7): the replay will report that difference.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "anthropic-server-fallback.mjs (supportsAnthropicServerFallback, applyAnthropicServerFallback, parseAnthropicFallbackBlock), anthropic-betas.mjs buildAnthropicBetaHeaders, anthropic-oauth.mjs _buildRequestBodyForCacheSmoke, anthropic-sse.mjs parseSSEStream(response, null, ...callbacks, state, ...) over a scripted SSE body, session/agent-loop.mjs agentLoop over a scripted provider.send that answers with the serving model. Not run: normalizeAnthropicNonStreamingResponse (no Rust counterpart).",
+  "entry": "anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; the pure builder/parser cases call anthropic-oauth.mjs _buildRequestBodyForCacheSmoke and anthropic-server-fallback.mjs parseAnthropicFallbackBlock. Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14382,
+      "bytes": 62826,
       "path": "cases.json",
-      "sha256": "c69a455632609c344063217218d8c8474e63cd4e4059a85ba23a479d2f056e81"
+      "sha256": "bac9dd7402d798f3e879ccf0f0193c88b28713706d2b0834991697d1615b61ec"
     }
   ],
   "inputs": [
@@ -41,11 +41,43 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "eligible-families-default-fallback",
+      "level": "wire"
+    },
+    {
+      "id": "beta-header-gated-and-deduplicated",
+      "level": "wire"
+    },
+    {
+      "id": "oauth-body-opts-eligible-models",
+      "level": "pure",
+      "rust": "RUST WORK: no public Rust function builds the OAuth request body without a send (providers/anthropic/body.rs build fns and betas.rs beta_header are pub(crate)); the same fallback fields are recorded at wire level by eligible-families-default-fallback"
+    },
+    {
+      "id": "fallback-block-parser",
+      "level": "pure",
+      "rust": "RUST WORK: the Rust decoder does not read the fallback block (K1 gap G7); no public parser exists (providers/anthropic/decoder.rs)"
+    },
+    {
+      "id": "sse-records-fallback-attributes-serving-model",
+      "level": "wire"
+    },
+    {
+      "id": "agent-loop-usage-delta-serving-model",
+      "level": "wire"
+    },
+    {
+      "id": "non-streaming-normalizer-excludes-fallback-blocks-and-preserves-metadata",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +99,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-server-fallback.mjs",
-  "recorderSha256": "9b387427da5a722384f869b7e4f7b065f1d6b3aaa355ca56ccd4a944f1c3ef93",
+  "recorderSha256": "6507efdd6e66beeb62dca45d6638b0dc46360f914061dcc83c6d9f3248528c2a",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-anthropic-server-fallback",
-  "totalBytes": 14382,
+  "totalBytes": 62826,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

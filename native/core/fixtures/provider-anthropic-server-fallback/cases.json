@@ -6,88 +6,1050 @@
     {
       "id": "eligible-families-default-fallback",
       "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:22",
-      "input": {},
+      "input": {
+        "models": [
+          "claude-opus-5",
+          "claude-fable-5-20260801",
+          "claude-opus-4-8"
+        ],
+        "disabledOption": {
+          "serverFallback": false
+        }
+      },
       "result": {
-        "eligibility": {
-          "claude-opus-5": true,
-          "claude-fable-5-20260801": true,
-          "claude-opus-4-8": false
-        },
-        "applied": true,
-        "body": {
-          "fallbacks": "default"
-        },
-        "appliedDisabled": false,
-        "disabled": {}
+        "sends": [
+          {
+            "model": "claude-opus-5",
+            "result": {
+              "content": "done",
+              "model": "claude-opus-5",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": "end_turn",
+              "hasThinkingContent": false,
+              "contentBlockTypes": [
+                "text_delta"
+              ],
+              "thinkingBlocks": {
+                "$exact": "undefined"
+              },
+              "assistantBlocks": [
+                {
+                  "type": "text",
+                  "text": "done"
+                }
+              ],
+              "providerReplay": {
+                "version": 1,
+                "provider": "anthropic",
+                "items": [
+                  {
+                    "type": "text",
+                    "text": "done"
+                  }
+                ]
+              },
+              "generationMs": 0,
+              "usage": {
+                "inputTokens": 10,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 10,
+                "raw": {
+                  "input_tokens": 10,
+                  "output_tokens": 2
+                }
+              }
+            }
+          },
+          {
+            "model": "claude-fable-5-20260801",
+            "result": {
+              "content": "done",
+              "model": "claude-opus-5",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": "end_turn",
+              "hasThinkingContent": false,
+              "contentBlockTypes": [
+                "text_delta"
+              ],
+              "thinkingBlocks": {
+                "$exact": "undefined"
+              },
+              "assistantBlocks": [
+                {
+                  "type": "text",
+                  "text": "done"
+                }
+              ],
+              "providerReplay": {
+                "version": 1,
+                "provider": "anthropic",
+                "items": [
+                  {
+                    "type": "text",
+                    "text": "done"
+                  }
+                ]
+              },
+              "generationMs": 0,
+              "usage": {
+                "inputTokens": 10,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 10,
+                "raw": {
+                  "input_tokens": 10,
+                  "output_tokens": 2
+                }
+              }
+            }
+          },
+          {
+            "model": "claude-opus-4-8",
+            "result": {
+              "content": "done",
+              "model": "claude-opus-5",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": "end_turn",
+              "hasThinkingContent": false,
+              "contentBlockTypes": [
+                "text_delta"
+              ],
+              "thinkingBlocks": {
+                "$exact": "undefined"
+              },
+              "assistantBlocks": [
+                {
+                  "type": "text",
+                  "text": "done"
+                }
+              ],
+              "providerReplay": {
+                "version": 1,
+                "provider": "anthropic",
+                "items": [
+                  {
+                    "type": "text",
+                    "text": "done"
+                  }
+                ]
+              },
+              "generationMs": 0,
+              "usage": {
+                "inputTokens": 10,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 10,
+                "raw": {
+                  "input_tokens": 10,
+                  "output_tokens": 2
+                }
+              }
+            }
+          },
+          {
+            "model": "claude-opus-5",
+            "serverFallback": false,
+            "result": {
+              "content": "done",
+              "model": "claude-opus-5",
+              "toolCalls": {
+                "$exact": "undefined"
+              },
+              "stopReason": "end_turn",
+              "hasThinkingContent": false,
+              "contentBlockTypes": [
+                "text_delta"
+              ],
+              "thinkingBlocks": {
+                "$exact": "undefined"
+              },
+              "assistantBlocks": [
+                {
+                  "type": "text",
+                  "text": "done"
+                }
+              ],
+              "providerReplay": {
+                "version": 1,
+                "provider": "anthropic",
+                "items": [
+                  {
+                    "type": "text",
+                    "text": "done"
+                  }
+                ]
+              },
+              "generationMs": 0,
+              "usage": {
+                "inputTokens": 10,
+                "outputTokens": 2,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0,
+                "promptTokens": 10,
+                "raw": {
+                  "input_tokens": 10,
+                  "output_tokens": 2
+                }
+              }
+            }
+          }
+        ]
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.supportsAnthropicServerFallback",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
           "args": [
-            "claude-opus-5"
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.supportsAnthropicServerFallback",
-          "args": [
-            "claude-fable-5-20260801"
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.supportsAnthropicServerFallback",
-          "args": [
-            "claude-opus-4-8"
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.applyAnthropicServerFallback",
-          "args": [
-            {},
-            "claude-opus-5"
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.applyAnthropicServerFallback",
-          "args": [
-            {},
-            "claude-opus-5",
             {
-              "enabled": false
+              "apiKey": "fixture-key"
             }
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-fable-5-20260801",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-4-8",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {
+              "serverFallback": false
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "217"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "247"
+            ]
+          ],
+          "body": "{\"model\":\"claude-fable-5-20260801\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\",\"display\":\"updates\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "197"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-4-8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "195"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
         }
       ]
     },
     {
       "id": "beta-header-gated-and-deduplicated",
       "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:36",
-      "input": {},
-      "result": {
-        "betaConstant": "server-side-fallback-2026-07-01",
-        "off": "",
-        "on": "server-side-fallback-2026-07-01",
-        "onList": [
-          "server-side-fallback-2026-07-01"
+      "input": {
+        "sends": [
+          {
+            "model": "claude-opus-5"
+          },
+          {
+            "model": "claude-opus-5",
+            "serverFallback": false
+          }
         ]
+      },
+      "result": {
+        "on": {
+          "content": "done",
+          "model": "claude-opus-5",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 10,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
+          }
+        },
+        "off": {
+          "content": "done",
+          "model": "claude-opus-5",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 10,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
+          }
+        }
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-betas.mjs.buildAnthropicBetaHeaders",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
           "args": [
             {
-              "base": "",
-              "serverFallback": false
+              "apiKey": "fixture-key"
             }
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-betas.mjs.buildAnthropicBetaHeaders",
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
           "args": [
             {
-              "base": "server-side-fallback-2026-07-01",
-              "serverFallback": true
+              "apiKey": "fixture-key"
             }
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {
+              "serverFallback": false
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "217"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "195"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -304,21 +1266,7 @@
           "toolCalls": {
             "$exact": "undefined"
           },
-          "usage": {
-            "inputTokens": 10,
-            "outputTokens": 2,
-            "cachedTokens": 0,
-            "cacheWriteTokens": 0,
-            "raw": {
-              "input_tokens": 10,
-              "output_tokens": 2
-            },
-            "promptTokens": 10
-          },
           "stopReason": "end_turn",
-          "stopDetails": {
-            "$exact": "undefined"
-          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "fallback",
@@ -353,102 +1301,299 @@
               }
             ]
           },
-          "generationMs": 0
-        },
-        "stateAfter": {
-          "attemptIndex": 0,
-          "sawMessageStart": true,
-          "sawCompleted": true,
-          "emittedToolCall": false,
-          "partialToolCall": false,
-          "emittedThinking": false,
-          "emittedText": true,
-          "ttftAt": 1794225600000,
-          "emittedTextChars": 4
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 10,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
+          }
         }
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs.parseSSEStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
           "args": [
             {
-              "status": 200,
-              "statusText": "",
-              "url": "",
-              "headers": [
-                [
-                  "content-type",
-                  "text/plain;charset=UTF-8"
-                ]
-              ]
-            },
-            null,
-            {
-              "callback": ""
-            },
-            {
-              "callback": ""
-            },
-            {
-              "callback": ""
-            },
-            {
-              "attemptIndex": 0,
-              "sawMessageStart": false,
-              "sawCompleted": false,
-              "emittedToolCall": false,
-              "partialToolCall": false,
-              "emittedThinking": false,
-              "emittedText": false
-            },
-            {
-              "callback": ""
+              "apiKey": "fixture-key"
             }
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "217"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"fallback\",\"from\":{\"model\":\"claude-opus-5\"},\"to\":{\"model\":\"claude-opus-4-8\"},\"trigger\":{\"type\":\"refusal\",\"category\":\"cyber\"}}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
         }
       ]
     },
     {
       "id": "agent-loop-usage-delta-serving-model",
       "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:148",
-      "input": {},
+      "input": {
+        "events": [
+          {
+            "type": "message_start",
+            "message": {
+              "model": "claude-opus-5",
+              "usage": {
+                "input_tokens": 10
+              }
+            }
+          },
+          {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+              "type": "fallback",
+              "from": {
+                "model": "claude-opus-5"
+              },
+              "to": {
+                "model": "claude-opus-4-8"
+              },
+              "trigger": {
+                "type": "refusal",
+                "category": "cyber"
+              }
+            }
+          },
+          {
+            "type": "content_block_stop",
+            "index": 0
+          },
+          {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+              "type": "text",
+              "text": ""
+            }
+          },
+          {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+              "type": "text_delta",
+              "text": "done"
+            }
+          },
+          {
+            "type": "content_block_stop",
+            "index": 1
+          },
+          {
+            "type": "message_delta",
+            "delta": {
+              "stop_reason": "end_turn"
+            },
+            "usage": {
+              "output_tokens": 2
+            }
+          },
+          {
+            "type": "message_stop"
+          }
+        ]
+      },
       "result": {
         "result": {
           "content": "done",
           "model": "claude-opus-4-8",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "fallback",
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "anthropicFallbacks": [
+              {
+                "trigger": "refusal",
+                "originalModel": "claude-opus-5",
+                "fallbackModel": "claude-opus-4-8",
+                "category": "cyber"
+              }
+            ]
+          },
+          "generationMs": 0,
           "usage": {
-            "inputTokens": 1,
+            "inputTokens": 10,
             "outputTokens": 2,
             "reasoningTokens": null,
             "reasoningTokensComplete": false,
-            "cachedTokens": 3,
-            "cacheWriteTokens": 4,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
             "cacheWrite1hTokens": 0,
-            "promptTokens": 8,
+            "promptTokens": 10,
             "raw": {
-              "$exact": "undefined"
+              "input_tokens": 10,
+              "output_tokens": 2
             }
           },
           "lastTurnUsage": {
-            "inputTokens": 1,
+            "inputTokens": 10,
             "outputTokens": 2,
-            "cachedTokens": 3,
-            "cacheWriteTokens": 4,
-            "promptTokens": 8
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 10,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
           },
           "lastSendTools": [],
           "firstTurnUsage": {
-            "inputTokens": 1,
+            "inputTokens": 10,
             "outputTokens": 2,
             "reasoningTokens": null,
             "reasoningTokensComplete": false,
-            "cachedTokens": 3,
-            "cacheWriteTokens": 4,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
             "cacheWrite1hTokens": 0,
-            "promptTokens": 8,
+            "promptTokens": 10,
             "raw": {
-              "$exact": "undefined"
+              "input_tokens": 10,
+              "output_tokens": 2
             }
           },
           "iterations": 1,
@@ -471,21 +1616,21 @@
             "requestedModel": "claude-opus-5",
             "model": "claude-opus-4-8",
             "usageMetricsEpoch": 0,
-            "deltaInput": 1,
+            "deltaInput": 10,
             "deltaOutput": 2,
             "deltaToolCalls": 0,
             "reasoningTokens": null,
             "reasoningTokensComplete": false,
-            "deltaPrompt": 8,
+            "deltaPrompt": 10,
             "requestMs": 0,
             "promptKnown": true,
-            "deltaCachedRead": 3,
-            "deltaCacheWrite": 4,
-            "contextInputTokens": 1,
+            "deltaCachedRead": 0,
+            "deltaCacheWrite": 0,
+            "contextInputTokens": 10,
             "contextOutputTokens": 2,
-            "contextPromptTokens": 8,
-            "contextCachedReadTokens": 3,
-            "contextCacheWriteTokens": 4,
+            "contextPromptTokens": 10,
+            "contextCachedReadTokens": 0,
+            "contextCacheWriteTokens": 0,
             "contextMeasuredTokens": null,
             "sendTools": [],
             "ts": 1794225600000
@@ -494,13 +1639,23 @@
       },
       "calls": [
         {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
           "entry": "src/runtime/agent/orchestrator/session/agent-loop.mjs.agentLoop",
           "args": [
             {
-              "name": "anthropic-oauth",
-              "send": {
-                "callback": "send"
-              }
+              "$instance": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+              "constructedWith": [
+                {
+                  "apiKey": "fixture-key"
+                }
+              ]
             },
             [
               {
@@ -521,6 +1676,461 @@
               }
             }
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "test"
+              }
+            ],
+            "claude-opus-5",
+            {
+              "$exact": "undefined"
+            },
+            {
+              "sessionId": "server-fallback-usage-test",
+              "onUsageDelta": {
+                "callback": "onUsageDelta"
+              },
+              "iteration": 1,
+              "providerState": {
+                "$exact": "undefined"
+              },
+              "providerToolSnapshotAuthoritative": true,
+              "providerNativeToolPrefixCount": 0,
+              "onToolExcluded": {
+                "callback": ""
+              },
+              "onToolCall": {
+                "callback": ""
+              },
+              "_stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                },
+                "firstStallAt": 0
+              },
+              "admissionOwner": "server-fallback-usage-test"
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01,message-threads-2026-08-12"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "246"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"test\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":true,\"thread\":{\"type\":\"create\"}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"fallback\",\"from\":{\"model\":\"claude-opus-5\"},\"to\":{\"model\":\"claude-opus-4-8\"},\"trigger\":{\"type\":\"refusal\",\"category\":\"cyber\"}}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "non-streaming-normalizer-excludes-fallback-blocks-and-preserves-metadata",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:187",
+      "input": {
+        "streamingAnswer": 404,
+        "nonStreamingAnswer": {
+          "model": "claude-opus-5",
+          "content": [
+            {
+              "type": "fallback",
+              "from": {
+                "model": "claude-opus-5"
+              },
+              "to": {
+                "model": "claude-opus-4-8"
+              },
+              "trigger": {
+                "type": "refusal",
+                "category": "cyber"
+              }
+            },
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "stop_reason": "end_turn",
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 2
+          }
+        }
+      },
+      "result": {
+        "result": {
+          "content": "done",
+          "model": "claude-opus-4-8",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "fallback",
+            "text"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "fallback",
+                "from": {
+                  "model": "claude-opus-5"
+                },
+                "to": {
+                  "model": "claude-opus-4-8"
+                },
+                "trigger": {
+                  "type": "refusal",
+                  "category": "cyber"
+                }
+              },
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "anthropicFallbacks": [
+              {
+                "trigger": "refusal",
+                "originalModel": "claude-opus-5",
+                "fallbackModel": "claude-opus-4-8",
+                "category": "cyber"
+              }
+            ]
+          },
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 10,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "217"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 404,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"streaming not served\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "300"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "218"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":64000,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":false}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[{\"type\":\"fallback\",\"from\":{\"model\":\"claude-opus-5\"},\"to\":{\"model\":\"claude-opus-4-8\"},\"trigger\":{\"type\":\"refusal\",\"category\":\"cyber\"}},{\"type\":\"text\",\"text\":\"done\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}"
+          }
         }
       ]
     }
