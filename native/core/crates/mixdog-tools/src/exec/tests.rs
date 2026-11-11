@@ -1316,7 +1316,7 @@ async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
             .maintenance_io
             .submit(&CancellationToken::new(), move |_| {
                 started.send(()).unwrap();
-                let _ = held.recv();
+                let _ = held.recv_timeout(std::time::Duration::from_secs(120));
             })
             .expect("io-maintenance takes the holder");
         releases.push(release);
@@ -1367,7 +1367,7 @@ async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() 
 
     let (stream, bytes) = chunk(0);
     expected[stream].extend_from_slice(&bytes);
-    writer.push(stream, bytes).await;
+    tokio::time::timeout(std::time::Duration::from_secs(60), writer.push(stream, bytes)).await.expect("the drain starts");
     gate.wait_reached(1);
     let mut accepted = 1;
     let blocked = loop {
@@ -1390,7 +1390,7 @@ async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() 
             writer.push(stream, bytes).await;
             assert!(writer.unwritten() <= LOG_PENDING_CAP);
         }
-        writer.close().await;
+        assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Complete);
     };
     gate.open();
     tokio::time::timeout(std::time::Duration::from_secs(60), producer).await.expect("the writer takes and writes every chunk");
@@ -1468,12 +1468,15 @@ async fn a_log_drain_that_panics_leaves_the_writer_ended_not_hung() {
     let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
     let run = async {
         writer.push(0, b"first\n".to_vec()).await;
-        writer.close().await;
+        writer.close(super::spill::LOG_STALL).await;
         writer.push(1, b"late\n".to_vec()).await;
-        writer.close().await;
+        writer.close(super::spill::LOG_STALL).await
     };
-    tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain panicked");
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain panicked");
     assert_eq!(writer.unwritten(), 0);
+    // Nothing reached either log: both say so from their first byte.
+    assert_eq!(closed, super::spill::LogsClosed::Incomplete);
+    assert_eq!(writer.gaps(), [Some(0), Some(0)]);
 }
 
 /// The lane refuses the log drain (the test backend refuses this thread's jobs): the writer ends
@@ -1487,7 +1490,7 @@ async fn a_refused_log_drain_leaves_the_writer_ended_not_hung() {
     let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
     let run = async {
         writer.push(0, b"refused\n".to_vec()).await;
-        writer.close().await;
+        writer.close(super::spill::LOG_STALL).await;
     };
     tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain was refused");
     assert_eq!(writer.unwritten(), 0);
@@ -1507,7 +1510,7 @@ async fn a_saturated_io_pty_lane_delays_the_log_and_drops_nothing() {
         .pty_io
         .submit(&CancellationToken::new(), move |_| {
             started.send(()).unwrap();
-            let _ = held.recv();
+            let _ = held.recv_timeout(std::time::Duration::from_secs(60));
         })
         .expect("io-pty takes the holder");
     held_started.recv_timeout(std::time::Duration::from_secs(60)).expect("the only io-pty thread is held");
@@ -1519,7 +1522,7 @@ async fn a_saturated_io_pty_lane_delays_the_log_and_drops_nothing() {
     let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
     let mut run = Box::pin(async {
         writer.push(0, b"kept\n".to_vec()).await;
-        writer.close().await;
+        assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Complete);
     });
     assert!(futures::FutureExt::now_or_never(&mut run).is_none(), "the writer waits for an io-pty thread");
     drop(release);
@@ -1527,23 +1530,58 @@ async fn a_saturated_io_pty_lane_delays_the_log_and_drops_nothing() {
     assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "kept\n");
 }
 
-/// Delegates to the real process manager and reports the first spawned process's exit.
+/// Delegates to the real process manager and reports the first spawned process's exit. With
+/// `hold_caller`, the spawning caller is held after the spawn until the child has filled its
+/// replay ring (its reader is parked behind a subscriber) or has exited: the schedule where the
+/// job's task runs only after the child wrote more than the ring holds.
 struct ExitSignal {
     inner: mixdog_spawn::LocalProcessManager,
     exited: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    hold_caller: bool,
+}
+
+impl ExitSignal {
+    fn options(&self) -> (mixdog_spawn::SpawnOptions, tokio::sync::oneshot::Receiver<()>) {
+        let (ended, ended_rx) = tokio::sync::oneshot::channel();
+        let exited = self.exited.lock().unwrap().take();
+        let mut options = mixdog_spawn::SpawnOptions::default();
+        options.on_exit = Some(Box::new(move |_: &ProcessExit| {
+            if let Some(exited) = exited {
+                let _ = exited.send(());
+            }
+            let _ = ended.send(());
+            Vec::new()
+        }));
+        (options, ended_rx)
+    }
+
+    async fn hold(&self, handle: &ProcessHandle, ended: tokio::sync::oneshot::Receiver<()>) {
+        if !self.hold_caller {
+            return;
+        }
+        let filled = self.inner.output_blocked(handle);
+        tokio::time::timeout(std::time::Duration::from_secs(60), futures::future::select(Box::pin(filled), ended))
+            .await
+            .expect("the child fills its replay ring or exits while the caller is held");
+    }
 }
 
 #[async_trait]
 impl ProcessManager for ExitSignal {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
-        let mut options = mixdog_spawn::SpawnOptions::default();
-        if let Some(exited) = self.exited.lock().unwrap().take() {
-            options.on_exit = Some(Box::new(move |_: &ProcessExit| {
-                let _ = exited.send(());
-                Vec::new()
-            }));
-        }
-        self.inner.spawn_with(request, options).await
+        let (options, ended) = self.options();
+        let spawned = self.inner.spawn_with(request, options).await?;
+        self.hold(&spawned.handle, ended).await;
+        Ok(spawned)
+    }
+    async fn spawn_subscribed(
+        &self,
+        request: SpawnRequest,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        let (options, ended) = self.options();
+        let spawned = self.inner.spawn_subscribed_with(request, options).await?;
+        self.hold(&spawned.0.handle, ended).await;
+        Ok(spawned)
     }
     fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         self.inner.subscribe(handle, from_seq)
@@ -1579,6 +1617,7 @@ async fn output_written_while_the_log_creation_is_held_is_not_lost() {
     rig.manager = Arc::new(ExitSignal {
         inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config),
         exited: Mutex::new(Some(exited)),
+        hold_caller: false,
     });
     let gate = super::spill::write_gate::arm(&rig.dir.path().join("l"));
     let (command, expected) = if cfg!(windows) {
@@ -1603,6 +1642,101 @@ async fn output_written_while_the_log_creation_is_held_is_not_lost() {
     assert!(text.starts_with("[exit code: 0]"), "{}", &text[..text.len().min(300)]);
     let log = std::fs::read_to_string(rig.dir.path().join("l").join("task-ring.stdout.log")).unwrap();
     assert!(log == expected, "the log holds all {BYTES} bytes in order ({} read)", log.len());
+}
+
+/// The job's task is held after the spawn until the child has written more than its replay ring
+/// holds (or exited): no schedule loses the start of the output, because the job's subscription
+/// exists before the child's first byte. Real executors and processes (nextest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn output_written_before_the_job_is_scheduled_is_not_lost() {
+    const BYTES: usize = 192 * 1024;
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let mut rig = rig_on(tokens, Arc::new(OsPromptElevation), None);
+    let config = mixdog_spawn::ProcessConfig { ring_bytes: 16 * 1024, ..mixdog_spawn::ProcessConfig::default() };
+    rig.manager = Arc::new(ExitSignal {
+        inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config),
+        exited: Mutex::new(None),
+        hold_caller: true,
+    });
+    let (command, expected) = if cfg!(windows) {
+        (format!("[Console]::Out.Write('x' * {BYTES})"), "x".repeat(BYTES))
+    } else {
+        (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES))
+    };
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        rig.shell.call(&ctx(&rig, "late"), serde_json::json!({ "command": command })),
+    )
+    .await
+    .expect("the call ends");
+    let text = body(outcome);
+    assert!(text.starts_with("[exit code: 0]"), "{}", &text[..text.len().min(300)]);
+    let log = std::fs::read_to_string(rig.dir.path().join("l").join("task-late.stdout.log")).unwrap();
+    assert!(log == expected, "the log holds all {BYTES} bytes in order ({} read)", log.len());
+}
+
+/// A log drain is held inside a write (a stalled disk) when the job ends: closing the writer
+/// returns at its deadline instead of waiting for the write, names the outcome, and records that
+/// the stdout log lacks the output from its first byte. Real io-pty thread (nextest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn closing_a_stalled_log_writer_returns_at_its_deadline_and_names_the_missing_bytes() {
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("c.stdout.log"), dir.path().join("c.stderr.log")];
+    let gate = super::spill::write_gate::arm(dir.path());
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    tokio::time::timeout(std::time::Duration::from_secs(60), writer.push(0, b"held\n".to_vec()))
+        .await
+        .expect("the drain starts");
+    let reached = gate.clone();
+    tokio::task::spawn_blocking(move || reached.wait_reached(1)).await.unwrap();
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
+        .await
+        .expect("closing returns while the write is held");
+    assert_eq!(closed, super::spill::LogsClosed::Incomplete);
+    assert_eq!(writer.gaps(), [Some(0), None]);
+    gate.open();
+}
+
+/// Every io-pty thread is taken, so the job's drain waits in the lane's queue; the job is then
+/// given up (its close passes the deadline): the waiting drain leaves the queue unrun, the close
+/// returns, and nothing is written to the log afterwards.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_log_drain_waiting_for_a_thread_leaves_the_queue_when_the_writer_is_given_up() {
+    use mixdog_rt::LaneToken;
+    let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
+    config.pty_max_live = 1;
+    let (executors, tokens) = mixdog_rt::exec::boot(config).expect("the executors");
+    let (started, held_started) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let holder = tokens
+        .pty_io
+        .submit(&CancellationToken::new(), move |_| {
+            started.send(()).unwrap();
+            let _ = held.recv_timeout(std::time::Duration::from_secs(60));
+        })
+        .expect("io-pty takes the holder");
+    held_started.recv_timeout(std::time::Duration::from_secs(60)).expect("the only io-pty thread is held");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("w.stdout.log"), dir.path().join("w.stderr.log")];
+    for log in &logs {
+        std::fs::write(log, b"").unwrap();
+    }
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    let pty_queue = || executors.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::PtyIo).unwrap().queue_depth;
+    let mut push = Box::pin(writer.push(0, b"never\n".to_vec()));
+    assert!(futures::FutureExt::now_or_never(&mut push).is_none(), "the drain waits for an io-pty thread");
+    assert_eq!(pty_queue(), 1);
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(60), writer.close(std::time::Duration::ZERO))
+        .await
+        .expect("closing returns while the drain waits");
+    assert_eq!(closed, super::spill::LogsClosed::Incomplete);
+    tokio::time::timeout(std::time::Duration::from_secs(60), push).await.expect("the waiting drain is withdrawn");
+    assert_eq!(pty_queue(), 0, "the drain left the lane's queue");
+    assert_eq!(writer.gaps(), [Some(0), None]);
+    drop(release);
+    tokio::time::timeout(std::time::Duration::from_secs(60), holder).await.expect("the holder ends").unwrap();
+    assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "", "nothing is written after the writer was given up");
 }
 
 #[tokio::test]

@@ -440,6 +440,8 @@ pub struct Job {
     pub review: Option<Arc<dyn TurnReviewApi>>,
     pub stdout_log: PathBuf,
     pub stderr_log: PathBuf,
+    /// The writer of the two logs (none for a survivors task), read for what they lack.
+    logs: Option<spill::LogWriter>,
     /// Waits that ran to their ceiling, so a repeated one can suggest a different move.
     pub wait_hits: AtomicU32,
     /// A task tracking the survivors of a finished command: it has no process of its own, no
@@ -695,6 +697,19 @@ fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
 }
 
 impl Job {
+    /// What the logs lack: a log whose write failed or stalled holds the output only up to the
+    /// byte named, though the result points at it for the rest. `None` while both are whole.
+    pub fn log_note(&self) -> Option<String> {
+        let gaps = self.logs.as_ref()?.gaps();
+        let lines: Vec<String> = [("stdout", gaps[0]), ("stderr", gaps[1])]
+            .into_iter()
+            .filter_map(|(name, gap)| {
+                gap.map(|at| format!("[log incomplete] the {name} log lacks this command's output from byte {at} on: a write to it failed or stalled"))
+            })
+            .collect();
+        (!lines.is_empty()).then(|| lines.join("\n"))
+    }
+
     fn state(&self) -> MutexGuard<'_, JobState> {
         lock(&self.state)
     }
@@ -925,6 +940,7 @@ impl Job {
         }
         if !self.survivors {
             lines.push(self.logs_line());
+            lines.extend(self.log_note());
         }
         if let Some(body) = body {
             if !body.is_empty() {
@@ -1052,6 +1068,9 @@ impl Job {
         }
         out.push(format!("<summary>{}</summary>", escape_field(&summary)));
         out.push(format!("<output-file>{}</output-file>", escape_field(&shown_path(&self.stdout_log))));
+        if let Some(note) = self.log_note() {
+            out.push(escape_field(&note));
+        }
         if !result.is_empty() {
             out.push(format!("<result>\n{result}\n</result>"));
         }
@@ -1174,12 +1193,12 @@ impl ExecRuntime {
         let cwd = request.cwd.as_path().to_string_lossy().into_owned();
         let stdout_log = self.config.spill_dir.join(format!("{task_id}.stdout.log"));
         let stderr_log = self.config.spill_dir.join(format!("{task_id}.stderr.log"));
-        // Subscribed right after the spawn, before any file work, so the child's output is taken
-        // from its first byte (an unsubscribed replay ring drops a start that outgrows it). The
-        // job's writer creates the logs on its own io-pty thread (`collect` opens it); output that
-        // comes first waits in the writer's queue. The call's only io-spawn job is the spawn.
-        processes.spawn(request).await?;
-        let source = processes.subscribe(&handle, Some(0))?;
+        // Subscribed as part of the spawn, before the child can write, so its output is taken from
+        // the first byte however late this task runs (the subscriber holds the replay ring's
+        // reader back). The job's writer creates the logs on its own io-pty thread (`collect`
+        // opens it); output that comes first waits in the writer's queue. The call's only
+        // io-spawn job is the spawn.
+        let (_, source) = processes.spawn_subscribed(request).await?;
         let logs = spill::LogWriter::new(self.config.lanes.pty, &stdout_log, &stderr_log);
         let (settled, _) = watch::channel(false);
         let started_ms = self.now_ms();
@@ -1195,6 +1214,7 @@ impl ExecRuntime {
             review,
             stdout_log,
             stderr_log,
+            logs: Some(logs.clone()),
             wait_hits: AtomicU32::new(0),
             survivors: false,
             notify,
@@ -1260,6 +1280,7 @@ impl ExecRuntime {
             review: job.review.clone(),
             stdout_log: job.stdout_log.clone(),
             stderr_log: job.stderr_log.clone(),
+            logs: None,
             wait_hits: AtomicU32::new(0),
             survivors: true,
             notify: job.notify.clone(),
@@ -1403,7 +1424,9 @@ async fn collect(
             }
         }
     }
-    logs.close().await;
+    // Bounded: a log whose writes stall past it is given up, and the job's results say from
+    // which byte it lacks output (`Job::log_note`).
+    let _closed = logs.close(spill::LOG_STALL).await;
     job.state().exit = exit;
     let now = runtime.now_ms();
     let detached = {
