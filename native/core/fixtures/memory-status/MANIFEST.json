@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2465,
+      "bytes": 2908,
       "path": "golden.json",
-      "sha256": "42889f2136bc9ea576d36a7f71949834cddb3edecec2441eecc5cb6579fa5978"
+      "sha256": "7fa6c588eb0fa0af0a25c11f504734603bd7303c50e48a2726013b8adc35e04d"
     }
   ],
   "inputs": [
@@ -48,11 +48,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-status.mjs",
-  "recorderSha256": "fe0a3b5c2b8999c24ea2c106baaa08699537253acb723e0ef6eb56406b306cbe",
+  "recorderSha256": "7ac5776779a8c9120f727ba1c991780989233d56857d23ab22cbd15b07f9c797",
   "replay": "native/core/crates/mixdog-services/src/memory/tests/status.rs",
   "set": "memory-status",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 2465,
+  "totalBytes": 2908,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

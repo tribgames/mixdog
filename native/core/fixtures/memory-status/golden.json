@@ -16,20 +16,6 @@
       "isError": false
     }
   },
-  "stateFile": {
-    "running": null,
-    "backlog": {
-      "unchunked": 0,
-      "at": 0
-    },
-    "cycles": {
-      "cycle1": {
-        "last_success_at": 1748735680000,
-        "last_error_at": 0,
-        "last_error": null,
-        "consecutive_failures": 0
-      }
-    },
-    "updatedAt": 1748736000000
-  }
+  "statusJson": "{\"text\":\"entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\\nstatus: pending:4\\ncategories: decision:3, fact:1\\ncore_memory: user=1\\nembedding_index: ready dims=384\\nbootstrap: complete\\nlast_cycle1: 5m ago\",\"content\":[{\"type\":\"text\",\"text\":\"entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\\nstatus: pending:4\\ncategories: decision:3, fact:1\\ncore_memory: user=1\\nembedding_index: ready dims=384\\nbootstrap: complete\\nlast_cycle1: 5m ago\"}],\"isError\":false}",
+  "stateFileText": "{\"running\":null,\"backlog\":{\"unchunked\":0,\"at\":0},\"cycles\":{\"cycle1\":{\"last_success_at\":1748735680000,\"last_error_at\":0,\"last_error\":null,\"consecutive_failures\":0}},\"updatedAt\":1748736000000}\n"
 }
