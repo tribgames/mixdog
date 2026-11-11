@@ -57,9 +57,9 @@ const fakeRuntime = (providers) => ({ provider: async (name) => providers[name],
 const okProvider = (seen = []) => ({ async send(messages, _model, _tools, options) { seen.push({ messages, options }); return { content: 'ok' }; } });
 async function run(name, fn) {
   await set.run(name, async () => {
-    const virtual = virtualTimers();
+    const virtual = virtualTimers({ ordered: () => wireLog });
     wireLog = [];
-    try { const observed = await fn(virtual); while (deliveries.length) await realDeadline('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); virtual.restore(); }
+    try { const observed = await fn(virtual); while (deliveries.length) await realDeadline('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); virtual.restore(); }
   });
 }
 
