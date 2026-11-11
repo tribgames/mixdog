@@ -14,6 +14,9 @@ use serde_json::json;
 
 use super::*;
 
+#[path = "node_cases.rs"]
+mod node_cases;
+
 fn golden() -> Value {
     mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/skill-session/golden.json")).expect("fixture")
 }
