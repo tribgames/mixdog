@@ -186,7 +186,7 @@ export function useTranscriptWindow<T extends { readonly id?: unknown }>(
       return;
     }
     void pager.earlier().then((outcome) => {
-      if (outcome === 'unsupported' && !pager.window) growWindow();
+      if ((outcome === 'unsupported' || outcome === 'moved') && !pager.window) growWindow();
     });
   }, [growWindow, liveHasOlder, pager, sessionId]);
   const requestLater = useCallback(() => {
