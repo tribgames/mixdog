@@ -8,7 +8,6 @@
 //! explicit `parallel_tool_calls: false`, the accepted tool list).
 
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::{
@@ -62,9 +61,7 @@ impl WireContext for ClockOnly {
         String::new()
     }
     fn now_unix_ms(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64)
+        crate::wall::now_ms()
     }
     fn turn_state(&self, _scope: &str, _turn_id: &str) -> Option<String> {
         None
