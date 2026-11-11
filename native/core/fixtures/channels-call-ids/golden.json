@@ -23,7 +23,8 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 32"
               ],
-              "body": "{\"leadPid\":41001,\"passive\":true}"
+              "body": "{\"leadPid\":41001,\"passive\":true}",
+              "rewrites": {}
             },
             "response": {
               "head": [
@@ -36,6 +37,12 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              },
               "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
             }
           },
@@ -55,7 +62,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 113"
               ],
-              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"first\"}}"
+              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"first\"}}",
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -68,6 +81,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"result\":{\"call\":1}}"
             }
           },
@@ -87,7 +101,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 113"
               ],
-              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"first\"}}"
+              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"first\"}}",
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -100,6 +120,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"result\":{\"call\":1}}"
             }
           },
@@ -119,7 +140,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 114"
               ],
-              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"second\"}}"
+              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"second\"}}",
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -132,6 +159,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"error\":\"callId 'same-call' was reused with a different payload\",\"code\":\"ECALLIDCONFLICT\"}"
             }
           }
@@ -172,7 +200,8 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 32"
               ],
-              "body": "{\"leadPid\":41001,\"passive\":true}"
+              "body": "{\"leadPid\":41001,\"passive\":true}",
+              "rewrites": {}
             },
             "response": {
               "head": [
@@ -185,6 +214,12 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              },
               "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
             }
           },
@@ -204,7 +239,8 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 32"
               ],
-              "body": "{\"leadPid\":41002,\"passive\":true}"
+              "body": "{\"leadPid\":41002,\"passive\":true}",
+              "rewrites": {}
             },
             "response": {
               "head": [
@@ -217,6 +253,12 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {
+                "<client-token-2>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              },
               "body": "{\"token\":\"<client-token-2>\",\"pid\":\"<pid-self>\"}"
             }
           },
@@ -236,7 +278,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 140"
               ],
-              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}"
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}",
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -249,6 +297,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"result\":{\"call\":1}}"
             }
           },
@@ -268,7 +317,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 140"
               ],
-              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-2>\"}"
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-2>\"}",
+              "rewrites": {
+                "<client-token-2>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -281,6 +336,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"result\":{\"call\":2}}"
             }
           },
@@ -300,7 +356,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 140"
               ],
-              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}"
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}",
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -313,6 +375,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"result\":{\"call\":1}}"
             }
           },
@@ -332,7 +395,13 @@
                 "accept-encoding: gzip, deflate",
                 "content-length: 140"
               ],
-              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"other\"},\"token\":\"<client-token-1>\"}"
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"other\"},\"token\":\"<client-token-1>\"}",
+              "rewrites": {
+                "<client-token-1>": {
+                  "originalLength": 36,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "head": [
@@ -345,6 +414,7 @@
                 "Connection: keep-alive",
                 "Keep-Alive: timeout=5"
               ],
+              "rewrites": {},
               "body": "{\"error\":\"callId 'shared-id' was reused with a different payload\",\"code\":\"ECALLIDCONFLICT\"}"
             }
           }
@@ -399,7 +469,8 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 32"
                 ],
-                "body": "{\"leadPid\":41001,\"passive\":true}"
+                "body": "{\"leadPid\":41001,\"passive\":true}",
+                "rewrites": {}
               },
               "response": {
                 "head": [
@@ -412,6 +483,12 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {
+                  "<client-token-1>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                },
                 "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
               }
             },
@@ -431,7 +508,8 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 32"
                 ],
-                "body": "{\"leadPid\":41001,\"passive\":true}"
+                "body": "{\"leadPid\":41001,\"passive\":true}",
+                "rewrites": {}
               },
               "response": {
                 "head": [
@@ -444,6 +522,12 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {
+                  "<client-token-2>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                },
                 "body": "{\"token\":\"<client-token-2>\",\"pid\":\"<pid-self>\"}"
               }
             },
@@ -463,7 +547,13 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 140"
                 ],
-                "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}"
+                "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}",
+                "rewrites": {
+                  "<client-token-1>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                }
               },
               "response": {
                 "head": [
@@ -476,6 +566,7 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {},
                 "body": "{\"result\":{\"call\":1}}"
               }
             },
@@ -495,7 +586,13 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 140"
                 ],
-                "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-2>\"}"
+                "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-2>\"}",
+                "rewrites": {
+                  "<client-token-2>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                }
               },
               "response": {
                 "head": [
@@ -508,6 +605,7 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {},
                 "body": "{\"result\":{\"call\":1}}"
               }
             }
@@ -546,7 +644,8 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 32"
                 ],
-                "body": "{\"leadPid\":41001,\"passive\":true}"
+                "body": "{\"leadPid\":41001,\"passive\":true}",
+                "rewrites": {}
               },
               "response": {
                 "head": [
@@ -559,6 +658,12 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {
+                  "<client-token-1>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                },
                 "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
               }
             },
@@ -578,7 +683,13 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 88"
                 ],
-                "body": "{\"name\":\"send_reply\",\"args\":{\"text\":\"x\"},\"token\":\"<client-token-1>\"}"
+                "body": "{\"name\":\"send_reply\",\"args\":{\"text\":\"x\"},\"token\":\"<client-token-1>\"}",
+                "rewrites": {
+                  "<client-token-1>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                }
               },
               "response": {
                 "head": [
@@ -591,6 +702,7 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {},
                 "body": "{\"result\":{\"call\":1}}"
               }
             },
@@ -610,7 +722,13 @@
                   "accept-encoding: gzip, deflate",
                   "content-length: 88"
                 ],
-                "body": "{\"name\":\"send_reply\",\"args\":{\"text\":\"x\"},\"token\":\"<client-token-1>\"}"
+                "body": "{\"name\":\"send_reply\",\"args\":{\"text\":\"x\"},\"token\":\"<client-token-1>\"}",
+                "rewrites": {
+                  "<client-token-1>": {
+                    "originalLength": 36,
+                    "count": 1
+                  }
+                }
               },
               "response": {
                 "head": [
@@ -623,6 +741,7 @@
                   "Connection: keep-alive",
                   "Keep-Alive: timeout=5"
                 ],
+                "rewrites": {},
                 "body": "{\"result\":{\"call\":2}}"
               }
             }

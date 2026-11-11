@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 24363,
+      "bytes": 27861,
       "path": "golden.json",
-      "sha256": "55f77b8348074ba8aab59abb62bdc9ac4d278fdaf154e4b9cd5ddcf95cd13f52"
+      "sha256": "54069825c9f8c6f7e6358f6e5064e7095d93272af1262bf9ff9441702c11908e"
     }
   ],
   "inputs": [
@@ -33,9 +33,10 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
+    "Content-Length": "every Content-Length is the one Node sent for the real body; where a random token was written as its label the message carries `rewrites` {label: {originalLength, count}} (request and response body), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. Request head lines are as sent except the x-mixdog-daemon-token value and Host port (label / <port>)",
     "client tokens": "random tokens written as <client-token-N> by order of registration",
     "date": "response Date header written as <date>",
-    "pids": "the two clients use fixed lead pids 41001 and 41002 (not this machine's); the pid in the register answer is the recorder process's own, written \"<pid-self>\", and the recorded Content-Length is the length of the recorded text",
+    "pids": "the two clients use fixed lead pids 41001 and 41002 (not this machine's); the pid in the register answer is the recorder process's own, written \"<pid-self>\", and the one header that is not the one Node sent is the Content-Length of a register answer, which is the length of the recorded text (the digit count of the pid is machine-dependent)",
     "port": "not recorded (loopback ephemeral)"
   },
   "product": {
@@ -56,11 +57,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channels-call-ids.mjs",
-  "recorderSha256": "0115f01b4dcace8edbce7d2291019b5f6ae12d505015621ee25ca31e07794085",
+  "recorderSha256": "23c057c60a1702216927d63aa5d12be70d4d82ef92a332ff883cf5a9d2cbef79",
   "replay": "The `channel/call` request a client makes: DomainService::call (mixdog-services channels/service.rs:138) -> call_tool (:94; `req.op` is the callId) -> CallDispatch::dispatch (channels/call.rs:190, pub; cache keyed by owner + call id, CallIdConflict on a different payload). Replay: two connections with different owners send the same op, name and payload, then a retry, then a changed payload (and the case-95 shape with one client); compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection's owner",
   "set": "channels-call-ids",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 24363,
+  "totalBytes": 27861,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
