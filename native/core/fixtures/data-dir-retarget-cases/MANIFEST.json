@@ -78,6 +78,7 @@
     },
     "protocolMethods": [],
     "rustTargets": [],
+    "retarget": "Node's case moves MIXDOG_DATA_DIR inside one process (a test affordance: shared/data-dir-retarget.test.mjs). No shipped client retargets a running instance: the variable is set once at start (src/standalone/daemon.mjs:131, src/session-runtime/services/seeds.mjs:24) and once per worker thread from its own workerData (src/runtime/agent/orchestrator/session/store/summary-rebuild-worker.mjs:4, catalog-db/worker.mjs:260). The core is composed over one directory per instance; the replay keeps the instance over the first directory running while the second directory's instance takes the writes, and compares what Node's case compared.",
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
     "replayedBy": {
       "config and turn snapshot records follow a runtime MIXDOG_DATA_DIR retarget": "mixdog-app-server-daemon session_host_replay_tests::the_config_and_turn_snapshots_follow_the_data_directory_as_node_recorded"
