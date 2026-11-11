@@ -96,6 +96,12 @@ impl ListingLookup {
         })
     }
 
+    /// `getModelMetadataSync(model, provider)?.outputTokens`: the model's declared output limit in the resident
+    /// tables (the built-in rows included), when positive.
+    pub fn output_tokens(&self, provider: &str, model: &str) -> Option<u64> {
+        self.with(|lookup, _| lookup.lookup(model, provider, None)?.get("outputTokens")?.as_u64().filter(|n| *n > 0))
+    }
+
     /// `sanitizeModelList(rows, { provider })`, read against the resident
     /// models.dev table, the clock and `MIXDOG_MODEL_STALE_MONTHS`.
     pub fn sanitize_listed(&self, provider: &str, rows: Vec<ModelRecord>) -> Vec<ModelRecord> {
