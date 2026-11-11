@@ -13,6 +13,7 @@ mod hookscope_suite;
 mod http_suite;
 mod login_feed_suite;
 mod login_notice_suite;
+mod mcp_oauth_control_session_suite;
 mod mcp_suite;
 mod mcpapi_suite;
 mod mcpfault_suite;

@@ -69,6 +69,22 @@ fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
 }
 
 
+/// A conversation of more records than the durability lane holds (here a lane of 5 against 40 rows) is stored whole and in order, as
+/// the heir of an inheritance is (`thread/inheritedRows/append`): the outbox hands records on as acks free the lane.
+#[tokio::test(start_paused = true)]
+async fn an_inherited_conversation_larger_than_the_lane_is_stored_whole_and_in_order() {
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.limits = super::SessionLimits { window_records: 2, reserve_records: 1, control_lane: 1, ..super::SessionLimits::default() };
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let messages: Vec<Value> = (0..40).map(|n| json!({ "role": if n % 2 == 0 { "user" } else { "assistant" }, "content": format!("m{n}") })).collect();
+    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages.clone() }), op: None, ctx: CallContext::internal("test") };
+    handle.request(append).await.expect("the whole conversation is stored");
+    let stored: Vec<Value> = directory.model_context(&handle.id).read().await.expect("stored rows").into_iter().map(|(_, message)| message).collect();
+    assert_eq!(stored, messages);
+}
+
 /// The Rig's Goal timers fire at their time on the test runtime's clock (here paused, so exactly),
 /// and a cancelled one never fires.
 #[tokio::test(start_paused = true)]

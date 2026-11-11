@@ -1346,6 +1346,12 @@ impl DirInner {
     ) -> (Arc<SessionHandle>, impl FnOnce() + use<>) {
         let deps = &self.deps;
         let limits = deps.limits;
+        // The strip is part of the state the first view and the feed's first snapshot are built from: a session shown on its open
+        // carries its shell pane at once.
+        let mut state = state;
+        if let Some(strip) = deps.shell_strips.strip(&id) {
+            state.sections.shell_jobs = Some(strip);
+        }
         let (ctl_tx, ctl_rx) = mpsc::channel(limits.control_lane);
         let (inbox_tx, inbox_rx) = mpsc::channel(limits.inbox);
         let (prod_tx, prod_rx) = mpsc::channel(limits.producer_lane);

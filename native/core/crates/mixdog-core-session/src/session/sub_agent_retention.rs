@@ -27,6 +27,7 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::delete::is_session_id;
+use super::thread_settings::ArchiveStamps;
 use super::thread_state::SessionThreads;
 
 const DAY_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
@@ -360,11 +361,16 @@ pub struct DirectoryRetention {
     directory: Arc<SessionDirectory>,
     threads: SessionThreads,
     index: Arc<dyn AgentOnlyIndex>,
+    /// The host's archive stamps: Node's automatic archive is the host's own archive of that one session
+    /// (`archiveSessionAlone`, `session-host.ts:983` via `session-sidebar-actions.ts:41`), stamped `Math.max(Date.now(), lastArchiveStamp + 1)`
+    /// from the same `lastArchiveStamp` as an explicit one (`desktop-session-metadata.ts:142`). Pinned by the retention case of
+    /// `thread_settings_tests.rs` ("sub-agent retention archives exactly its tree's members through the real host").
+    stamps: Arc<ArchiveStamps>,
 }
 
 impl DirectoryRetention {
-    pub fn new(directory: Arc<SessionDirectory>, index: Arc<dyn AgentOnlyIndex>) -> Self {
-        Self { threads: SessionThreads::new(directory.clone()), directory, index }
+    pub fn new(directory: Arc<SessionDirectory>, index: Arc<dyn AgentOnlyIndex>, stamps: Arc<ArchiveStamps>) -> Self {
+        Self { threads: SessionThreads::new(directory.clone()), directory, index, stamps }
     }
 }
 
@@ -383,7 +389,8 @@ impl RetentionHost for DirectoryRetention {
     }
 
     async fn archive(&self, id: &str) -> Result<(), CoreError> {
-        let set = Map::from_iter([("archivedAt".to_owned(), json!(now_ms()))]);
+        let stamp = self.stamps.take(self.directory.deps().clock.now_ms());
+        let set = Map::from_iter([("archivedAt".to_owned(), json!(stamp))]);
         self.threads.patch_header(&ThreadId::from(id), set, vec![]).await.map_err(|e| internal("archive", &format!("{e:?}")))
     }
 
