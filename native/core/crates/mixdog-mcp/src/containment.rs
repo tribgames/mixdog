@@ -12,11 +12,21 @@ pub struct Containment {
     os: os::Handle,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Makes the next `attach` on this thread fail, as a job that refuses the process would.
+    pub(crate) static FAIL_NEXT_ATTACH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl Containment {
     /// Puts `child` under containment. On Windows the child was created suspended (`CREATE_SUSPENDED`): it joins its job
     /// before it runs a single instruction, so nothing it starts is outside the job, and it is resumed here; a child that
     /// cannot join the job or be resumed is an error, and the job's close ends it.
     pub fn attach(child: &Child) -> std::io::Result<Self> {
+        #[cfg(test)]
+        if FAIL_NEXT_ATTACH.with(std::cell::Cell::take) {
+            return Err(std::io::Error::other("attach failed (injected by the test)"));
+        }
         Ok(Self { exited: AtomicBool::new(false), os: os::attach(child)? })
     }
 
