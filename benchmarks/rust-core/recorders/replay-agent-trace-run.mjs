@@ -274,9 +274,10 @@ if (!arg('--base', null)) {
   const base = mkdtempSync(join(scratch, 'atr-rpl-'));
   console.log(`the run's folder is ${base}`);
   const replay = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2), '--base', base], { stdio: 'inherit', windowsHide: true });
+  console.log(`the replay's pid is ${replay.pid}`);
   const [code, signal] = await new Promise((r) => replay.once('exit', (c, s) => r([c, s])));
   if (code !== 0) {
-    writeFileSync(join(base, 'exit.json'), JSON.stringify({ code, codeHex: code === null ? null : `0x${(code >>> 0).toString(16)}`, signal, at: new Date().toISOString() }));
+    writeFileSync(join(base, 'exit.json'), JSON.stringify({ pid: replay.pid, code, codeHex: code === null ? null : `0x${(code >>> 0).toString(16)}`, signal, at: new Date().toISOString() }));
     console.log(`the replay ended with code ${code}${signal ? ` (signal ${signal})` : ''}; the run's folder ${base} is kept`);
   }
   process.exit(code === 0 ? 0 : 1);
