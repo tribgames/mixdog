@@ -143,7 +143,7 @@ await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
 
 const PRELOADS = ['benchmarks/rust-core/recorders/lib/determinism-preload.mjs', 'benchmarks/rust-core/recorders/lib/determinism-preload-other-process.mjs'];
 // Declared: the temp root in the stored system prompt (a message's content, bpNEnvironmentContext) -> <TMP>.
-const tmpPath = (path) => path.at(-1) === 'content' && path.at(-3) === 'messages' || /^bp\d+EnvironmentContext$/.test(path.at(-1));
+const tmpPath = (path) => path.at(-1) === 'content' && path.at(-3) === 'messages' || /^bp\d+EnvironmentContext$/.test(path.at(-1)) || path.at(-1) === 'cwd';
 writeJson(join(stage, 'twin.json'), markTmp({ clock: { rule: 'Date.now() = 1000 * (step + 1): the session\'s creation is step 0, its nth barrier step n', fenceChildren: 1_700_000_000_000 }, barriers, fence }, tmpPath));
 writeSetManifest(stage, {
   set: 'session-lifecycle',
@@ -158,7 +158,7 @@ writeSetManifest(stage, {
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
       'no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process',
-      'this machine\'s roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext only (the stored system prompt). The sessions are created with cwd = the work dir <TMP>\\rec-session-lifecycle (an explicit input: createSession options.cwd), so the prompt\'s cwd entries and git state do not depend on the checkout. The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine\'s and stays as written',
+      'this machine\'s roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext (the stored system prompt) and every "cwd" field of a stored session. The sessions are created with cwd = the work dir <TMP>\\rec-session-lifecycle (an explicit input: createSession options.cwd), so the prompt\'s cwd entries and git state do not depend on the checkout. The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine\'s and stays as written',
       ...DETERMINISM,
     ],
   },
