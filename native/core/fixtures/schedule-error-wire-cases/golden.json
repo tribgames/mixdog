@@ -1,0 +1,104 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "every schedule rename refusal reaches the Schedules view translated, with its code and name",
+      "observed": {
+        "language": "ko",
+        "results": [
+          {
+            "engineError": {
+              "code": "SCHEDULE_NAME_TAKEN",
+              "message": "A schedule named \"once-renamed\" already exists.",
+              "name": "Error"
+            },
+            "sentToPage": {
+              "ownPropertyNames": [
+                "message",
+                "stack"
+              ],
+              "message": "A schedule named \"once-renamed\" already exists.\n[worktree-details] {\"code\":\"SCHEDULE_NAME_TAKEN\",\"params\":{\"name\":\"once-renamed\"}}"
+            },
+            "code": "SCHEDULE_NAME_TAKEN",
+            "codeEqualsEngine": true,
+            "nameParam": "once-renamed",
+            "expectedNameParam": "once-renamed",
+            "translationKey": "A schedule named \"{{name}}\" already exists.",
+            "text": "\"once-renamed\" 이름의 스케줄이 이미 있습니다.",
+            "textEqualsTranslation": true,
+            "textIsNotTheEnglishMessage": true
+          },
+          {
+            "engineError": {
+              "code": "SCHEDULE_RENAME_RUNNING",
+              "message": "Schedule \"other\" is running. Rename it after the run finishes.",
+              "name": "Error"
+            },
+            "sentToPage": {
+              "ownPropertyNames": [
+                "message",
+                "stack"
+              ],
+              "message": "Schedule \"other\" is running. Rename it after the run finishes.\n[worktree-details] {\"code\":\"SCHEDULE_RENAME_RUNNING\",\"params\":{\"name\":\"other\"}}"
+            },
+            "code": "SCHEDULE_RENAME_RUNNING",
+            "codeEqualsEngine": true,
+            "nameParam": "other",
+            "expectedNameParam": "other",
+            "translationKey": "Schedule \"{{name}}\" is running. Rename it after the run finishes.",
+            "text": "\"other\" 스케줄이 실행 중입니다. 실행이 끝난 뒤 이름을 바꿔 주세요.",
+            "textEqualsTranslation": true,
+            "textIsNotTheEnglishMessage": true
+          },
+          {
+            "engineError": {
+              "code": "SCHEDULE_RENAME_RELOAD_FAILED",
+              "message": "Renamed to \"once-renamed\", but reloading the scheduler failed (timeout); it is armed on the next reload.",
+              "name": "Error"
+            },
+            "sentToPage": {
+              "ownPropertyNames": [
+                "message",
+                "stack"
+              ],
+              "message": "Renamed to \"once-renamed\", but reloading the scheduler failed (timeout); it is armed on the next reload.\n[worktree-details] {\"code\":\"SCHEDULE_RENAME_RELOAD_FAILED\",\"params\":{\"name\":\"once-renamed\"}}"
+            },
+            "code": "SCHEDULE_RENAME_RELOAD_FAILED",
+            "codeEqualsEngine": true,
+            "nameParam": "once-renamed",
+            "expectedNameParam": "once-renamed",
+            "translationKey": "Renamed to \"{{name}}\", but the scheduler could not reload. It is armed on the next reload.",
+            "text": "\"once-renamed\"로 이름을 바꿨지만 스케줄러를 다시 불러오지 못했습니다. 다음에 다시 불러올 때 적용됩니다.",
+            "textEqualsTranslation": true,
+            "textIsNotTheEnglishMessage": true
+          },
+          {
+            "engineError": {
+              "code": "SCHEDULE_RENAME_UNCERTAIN",
+              "message": "The rename may or may not have applied (the scheduler did not answer: timeout). Check the schedule list.",
+              "name": "Error"
+            },
+            "sentToPage": {
+              "ownPropertyNames": [
+                "message",
+                "stack"
+              ],
+              "message": "The rename may or may not have applied (the scheduler did not answer: timeout). Check the schedule list.\n[worktree-details] {\"code\":\"SCHEDULE_RENAME_UNCERTAIN\"}"
+            },
+            "code": "SCHEDULE_RENAME_UNCERTAIN",
+            "codeEqualsEngine": true,
+            "nameParam": null,
+            "expectedNameParam": null,
+            "translationKey": "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.",
+            "text": "스케줄러가 응답하지 않아 이름 바꾸기가 적용되었는지 알 수 없습니다. 스케줄 목록을 확인해 주세요.",
+            "textEqualsTranslation": true,
+            "textIsNotTheEnglishMessage": true
+          }
+        ]
+      }
+    }
+  ]
+}
