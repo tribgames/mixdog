@@ -231,6 +231,17 @@ async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
             }
         }
     }
+    // Chains run in fresh Node processes, each length many times: the core answers one of the outcomes Node gave there
+    // (where a fresh process answers alike every time, that one).
+    for fresh in golden["freshProcesses"].as_array().unwrap() {
+        let outcomes = fresh["outcomes"].as_array().unwrap();
+        let case = json!({"name": fresh["name"], "tools": fresh["tools"], "results": fresh["results"], "outputs": outcomes[0]["outputs"]});
+        let replayed = replay(&case, dir.path()).await;
+        let got = json!({"connect": replayed["connect"], "outputs": replayed["outputs"]});
+        if !outcomes.contains(&got) {
+            differ.push(format!("{}: got {got}, Node gave one of {}", fresh["name"], Value::Array(outcomes.clone())));
+        }
+    }
     assert!(differ.is_empty(), "{differ:#?}");
 }
 
@@ -263,13 +274,15 @@ fn hostile_patterns_take() {
     }
 }
 
-/// The core's stack bound, at its edge: a chain of as many references as it allows compiles and validates on a test
-/// thread's stack (no overflow of the core's own), and one more answers as Node's overflow does.
+/// The core's stack bounds, at their edges: a chain of as many references as each allows compiles, or validates, on a
+/// test thread's stack (no overflow of the core's own), and one more answers as Node's overflow does.
 #[test]
-fn a_chain_of_references_compiles_up_to_the_bound_and_overflows_past_it() {
+fn a_chain_of_references_compiles_and_validates_up_to_the_bounds_and_overflows_past_them() {
     use mixdog_mcp::output_schema::OutputValidators;
     use mixdog_mcp::rpc::RpcError;
-    const STACK_LIMIT: usize = 5000;
+    const VALIDATION_LIMIT: usize = 2111;
+    const COMPILE_LIMIT: usize = 2460;
+    let overflow = (-32602, "Failed to validate structured content: Maximum call stack size exceeded");
     let chain = |n: usize| {
         let definitions: serde_json::Map<String, Value> = (0..=n)
             .map(|i| {
@@ -279,15 +292,23 @@ fn a_chain_of_references_compiles_up_to_the_bound_and_overflows_past_it() {
             .collect();
         json!([{"name": "chain", "outputSchema": {"type": "object", "properties": {"v": {"$ref": "#/definitions/d0"}}, "definitions": definitions}}])
     };
-    let check = |n: usize, v: Value| {
+    let check = |n: usize, structured: Value| {
         let tools = chain(n);
         let validators = OutputValidators::of(tools.as_array().unwrap()).unwrap();
-        validators.check("chain", &json!({"content": [], "structuredContent": {"v": v}}), &[])
+        validators.check("chain", &json!({"content": [], "structuredContent": structured}), &[])
     };
-    // `v` adds one reference to the chain's `STACK_LIMIT - 1`.
-    assert!(check(STACK_LIMIT - 1, json!(1)).is_ok());
-    let Err(RpcError::Server { code, message, .. }) = check(STACK_LIMIT - 1, json!("x")) else { panic!("a string is not a number") };
-    assert_eq!((code, message.as_str()), (-32602, "Structured content does not match the tool's output schema: data/v must be number"));
-    let Err(RpcError::Server { code, message, .. }) = check(STACK_LIMIT, json!(1)) else { panic!("past the bound") };
-    assert_eq!((code, message.as_str()), (-32602, "Failed to validate structured content: Maximum call stack size exceeded"));
+    let answer = |checked: Result<(), RpcError>| match checked {
+        Err(RpcError::Server { code, message, .. }) => (code, message),
+        other => panic!("not a server error: {other:?}"),
+    };
+    // `v` adds one reference to the chain's `n`.
+    assert!(check(VALIDATION_LIMIT - 1, json!({"v": 1})).is_ok());
+    assert_eq!(
+        answer(check(VALIDATION_LIMIT - 1, json!({"v": "x"}))),
+        (-32602, "Structured content does not match the tool's output schema: data/v must be number".to_owned())
+    );
+    assert_eq!(answer(check(VALIDATION_LIMIT, json!({"v": 1}))), (overflow.0, overflow.1.to_owned()));
+    // A value that does not reach the chain only compiles it.
+    assert!(check(COMPILE_LIMIT - 1, json!({})).is_ok());
+    assert_eq!(answer(check(COMPILE_LIMIT, json!({}))), (overflow.0, overflow.1.to_owned()));
 }
