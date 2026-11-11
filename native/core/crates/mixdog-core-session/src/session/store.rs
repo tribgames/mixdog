@@ -625,19 +625,27 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
 }
 
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
-/// memory was not started this run (today's `getMemoryModPromise()` returning null).
-pub struct MemoryCloseIngest(pub Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>);
+/// memory was not started this run (today's `getMemoryModPromise()` returning null). The messages
+/// go out with the session's sensitive values redacted, as its log is written
+/// (`node-fix-memory-sensitive.patch`: 1.4.5 fed them in plain text).
+pub struct MemoryCloseIngest {
+    memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
+    sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+}
 
 impl MemoryCloseIngest {
     /// Over the memory module the daemon started (`LocalMemory`), or `None` when memory is off.
-    pub fn new(memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>) -> Self {
-        Self(memory)
+    pub fn new(
+        memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
+        sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    ) -> Self {
+        Self { memory, sensitive }
     }
 }
 
 impl super::seams::CloseIngest for MemoryCloseIngest {
     fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
-        let Some(memory) = self.0.clone() else {
+        let Some(memory) = self.memory.clone() else {
             return Box::pin(async {});
         };
         if std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
@@ -653,7 +661,7 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
             "action": "ingest_session",
             "sessionId": id.as_str(),
             "cwd": cwd,
-            "messages": messages,
+            "messages": self.sensitive.redact_messages(id.as_str(), &messages),
         });
         Box::pin(async move {
             memory.memory(args).await;
