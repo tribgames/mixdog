@@ -625,10 +625,11 @@ impl WorkspaceService {
 
     /// The folder a request works in. A local or SSH connection names any absolute folder (Node's
     /// `…In` operations take a root the window already resolved); a relay connection is held to
-    /// the registered projects (DS 4.2: origin rules are data).
+    /// the registered projects and their ready managed worktrees, as Node's relay resolved every
+    /// phone's project path through `SessionHost.projectDirectory` (DS 4.2: origin rules are data).
     async fn root_of(&self, origin: mixdog_protocol::Origin, params: &Value, key: &str) -> WsResult<PathBuf> {
         match origin {
-            mixdog_protocol::Origin::Relay => self.catalog.resolve(s(params, key)?).await,
+            mixdog_protocol::Origin::Relay => self.scope(s(params, key)?).await.map(|(project, worktree)| worktree.unwrap_or(project)),
             mixdog_protocol::Origin::Local | mixdog_protocol::Origin::Ssh => crate::pathguard::absolute_local_path(s(params, key)?),
         }
     }
@@ -636,10 +637,14 @@ impl WorkspaceService {
     /// `projectFs/recovery`'s folder (Node's `projectRecoveryDirectory` on the phone's path): a relay connection's registered
     /// Project, else the managed worktree folder [`ManagedProjects::recovery_root`] admits, else the registry's refusal.
     async fn recovery_root(&self, origin: mixdog_protocol::Origin, params: &Value) -> WsResult<PathBuf> {
-        let refusal = match self.root(origin, params).await {
-            Ok(root) => return Ok(root),
-            Err(refusal) if origin == mixdog_protocol::Origin::Relay => refusal,
-            Err(refusal) => return Err(refusal),
+        // Not `root`: Node's `projectRecoveryDirectory` tries the registered Project, then its own worktree rule (any of
+        // three states, the folder spelled from the checkout's real parent), never `projectScope`.
+        let refusal = match origin {
+            mixdog_protocol::Origin::Relay => match self.catalog.resolve(s(params, "root")?).await {
+                Ok(root) => return Ok(root),
+                Err(refusal) => refusal,
+            },
+            mixdog_protocol::Origin::Local | mixdog_protocol::Origin::Ssh => return self.root(origin, params).await,
         };
         let admitted = match (self.managed.get(), params.get("root").and_then(Value::as_str)) {
             (Some(managed), Some(path)) => managed.recovery_root(path).await,

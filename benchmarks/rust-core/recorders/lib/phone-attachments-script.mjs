@@ -159,8 +159,13 @@ export function worktreeRegistryOf(dataDir) {
   const path = join(dataDir, 'worktrees-v1', 'registry.json');
   if (!existsSync(path)) return null;
   const { entries } = JSON.parse(readFileSync(path, 'utf8'));
+  // Node's readers take an absent baseCommit, ownerSessionId, mergeTarget as null and an absent sharedSessionIds as []
+  // (contract.mjs normalizeWorktreeEntry, registry.mjs entryView, maintenance.mjs): the core writes them, Node's records omit them.
+  const ABSENT = { baseCommit: null, ownerSessionId: null, mergeTarget: null, sharedSessionIds: [] };
+  const present = (record) =>
+    Object.fromEntries(Object.entries(record).filter(([key, value]) => !(key in ABSENT && JSON.stringify(value) === JSON.stringify(ABSENT[key]))));
   return Object.fromEntries(
-    Object.entries(entries).map(([id, { updatedAt: _updatedAt, ...record }]) => [
+    Object.entries(entries).map(([id, { updatedAt: _updatedAt, ...whole }]) => [id, present(whole)]).map(([id, record]) => [
       id,
       record.editorRecoveryStores
         ? { ...record, editorRecoveryStores: record.editorRecoveryStores.map((scope) => ({ ...scope, directory: `$journal/${basename(scope.directory)}` })) }

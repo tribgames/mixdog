@@ -5,7 +5,7 @@
     "heldWhole": "a string over 64 KiB in an answer (limit.bin read whole, the 2 MiB thumbnail) is held as its length and sha256, on both sides",
     "placeholders": "values one world names by a value of its own are compared by their place (lib/phone-attachments-script.mjs `play`): a grant's random token as $grant<n> in the order first answered, a recovery record's random id as $record<n> in seeding order, an inspected record's revision (a digest over its manifest, which holds that id and the world's file identities) as $revision<n> in the order first answered. Params that reuse them are resolved to the world's own value before the call.",
     "recoveryStore": "each recovery folder's store after the script (the project, each worktree, the ready worktree's subfolder) is compared by entry name (record ids as $record<n>) and each payload's size and sha256; manifest.json and state.json by name only (they hold the record id and the world's file identities)",
-    "worktreeRegistry": "the worktree registry after the script, every record whole but `updatedAt` (Node's putRecord stamps it, the core's registry write does not), with each editorRecoveryStores directory as $journal/<digest of its root>: Node keeps the stores in <userData>/editor-recovery, the core in <data>/recovery"
+    "worktreeRegistry": "the worktree registry after the script, every record whole but `updatedAt` (Node's putRecord stamps it, the core's registry write does not) and with baseCommit, ownerSessionId, mergeTarget left out when null and sharedSessionIds when empty (the core writes them, Node's records omit them, and Node's readers take the absent field as that value: contract.mjs normalizeWorktreeEntry, registry.mjs entryView, maintenance.mjs), with each editorRecoveryStores directory as $journal/<digest of its root>: Node keeps the stores in <userData>/editor-recovery, the core in <data>/recovery"
   },
   "entry": {
     "notRun": "the relay transport (encryption, admission) and the session service process: the host's transcript reads are the service's own stored-session reads (store-summary-reader.mjs readStoredSessionTranscript, the cold read and the attachmentHistory read session-views.mjs makes), since no window holds these conversations",
@@ -16,7 +16,7 @@
     {
       "bytes": 79935,
       "path": "golden.json",
-      "sha256": "f724dcdfd7b0537f96b789dc8369cfec99f2b16dcafab40d36bbfd29ca717699"
+      "sha256": "da945c8b85a18332e87db4f801ea4c0b7f2ff755b05f367d6012d5b09e501ecb"
     }
   ],
   "inputs": [
@@ -26,7 +26,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-attachments-script.mjs",
-      "sha256": "31cb3c37b6d2b35b5eceb4d259cf67795dc6cc11d51b7f58c3c3435356f22247"
+      "sha256": "cedbd6b33b621e9e1f7c4ab108d2a762ee4e75919454c91cf0cfc535b8fe9ede"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-attachments.mjs",
-  "recorderSha256": "a02829c816931eed187a29bb8948aadc6adb089e23f66656dd41cafce24c6803",
+  "recorderSha256": "f6206cbb44cf2d597c4e8cdf8d2ee567f2c18b0de7e1ee972b78f1b075bee68c",
   "set": "phone-attachments",
   "steps": 104,
   "totalBytes": 79935,
