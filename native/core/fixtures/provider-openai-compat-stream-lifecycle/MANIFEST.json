@@ -2,6 +2,12 @@
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-compat-stream-lifecycle.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "mixdog-ai providers::compat chat decode (decode.rs:269, :483-489), openai decoder.rs:1011-1027 and compat/error.rs:314, retry/classify.rs: feed `input.events` (+ opts) and compare `error` whole (every own property), `outcome` (readStreamOutcome fields) and `classification`. The no-timer idle / cancel cases are GONE in the core by dec:138: the recording documents the Node timer behaviour only.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
   "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream(stream, opts), retry-classifier.mjs classifyError, lib/stream-outcome.mjs readStreamOutcome, openai-compat-response-normalization.mjs normalizeCompatChatResponse. A stream is an async iterable over the recorded `events` (a `throws` entry makes the iterator throw it).",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
@@ -11,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 175440,
+      "bytes": 176935,
       "path": "cases.json",
-      "sha256": "15976a40a154858c23f5c13b0d26f5a222c3f932fa41165d531f4759b408cfde"
+      "sha256": "07be69810597527051d4377eac1bcd1c9cac56be9b68b4e3a63fc169b2d15f9b"
     }
   ],
   "inputs": [
@@ -35,7 +41,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7af794122bfbb318bc6e920e13f654f5596962f285d5e574e233a7a6163ee979"
+      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -57,20 +67,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-compat-stream-lifecycle.mjs",
-  "recorderSha256": "05d8cf646678c0bfccd5b4081c7fd5744243c66109b4e499220094a2663d6f78",
+  "recorderSha256": "b67cd8e3f5b159d1910a13a35643a007611d1f920ddad075fc32828ead556717",
   "replay": "Rust entry (pub, on o1): the compat adapter driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079) (CompatAdapter, compat/adapter.rs:63) and mixdog_ai::retry::classify::kind_of (retry/classify.rs:142) for the classification.",
   "set": "provider-openai-compat-stream-lifecycle",
-  "totalBytes": 175440,
-  "valueTags": {
-    "{\"$bigint\":\"<digits>\"}": "bigint",
-    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
-    "{\"$cycle\":true}": "a reference back to an ancestor object",
-    "{\"$date\":\"<ISO>\"}": "Date",
-    "{\"$function\":\"<name>\"}": "a function",
-    "{\"$map\":[[k,v]...]}": "Map, insertion order",
-    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
-    "{\"$set\":[v...]}": "Set, insertion order",
-    "{\"$symbol\":\"<text>\"}": "a symbol",
-    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
-  }
+  "totalBytes": 176935,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
