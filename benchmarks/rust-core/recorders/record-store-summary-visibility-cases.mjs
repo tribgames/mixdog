@@ -11,8 +11,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
 
-const root = mkdtempSync(join(tmpdir(), 'store-summary-visibility-'));
-process.env.MIXDOG_DATA_DIR = root;
+const roots = [];
+let root;
+let sessionsDir;
+/** A fresh data dir for the case (the test ran each case in its own): the module reads MIXDOG_DATA_DIR on use. */
+function newDataDir() {
+  root = mkdtempSync(join(tmpdir(), 'store-summary-visibility-'));
+  roots.push(root);
+  process.env.MIXDOG_DATA_DIR = root;
+  sessionsDir = join(root, 'sessions');
+  mkdirSync(sessionsDir, { recursive: true });
+}
+newDataDir();
 const set = openSet('store-summary-visibility-cases', import.meta.url);
 const S = 'src/runtime/agent/orchestrator/session/';
 const { _normalizeSummaryIndex, _sessionSummary } = await set.load(`${S}store-summary-index.mjs`);
@@ -21,8 +31,6 @@ const { listStoredSessions, listStoredSessionSummariesAsync: listInternalSummari
 const { projectStoredTranscript } = await set.load(`${S}store-transcript-projection.mjs`);
 const { createTurnCheckpointRecorder, settleTurnCheckpointWrites } = await set.load(`${S}manager/turn-checkpoint.mjs`);
 const { agentDescendantIds, agentParentIds } = await set.load(`${S}store-summary-visibility.mjs`);
-const sessionsDir = join(root, 'sessions');
-mkdirSync(sessionsDir, { recursive: true });
 const nul = (v) => (v === null ? { null: true } : v);
 const session = (id, extra = {}) => ({ id, createdAt: 1_000, updatedAt: 2_000, lastUsedAt: 2_000, status: 'idle', owner: 'user', messages: [{ role: 'user', content: `prompt for ${id}` }], ...extra });
 
@@ -38,6 +46,7 @@ await set.run('agent parent links are the owner and the parent, never the row it
   parents: [{ id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_p' }, { id: 'sess_x', ownerSessionId: 'sess_x', parentSessionId: 'sess_x' }, { id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_lead' }, null].map((row) => ({ row: nul(row), ids: agentParentIds(row) })),
 }));
 await set.run('closed Lead and agent records apply the same checkpoint-marker policy', async () => {
+  newDataDir();
   const results = [];
   for (const marked of [false, true]) {
     for (const owner of ['user', 'agent']) {
@@ -65,6 +74,7 @@ await set.run('summary visibility is durable and classifies legacy Agent-owned c
   return { legacyInput: legacy, legacySummary: summary, normalizedWithoutVisibility: normalized, nestedInput, nestedSummary: nested, normalizedNested, rootLeadInput, rootLeadSummary: _sessionSummary(rootLeadInput) };
 });
 await set.run('catalogs expose agent sessions while preserving their presentation classification', async () => {
+  newDataDir();
   const records = [
     session('root-lead', { owner: 'agent', ownerSessionId: 'root-lead', agent: 'lead', sourceType: 'lead' }), session('ordinary-user'),
     session('declared-child', { ownerSessionId: 'root-lead', agent: 'reviewer', visibility: 'agent-only' }), session('legacy-child', { owner: 'agent', parentSessionId: 'root-lead', agent: 'reviewer', agentTag: 'review', closed: true, status: 'closed' }),
@@ -97,7 +107,7 @@ await set.run('catalogs expose agent sessions while preserving their presentatio
 await set.finish({
   entry: { runs: 'store-summary-visibility.mjs, store-summary-index.mjs, store-summary-reader.mjs, store/listing.mjs, store-transcript-projection.mjs projectStoredTranscript, manager/turn-checkpoint.mjs recorder, all over session files in a temp data dir', notRun: 'no live runtime: only the stored records and indexes' },
   replay: { entry: 'mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages', normalised: { dataDir: 'temp, not in the recording' } },
-  replaceInText: [[root, '<data>']],
+  replaceInText: roots.map((r) => [r, '<data>']),
 });
-rmSync(root, { recursive: true, force: true });
+for (const r of roots) rmSync(r, { recursive: true, force: true });
 process.exit(0);
