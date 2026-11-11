@@ -38,7 +38,7 @@
     "termSizeOwner": { "calls": { "termResize": { "method": "terminal/resize" } } },
     "hostDirectories": { "calls": { "listHostDirectories": { "method": "projectFs/browseDirs" } } },
     "usageRequests": { "calls": { "readCapabilities": { "owner": "PH-2 Chat group (phone-chat-live, w5)" } } },
-    "projectRecovery": { "calls": { "projectRecovery": { "owner": "PH-2 Settings group (project recovery): no branch yet" } } },
+    "projectRecovery": { "calls": { "projectRecovery": { "method": "projectFs/recovery" } } },
     "routeAutoEffort": {
       "calls": {
         "submitNewTask": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },

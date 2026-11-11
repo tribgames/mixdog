@@ -240,6 +240,9 @@ pub struct ChatDialect {
     /// A reply's reasoning is kept for replay even when the dialect does not
     /// replay it today (the receive side of the replay envelope).
     pub capture_reasoning: bool,
+    /// A replaying custom endpoint needs non-empty `reasoning_content` on every assistant tool-call turn: a turn
+    /// without stored reasoning sends `" "` (`toOpenAIMessages` `customReplay`).
+    pub pad_tool_call_reasoning: bool,
     pub reasoning_shape: Option<ReasoningShape>,
     pub effort: EffortDialect,
     pub tool_choice: ToolChoiceSupport,
@@ -256,6 +259,9 @@ pub struct ChatDialect {
     /// Per-request `x-session-affinity` / `x-parent-session-id` headers and
     /// the client `User-Agent`.
     pub session_affinity_headers: bool,
+    /// A header naming the conversation on every send, on each wire: the session's id, else one drawn for the send
+    /// (OpenCode Go's `x-opencode-session`, opencode-go.mjs:129-142).
+    pub session_header: Option<&'static str>,
     /// Gateway error codes with a message of their own.
     pub friendly_codes: &'static [FriendlyCode],
     /// A refusal's text leads with its status (`400 <message>`), as the
@@ -284,6 +290,7 @@ impl ChatDialect {
         developer_role: false,
         replay_reasoning: false,
         capture_reasoning: false,
+        pad_tool_call_reasoning: false,
         reasoning_shape: None,
         effort: EffortDialect::None,
         tool_choice: ToolChoiceSupport::NoneOnly,
@@ -294,6 +301,7 @@ impl ChatDialect {
         cost: CostField::None,
         in_band_invalid_request_retryable: false,
         session_affinity_headers: false,
+        session_header: None,
         friendly_codes: &[],
         status_in_message: true,
         reauth: ReauthText::Plain,
@@ -684,6 +692,7 @@ impl CompatProfile {
             chat: ChatDialect {
                 effort: EffortDialect::Declared,
                 reauth: ReauthText::SignInExpired,
+                session_header: Some("x-opencode-session"),
                 ..ChatDialect::PLAIN
             },
             credential: CredentialKind::StaticKey {

@@ -888,13 +888,27 @@ pub struct UiTerminalRunClaimedParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiScreenSessionsChangedParams {
-    pub session_ids: Vec<String>,
+    /// Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`):
+    /// its last set stays. A UI's notification without it changes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visualize_session_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreground: Option<bool>,
+}
+
+/// Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase,
+/// state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did
+/// (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as
+/// `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an
+/// attached relay connection is heard. No response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct RemoteConnectionTimelineParams {
+    pub text: String,
 }
 
 /// Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to

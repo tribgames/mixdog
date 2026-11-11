@@ -124,7 +124,7 @@ impl ModelBroker {
             };
             let decision =
                 self.decider
-                    .verdict(&failure, state, adapter.retry_policy(), random_samples());
+                    .verdict(&failure, state, adapter.retry_policy_for(&send.request.model), random_samples());
             *state = decision.next;
             let end = |permit: crate::admission::Permit, error: ProviderError| {
                 permit.finish(Outcome::Failure {

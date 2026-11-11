@@ -59,10 +59,11 @@ struct Screen {
     background: bool,
 }
 
-/// One `ui/screenSessions/changed` of a bridged phone. `visualize` and `foreground` are optional
-/// on the wire: a report without them leaves the last stated value.
+/// One `ui/screenSessions/changed` of a bridged phone. `sessions`, `visualize` and `foreground` are
+/// optional on the wire (Node's `setScreenSessions`, `setVisualizePanels` and `setForeground` were
+/// separate calls): a report without one leaves the last stated value.
 pub struct ScreenReport<'a> {
-    pub sessions: HashSet<String>,
+    pub sessions: Option<HashSet<String>>,
     pub browser_id: Option<&'a str>,
     /// The sessions whose visualize panel the page has on screen.
     pub visualize: Option<&'a [String]>,
@@ -219,6 +220,15 @@ impl DeviceRegistry {
         matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id))
     }
 
+    /// The relay client id behind `connection` while its peer is attached.
+    pub fn attached_peer(&self, connection: u64) -> Option<String> {
+        let inner = self.inner();
+        match inner.connections.get(&connection) {
+            Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id) => Some(peer_id.clone()),
+            _ => None,
+        }
+    }
+
     /// Every connection of the paired credential still attached, in the order they were opened (Node's client registry is a `Map`
     /// iterated in admission order, and an unpair ends their browser streams in that order).
     pub fn connections_of(&self, credential: &str) -> Vec<u64> {
@@ -278,7 +288,9 @@ impl DeviceRegistry {
         {
             let mut inner = self.inner();
             let Some(Link::Relay { screen, .. }) = inner.connections.get_mut(&connection) else { return false };
-            screen.sessions = report.sessions;
+            if let Some(sessions) = report.sessions {
+                screen.sessions = sessions.into_iter().filter(|id| is_session_id(id)).collect();
+            }
             if let Some(id) = report.browser_id {
                 screen.browser_id = slice_utf16(id, BROWSER_ID_MAX);
             }
@@ -333,8 +345,10 @@ impl DeviceRegistry {
     fn shown_by(&self, which: impl Fn(&Described, &Screen) -> bool, thread_id: &str) -> bool {
         let inner = self.inner();
         inner.connections.values().any(|link| match link {
+            // Node's `legShowsSession` / `legacyLegShows`: a leg reported hidden shows nothing, whatever set it painted last.
             Link::Relay { peer_id, screen } => {
-                screen.sessions.contains(thread_id)
+                !screen.background
+                    && screen.sessions.contains(thread_id)
                     && self.leg_shows(&inner, peer_id)
                     && inner.peers.get(peer_id).is_some_and(|described| which(described, screen))
             }
