@@ -5,7 +5,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-const SCHEMA: &str = include_str!("../../../mixdog-app-protocol/schema/client_methods.json");
+const SCHEMA: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_methods.json");
 
 pub(crate) struct Samples {
     schema: Value,
@@ -14,7 +14,7 @@ pub(crate) struct Samples {
 impl Samples {
     pub(crate) fn new() -> Self {
         Self {
-            schema: serde_json::from_str(SCHEMA).expect("golden schema parses"),
+            schema: serde_json::from_str(&SCHEMA).expect("golden schema parses"),
         }
     }
 

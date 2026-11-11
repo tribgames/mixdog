@@ -15,7 +15,7 @@ use super::*;
 use crate::service::network_proxy::NetworkProxyService;
 use crate::service::network_proxy::NetworkProxyStore;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/network-proxy/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/network-proxy/golden.json");
 
 struct MapEnv(HashMap<String, String>);
 
@@ -30,7 +30,7 @@ fn env_of(spec: &Value) -> MapEnv {
 }
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).unwrap()
+    serde_json::from_str(&GOLDEN).unwrap()
 }
 
 /// `parseProxyUrl`'s `{ url }` or `{ error }`, from a Rust result.

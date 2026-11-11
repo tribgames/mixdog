@@ -70,7 +70,7 @@ mod tests {
         on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default())).unwrap();
     }
 
-    const TWIN: &str = include_str!("../../../../fixtures/usage-ports/usage-ports-twin.json");
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
 
     struct NoPrices;
 
@@ -96,7 +96,7 @@ mod tests {
     /// back through the same reader the subscription view uses.
     #[tokio::test]
     async fn the_samples_nodes_fetch_recorded_are_stored_through_the_shared_source() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let root = tempfile::tempdir().unwrap();
         let source = LedgerSource::new(Arc::new(Vars(HashMap::new())), root.path().join("mixdog_data_dir"), mixdog_rt::testing::tokens(), Arc::new(NoPrices), crate::run_host::usage_stats_feed::recording_push());
         let history =LedgerQuotaHistory::new(source.clone());

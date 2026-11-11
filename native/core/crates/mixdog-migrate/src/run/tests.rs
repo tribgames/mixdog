@@ -33,6 +33,8 @@ struct TestProjector;
 impl IndexProjector for TestProjector {
     fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> std::result::Result<(), String> {
         let conn = rusqlite::Connection::open(db).map_err(|e| e.to_string())?;
+        // Each statement of the DDL is a commit of its own, flushed unless the flushes are skipped.
+        conn.pragma_update(None, "synchronous", mixdog_store::fsio::sqlite_synchronous()).map_err(|e| e.to_string())?;
         conn.execute_batch(INDEX_DDL).map_err(|e| e.to_string())?;
         for id in sessions {
             let dir = data.join("sessions").join(id);
@@ -540,6 +542,8 @@ fn a_recovered_turn_restores_its_context_reading() {
 /// it, then a resume, ends in the tree an uninterrupted run leaves (journal excluded).
 #[test]
 fn every_crash_point_resumes_to_the_same_tree() {
+    // The trees compared are read back from the running OS; a flush to the device changes none of them.
+    mixdog_store::fsio::elide_syncs();
     // One uninterrupted run names every fault point, in the order a run meets them.
     let base = crash_base(0);
     let _ = std::fs::remove_dir_all(&base);
