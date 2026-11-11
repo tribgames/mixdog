@@ -10,6 +10,7 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test's silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.",
   "exclusions": [
+    "gemini-stream.test.mjs:118's `deferToolCalls: false` run (leaked-call-dispatched) is not recorded: no product caller of createGeminiTextLeakGuard passes false - `git grep -n \"createGeminiTextLeakGuard(\\|deferToolCalls\" b6f10295a -- src ':!*.test.mjs'` finds the two callers, antigravity-stream.mjs:80 (deferToolCalls: true, :85) and gemini-sdk-request.mjs:9 (deferToolCalls: true, :14); the default `false` (gemini-stream.mjs:331) is reached by tests only",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -17,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 70436,
+      "bytes": 65235,
       "path": "cases.json",
-      "sha256": "f9d1541baa49cb7bc3dac3e891a9d830072f7b69e962ec1b8002d28ede30b2a2"
+      "sha256": "b42de0da20ba2b40efb682da113bc181e9d720cf88bb8268206f52dcec2885e5"
     }
   ],
   "inputs": [
@@ -102,10 +103,6 @@
       "level": "wire"
     },
     {
-      "id": "leaked-call-dispatched",
-      "level": "wire"
-    },
-    {
       "id": "ordered-parts-and-signatures",
       "level": "wire"
     },
@@ -145,12 +142,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-stream.mjs",
-  "recorderSha256": "028c9dc9fd559ff63362c2a19800cffb069beddb4ebf231a623b7129ead8b812",
+  "recorderSha256": "859d805682503f1aa2c2d145dcb067fe8a860766e7ae083c615592dfedcc954f",
   "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-gemini-stream",
-  "totalBytes": 70436,
+  "totalBytes": 65235,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
