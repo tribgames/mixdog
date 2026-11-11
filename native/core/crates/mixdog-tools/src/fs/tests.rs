@@ -424,6 +424,13 @@ async fn code_graph_casing_hint_leaves_with_the_evicted_graph_as_node_does() {
     replay_fs_search("code-graph-casing-eviction").await;
 }
 
+/// A resident graph's retained bytes are Node's estimate of its records, token index and source caches: at a 1 MB
+/// budget the casing hint's lookups are cleared or kept where Node's are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn code_graph_memory_budget_counts_retained_bytes_as_node_does() {
+    replay_fs_search_in_env("fs::tests::code_graph_memory_budget_counts_retained_bytes_as_node_does", "code-graph-memory-budget").await;
+}
+
 /// `REFERENCE_HIT_CAP` read as Node reads it: a fraction, a hex literal, a negative, 0 and a non-number.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn code_graph_reference_hit_cap_fraction_as_node_does() {
