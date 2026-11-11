@@ -134,40 +134,85 @@ pub fn scan(buf: &[u8], base: u64, start: usize, expected: u64) -> Scan {
     let mut frames = Vec::new();
     let mut p = start;
     let mut expected = expected;
+    // The group being read: its members end at buffer offset `end`, `due` of them still to come; a torn tail inside it is
+    // torn from its marker (`marker`, file offset), and the members read so far (from `frames[kept..]`) go with it.
+    struct Group {
+        end: usize,
+        due: u64,
+        marker: u64,
+        kept: usize,
+    }
+    let mut group: Option<Group> = None;
     loop {
+        if let Some(g) = &group {
+            if p == g.end && g.due == 0 {
+                group = None;
+            } else if p >= g.end || g.due == 0 {
+                return Scan { frames, end: ScanEnd::Corrupt { offset: base + p as u64, ordinal: expected, cause: CorruptCause::Framing } };
+            }
+        }
         let at = base + p as u64;
         let corrupt = |cause, ordinal| ScanEnd::Corrupt {
             offset: at,
             ordinal,
             cause,
         };
+        let torn = |mut frames: Vec<Committed>, group: &Option<Group>| match group {
+            Some(g) => {
+                frames.truncate(g.kept);
+                Scan { frames, end: ScanEnd::Torn { offset: g.marker } }
+            }
+            None => Scan { frames, end: ScanEnd::Torn { offset: at } },
+        };
         if p == buf.len() {
             return Scan { frames, end: ScanEnd::Clean };
         }
         if written <= p {
-            return Scan { frames, end: ScanEnd::Torn { offset: at } };
+            return torn(frames, &group);
         }
         let h = &buf[p..written.min(p + HEADER_LEN)];
         let len = match check_header(h, expected) {
             Err(cause) => return Scan { frames, end: corrupt(cause, expected) },
-            Ok(None) => return Scan { frames, end: ScanEnd::Torn { offset: at } },
+            Ok(None) => return torn(frames, &group),
             Ok(Some(len)) => len,
         };
         let payload_end = p + HEADER_LEN + len;
         if payload_end > written {
-            return Scan { frames, end: ScanEnd::Torn { offset: at } };
+            return torn(frames, &group);
         }
         let crc = hex_value(&h[CRC_AT..CRC_AT + CRC_DIGITS]) as u32;
         if crc32c(&buf[p + HEADER_LEN..payload_end]) != crc {
             return Scan { frames, end: corrupt(CorruptCause::Crc, expected) };
         }
         if payload_end == written {
-            return Scan { frames, end: ScanEnd::Torn { offset: at } };
+            return torn(frames, &group);
         }
         if buf[payload_end] != TERMINATOR {
             return Scan { frames, end: corrupt(CorruptCause::Framing, expected) };
         }
+        match parse_group_marker(&buf[p + HEADER_LEN..payload_end]) {
+            Err(cause) => return Scan { frames, end: corrupt(cause, expected) },
+            // A group marker: its members are accepted only when every byte of them is written; otherwise the group,
+            // marker included, is the torn tail.
+            Ok(Some((count, bytes))) => {
+                if group.is_some() {
+                    return Scan { frames, end: corrupt(CorruptCause::Framing, expected) };
+                }
+                let members = payload_end + 1;
+                let end = members.saturating_add(bytes as usize);
+                if end > written {
+                    return Scan { frames, end: ScanEnd::Torn { offset: at } };
+                }
+                group = Some(Group { end, due: count, marker: at, kept: frames.len() });
+                p = members;
+                continue;
+            }
+            Ok(None) => {}
+        }
         frames.push(Committed { ordinal: expected, start: p, len });
+        if let Some(g) = group.as_mut() {
+            g.due -= 1;
+        }
         p = payload_end + 1;
         expected += 1;
     }

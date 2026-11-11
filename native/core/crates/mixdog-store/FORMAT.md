@@ -189,6 +189,23 @@ puts `k` first). Lines that fail (torn or damaged bytes of the newest batch) are
 over; the forward scan classifies them. The found frame is the frame start for a forward
 scan (§3.2) to the end of the file with `expected` = its ordinal.
 
+### 3.6 Groups
+
+A write of more than one record frame is a group: a marker frame, then the member frames.
+The marker is a frame by §2 whose ordinal is its first member's and which takes no ordinal
+of its own; its payload is `#group <count> <bytes>` (`count` 8 and `bytes` 16 lowercase hex
+digits): the member frames that follow and the bytes they take. A record payload starts with
+`{`, so no record is a marker. The forward scan, on a committed marker: if fewer than
+`bytes` bytes follow it up to `W`, the tail is torn at the marker (§3.4: the group is dropped
+whole, as a torn frame); otherwise it reads the members, and a torn frame among them is torn
+at the marker too. Members that end elsewhere than at `bytes`, a count that does not match,
+a marker inside a group, or a payload starting `#group ` that is not a marker are
+`framing` damage. A leading `checkpoint` (§6.1) is written before the marker, outside the
+group; a closing `checkpoint` of a write over `DURABILITY_WINDOW_BYTES` is its last member.
+Logs written before groups have no markers: every frame reads as before, so no version
+change is needed for reading them; a reader without this section cannot read a log with
+groups.
+
 ## 4. Blobs
 
 ### 4.1 Store

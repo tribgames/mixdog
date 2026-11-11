@@ -506,6 +506,58 @@ async fn a_batch_over_the_window_is_one_write_and_the_tail_stays_bounded() {
     assert!(opened.bytes_read < 1024 * 1024, "the newest anchor ends the write: {}", opened.bytes_read);
 }
 
+/// A batch of three records is one group: a kill anywhere inside its write (inside the marker, inside the first member,
+/// between members, inside the last, or with the last bytes never synced) recovers none of it, the tail torn from the
+/// marker; once all of it is on disk, all of it. A log of the format before groups (frames with no marker) reads as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batch_is_recovered_whole_or_not_at_all() {
+    use crate::framing;
+    use crate::schema::frame::*;
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, ordinals) = env.commit(w, vec![item("a"), item("b"), item("c")]).await;
+    assert_eq!(ordinals, [1, 2, 3]);
+    drop(w);
+    let bytes = std::fs::read(env.dir("s1").join(log_name(0))).unwrap();
+    let whole = framing::scan(&bytes, 0, 0, 0);
+    assert_eq!((whole.frames.len(), &whole.end), (4, &ScanEnd::Clean), "the session frame and the three members");
+    let marker = whole.frames[0].end();
+    let members: Vec<_> = whole.frames[1..].to_vec();
+    assert_eq!(members[0].start, marker + GROUP_MARKER_LEN + FRAME_OVERHEAD, "the marker leads the members");
+    let cuts = [
+        ("inside the marker", marker + 10),
+        ("inside the first member", members[0].start + 20),
+        ("between the first and second member", members[1].start),
+        ("between the second and last member", members[2].start),
+        ("inside the last member", members[2].start + 50),
+        ("before the sync: the last byte never landed", members[2].end() - 1),
+    ];
+    for (what, cut) in cuts {
+        let scan = framing::scan(&bytes[..cut], 0, 0, 0);
+        assert_eq!((scan.frames.len(), scan.end), (1, ScanEnd::Torn { offset: marker as u64 }), "{what}");
+        // The same with the rest of the file zero (a file extended before its pages landed).
+        let mut zeroed = bytes.clone();
+        zeroed[cut..].fill(0);
+        let scan = framing::scan(&zeroed, 0, 0, 0);
+        assert_eq!((scan.frames.len(), scan.end), (1, ScanEnd::Torn { offset: marker as u64 }), "{what}, zero-filled");
+    }
+    // Opened after such a kill, the log holds none of the batch and its writer truncates the group away.
+    std::fs::write(env.dir("s1").join(log_name(0)), &bytes[..members[2].start + 50]).unwrap();
+    let opened = env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Torn { offset: marker as u64 }, 0));
+
+    // The format before groups: the same records, one frame each, no marker.
+    let mut old = bytes[..marker].to_vec();
+    for (i, record) in [item("a"), item("b"), item("c")].iter().enumerate() {
+        framing::encode_into(&mut old, 1 + i as u64, &record.payload);
+    }
+    let scan = framing::scan(&old, 0, 0, 0);
+    assert_eq!((scan.frames.len(), scan.end), (4, ScanEnd::Clean));
+    std::fs::write(env.dir("s1").join(log_name(0)), &old).unwrap();
+    let opened = env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 3), "an old log opens unchanged");
+}
+
 #[test]
 fn the_codec_moves_large_bodies_to_blobs_and_refs_them() {
     let small = crate::encode::encode_record(item("a").record().clone()).unwrap();

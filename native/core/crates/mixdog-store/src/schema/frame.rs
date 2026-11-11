@@ -45,6 +45,39 @@ pub const MAX_FRAME_PAYLOAD: usize = INLINE_MAX + NON_BODY_MAX;
 /// Largest whole frame.
 pub const MAX_FRAME_LEN: usize = MAX_FRAME_PAYLOAD + FRAME_OVERHEAD;
 
+/// First bytes of a group marker's payload (FORMAT.md §3.6). A write of more than one record frame
+/// is a group: one marker frame, then its member frames. The marker carries the ordinal of its
+/// first member and takes none of its own; its payload, covered by the frame's CRC, is
+/// `#group <count, 8 hex> <bytes, 16 hex>`: how many member frames follow and how many bytes they
+/// take. A reader accepts the members only when all `bytes` are written; otherwise the group is a
+/// torn tail from the marker on. A record payload is a JSON object (`{`), so no record is a
+/// marker, and a log with no markers (every log written before groups) reads as before.
+pub const GROUP_MARKER: &[u8] = b"#group ";
+/// Length of a group marker's payload.
+pub const GROUP_MARKER_LEN: usize = GROUP_MARKER.len() + 8 + 1 + 16;
+
+/// The marker payload of a group of `count` member frames taking `bytes` bytes.
+pub fn group_marker(count: u64, bytes: u64) -> Vec<u8> {
+    format!("#group {count:08x} {bytes:016x}").into_bytes()
+}
+
+/// `(count, bytes)` of a marker payload; `None` for a record payload. `Err` for a payload that
+/// starts as a marker and is not one.
+pub fn parse_group_marker(payload: &[u8]) -> Result<Option<(u64, u64)>, CorruptCause> {
+    if !payload.starts_with(GROUP_MARKER) {
+        return Ok(None);
+    }
+    let hex = |digits: &[u8]| std::str::from_utf8(digits).ok().and_then(|text| u64::from_str_radix(text, 16).ok());
+    let rest = &payload[GROUP_MARKER.len()..];
+    match (payload.len() == GROUP_MARKER_LEN, rest.get(8)) {
+        (true, Some(b' ')) => match (hex(&rest[..8]), hex(&rest[9..])) {
+            (Some(count), Some(bytes)) if count > 0 => Ok(Some((count, bytes))),
+            _ => Err(CorruptCause::Framing),
+        },
+        _ => Err(CorruptCause::Framing),
+    }
+}
+
 /// Bytes of frames after which the writer starts the next batch with a `checkpoint`.
 pub const CHECKPOINT_EVERY: u64 = 1024 * 1024;
 /// Bytes of frames a session may have written but not yet acknowledged (RL §6.2 window);
