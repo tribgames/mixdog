@@ -256,7 +256,7 @@ impl Inner {
     /// stored and live sessions as they are now.
     pub(super) async fn list_rows(&self, cancel: &CancellationToken) -> Result<Vec<JsonValue>, ScmFailure> {
         // Without details the list weighs no cleanup limit, so `now` is never read.
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let now = mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
         let rows = self.ops.wt.list_with_retention(&self.sessions, &(self.live)(), false, now, cancel).await?;
         Ok(mixdog_scm::worktree::listing::without_snapshots(rows))
     }

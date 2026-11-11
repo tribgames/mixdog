@@ -69,11 +69,9 @@
   "recorder": "benchmarks/rust-core/recorders/record-session-grants-cases.mjs",
   "recorderSha256": "cd9f2d4973840828829656629d6326acc2897bb214377672687a598f9e891ddb",
   "replay": {
-    "compare": "mixdog-tools policy/session_grants.rs (and gate.rs/grants.rs): replay each log step in order on a store and a registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
-    "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore; mixdog-tools/src/policy/grants.rs:362 GrantStore::audit (reads the audit entries).",
-    "existsButNotPublicOnO1": [
-      "recordHumanDecision: the audit writes are private: mixdog-tools/src/policy/pipeline.rs:587 `audit`, mixdog-core/src/run_host/handoff_env.rs:92 `record_decision`, mixdog-app-server-daemon/src/held_requests.rs:305 `record_decision`"
-    ],
+    "compare": "mixdog-core-session src/session/k1_grants_replay.rs: one interpreter for the recorded logs; every step is done on the core and compared whole in recorded order: a decide's verdict written as Node's { decision, request, gate, remembered }, a choose's answered response, the grants and audit rows, the permission rows. Card fields (presented, normalized, fields, offered, grantActions) are the card a client is shown (room_approval tool_approval / normalize_tool_approval_request), taken at the keys humanRequestFields defines (the card also carries the queue's own name/args/cwd/reason fields); a response is the decision the approval book takes from a client's result (ApprovalBook::validate).",
+    "entry": "decide: the call runs through the product's pipeline mixdog_tools::policy::ToolPolicy::authorize as a turn runs it (the recorded hook as its PreToolUse hook; the facts and settings of mixdog_core_ports SessionGate over a live header per session, unattended runs and Allow all actions behind its GateEnv, the recorder's roster mailer/scribe as contact bots; the registered github tool and connector tools for outbound kinds; the session's grants in SessionGrantRegistry) until it shows the client a card or ends. The card is inserted into the client's mixdog_core_base ApprovalBook with the pipeline waiting on it. The verdict the pipeline acted on is read through the development-only feature policy-observer (ToolPolicy::with_observer, refused in release by build.rs) and written as Node's { decision, request, gate, remembered }; for a call the pipeline let run the decision is rendered from the call it passed on (Authorized: allow, or modify with the name/args it runs), the hook's reason being the hook's. The pipeline's outcome is checked against the verdict (a denied call errs, a call let run is Ok). choose/answer: the client's response as recorded, the recorded gate included as a field of the response, goes through ApprovalBook::validate on the card the client was shown and is resolved into the waiting pipeline, which audits it and stores its grant; the answered call runs exactly when approved. No core entry takes a gate from outside: the forged gates of hook-ask 6, 8 and session-grants 5, 6 reach the core inside the client's response and the core takes from it only the decision; the observables after it (grants, audit, later decides) are compared. A card no longer pending (a second answer to one gate, hook-ask 9 / session-grants 9) is the same call asked again and answered; an answer with no card to reach (an unattended run answers its own call) is sent to the last card and is a no-op. A timedOut answer resolves the card TimedOut, as the request's deadline resolves it (a client cannot send a timeout). An unanswered card is resolved interrupted when the log moves on, its call unrun. Store: FileGrantStore on a temp directory stamped with the recording's held Date.now; AgentPermissions (mixdog-core-agents) for agentPermissions/setAgentPermission. The session-grant clock starts at the recorder's 1_000_000 ms and moves only by the recorded advances; a reset is a clear (header compaction.lastClearAt), an ended life a closed header. Every wait and store call has a 30 s deadline with a message.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [],
     "normalised": {
       "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)"
@@ -81,38 +79,34 @@
     "protocolMethods": [],
     "rustTargets": [
       {
-        "line": 237,
-        "name": "decide",
-        "path": "native/core/crates/mixdog-tools/src/policy/gate.rs"
+        "name": "ToolPolicy::authorize",
+        "path": "native/core/crates/mixdog-tools/src/policy/pipeline.rs"
       },
       {
-        "line": 49,
-        "name": "grant",
+        "name": "SessionGrantRegistry",
         "path": "native/core/crates/mixdog-tools/src/policy/session_grants.rs"
       },
       {
-        "line": 68,
-        "name": "has",
-        "path": "native/core/crates/mixdog-tools/src/policy/session_grants.rs"
+        "name": "SessionGate::facts",
+        "path": "native/core/crates/mixdog-core-ports/src/ports/gate.rs"
       },
       {
-        "line": 158,
-        "name": "set_mode",
-        "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
+        "name": "ApprovalBook::validate",
+        "path": "native/core/crates/mixdog-core-base/src/approvals/mod.rs"
       },
       {
-        "line": 321,
-        "name": "GrantStore",
-        "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
+        "name": "tool_approval",
+        "path": "native/core/crates/mixdog-core-session/src/session/room_approval.rs"
       },
       {
-        "line": 362,
-        "methods": "reads the audit entries",
-        "name": "GrantStore::audit",
-        "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
+        "name": "AgentPermissions",
+        "path": "native/core/crates/mixdog-core-agents/src/agents/permissions.rs"
       }
     ],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "replay-k1-tools-scm: the replay calls each target",
+    "exclusions": {
+      "session-grants case 4 field unknown": "sessionLifeMark of a session id the store does not hold: the core builds a session's gate (SessionGate over the live header) only for a session it holds, so no life is read for an unknown id; the field is not compared"
+    }
   },
   "set": "session-grants-cases",
   "totalBytes": 80770,

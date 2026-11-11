@@ -6,5 +6,5 @@
 mod dev_only;
 
 fn main() {
-    dev_only::refuse_in_release(&["count-work"]);
+    dev_only::refuse_in_release(&["count-work", "test-support"]);
 }

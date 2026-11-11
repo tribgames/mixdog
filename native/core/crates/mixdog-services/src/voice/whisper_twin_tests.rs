@@ -289,10 +289,10 @@ async fn one_transcription_starts_the_children_node_recorded_with_the_same_argum
         assert_eq!((recorded["pid"].as_u64(), recorded["host"].as_str()), (Some(u64::from(WHISPER_PID)), Some("127.0.0.1")));
         let handle = ProcessHandle(manager.servers.lock().unwrap().keys().next().unwrap().clone());
         manager.kill(&handle).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(!pid_path.exists(), "the exit watcher clears the pid file");
         server.stop().await;
-        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(30)).await;
         let data = dir.path().to_string_lossy().into_owned();
         // Node's ffmpeg and ffprobe carry no working directory; only the server's is recorded.
         let calls = replace_data(&Value::Array(manager.calls.lock().unwrap().clone()), &data);

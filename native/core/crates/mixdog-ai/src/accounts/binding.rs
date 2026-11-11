@@ -121,7 +121,7 @@ mod tests {
         // Another live process holds it, in the record `file-lock.mjs` writes.
         std::fs::write(&lock_name, format!("{} 1 other-token\n", std::process::id())).unwrap();
         let started = std::time::Instant::now();
-        let answer = tokio::time::timeout(std::time::Duration::from_secs(8), s.current_provider_account_id(PROVIDER))
+        let answer = mixdog_rt::time::timeout(std::time::Duration::from_secs(8), s.current_provider_account_id(PROVIDER))
             .await
             .expect("a held lock must not stall account resolution");
         assert_eq!(answer.unwrap(), "default");

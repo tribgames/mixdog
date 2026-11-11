@@ -1,0 +1,191 @@
+diff --git a/src/runtime/memory/lib/pg/process.mjs b/src/runtime/memory/lib/pg/process.mjs
+index 460377f..c009a7c 100644
+--- a/src/runtime/memory/lib/pg/process.mjs
++++ b/src/runtime/memory/lib/pg/process.mjs
+@@ -117,6 +117,7 @@ async function findFreePort(preferred) {
+ const MIXDOG_CONF_V2_MARKER = '# mixdog overrides v2 — bgwriter / checkpoint distribution';
+ const MIXDOG_CONF_V3_MARKER = '# mixdog overrides v3 — bounded local-app resources';
+ const MIXDOG_CONF_V4_MARKER = '# mixdog overrides v4 — resident-memory bounds';
++const MIXDOG_CONF_V5_MARKER = '# mixdog overrides v5 — no WAL segment reuse';
+ 
+ // Lines emitted into postgresql.conf for v2. effective_io_concurrency requires
+ // posix_fadvise; PostgreSQL rejects non-zero values on Windows and macOS.
+@@ -171,6 +172,14 @@ function buildV4Block() {
+   ].join('\n')}\n`;
+ }
+ 
++// The setting a sensitive scrub relies on (session-search-db.mjs
++// scrubReplacedRows): a WAL segment past the redo point is deleted, never
++// renamed for reuse with its old bytes. A cluster made before the fresh conf
++// carried it gets it here.
++function buildV5Block() {
++  return `${['', MIXDOG_CONF_V5_MARKER, 'wal_recycle = off'].join('\n')}\n`;
++}
++
+ // Migration: an earlier v2 emitted effective_io_concurrency on every POSIX
+ // platform. Strip it anywhere except Linux so old macOS clusters can start.
+ function stripPlatformInvalidLines(conf) {
+@@ -199,6 +208,10 @@ function ensureConfV2(pgdataDir) {
+     conf += buildV4Block();
+     changed = true;
+   }
++  if (!conf.includes(MIXDOG_CONF_V5_MARKER)) {
++    conf += buildV5Block();
++    changed = true;
++  }
+   if (!changed) return false;
+   writeFileAtomicSync(confPath, conf, { backup: true });
+   return true;
+@@ -290,7 +303,8 @@ function freshClusterConfAppend() {
+     '\n' +
+     buildV2Block() +
+     buildV3Block() +
+-    buildV4Block()
++    buildV4Block() +
++    buildV5Block()
+   );
+ }
+ 
+diff --git a/src/runtime/session-search/session-search-db.mjs b/src/runtime/session-search/session-search-db.mjs
+index aed5209..e0f27dc 100644
+--- a/src/runtime/session-search/session-search-db.mjs
++++ b/src/runtime/session-search/session-search-db.mjs
+@@ -42,8 +42,31 @@ CREATE TABLE IF NOT EXISTS session_search.backfill (
+ );
+ CREATE INDEX IF NOT EXISTS messages_session_idx ON session_search.messages (session_id, ordinal);
+ CREATE INDEX IF NOT EXISTS messages_tsv_idx ON session_search.messages USING GIN (tsv);
++CREATE TABLE IF NOT EXISTS session_search.scrub (
++  id integer PRIMARY KEY CHECK (id = 1)
++);
+ `;
+ 
++/** The replaced row versions of a sensitive replacement (replaceSessionSearchMessages)
++ *  leave the disk: the table, its TOAST and its indexes are written anew from the
++ *  live rows, then the WAL segments that logged the old versions are removed (a
++ *  segment switch and a checkpoint; with `wal_recycle = off` a segment past the
++ *  redo point is deleted, never renamed for reuse). Runs only while
++ *  session_search.scrub records it is owed and clears that last, so a kill at any
++ *  step is finished when the schema is next opened. */
++export async function scrubReplacedRows(db) {
++  const { rows } = await db.query('SELECT 1 FROM session_search.scrub');
++  if (rows.length === 0) return;
++  const { rows: setting } = await db.query("SELECT current_setting('wal_recycle') AS recycle");
++  if (setting[0]?.recycle !== 'off') {
++    throw new Error('[session-search] wal_recycle is on: a recycled WAL segment would keep the replaced rows');
++  }
++  await db.exec('VACUUM FULL session_search.messages');
++  await db.exec('SELECT pg_switch_wal()');
++  await db.exec('CHECKPOINT');
++  await db.exec('DELETE FROM session_search.scrub');
++}
++
+ // to_tsvector rejects a document over 1 MB; a single message never needs more
+ // searchable text than this.
+ const MAX_CONTENT_CHARS = 100_000;
+@@ -56,6 +79,7 @@ const getDb = createPgSchemaDb({
+   defaultDataDir: resolvePluginData,
+   ensurePg: ensurePgInstance,
+   withLock: withSchemaBootstrapLock,
++  afterDdl: scrubReplacedRows,
+ });
+ 
+ function messageTs(m) {
+@@ -148,7 +172,11 @@ export async function replaceSessionSearchMessages(
+   const rows = sessionSearchRows(sessionId, redactedMessages);
+   const previous = new Set(sessionSearchRows(sessionId, plainMessages).map((row) => row.sourceRef));
+   const db = await getDb(dataDir, { signal });
+-  return db.transaction(async (tx) => {
++  const deleted = await db.transaction(async (tx) => {
++    // The cluster commits asynchronously (synchronous_commit = off): a kill could
++    // lose this commit, and with it the record of the owed scrub, while the plain
++    // rows stay.
++    await tx.query('SET LOCAL synchronous_commit = on');
+     const { rows: stored } = await tx.query(
+       `SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
+        WHERE session_id = $1 FOR UPDATE`,
+@@ -173,8 +201,11 @@ export async function replaceSessionSearchMessages(
+         content,
+       }));
+     await insertRows(tx, [...rows, ...kept]);
++    if (changed.length) await tx.query('INSERT INTO session_search.scrub (id) VALUES (1) ON CONFLICT DO NOTHING');
+     return changed.length;
+   });
++  await scrubReplacedRows(db);
++  return deleted;
+ }
+ 
+ export async function deleteSessionSearchMessages(sessionId, { dataDir, signal } = {}) {
+diff --git a/src/runtime/session-search/session-search-scrub.test.mjs b/src/runtime/session-search/session-search-scrub.test.mjs
+new file mode 100644
+index 0000000..5d387e9
+--- /dev/null
++++ b/src/runtime/session-search/session-search-scrub.test.mjs
+@@ -0,0 +1,46 @@
++// The scrub after a sensitive replacement: owed only while session_search.scrub
++// holds its row, every step in order, the row cleared last (a kill before that
++// leaves the scrub owed for the next open), refused while WAL segments are recycled.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++import { scrubReplacedRows } from './session-search-db.mjs';
++
++function fakeDb({ owed, recycle = 'off' }) {
++  const statements = [];
++  return {
++    statements,
++    query: async (sql) => {
++      statements.push(sql);
++      if (sql.includes('FROM session_search.scrub')) return { rows: owed ? [{ '?column?': 1 }] : [] };
++      if (sql.includes("current_setting('wal_recycle')")) return { rows: [{ recycle }] };
++      return { rows: [] };
++    },
++    exec: async (sql) => {
++      statements.push(sql);
++    },
++  };
++}
++
++test('an owed scrub rewrites the table, removes the old WAL segments, then clears itself', async () => {
++  const db = fakeDb({ owed: true });
++  await scrubReplacedRows(db);
++  assert.deepEqual(db.statements.slice(2), [
++    'VACUUM FULL session_search.messages',
++    'SELECT pg_switch_wal()',
++    'CHECKPOINT',
++    'DELETE FROM session_search.scrub',
++  ]);
++});
++
++test('nothing runs when no scrub is owed', async () => {
++  const db = fakeDb({ owed: false });
++  await scrubReplacedRows(db);
++  assert.equal(db.statements.length, 1);
++});
++
++test('a cluster that recycles WAL segments refuses the scrub and keeps it owed', async () => {
++  const db = fakeDb({ owed: true, recycle: 'on' });
++  await assert.rejects(scrubReplacedRows(db), /wal_recycle is on/);
++  assert.ok(!db.statements.some((sql) => sql.startsWith('DELETE')));
++});
+diff --git a/src/runtime/shared/pg-schema-db.mjs b/src/runtime/shared/pg-schema-db.mjs
+index cfc20be..e114b94 100644
+--- a/src/runtime/shared/pg-schema-db.mjs
++++ b/src/runtime/shared/pg-schema-db.mjs
+@@ -3,7 +3,7 @@ import { createSharedAbortable } from './abort-race.mjs';
+ /** Lazy per-dataDir PG handle: one in-flight init, bootstrap lock, retry after
+  *  failure. `signal` withdraws a caller; the init (a PG runtime install
+  *  included) is cancelled once every caller has (createSharedAbortable). */
+-export function createPgSchemaDb({ schema, ddl, defaultDataDir, ensurePg, withLock }) {
++export function createPgSchemaDb({ schema, ddl, defaultDataDir, ensurePg, withLock, afterDdl = null }) {
+   const ready = new Map();
+   return function getDb(dataDir = defaultDataDir(), { signal = null } = {}) {
+     let shared = ready.get(dataDir);
+@@ -15,6 +15,8 @@ export function createPgSchemaDb({ schema, ddl, defaultDataDir, ensurePg, withLo
+           // Serialize CREATE TABLE across concurrent first-boot processes on the
+           // same cluster-global advisory lock the adapter uses for schema bootstrap.
+           await withLock(pool, () => db.exec(ddl));
++          // Work a killed process left owed on the schema, done before any caller uses it.
++          if (afterDdl) await afterDdl(db);
+           return db;
+         },
+         {

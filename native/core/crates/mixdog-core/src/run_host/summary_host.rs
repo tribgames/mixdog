@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummarySender};
+use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummarySender, route_failure};
 use mixdog_agent::env::Clock;
 use mixdog_agent::one_shot::OneShot;
 use mixdog_agent::tools::ToolEnv;
@@ -170,12 +170,15 @@ impl SummaryHost for ProcessSummaryHost {
         maintainer_of(&(self.deps.config)())
     }
 
-    /// `await initProviders(config.providers || {})` then `getProvider(provider)`: an init failure
-    /// is the plan's own error; a provider that is not there is not ready.
-    async fn provider_ready(&self, provider: &str) -> Result<bool, SummaryFailure> {
-        let config = (self.deps.config)();
-        let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-        self.deps.registry.init_providers(&providers).await.map_err(|error| SummaryFailure::Failed(error.message))?;
+    /// `await initProviders(config.providers || {})` (when `init`) then `getProvider(provider)`: an
+    /// init failure is the step's own failure, moving to the next route when `fallsToNextRoute`
+    /// says so; a provider that is not there is not ready.
+    async fn provider_ready(&self, provider: &str, init: bool) -> Result<bool, SummaryFailure> {
+        if init {
+            let config = (self.deps.config)();
+            let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
+            self.deps.registry.init_providers(&providers).await.map_err(|error| route_failure(error.message, error.code, None, false))?;
+        }
         Ok(self.deps.registry.try_get(provider).await.map_err(|error| SummaryFailure::Failed(error.message))?.is_some())
     }
 

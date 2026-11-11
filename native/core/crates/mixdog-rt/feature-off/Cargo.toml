@@ -1,0 +1,72 @@
+# mixdog-rt's own sources and tests, built as the product builds the crate: `virtual-clock` off. In the workspace every test
+# build turns that feature on for mixdog-rt (unify-test-features.py), so its tests without it run from here, and nothing
+# else of the workspace is built:
+#   D:\mixdog-build\tools\cargo-gate.ps1 test -p mixdog-rt-feature-off
+# (tests/virtual_clock.rs then runs no test: it needs the feature.)
+[package]
+name = "mixdog-rt-feature-off"
+version.workspace = true
+edition.workspace = true
+publish = false
+build = "../build.rs"
+
+[lib]
+name = "mixdog_rt"
+path = "../src/lib.rs"
+doctest = false
+
+[lints]
+workspace = true
+
+[features]
+default = ["test-support"]
+test-support = []
+virtual-clock = ["tokio/test-util", "dep:chrono"]
+
+[dependencies]
+arc-swap = { workspace = true }
+chrono = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros"] }
+tokio-util = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../../mixdog-workspace-hack" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-rt-feature-off = { path = ".", features = ["test-support"] }
+
+[[test]]
+name = "elastic"
+path = "../tests/elastic.rs"
+
+[[test]]
+name = "executors"
+path = "../tests/executors.rs"
+
+[[test]]
+name = "lane_wedged"
+path = "../tests/lane_wedged.rs"
+
+[[test]]
+name = "submit_wait"
+path = "../tests/submit_wait.rs"
+
+[[test]]
+name = "ticker"
+path = "../tests/ticker.rs"
+
+[[test]]
+name = "time_interval"
+path = "../tests/time_interval.rs"
+
+[[test]]
+name = "virtual_clock"
+path = "../tests/virtual_clock.rs"

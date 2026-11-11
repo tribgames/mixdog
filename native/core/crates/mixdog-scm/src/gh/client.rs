@@ -227,14 +227,20 @@ impl GhRunner for ProcessGh {
         spec.time_limit = Some(RUN_LIMIT);
         spec.max_output = MAX_OUTPUT_BYTES;
         let uncertain = if command.mutation { WRITE_UNCERTAIN } else { "" };
+        let program = spec.program.clone();
         match self.exec.run(spec, cancel).await {
             Ok(output) => Ok(GhOutput {
                 code: output.code,
                 stdout: output.stdout_text(),
                 stderr: output.stderr_text(),
             }),
-            Err(ScmFailure::Unavailable { .. }) => Err(ScmFailure::Unavailable {
+            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::Unavailable {
                 capability: "gh".into(),
+            }),
+            // `runGithubProcess`: a refused start has no stderr, so execFile's message is the text, a write's with its notice.
+            Err(ScmFailure::Spawn { code, .. }) => Err(ScmFailure::Command {
+                domain: GITHUB_DOMAIN,
+                text: format!("{}{uncertain}", bounded(&crate::exec::spawn_message(&program, code))),
             }),
             Err(ScmFailure::TimedOut { .. }) => Err(ScmFailure::Command {
                 domain: GITHUB_DOMAIN,
@@ -253,7 +259,13 @@ pub struct GhClient {
     locks: Arc<RepoLocks>,
     /// One FIFO queue per remote repository, nothing shared between keys.
     writes: mixdog_rt::KeyedGate,
+    /// Told the key of a write the moment it starts waiting behind another write of its repository.
+    #[cfg(feature = "write-queue-hook")]
+    write_queued: Mutex<Option<WriteQueued>>,
 }
+
+#[cfg(feature = "write-queue-hook")]
+type WriteQueued = Arc<dyn Fn(&str) + Send + Sync>;
 
 impl GhClient {
     pub fn new(runner: Arc<dyn GhRunner>, locks: Arc<RepoLocks>) -> Self {
@@ -261,7 +273,36 @@ impl GhClient {
             runner,
             locks,
             writes: mixdog_rt::KeyedGate::new(),
+            #[cfg(feature = "write-queue-hook")]
+            write_queued: Mutex::new(None),
         }
+    }
+
+    /// Development only (`write-queue-hook`): `hook` is told the key of every write that has to wait for another write of its
+    /// repository, once it is queued behind it.
+    #[cfg(feature = "write-queue-hook")]
+    pub fn on_write_queued(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self.write_queued.lock().expect("write queue hook") = Some(Arc::new(hook));
+    }
+
+    /// The write turn of `key`: at once when no other write of the repository holds or waits for it, else in arrival order.
+    async fn write_turn(&self, key: &str, cancel: &CancellationToken) -> Result<mixdog_rt::GateGuard, ScmFailure> {
+        let entering = self.writes.enter(key, cancel);
+        #[cfg(feature = "write-queue-hook")]
+        let entering = {
+            let mut entering = Box::pin(entering);
+            match std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(entering.as_mut(), cx))).await {
+                std::task::Poll::Ready(turn) => return turn.map_err(|_| ScmFailure::Cancelled),
+                std::task::Poll::Pending => {
+                    let hook = self.write_queued.lock().expect("write queue hook").clone();
+                    if let Some(hook) = hook {
+                        hook(key);
+                    }
+                    entering
+                }
+            }
+        };
+        entering.await.map_err(|_| ScmFailure::Cancelled)
     }
 
     /// The raw answer of `gh` with plain arguments: the exit code is the caller's to read.
@@ -293,12 +334,13 @@ impl GhClient {
 
     pub async fn execute(&self, input: &Value, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let mut request = contract::validate(input)?;
+        dispatchable(cancel)?;
         if !crate::input::is_absolute(&cwd.to_string_lossy()) || cwd.to_string_lossy().contains('\0') {
-            return Err(ScmFailure::invalid("cwd", "an absolute project directory"));
+            return Err(contract::type_error("An absolute Project directory is required."));
         }
         let action = request.action();
         if matches!(action, "repo.create" | "repo.clone" | "repo.fork") && request.repo().is_none() {
-            return Err(ScmFailure::invalid("repo", "an explicit owner/name"));
+            return Err(contract::type_error("This action requires an explicit owner/name in repo."));
         }
         let hostname = request.hostname().to_owned();
         if !contract::is_repo_free(action) && request.repo().is_none() {
@@ -335,7 +377,7 @@ impl GhClient {
         let write_key = format!("{hostname}/{}", if repo_name.is_empty() { "@account" } else { &repo_name }).to_lowercase();
         let mutates = request.def.write;
         let _turn = if mutates {
-            Some(self.writes.enter(&write_key, cancel).await.map_err(|_| ScmFailure::Cancelled)?)
+            Some(self.write_turn(&write_key, cancel).await?)
         } else {
             None
         };
@@ -354,6 +396,7 @@ impl GhClient {
             // clone is left in place for recovery, never removed.
             std::fs::create_dir(dest)?;
         }
+        dispatchable(cancel)?;
         let raw = run_text(self.runner.as_ref(), &command, cwd, cancel).await?;
         finish(&request, &command, &repo_name, &hostname, &raw)
     }
@@ -419,9 +462,17 @@ fn finish(
     Ok(response)
 }
 
-/// A clone destination must be an explicit, absolute, new directory.
+/// `executeGithubRequest`'s check before it sends anything: a request whose caller already gave up is not dispatched.
+fn dispatchable(cancel: &CancellationToken) -> Result<(), ScmFailure> {
+    if cancel.is_cancelled() {
+        return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: "GitHub request cancelled before dispatch.".into() });
+    }
+    Ok(())
+}
+
+/// A clone destination must be an explicit, absolute, new directory (`cloneDestination`, client.mjs).
 fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
-    let invalid = || ScmFailure::invalid("destination", "an explicit absolute new directory");
+    let invalid = || contract::type_error("Clone destination must be an explicit absolute new directory.");
     let path = Path::new(value);
     let unsafe_chars = value.contains(['~', '$', '*', '?', '\0', '\r', '\n']);
     let device_prefix = value.starts_with("\\\\?") || value.starts_with("\\\\.");
@@ -430,14 +481,15 @@ fn clone_destination(value: &str) -> Result<PathBuf, ScmFailure> {
     }
     let home = crate::desktop::home_dir();
     if path.parent().is_none() || path_key(path) == path_key(&home) {
-        return Err(ScmFailure::invalid("destination", "a folder that is not a filesystem root or the home directory"));
+        return Err(contract::type_error("Cannot clone into a filesystem root or home directory."));
     }
     match std::fs::symlink_metadata(path) {
         Ok(_) => {
-            return Err(ScmFailure::refused(
-                "DESTINATION_EXISTS",
-                "Clone destination already exists. Choose a new directory; existing files are never removed.",
-            ));
+            return Err(ScmFailure::Refused {
+                domain: crate::error::GIT_DOMAIN,
+                code: "DESTINATION_EXISTS",
+                message: "Clone destination already exists. Choose a new directory; existing files are never removed.".into(),
+            });
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
@@ -456,18 +508,65 @@ mod tests {
         let queue = Arc::new(mixdog_rt::KeyedGate::new());
         let cancel = CancellationToken::new();
         let first = queue.enter("h/a", &cancel).await.unwrap();
-        let other = tokio::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
+        let other = mixdog_rt::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
         assert!(other.is_ok(), "a different repository does not wait");
         let waiting = {
             let queue = queue.clone();
             let cancel = cancel.clone();
             tokio::spawn(async move { queue.enter("h/a", &cancel).await.map(drop) })
         };
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
         assert!(!waiting.is_finished());
         drop(first);
         assert!(waiting.await.unwrap().is_ok());
         assert!(queue.busy_keys() <= 1);
+    }
+
+    /// A process manager whose every start the system refuses for access (libuv's EPERM on Windows, EACCES elsewhere).
+    struct Refused;
+
+    #[async_trait]
+    impl mixdog_core_api::domain::process::ProcessManager for Refused {
+        async fn spawn(&self, _request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::PermissionDenied)
+        }
+        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn resize_pty(&self, _handle: &mixdog_protocol::ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// `runGithubProcess`: a start the system refused rejects with execFile's own message (`spawn <file> <code>`, no stderr), a
+    /// write's followed by the notice that it was not retried.
+    #[tokio::test]
+    async fn a_refused_gh_start_answers_execfiles_message_and_a_writes_notice() {
+        let gh = ProcessGh::with_program(Arc::new(Exec::new(Arc::new(Refused))), "C:\\gh\\gh.exe");
+        let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
+        let cwd = std::env::temp_dir();
+        let cancel = CancellationToken::new();
+        let read = GhCommand::read(vec!["repo".into(), "view".into()], None);
+        let mut write = read.clone();
+        write.mutation = true;
+        let text = |failure: ScmFailure| match failure {
+            ScmFailure::Command { text, .. } => text,
+            other => panic!("not a command failure: {other:?}"),
+        };
+        assert_eq!(text(run_text(&gh, &read, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}"));
+        assert_eq!(text(run_text(&gh, &write, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}{WRITE_UNCERTAIN}"));
     }
 
     #[test]

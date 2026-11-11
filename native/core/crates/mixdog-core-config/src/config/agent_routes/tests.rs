@@ -150,3 +150,19 @@ fn ids_normalise_like_node() {
     assert_eq!(agent_id_key("  Front_Worker x "), "front-worker-x");
     assert_eq!(agent_id_key("a__ b"), "a-b");
 }
+
+/// Mixy's manifest Node saved with a name a phone sent cut inside an emoji
+/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the display name is Node's
+/// `mixyDisplayName()` (the half emoji as U+FFFD), not the default a failed read gives.
+#[tokio::test]
+async fn a_mixy_name_node_saved_with_half_an_emoji_is_the_display_name() {
+    let set = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+    let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
+    let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "mixy-identity").unwrap().clone();
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().to_path_buf();
+    std::fs::create_dir_all(data.join("agents/lead")).unwrap();
+    std::fs::copy(set.join("mixy-identity/before/agents/lead/agent.json"), data.join("agents/lead/agent.json")).unwrap();
+    let name = super::on_lane(mixdog_rt::testing::tokens().interactive_io, move |lane| mixy_display_name(lane, &data)).await.unwrap();
+    assert_eq!(name, case["nodeRead"]["mixyDisplayName"].as_str().unwrap());
+}

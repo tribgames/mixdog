@@ -18,73 +18,9 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
-fn hex_value(b: u8) -> Option<u16> {
-    match b {
-        b'0'..=b'9' => Some(u16::from(b - b'0')),
-        b'a'..=b'f' => Some(u16::from(b - b'a' + 10)),
-        b'A'..=b'F' => Some(u16::from(b - b'A' + 10)),
-        _ => None,
-    }
-}
-
-/// The code unit of a `\uXXXX` escape starting at `at` (the backslash), if well formed.
-fn unit_at(text: &[u8], at: usize) -> Option<u16> {
-    if text.get(at) != Some(&b'\\') || text.get(at + 1) != Some(&b'u') {
-        return None;
-    }
-    let digits = text.get(at + 2..at + 6)?;
-    digits
-        .iter()
-        .try_fold(0u16, |acc, &b| Some(acc * 16 + hex_value(b)?))
-}
-
-/// JSON text with every lone surrogate escape (`\uD800`–`\uDFFF` not forming a pair)
-/// replaced by `\ufffd`, one for one, and the number replaced. Both escapes are six
-/// bytes, so offsets are unchanged. Raw text never holds a surrogate (UTF-8 cannot).
+/// JSON text with every lone surrogate escape replaced by `\ufffd`, and the number replaced.
 pub fn replace_lone_surrogates(text: &[u8]) -> (Cow<'_, [u8]>, u64) {
-    let mut out: Option<Vec<u8>> = None;
-    let mut count = 0u64;
-    let mut in_string = false;
-    let mut i = 0;
-    while i < text.len() {
-        let b = text[i];
-        if !in_string {
-            if b == b'"' {
-                in_string = true;
-            }
-            i += 1;
-            continue;
-        }
-        match b {
-            b'"' => {
-                in_string = false;
-                i += 1;
-            }
-            b'\\' => {
-                let Some(unit) = unit_at(text, i) else {
-                    i += 2;
-                    continue;
-                };
-                if (0xD800..0xDC00).contains(&unit)
-                    && unit_at(text, i + 6).is_some_and(|low| (0xDC00..0xE000).contains(&low))
-                {
-                    i += 12;
-                    continue;
-                }
-                if (0xD800..0xE000).contains(&unit) {
-                    let buf = out.get_or_insert_with(|| text.to_vec());
-                    buf[i..i + 6].copy_from_slice(b"\\ufffd");
-                    count += 1;
-                }
-                i += 6;
-            }
-            _ => i += 1,
-        }
-    }
-    match out {
-        Some(buf) => (Cow::Owned(buf), count),
-        None => (Cow::Borrowed(text), 0),
-    }
+    mixdog_js::json_without_lone_surrogates(text)
 }
 
 /// A parsed old-format JSON document and the lone surrogates replaced on the way.
