@@ -246,9 +246,22 @@ struct Shared {
     /// What runs inside each adoption ([`Config::on_adoption`]), by registration id.
     adoptions: Mutex<Vec<(u64, Adoption)>>,
     next_adoption: AtomicU64,
+    /// Where the app feed's announcements go ([`Config::announce_to`]); none before the composition binds it.
+    announcer: std::sync::OnceLock<Announcer>,
 }
 
 type Adoption = Arc<dyn Fn() + Send + Sync>;
+
+/// Publishes one app-feed notification (`method`, `params`) in order with the sections.
+pub type Announcer = Arc<dyn Fn(&'static str, Value) + Send + Sync>;
+
+/// `ui/settings/changed`: Node's `settings-changed` desktop event.
+pub const SETTINGS_CHANGED: &str = "ui/settings/changed";
+
+/// The top-level keys Node's agent-settings watch did not see: `desktop` has its own owners and scope
+/// (agent-settings-watch.ts:17-18), and the notification preferences were a file of their own
+/// (notification-preferences.ts), announced as `notifications`.
+const NOT_AGENT_KEYS: &[&str] = &["desktop", "notifications"];
 
 /// A registration of [`Config::on_adoption`]; dropping it ends the hook (Node's unsubscribe when its runtime is disposed).
 #[must_use = "the hook ends when the guard is dropped"]
@@ -336,6 +349,7 @@ impl Config {
             changed: tokio::sync::watch::channel(0).0,
             adoptions: Mutex::default(),
             next_adoption: AtomicU64::new(0),
+            announcer: std::sync::OnceLock::new(),
         };
         let current = shared.doc.load();
         for name in PUBLISHED_SUBTREES {
@@ -371,8 +385,22 @@ impl Config {
     /// [`Config::changes`] like an installed document does, so the services that follow the
     /// config have one signal to follow.
     pub(crate) fn announce_change(&self) {
+        // Node's agent-settings watch fingerprinted the secret change tokens too (agent-settings-watch.ts:19).
+        self.shared.settings_changed("agent");
         let generation = self.shared.generation.fetch_add(1, Ordering::Release) + 1;
         self.shared.changed.send_replace(generation);
+    }
+
+    /// Binds the app feed: from now on the settings-changed scopes Node's desktop service announced are published as
+    /// `ui/settings/changed` (see [`Shared::install_announced`]), and [`Config::announce`] reaches every client. A second
+    /// binding is ignored.
+    pub fn announce_to(&self, announcer: Announcer) {
+        let _ = self.shared.announcer.set(announcer);
+    }
+
+    /// One app-feed announcement (`ui/settings/changed`, `ui/providerModels/changed`); nothing before [`Config::announce_to`].
+    pub fn announce(&self, method: &'static str, params: Value) {
+        self.shared.announce(method, params);
     }
 
     /// Counts the documents installed so far; the `revision` of a write reply.
@@ -558,17 +586,27 @@ impl Config {
 
     /// `batch_write`, answering also the named top-level subtrees of the document it saved (those present), read
     /// inside the same locked update.
+    ///
+    /// Once saved, `ui/settings/changed` announces `announce` (the writer's own `notifySettingsChanged`), then `notifications`
+    /// when an edit is in that subtree (Node's notification store announced every persisted change, notification-preferences.ts
+    /// :236-242, written or not), each even when the document did not change; then the `agent` change of the install.
     pub async fn batch_write_saved(
         &self,
         edits: &[ConfigEdit],
         subtrees: &'static [&'static str],
+        announce: Option<&'static str>,
     ) -> Result<(Applied, serde_json::Map<String, Value>), ConfigError> {
         let shared = self.shared.clone();
         let edits = edits.to_vec();
+        let mut announced: Vec<&'static str> = announce.into_iter().collect();
+        if edits.iter().any(|edit| parts_of(&edit.path).first() == Some(&"notifications")) {
+            announced.push("notifications");
+        }
         on_lane(self.lanes.write, move |lane| {
             let applying = shared.clone();
             shared.update_viewed(
                 lane,
+                &announced,
                 move |doc| {
                     for edit in &edits {
                         applying.apply_edit(doc, edit)?;
@@ -627,7 +665,7 @@ impl Shared {
         lane: &InLane<DurabilityIo>,
         change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
     ) -> Result<Applied, ConfigError> {
-        self.update_viewed(lane, change, |_| ()).map(|(applied, ())| applied)
+        self.update_viewed(lane, &[], change, |_| ()).map(|(applied, ())| applied)
     }
 
     /// `update_on`, plus `view` of the document the update left, taken under the same writer lock: Node's
@@ -635,6 +673,7 @@ impl Shared {
     fn update_viewed<T>(
         &self,
         lane: &InLane<DurabilityIo>,
+        announced: &[&'static str],
         change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
         view: impl FnOnce(&Doc) -> T,
     ) -> Result<(Applied, T), ConfigError> {
@@ -660,9 +699,15 @@ impl Shared {
             // The view is of the document that was written, taken while the writer lock is still held.
             Some(next) if next != *current => {
                 let seen = view(&next);
-                Ok((self.install(&mut raised, &current, next), seen))
+                Ok((self.install_announced(&mut raised, &current, next, announced), seen))
             }
-            Some(next) => Ok((Applied::default(), view(&next))),
+            Some(next) => {
+                // Written, unchanged: Node's announcements followed the write, not the change.
+                for scope in announced {
+                    self.settings_changed(scope);
+                }
+                Ok((Applied::default(), view(&next)))
+            }
             None => Ok((Applied::default(), view(&current))),
         }
     }
@@ -681,6 +726,40 @@ impl Shared {
     }
 
     fn install(&self, raised: &mut BTreeSet<String>, current: &Doc, next: Doc) -> Applied {
+        self.install_announced(raised, current, next, &[])
+    }
+
+    /// `install`, then Node's settings-changed announcements of the change, after its sections: `announced` (the
+    /// writer's own, [`Config::batch_write_saved`]), then `agent` when anything outside [`NOT_AGENT_KEYS`] changed (the
+    /// agent-settings watch's pass, which ran after the write, agent-settings-watch.ts:21-25), then `notifications` when that
+    /// subtree changed and the writer did not announce it (a pairing removed, the defaults written).
+    fn install_announced(&self, raised: &mut BTreeSet<String>, current: &Doc, next: Doc, announced: &[&'static str]) -> Applied {
+        let agent = current.keys().chain(next.keys()).any(|key| !NOT_AGENT_KEYS.contains(&key.as_str()) && current.get(key) != next.get(key));
+        let notifications = current.get("notifications") != next.get("notifications") && !announced.contains(&"notifications");
+        let applied = self.install_document(raised, current, next);
+        for scope in announced {
+            self.settings_changed(scope);
+        }
+        if agent {
+            self.settings_changed("agent");
+        }
+        if notifications {
+            self.settings_changed("notifications");
+        }
+        applied
+    }
+
+    fn announce(&self, method: &'static str, params: Value) {
+        if let Some(announcer) = self.announcer.get() {
+            announcer(method, params);
+        }
+    }
+
+    fn settings_changed(&self, scope: &str) {
+        self.announce(SETTINGS_CHANGED, serde_json::json!({ "scope": scope }));
+    }
+
+    fn install_document(&self, raised: &mut BTreeSet<String>, current: &Doc, next: Doc) -> Applied {
         let warnings = warnings_of(&next);
         let now: BTreeSet<String> = warnings.iter().map(|w| w.path.clone()).collect();
         let fresh = warnings

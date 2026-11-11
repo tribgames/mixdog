@@ -1,0 +1,219 @@
+{
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <b6f10295a with the patch> --patch benchmarks/rust-core/recorders/node-patches/node-fix-unpair-keeps-stream.patch",
+  "exact": true,
+  "excluded": [
+    {
+      "what": "the relay's calls into the window process: `forward` (remote-relay.ts:383-399, the window's `webrtcSignal`), `viewerLeft` (:400-401, `webrtcViewerLeft`), `screenAuthorized`, `screenDisplays`, `resolveIceServers`, and the screen-access publisher's `send` (the window's `screenAccess`)",
+      "why": "scripted here (`forward`/`viewerLeft`/`send` resolve, no screen access, no displays, no ICE servers): in the core that window is the live view's own host (live_view.rs `LiveHost`), with no boundary to compare; its signals are recorded where they leave the relay (`browserRemoteWebrtc` pushes)"
+    },
+    {
+      "what": "the relay-client call dispatch's other methods and its host/method table (`host: {}`, `methods: {}`, `browserTabs`)",
+      "why": "only the live-view calls (`browserRemoteStream`, `browserRemoteStreamAck`) are driven; nothing else is called"
+    },
+    {
+      "what": "a push to a phone no longer in the relay client registry",
+      "why": "not recorded, as `sendEncryptedFrame` delivers none (remote-relay-delivery.ts:90-93): the phone receives nothing"
+    }
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 242924,
+      "path": "streams.json",
+      "sha256": "2cb8992a5aee815f0d5a6e2e174aaa35ca015fa66a1c3a67755994cd738796f2"
+    }
+  ],
+  "inputs": {
+    "clients": [
+      "phone_A",
+      "phone_B",
+      "phone_C"
+    ],
+    "clockStart": 1924992000000,
+    "file": "streams.json",
+    "scenarios": [
+      {
+        "name": "the options and the session id are checked as Node checks them",
+        "steps": 30
+      },
+      {
+        "name": "a subscription lapses 4 s after its last renewal",
+        "steps": 19
+      },
+      {
+        "name": "the largest options of the subscribers go to the desktop as they come and go",
+        "steps": 15
+      },
+      {
+        "name": "a take-over is fitted once and shown no picture until its fitted one",
+        "steps": 23
+      },
+      {
+        "name": "one frame in flight: the newest goes next, after its ack",
+        "steps": 18
+      },
+      {
+        "name": "a frame not acknowledged goes again after 1.5 s",
+        "steps": 15
+      },
+      {
+        "name": "a subscriber joining mid-stream gets the newest frame",
+        "steps": 12
+      },
+      {
+        "name": "the view goes to WebRTC and comes back",
+        "steps": 29
+      },
+      {
+        "name": "a demote or a close gives the phone the frame withheld while WebRTC owned the view",
+        "steps": 18
+      },
+      {
+        "name": "a phone that left is dropped at the next frame or its lapse",
+        "steps": 11
+      },
+      {
+        "name": "a phone that left with a frame in flight is sent nothing more",
+        "steps": 10
+      },
+      {
+        "name": "an unpaired phone is dropped at once, its frame in flight and its resend with it",
+        "steps": 12
+      },
+      {
+        "name": "an unpaired phone that alone streams a session stops the desktop view",
+        "steps": 7
+      },
+      {
+        "name": "an unpaired device whose connections stay open is refused and sent nothing",
+        "steps": 19
+      },
+      {
+        "name": "an unpair while a frame and a signal for the phone are encrypted: neither is written",
+        "steps": 7
+      },
+      {
+        "name": "a missed drop: an unpaired phone still subscribed is sent no frame and no resend",
+        "steps": 14
+      },
+      {
+        "name": "the relay closing ends every subscription and every resend",
+        "steps": 11
+      },
+      {
+        "name": "a stale ack after a resend is ignored",
+        "steps": 10
+      },
+      {
+        "name": "a resend pending when the phone unsubscribes is not sent",
+        "steps": 7
+      },
+      {
+        "name": "a phone joining during a pending resend gets the newest frame at once",
+        "steps": 10
+      },
+      {
+        "name": "a fit that failed, then a renewal: the take-over watches unfitted",
+        "steps": 13
+      },
+      {
+        "name": "gate: a lapse, then a fresh subscribe",
+        "steps": 3
+      },
+      {
+        "name": "gate: a resend, then an unsubscribe",
+        "steps": 5
+      },
+      {
+        "name": "gate: an ack, then a newer frame resent",
+        "steps": 6
+      },
+      {
+        "name": "gate: a resend, then a phone joins",
+        "steps": 5
+      },
+      {
+        "name": "gate: a fit failure, then a renewal",
+        "steps": 3
+      },
+      {
+        "name": "gate: a lapse, then a promote-ack",
+        "steps": 7
+      },
+      {
+        "name": "a settled metadata frame over a settled picture ends a take-over wait",
+        "steps": 12
+      }
+    ],
+    "sessions": [
+      "sess_1",
+      "sess_2"
+    ]
+  },
+  "inventory": {
+    "exclusions": 3,
+    "gates": 6,
+    "scenarios": 28,
+    "sequential": 22,
+    "statement": "28 scenarios: 22 sequential and 6 gates (each gate a pair the core forces into its losing interleaving, recorded as the one order Node's single thread runs); 3 documented exclusions, listed under `excluded`."
+  },
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "316fad0bb5ac105adeeb3b1266d71eacfe79cbbab1e2f210d4ce5ea7cd9540d2",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-unpair-keeps-stream.patch",
+      "paths": [
+        "apps/desktop/src/main/remote-browser-streams.test.mjs",
+        "apps/desktop/src/main/remote-browser-streams.ts",
+        "apps/desktop/src/main/remote-relay-clients.ts",
+        "apps/desktop/src/main/remote-relay-delivery.ts",
+        "apps/desktop/src/main/remote-relay.ts",
+        "apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs",
+        "apps/desktop/src/main/remote-screen/screen-access-publisher.ts",
+        "apps/desktop/src/main/remote-transport/coordinator.test.mjs",
+        "apps/desktop/src/main/remote-transport/coordinator.ts",
+        "apps/desktop/src/shared/remote-e2ee.ts"
+      ],
+      "sha256": "0b4a4e33ad75de9945a34bbd29a03ab00e48116c611e8811fb0873e2834ff362"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 10
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "productCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "recorder": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
+      "sha256": "6f2828aab44282570ee08e5962e4df7b283e3bca29621a5f7f4e2056fd343746"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ts-register.mjs",
+      "sha256": "065ba6e7ea82d1d6dffe0903454d63df7569c656ceeb025875d945f96b58c276"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ts-resolve-hooks.mjs",
+      "sha256": "d8e596c1bcd597ee71ad7007dcd2362605a2ca5d87a77801cba8b3cdc2c22ac6"
+    }
+  ],
+  "recorderSha256": "6f2828aab44282570ee08e5962e4df7b283e3bca29621a5f7f4e2056fd343746",
+  "replayProjections": [],
+  "set": "browser-streams",
+  "totalBytes": 242924
+}

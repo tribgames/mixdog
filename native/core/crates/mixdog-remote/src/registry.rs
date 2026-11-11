@@ -59,10 +59,11 @@ struct Screen {
     background: bool,
 }
 
-/// One `ui/screenSessions/changed` of a bridged phone. `visualize` and `foreground` are optional
-/// on the wire: a report without them leaves the last stated value.
+/// One `ui/screenSessions/changed` of a bridged phone. `sessions`, `visualize` and `foreground` are
+/// optional on the wire (Node's `setScreenSessions`, `setVisualizePanels` and `setForeground` were
+/// separate calls): a report without one leaves the last stated value.
 pub struct ScreenReport<'a> {
-    pub sessions: HashSet<String>,
+    pub sessions: Option<HashSet<String>>,
     pub browser_id: Option<&'a str>,
     /// The sessions whose visualize panel the page has on screen.
     pub visualize: Option<&'a [String]>,
@@ -106,6 +107,11 @@ struct TransportLeg {
 
 pub struct DeviceRegistry {
     inner: Mutex<Inner>,
+    /// Orders the live view's writes to a phone against the end of its screen access: a write holds it from its check through the
+    /// entry of its bytes into the phone's stream ([`write_view`](Self::write_view)), and [`revoke_screen`](Self::revoke_screen)
+    /// takes it, so a write either entered before the revocation or is refused. Taken before `inner`, and a writer takes nothing
+    /// under it that a holder of the runtime's state, a transport session or `inner` waits on it with.
+    view_writes: Mutex<()>,
     /// Counts every change of who is attached or what is shown, written after the change is in
     /// place: what a caller waits on instead of polling [`describe`](Self::describe) and friends.
     changes: tokio::sync::watch::Sender<u64>,
@@ -122,7 +128,7 @@ impl Default for DeviceRegistry {
 
 impl DeviceRegistry {
     pub fn with_clock(clock: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        Self { inner: Mutex::default(), changes: tokio::sync::watch::Sender::new(0), clock }
+        Self { inner: Mutex::default(), view_writes: Mutex::default(), changes: tokio::sync::watch::Sender::new(0), clock }
     }
 
     /// The peer's leg is a transport session: it shows nothing until it shows liveness.
@@ -183,7 +189,23 @@ impl DeviceRegistry {
 
     /// The peer's screen access ends for its lifetime; it stays attached under its credential.
     pub fn revoke_screen(&self, peer_id: &str) {
+        let _writes = self.view_writes.lock().unwrap_or_else(PoisonError::into_inner);
         self.inner().screen_revoked.insert(peer_id.to_owned());
+    }
+
+    /// One write of the live view (a browser frame, a WebRTC signal) to the peer: `write` runs, and puts the bytes into the phone's
+    /// stream, only while the peer is attached and may still view (the patched Node's `mayWrite`, asked at the write), in one step
+    /// with [`revoke_screen`](Self::revoke_screen). False when it was refused.
+    pub fn write_view(&self, peer_id: &str, write: &mut dyn FnMut()) -> bool {
+        let _writes = self.view_writes.lock().unwrap_or_else(PoisonError::into_inner);
+        let allowed = {
+            let inner = self.inner();
+            inner.peers.contains_key(peer_id) && !inner.screen_revoked.contains(peer_id)
+        };
+        if allowed {
+            write();
+        }
+        allowed
     }
 
     /// Whether the relay peer behind `connection` is revoked for the screen.
@@ -192,17 +214,35 @@ impl DeviceRegistry {
         matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.screen_revoked.contains(peer_id))
     }
 
-    /// Every connection of the paired credential still attached.
+    /// Whether `connection` is a relay connection whose peer is attached (past its handshake, not yet closed by the relay).
+    pub fn peer_attached(&self, connection: u64) -> bool {
+        let inner = self.inner();
+        matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id))
+    }
+
+    /// The relay client id behind `connection` while its peer is attached.
+    pub fn attached_peer(&self, connection: u64) -> Option<String> {
+        let inner = self.inner();
+        match inner.connections.get(&connection) {
+            Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id) => Some(peer_id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Every connection of the paired credential still attached, in the order they were opened (Node's client registry is a `Map`
+    /// iterated in admission order, and an unpair ends their browser streams in that order).
     pub fn connections_of(&self, credential: &str) -> Vec<u64> {
         let inner = self.inner();
-        inner
+        let mut ids: Vec<u64> = inner
             .connections
             .iter()
             .filter_map(|(id, link)| match link {
                 Link::Relay { peer_id, .. } if !credential.is_empty() && inner.peers.get(peer_id).is_some_and(|d| d.credential == credential) => Some(*id),
                 _ => None,
             })
-            .collect()
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     /// `client-close`, a revoke or the loss of the leg.
@@ -248,7 +288,9 @@ impl DeviceRegistry {
         {
             let mut inner = self.inner();
             let Some(Link::Relay { screen, .. }) = inner.connections.get_mut(&connection) else { return false };
-            screen.sessions = report.sessions;
+            if let Some(sessions) = report.sessions {
+                screen.sessions = sessions.into_iter().filter(|id| is_session_id(id)).collect();
+            }
             if let Some(id) = report.browser_id {
                 screen.browser_id = slice_utf16(id, BROWSER_ID_MAX);
             }
@@ -303,8 +345,10 @@ impl DeviceRegistry {
     fn shown_by(&self, which: impl Fn(&Described, &Screen) -> bool, thread_id: &str) -> bool {
         let inner = self.inner();
         inner.connections.values().any(|link| match link {
+            // Node's `legShowsSession` / `legacyLegShows`: a leg reported hidden shows nothing, whatever set it painted last.
             Link::Relay { peer_id, screen } => {
-                screen.sessions.contains(thread_id)
+                !screen.background
+                    && screen.sessions.contains(thread_id)
                     && self.leg_shows(&inner, peer_id)
                     && inner.peers.get(peer_id).is_some_and(|described| which(described, screen))
             }

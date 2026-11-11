@@ -158,6 +158,10 @@ impl ProviderReadiness {
         catalog.bind_revision(move || revision.catalog_revision());
         let providers = registry.clone();
         catalog.bind_providers(Arc::new(move |name| providers.route_provider(name)));
+        let registered = registry.clone();
+        catalog.bind_registered(move || {
+            registered.all().into_iter().map(|(name, adapter)| (ProviderId::from(name.as_str()), adapter)).collect()
+        });
         Arc::new(Self {
             registry,
             catalog,
@@ -199,9 +203,11 @@ impl ProviderReadiness {
         }
         self.arm_next_refresh(refreshes);
         refreshes.next_id += 1;
+        // The providers registered now, read in the step that starts the refresh (registry.mjs:708).
+        let sources = self.catalog.sources();
         let (catalog, registry) = (self.catalog.clone(), self.registry.clone());
         let task = mixdog_rt::spawn("catalog.startup-refresh", mixdog_rt::TaskClass::Work, async move {
-            for (provider, error) in catalog.refresh_providers().await.failed {
+            for (provider, error) in catalog.refresh_providers(&sources).await.failed {
                 mixdog_rt::node_stderr!("[provider:{}] startup catalog refresh failed: {}", provider.as_str(), error.message);
             }
             registry.bump_catalog_revision();
@@ -250,9 +256,11 @@ impl ProviderReadiness {
             return full.clone();
         }
         self.arm_next_refresh(refreshes);
+        // The providers registered now, read in the step that starts the refresh (registry.mjs:762).
+        let sources = self.catalog.sources();
         let this = self.clone();
         let task = mixdog_rt::spawn("catalog.full-refresh", mixdog_rt::TaskClass::Work, async move {
-            for (provider, error) in this.catalog.refresh().await.failed {
+            for (provider, error) in this.catalog.refresh_of(sources).await.failed {
                 mixdog_rt::node_stderr!("[provider:{}] catalog refresh failed: {}", provider.as_str(), error.message);
             }
             this.registry.bump_catalog_revision();
@@ -404,16 +412,7 @@ impl ProviderReadiness {
                 return Err(closing());
             }
             if generation == current {
-                let result = self.registry.init_providers(&providers).await;
-                // Node's catalog load walks the registered providers (`sharedProviderCatalog(reg())`).
-                self.catalog.set_sources(
-                    self.registry
-                        .all()
-                        .into_iter()
-                        .filter_map(|(name, adapter)| self.catalog.model_source(ProviderId::from(name.as_str()), adapter))
-                        .collect(),
-                );
-                return result;
+                return self.registry.init_providers(&providers).await;
             }
             // Superseded: the latest config wins, with the providers this request turned on.
             for name in forced {

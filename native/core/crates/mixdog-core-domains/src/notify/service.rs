@@ -27,12 +27,17 @@ use mixdog_core_base::support::wrong_method;
 const PC_DEVICE: &str = "pc";
 const SHOW: Method = Method("host/notification/show");
 const NO_RELAY: &str = "This PC is not connected to the relay, so paired devices cannot be reached.";
+const NOT_PAIRED: &str = "That device is not paired with this PC.";
+const NO_WINDOW: &str = "The Mixdog window on this PC did not answer.";
 
 /// Who is listening right now: the attached hosts, the paired devices and their preferences.
 #[async_trait]
 pub trait AudienceSource: Send + Sync {
     /// The audience of a notification about `thread_id` (a device that shows it is foreground).
     async fn audience(&self, thread_id: &str) -> Audience;
+    /// `notify/state`: `{supported, notifications}`, whether this PC shows notifications and the stored notification document
+    /// after every listed device's default was written.
+    async fn settings(&self) -> Value;
 }
 
 /// The relay push of one planned request. `Err` is the sentence shown to the user.
@@ -89,14 +94,22 @@ impl NotifyService {
             Some(PC_DEVICE) => TestTarget::Desktop,
             Some(id) => TestTarget::Device(id.to_owned()),
         };
-        if matches!(target, TestTarget::Device(_)) && !self.push.connected() {
-            return json!({ "ok": false, "message": NO_RELAY });
+        let audience = self.audience.audience("").await;
+        // Node's order (notification-center.ts:122-130): a device that is not paired first, then the relay.
+        if let TestTarget::Device(id) = &target {
+            if !audience.devices.iter().any(|device| device.device_id == *id) {
+                return json!({ "ok": false, "message": NOT_PAIRED });
+            }
+            if !self.push.connected() {
+                return json!({ "ok": false, "message": NO_RELAY });
+            }
         }
-        let plan = self.engine.test(&target, &self.audience.audience("").await);
+        let plan = self.engine.test(&target, &audience);
         if plan.toasts.is_empty() && plan.pushes.is_empty() {
             let message = match target {
-                TestTarget::Desktop => "No desktop is attached to show a notification.",
-                _ => "That device is not paired.",
+                // Node asked the window, which did not answer (desktop-service.ts:869-872).
+                TestTarget::Desktop => NO_WINDOW,
+                _ => NOT_PAIRED,
             };
             return json!({ "ok": false, "message": message });
         }
@@ -107,6 +120,9 @@ impl NotifyService {
 #[async_trait]
 impl DomainService for NotifyService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        if req.method.as_str() == "notify/state" {
+            return Ok(Reply::Value(self.audience.settings().await));
+        }
         if req.method.as_str() != "notify/test" {
             return Err(wrong_method("notify", req.method.as_str()));
         }
@@ -128,7 +144,7 @@ impl DomainService for NotifyService {
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &["notify/test"]
+        &["notify/test", "notify/state"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

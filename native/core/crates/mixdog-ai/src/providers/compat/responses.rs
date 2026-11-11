@@ -275,7 +275,9 @@ impl CompatResponsesCodec {
             Some("" | "none" | "auto") | None => None,
             Some(name) => Some(json!({"type": "function", "name": name})),
         };
-        let allowed = self.profile.chat.tool_choice != ToolChoiceSupport::NoneOnly;
+        // xAI's Responses send applies `applyCompatToolChoice(params, opts)` with no wire context
+        // (openai-compat-xai-send.mjs:58): only `none` reaches its body, whatever the chat dialect forces.
+        let allowed = self.profile.chat.tool_choice != ToolChoiceSupport::NoneOnly && self.profile.responses != ResponsesShape::Xai;
         let Some(forced) = forced.filter(|_| allowed) else {
             return body;
         };
@@ -296,11 +298,14 @@ impl CompatResponsesCodec {
         out
     }
 
-    fn headers(&self) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest) -> Vec<(String, String)> {
         let mut headers: Vec<(String, String)> = Vec::new();
         if !self.is_socket() {
             headers.push(("content-type".into(), "application/json".into()));
-            headers.push(("accept".into(), "text/event-stream".into()));
+            // The OpenAI SDK's `accept` (`application/json`); Muse Code asks for the stream by name
+            // (`muse-code-oauth.mjs` `send`: `Accept: text/event-stream`).
+            let accept = if self.profile.responses == ResponsesShape::Muse { "text/event-stream" } else { "application/json" };
+            headers.push(("accept".into(), accept.into()));
         }
         headers.extend(
             self.profile
@@ -309,6 +314,7 @@ impl CompatResponsesCodec {
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
         );
         headers.extend(self.config.extra_headers.iter().cloned());
+        headers.extend(super::session_header(&self.profile, request));
         headers
     }
 
@@ -378,7 +384,7 @@ impl WireCodec for CompatResponsesCodec {
             transport: self.transport,
             method: method.into(),
             url,
-            headers: self.headers(),
+            headers: self.headers(request),
             // A JSON object always serializes.
             body: serde_json::to_vec(&body).unwrap_or_default(),
         })

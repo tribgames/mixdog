@@ -66,6 +66,9 @@ pub struct AnthropicConfig {
     /// The API-key route's `disableBetaHeaders`: no first-party-only request
     /// features, no server-side fallback, no mid-conversation effort updates.
     pub disable_beta_headers: bool,
+    /// A user-defined (`custom-*`) endpoint: no first-party base betas, only those its request body needs
+    /// (`requestBetasFor` `base: ''`).
+    pub custom_endpoint: bool,
     /// The provider's configured `extraHeaders`, sent on the API-key route's
     /// messages and listing requests. They replace a default header of the
     /// same name (`anthropic-version`, `x-api-key`), except `anthropic-beta`
@@ -105,6 +108,7 @@ impl AnthropicConfig {
             max_output_tokens: None,
             cli_version: DEFAULT_CLI_VERSION.to_owned(),
             disable_beta_headers: false,
+            custom_endpoint: false,
             extra_headers: Vec::new(),
             listing: ListingLookup::new(),
             fast_mode: Arc::clone(fast_mode::process()),
@@ -178,12 +182,43 @@ impl WireCodec for AnthropicCodec {
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
         let known = body_tool_names(self, request, ToolNames::Named);
-        Box::new(AnthropicDecoder::new(self.owner.clone()).with_known_tools(known))
+        Box::new(AnthropicDecoder::for_model(self.owner.clone(), &request.model).with_known_tools(known))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify_response(response)
+        let mut error = classify_response(response);
+        // The API-key engine posts through the Anthropic SDK, whose error names the refusal its own way.
+        if self.flavor == Flavor::ApiKey {
+            error.message = super::errors::sdk_message(response);
+        }
+        error
     }
+}
+
+/// The Messages body of Claude on Vertex AI (`_sendClaude`, vertex-ai.mjs:449-466): the request as the API-key route
+/// builds it for the provider `vertex-ai` with beta headers off (no fast mode, no server-side fallback), and whether the
+/// body defers a tool (the one request feature whose beta Vertex takes under its own name). `model` is the Vertex model
+/// id, which the catalog is asked about.
+pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest, model: &str) -> Result<(serde_json::Map<String, Value>, bool), ProviderError> {
+    let mut sent = request.clone();
+    model.clone_into(&mut sent.model);
+    sent.options.fast = false;
+    let caps = caps(model);
+    let cfg = BodyConfig {
+        flavor: Flavor::ApiKey,
+        provider_name: "vertex-ai",
+        owner: &ProviderId::from("anthropic"),
+        caps: caps.as_ref(),
+        cache: CacheStrategy::default(),
+        max_output_tokens: None,
+        first_party: false,
+        official_url: false,
+        beta_headers: false,
+        fast_mode: fast_mode::process(),
+    };
+    let built = build_body(&cfg, &sent)?;
+    let body = serde_json::from_slice(&built.bytes).expect("a built body is a JSON object");
+    Ok((body, built.betas.tool_search))
 }
 
 /// The wire request with its body and beta names replaced by a thread plan's.
@@ -266,7 +301,11 @@ impl AnthropicCodec {
             fast_mode: &self.config.fast_mode,
         };
         let built = build_body(&cfg, request)?;
-        let beta = beta_header(self.flavor, built.betas);
+        let beta = if self.config.custom_endpoint {
+            super::betas::custom_beta_header(built.betas)
+        } else {
+            beta_header(self.flavor, built.betas)
+        };
         let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
         // The API-key route with beta headers off sends none; the OAuth route
         // always does.
@@ -285,6 +324,8 @@ impl AnthropicCodec {
         let content_type = if self.flavor == Flavor::OAuth { "Content-Type" } else { "content-type" };
         headers.push((content_type.to_owned(), "application/json".to_owned()));
         if self.flavor == Flavor::ApiKey {
+            // The Anthropic SDK client Node sends this route through asks for JSON (fixtures/provider-wire/hosted-search/anthropic).
+            headers.push(("accept".to_owned(), "application/json".to_owned()));
             layer_extra_headers(&mut headers, &self.config.extra_headers);
         }
         Ok(Plain {

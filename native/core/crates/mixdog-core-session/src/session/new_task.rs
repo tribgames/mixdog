@@ -61,6 +61,7 @@ pub struct NewTaskReceipts {
     closing: CancellationToken,
     /// A read hold per running attempt, shared by each receipt write it began; `shutdown` takes the write hold, so it returns
     /// once every attempt has ended and every write that began has ended whole.
+    #[allow(clippy::disallowed_types, reason = "a read hold is kept across an attempt's awaits and shutdown waits for the write hold")]
     alive: Arc<tokio::sync::RwLock<()>>,
     /// Told each time a request joins an attempt in flight.
     #[cfg(test)]
@@ -72,6 +73,7 @@ pub struct NewTaskReceipts {
     #[cfg(test)]
     pub(super) stall: Mutex<Option<Arc<WriteStall>>>,
     /// The identity of the folder as it was secured (`securedFolders`); held while it is secured, so a second request joins.
+    #[allow(clippy::disallowed_types, reason = "held across the awaited securing of the folder, so a second request waits for the first")]
     secured: tokio::sync::Mutex<Option<String>>,
     /// Every receipt written, as `phase` (`+refused` when marked) and whether it was flushed before being reported.
     #[cfg(test)]
@@ -285,6 +287,7 @@ impl NewTaskReceipts {
             attempts: watch::Sender::new(0),
             #[cfg(test)]
             stall: Mutex::default(),
+            #[allow(clippy::disallowed_types, reason = "see the field")]
             secured: tokio::sync::Mutex::new(None),
             #[cfg(test)]
             writes: Mutex::default(),
@@ -536,7 +539,7 @@ pub fn starts_new_task(params: &Value) -> bool {
 pub fn signed_request(params: &Value) -> (String, Value) {
     let input = params.get("initialInput");
     let mut options = input.and_then(|input| input.get("options")).and_then(Value::as_object).cloned().unwrap_or_default();
-    let supplied = options.remove("clientSubmissionId");
+    let supplied = options.shift_remove("clientSubmissionId");
     let id = supplied
         .as_ref()
         .and_then(Value::as_str)
@@ -544,7 +547,7 @@ pub fn signed_request(params: &Value) -> (String, Value) {
         .filter(|id| !id.is_empty())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     options.insert("id".into(), Value::String(id.clone()));
-    options.remove("submittedAt");
+    options.shift_remove("submittedAt");
     let mut draft = params.get("draft").cloned().unwrap_or_else(|| Value::Object(Default::default()));
     if let Some(draft) = draft.as_object_mut()
         && draft.get("worktree").is_some_and(truthy)
