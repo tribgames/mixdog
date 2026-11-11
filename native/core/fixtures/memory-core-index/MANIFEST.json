@@ -1,6 +1,5 @@
 {
   "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-index.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
-  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "PostgreSQL (SQLite stand-in of the test file); the real editCoreImpl/deleteCoreImpl (the test file's stand-ins write the SQLite table and are recorded by call)",
     "runs": "syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall(\"memory\") (memory-action-handlers.mjs)"
@@ -9,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 109169,
+      "bytes": 109513,
       "path": "golden.json",
-      "sha256": "4f5017895879dec48694b759a20084dff4a362eeff3e016f10145b377ef7de4d"
+      "sha256": "c15e2d954650c24296b76da89fe3955d95cba144d3e6ce1f5d71cf5f93f536c0"
     }
   ],
   "inputs": [
@@ -20,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -50,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-core-index.mjs",
-  "recorderSha256": "0283f4ad2a2d00d18930c4412b6b21bb4b1d0a0d0651b04f0a3e6f3c856c5cb6",
-  "replay": "mixdog-services memory: mem/core/index.rs sync/resolve, mem/core/list.rs list/format, mem/core/action.rs + store.rs edit/delete via the memory tool; compares every result (index maps, revisions, entries, formatted text, tool content + isError), the ordered statements and the tables after each step",
+  "recorderSha256": "dde3b7686ccf9d24f34553b3a4b2e90f18254e07b1e6c70f0e36958f896ea6dc",
+  "replay": "mixdog-services memory/core/index.rs: pub async fn sync (:38) and resolve (:115); memory/core/list.rs: pub async fn list (:65) and pub fn format (:144); memory/core/action.rs: pub async fn run (:119, the public mutations). The TUI parser round trip (`roundTrip`): Rust proves the same property by reading its own formatted text with whatever reads it there (the structured list result is the source) and comparing id, project, summary and index revision per entry. A replay compares results, statements in order and the meta/core_entries tables after each step",
   "set": "memory-core-index",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 109169,
-  "uuidsNormalised": "golden.json: 18 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)"
+  "totalBytes": 109513,
+  "uuidsNormalised": "golden.json: 18 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

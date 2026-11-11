@@ -12,7 +12,8 @@
         {
           "label": "first sync",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
@@ -196,7 +197,8 @@
         {
           "label": "sync again returns the same indices",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
@@ -371,9 +373,10 @@
         {
           "label": "resolve beta 1 with alpha's revision",
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "memory indices changed; list memories again before editing or deleting",
-            "code": null
+            "props": {}
           },
           "statements": [
             {
@@ -447,9 +450,10 @@
         {
           "label": "resolve alpha 1 without a revision",
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "index_revision required; list memories before editing or deleting",
-            "code": null
+            "props": {}
           },
           "statements": [],
           "tables": {
@@ -506,7 +510,8 @@
         {
           "label": "after deleting alpha 150: sync (compaction)",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
@@ -663,9 +668,10 @@
         {
           "label": "resolve alpha 1 with the old revision",
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "memory indices changed; list memories again before editing or deleting",
-            "code": null
+            "props": {}
           },
           "statements": [
             {
@@ -795,7 +801,8 @@
         {
           "label": "after adding alpha 201: sync",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
@@ -943,7 +950,8 @@
         {
           "label": "after moving common 81 to alpha: sync (append on move)",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
@@ -1073,9 +1081,10 @@
         {
           "label": "resolve common 1 with the old common revision",
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "memory indices changed; list memories again before editing or deleting",
-            "code": null
+            "props": {}
           },
           "statements": [
             {
@@ -1149,7 +1158,8 @@
         {
           "label": "after adding common 202: sync",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
@@ -1290,7 +1300,8 @@
         {
           "label": "after archiving alpha 170: sync",
           "result": {
-            "$map": [
+            "$exact": "map",
+            "entries": [
               [
                 "\"alpha\"",
                 {
