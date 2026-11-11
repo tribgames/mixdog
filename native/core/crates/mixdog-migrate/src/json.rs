@@ -105,31 +105,66 @@ pub fn parse_source(text: &[u8]) -> Result<Parsed, String> {
 
 /// Whether the top-level object of `text` names one key twice (`hasUniqueTopLevelKeys`,
 /// `lifecycle-scan.mjs`): a parse keeps the last copy, where 1.4.5 found the record unreadable.
+/// Keys compare as JSON decodes them, in UTF-16 code units before any surrogate substitution:
+/// `"a"` and `"\u0061"` are one key, `"\ud800"` and `"\ud801"` two.
 pub fn repeats_a_top_level_key(text: &[u8]) -> bool {
-    struct Repeats(bool);
-    impl<'de> serde::Deserialize<'de> for Repeats {
-        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            struct Keys;
-            impl<'de> serde::de::Visitor<'de> for Keys {
-                type Value = Repeats;
-                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    f.write_str("an object")
+    let (fixed, _) = replace_lone_surrogates(text);
+    if !serde_json::from_slice::<Value>(&fixed).is_ok_and(|v| v.is_object()) {
+        return false;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let (mut depth, mut i) = (0usize, 0usize);
+    while i < text.len() {
+        match text[i] {
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            b'"' => {
+                let start = i + 1;
+                i = start;
+                while text[i] != b'"' {
+                    i += if text[i] == b'\\' { 2 } else { 1 };
                 }
-                fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Repeats, A::Error> {
-                    let mut seen = std::collections::HashSet::new();
-                    let mut repeated = false;
-                    while let Some(key) = map.next_key::<String>()? {
-                        map.next_value::<serde::de::IgnoredAny>()?;
-                        repeated |= !seen.insert(key);
-                    }
-                    Ok(Repeats(repeated))
+                let raw = &text[start..i];
+                let next = text[i + 1..].iter().find(|b| !b.is_ascii_whitespace());
+                if depth == 1 && next == Some(&b':') && !seen.insert(utf16_key(raw)) {
+                    return true;
                 }
             }
-            deserializer.deserialize_map(Keys)
+            _ => {}
         }
+        i += 1;
     }
-    let (fixed, _) = replace_lone_surrogates(text);
-    serde_json::from_slice::<Repeats>(&fixed).is_ok_and(|r| r.0)
+    false
+}
+
+/// A JSON string body decoded to UTF-16 code units, as `JSON.parse` keeps it.
+fn utf16_key(raw: &[u8]) -> Vec<u16> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        let run = raw[i..].iter().position(|&b| b == b'\\').map_or(raw.len(), |p| i + p);
+        out.extend(String::from_utf8_lossy(&raw[i..run]).encode_utf16());
+        if run == raw.len() {
+            break;
+        }
+        let unit = match raw[run + 1] {
+            b'u' => {
+                let hex = std::str::from_utf8(&raw[run + 2..run + 6]).unwrap_or("0");
+                i = run + 6;
+                out.push(u16::from_str_radix(hex, 16).unwrap_or(0));
+                continue;
+            }
+            b'b' => 0x08,
+            b'f' => 0x0c,
+            b'n' => 0x0a,
+            b'r' => 0x0d,
+            b't' => 0x09,
+            other => u16::from(other),
+        };
+        out.push(unit);
+        i = run + 2;
+    }
+    out
 }
 
 /// `value` with every object's keys in sorted order, whatever map type serde_json uses.
@@ -183,6 +218,16 @@ pub use mixdog_protocol::message_class::js::truthy as js_truthy;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Keys compare as 1.4.5's `JSON.parse` decodes them: escaped equivalents repeat, two
+    /// distinct lone surrogates do not, and a repeat below the top level passes.
+    #[test]
+    fn top_level_keys_compare_as_decoded_utf16() {
+        assert!(repeats_a_top_level_key(br#"{"id":"s","a":1,"\u0061":2}"#));
+        assert!(!repeats_a_top_level_key(br#"{"id":"sess_dup","messages":[],"\ud800":1,"\ud801":2}"#));
+        assert!(repeats_a_top_level_key(br#"{"\ud800":1, "\uD800" :2}"#));
+        assert!(!repeats_a_top_level_key(br#"{"id":"s","m":{"a":1,"a":2},"k":"a\":"}"#));
+    }
 
     #[test]
     fn lone_surrogates_become_replacement_characters() {
