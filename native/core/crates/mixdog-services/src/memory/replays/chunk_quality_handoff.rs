@@ -66,7 +66,7 @@ fn answer(indexes: &str, summary: Option<&str>) -> String {
 }
 
 /// A recorded Cycle1 row as the Rust row; `source_turn` is carried by Node and read by no Cycle1 step.
-fn qrow(value: &Exact) -> Row {
+pub(super) fn qrow(value: &Exact) -> Row {
     let mut row = Row { id: 0, ts: 0, role: None, content: String::new(), session_id: None, project_id: None, element: None };
     for (key, v) in value.entries() {
         let text = || match v {
@@ -174,7 +174,7 @@ fn validate(text: &str, rows: &[Row]) -> Exact {
     validity_value(&validate_cycle1_grouping(parse_cycle1_line_format(text).as_deref(), rows))
 }
 
-fn assessment_value(a: &Assessment) -> Exact {
+pub(super) fn assessment_value(a: &Assessment) -> Exact {
     object(vec![
         ("usable", Exact::Bool(a.usable)),
         ("reasons", strings(&a.reasons)),
