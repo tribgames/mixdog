@@ -3626,7 +3626,7 @@
       "id": "chat-malformed-json-frame-typed-with-exposure",
       "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:213",
       "input": {
-        "label": "Chat Completions",
+        "label": "gateway",
         "served": [
           {
             "choices": [
@@ -3641,7 +3641,11 @@
           {
             "rawDataFrame": "{\"choices\": ["
           }
-        ]
+        ],
+        "options": {
+          "label": "gateway",
+          "providerName": "gateway"
+        }
       },
       "result": {
         "error": {
@@ -3658,6 +3662,8 @@
           "props": {
             "name": "MalformedStreamError",
             "malformedStream": true,
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
             "partialContent": "visible partial",
             "partialToolCalls": {
               "$exact": "undefined"
@@ -3673,7 +3679,7 @@
               "terminalObserved": false,
               "continuation": true,
               "declaredContinuation": false,
-              "textEmitted": false,
+              "textEmitted": true,
               "textObservedChars": 15,
               "reasoningEmitted": false,
               "toolCallsStarted": false,
@@ -3684,16 +3690,14 @@
               "userAbort": false,
               "stallObserved": false,
               "truncatedStream": false,
-              "visibleOutput": false,
+              "visibleOutput": true,
               "observedOutput": true,
               "sideEffectDispatched": false,
-              "replayUnsafe": false,
-              "replaySafe": true,
+              "replayUnsafe": true,
+              "replaySafe": false,
               "successEligible": false
             },
-            "providerRecoveryExhausted": true,
-            "providerRecoveryOwner": "withRetry",
-            "providerRecoveryAttempts": 5
+            "emittedText": true
           }
         },
         "outcome": {
@@ -3703,7 +3707,7 @@
           "terminalObserved": false,
           "continuation": true,
           "declaredContinuation": false,
-          "textEmitted": false,
+          "textEmitted": true,
           "textObservedChars": 15,
           "reasoningEmitted": false,
           "toolCallsStarted": false,
@@ -3714,39 +3718,42 @@
           "userAbort": false,
           "stallObserved": false,
           "truncatedStream": false,
-          "visibleOutput": false,
+          "visibleOutput": true,
           "observedOutput": true,
           "sideEffectDispatched": false,
-          "replayUnsafe": false,
-          "replaySafe": true,
+          "replayUnsafe": true,
+          "replaySafe": false,
           "successEligible": false
         },
-        "classification": "transient"
+        "classification": "permanent"
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "entry": "new node_modules/openai/index.mjs.default",
           "args": [
-            "gateway",
             {
               "apiKey": "fixture-key",
               "baseURL": "https://gateway.example/v1",
-              "preconnect": false
+              "maxRetries": 0
             }
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
-            [
-              {
-                "role": "user",
-                "content": "hi"
+            {
+              "$sdkStream": "the OpenAI SDK stream of the response read from the loopback endpoint (the served script is the case input)"
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
               }
-            ],
-            "m1",
-            [],
-            {}
+            }
           ]
         },
         {
@@ -3766,6 +3773,8 @@
               "props": {
                 "name": "MalformedStreamError",
                 "malformedStream": true,
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
                 "partialContent": "visible partial",
                 "partialToolCalls": {
                   "$exact": "undefined"
@@ -3781,7 +3790,7 @@
                   "terminalObserved": false,
                   "continuation": true,
                   "declaredContinuation": false,
-                  "textEmitted": false,
+                  "textEmitted": true,
                   "textObservedChars": 15,
                   "reasoningEmitted": false,
                   "toolCallsStarted": false,
@@ -3792,16 +3801,14 @@
                   "userAbort": false,
                   "stallObserved": false,
                   "truncatedStream": false,
-                  "visibleOutput": false,
+                  "visibleOutput": true,
                   "observedOutput": true,
                   "sideEffectDispatched": false,
-                  "replayUnsafe": false,
-                  "replaySafe": true,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
                   "successEligible": false
                 },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                "emittedText": true
               }
             }
           ]
@@ -3823,6 +3830,8 @@
               "props": {
                 "name": "MalformedStreamError",
                 "malformedStream": true,
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
                 "partialContent": "visible partial",
                 "partialToolCalls": {
                   "$exact": "undefined"
@@ -3838,7 +3847,7 @@
                   "terminalObserved": false,
                   "continuation": true,
                   "declaredContinuation": false,
-                  "textEmitted": false,
+                  "textEmitted": true,
                   "textObservedChars": 15,
                   "reasoningEmitted": false,
                   "toolCallsStarted": false,
@@ -3849,64 +3858,17 @@
                   "userAbort": false,
                   "stallObserved": false,
                   "truncatedStream": false,
-                  "visibleOutput": false,
+                  "visibleOutput": true,
                   "observedOutput": true,
                   "sideEffectDispatched": false,
-                  "replayUnsafe": false,
-                  "replaySafe": true,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
                   "successEligible": false
                 },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                "emittedText": true
               }
             }
           ]
-        }
-      ],
-      "clock": [
-        {
-          "advanceMs": 958,
-          "fromMs": 32677,
-          "fired": [
-            {
-              "dueMs": 33635
-            }
-          ],
-          "toMs": 33635
-        },
-        {
-          "advanceMs": 1747,
-          "fromMs": 33635,
-          "fired": [
-            {
-              "dueMs": 35382
-            }
-          ],
-          "toMs": 35382
-        },
-        {
-          "advanceMs": 4080,
-          "fromMs": 35382,
-          "fired": [
-            {
-              "dueMs": 38382
-            },
-            {
-              "dueMs": 39462
-            }
-          ],
-          "toMs": 39462
-        },
-        {
-          "advanceMs": 6552,
-          "fromMs": 39462,
-          "fired": [
-            {
-              "dueMs": 46014
-            }
-          ],
-          "toMs": 46014
         }
       ],
       "requests": [
@@ -3981,430 +3943,10 @@
             ],
             [
               "content-length",
-              "112"
+              "72"
             ]
           ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "73"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false}",
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true}",
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
@@ -4420,12 +3962,16 @@
       "id": "chat-malformed-json-before-output-replay-safe",
       "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:234",
       "input": {
-        "label": "Chat Completions",
+        "label": "gateway",
         "served": [
           {
             "rawDataFrame": "not json"
           }
-        ]
+        ],
+        "options": {
+          "label": "gateway",
+          "providerName": "gateway"
+        }
       },
       "result": {
         "error": {
@@ -4474,10 +4020,7 @@
               "replayUnsafe": false,
               "replaySafe": true,
               "successEligible": false
-            },
-            "providerRecoveryExhausted": true,
-            "providerRecoveryOwner": "withRetry",
-            "providerRecoveryAttempts": 5
+            }
           }
         },
         "outcome": {
@@ -4509,28 +4052,25 @@
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "entry": "new node_modules/openai/index.mjs.default",
           "args": [
-            "gateway",
             {
               "apiKey": "fixture-key",
               "baseURL": "https://gateway.example/v1",
-              "preconnect": false
+              "maxRetries": 0
             }
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
-            [
-              {
-                "role": "user",
-                "content": "hi"
-              }
-            ],
-            "m1",
-            [],
-            {}
+            {
+              "$sdkStream": "the OpenAI SDK stream of the response read from the loopback endpoint (the served script is the case input)"
+            },
+            {
+              "label": "gateway",
+              "providerName": "gateway"
+            }
           ]
         },
         {
@@ -4582,10 +4122,7 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                }
               }
             }
           ]
@@ -4639,64 +4176,10 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                }
               }
             }
           ]
-        }
-      ],
-      "clock": [
-        {
-          "advanceMs": 873,
-          "fromMs": 46014,
-          "fired": [
-            {
-              "dueMs": 46887
-            }
-          ],
-          "toMs": 46887
-        },
-        {
-          "advanceMs": 1679,
-          "fromMs": 46887,
-          "fired": [
-            {
-              "dueMs": 48566
-            }
-          ],
-          "toMs": 48566
-        },
-        {
-          "advanceMs": 4072,
-          "fromMs": 48566,
-          "fired": [
-            {
-              "dueMs": 51566
-            },
-            {
-              "dueMs": 52638
-            }
-          ],
-          "toMs": 52638
-        },
-        {
-          "advanceMs": 7203,
-          "fromMs": 52638,
-          "fired": [
-            {
-              "dueMs": 54566
-            },
-            {
-              "dueMs": 57566
-            },
-            {
-              "dueMs": 59841
-            }
-          ],
-          "toMs": 59841
         }
       ],
       "requests": [
@@ -4771,425 +4254,10 @@
             ],
             [
               "content-length",
-              "112"
+              "72"
             ]
           ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "112"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/chat/completions",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "73"
-            ]
-          ],
-          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false}",
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true}",
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
@@ -5204,7 +4272,7 @@
       "id": "responses-malformed-json-frame-typed-with-exposure",
       "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:213",
       "input": {
-        "label": "Responses",
+        "label": "gateway",
         "served": [
           {
             "type": "response.output_text.delta",
@@ -5213,13 +4281,17 @@
           {
             "rawDataFrame": "{\"choices\": ["
           }
-        ]
+        ],
+        "options": {
+          "label": "gateway",
+          "providerName": "gateway"
+        }
       },
       "result": {
         "error": {
           "$exact": "error",
           "name": "MalformedStreamError",
-          "message": "gateway:responses malformed stream frame: Unexpected end of JSON input",
+          "message": "gateway malformed stream frame: Unexpected end of JSON input",
           "code": "malformed_stream",
           "cause": {
             "$exact": "error",
@@ -5238,6 +4310,8 @@
             "partialModel": {
               "$exact": "undefined"
             },
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
             "streamOutcome": {
               "version": 1,
               "provider": "openai-compat-responses",
@@ -5245,7 +4319,7 @@
               "terminalObserved": false,
               "continuation": true,
               "declaredContinuation": false,
-              "textEmitted": false,
+              "textEmitted": true,
               "textObservedChars": 15,
               "reasoningEmitted": false,
               "toolCallsStarted": false,
@@ -5256,16 +4330,14 @@
               "userAbort": false,
               "stallObserved": false,
               "truncatedStream": false,
-              "visibleOutput": false,
+              "visibleOutput": true,
               "observedOutput": true,
               "sideEffectDispatched": false,
-              "replayUnsafe": false,
-              "replaySafe": true,
+              "replayUnsafe": true,
+              "replaySafe": false,
               "successEligible": false
             },
-            "providerRecoveryExhausted": true,
-            "providerRecoveryOwner": "withRetry",
-            "providerRecoveryAttempts": 5
+            "emittedText": true
           }
         },
         "outcome": {
@@ -5275,7 +4347,7 @@
           "terminalObserved": false,
           "continuation": true,
           "declaredContinuation": false,
-          "textEmitted": false,
+          "textEmitted": true,
           "textObservedChars": 15,
           "reasoningEmitted": false,
           "toolCallsStarted": false,
@@ -5286,56 +4358,42 @@
           "userAbort": false,
           "stallObserved": false,
           "truncatedStream": false,
-          "visibleOutput": false,
+          "visibleOutput": true,
           "observedOutput": true,
           "sideEffectDispatched": false,
-          "replayUnsafe": false,
-          "replaySafe": true,
+          "replayUnsafe": true,
+          "replaySafe": false,
           "successEligible": false
         },
-        "classification": "transient"
+        "classification": "permanent"
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "entry": "new node_modules/openai/index.mjs.default",
           "args": [
-            "gateway",
             {
               "apiKey": "fixture-key",
               "baseURL": "https://gateway.example/v1",
-              "preconnect": false
+              "maxRetries": 0
             }
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
           "args": [
             {
-              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-              "constructedWith": [
-                "gateway",
-                {
-                  "apiKey": "fixture-key",
-                  "baseURL": "https://gateway.example/v1",
-                  "preconnect": false
-                }
-              ]
+              "$sdkStream": "the OpenAI SDK stream of the response read from the loopback endpoint (the served script is the case input)"
             },
-            [
-              {
-                "role": "user",
-                "content": "hi"
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
               }
-            ],
-            "gpt-5.5",
-            [],
-            {}
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
-          "args": [
-            "gpt-5.5"
+            }
           ]
         },
         {
@@ -5344,7 +4402,7 @@
             {
               "$exact": "error",
               "name": "MalformedStreamError",
-              "message": "gateway:responses malformed stream frame: Unexpected end of JSON input",
+              "message": "gateway malformed stream frame: Unexpected end of JSON input",
               "code": "malformed_stream",
               "cause": {
                 "$exact": "error",
@@ -5363,6 +4421,8 @@
                 "partialModel": {
                   "$exact": "undefined"
                 },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
                 "streamOutcome": {
                   "version": 1,
                   "provider": "openai-compat-responses",
@@ -5370,7 +4430,7 @@
                   "terminalObserved": false,
                   "continuation": true,
                   "declaredContinuation": false,
-                  "textEmitted": false,
+                  "textEmitted": true,
                   "textObservedChars": 15,
                   "reasoningEmitted": false,
                   "toolCallsStarted": false,
@@ -5381,16 +4441,14 @@
                   "userAbort": false,
                   "stallObserved": false,
                   "truncatedStream": false,
-                  "visibleOutput": false,
+                  "visibleOutput": true,
                   "observedOutput": true,
                   "sideEffectDispatched": false,
-                  "replayUnsafe": false,
-                  "replaySafe": true,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
                   "successEligible": false
                 },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                "emittedText": true
               }
             }
           ]
@@ -5401,7 +4459,7 @@
             {
               "$exact": "error",
               "name": "MalformedStreamError",
-              "message": "gateway:responses malformed stream frame: Unexpected end of JSON input",
+              "message": "gateway malformed stream frame: Unexpected end of JSON input",
               "code": "malformed_stream",
               "cause": {
                 "$exact": "error",
@@ -5420,6 +4478,8 @@
                 "partialModel": {
                   "$exact": "undefined"
                 },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
                 "streamOutcome": {
                   "version": 1,
                   "provider": "openai-compat-responses",
@@ -5427,7 +4487,7 @@
                   "terminalObserved": false,
                   "continuation": true,
                   "declaredContinuation": false,
-                  "textEmitted": false,
+                  "textEmitted": true,
                   "textObservedChars": 15,
                   "reasoningEmitted": false,
                   "toolCallsStarted": false,
@@ -5438,64 +4498,17 @@
                   "userAbort": false,
                   "stallObserved": false,
                   "truncatedStream": false,
-                  "visibleOutput": false,
+                  "visibleOutput": true,
                   "observedOutput": true,
                   "sideEffectDispatched": false,
-                  "replayUnsafe": false,
-                  "replaySafe": true,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
                   "successEligible": false
                 },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                "emittedText": true
               }
             }
           ]
-        }
-      ],
-      "clock": [
-        {
-          "advanceMs": 1173,
-          "fromMs": 59841,
-          "fired": [
-            {
-              "dueMs": 61014
-            }
-          ],
-          "toMs": 61014
-        },
-        {
-          "advanceMs": 2376,
-          "fromMs": 61014,
-          "fired": [
-            {
-              "dueMs": 63390
-            }
-          ],
-          "toMs": 63390
-        },
-        {
-          "advanceMs": 3678,
-          "fromMs": 63390,
-          "fired": [
-            {
-              "dueMs": 66390
-            },
-            {
-              "dueMs": 67068
-            }
-          ],
-          "toMs": 67068
-        },
-        {
-          "advanceMs": 8204,
-          "fromMs": 67068,
-          "fired": [
-            {
-              "dueMs": 75272
-            }
-          ],
-          "toMs": 75272
         }
       ],
       "requests": [
@@ -5570,346 +4583,10 @@
             ],
             [
               "content-length",
-              "161"
+              "46"
             ]
           ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"visible partial\"}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"visible partial\"}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"visible partial\"}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"visible partial\"}\n\n",
-              "data: {\"choices\": [\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "body": "{\"model\":\"gpt-5.5\",\"input\":\"hi\",\"stream\":true}",
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
@@ -5925,18 +4602,22 @@
       "id": "responses-malformed-json-before-output-replay-safe",
       "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:234",
       "input": {
-        "label": "Responses",
+        "label": "gateway",
         "served": [
           {
             "rawDataFrame": "not json"
           }
-        ]
+        ],
+        "options": {
+          "label": "gateway",
+          "providerName": "gateway"
+        }
       },
       "result": {
         "error": {
           "$exact": "error",
           "name": "MalformedStreamError",
-          "message": "gateway:responses malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+          "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
           "code": "malformed_stream",
           "cause": {
             "$exact": "error",
@@ -5979,10 +4660,7 @@
               "replayUnsafe": false,
               "replaySafe": true,
               "successEligible": false
-            },
-            "providerRecoveryExhausted": true,
-            "providerRecoveryOwner": "withRetry",
-            "providerRecoveryAttempts": 5
+            }
           }
         },
         "outcome": {
@@ -6014,45 +4692,25 @@
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "entry": "new node_modules/openai/index.mjs.default",
           "args": [
-            "gateway",
             {
               "apiKey": "fixture-key",
               "baseURL": "https://gateway.example/v1",
-              "preconnect": false
+              "maxRetries": 0
             }
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
           "args": [
             {
-              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
-              "constructedWith": [
-                "gateway",
-                {
-                  "apiKey": "fixture-key",
-                  "baseURL": "https://gateway.example/v1",
-                  "preconnect": false
-                }
-              ]
+              "$sdkStream": "the OpenAI SDK stream of the response read from the loopback endpoint (the served script is the case input)"
             },
-            [
-              {
-                "role": "user",
-                "content": "hi"
-              }
-            ],
-            "gpt-5.5",
-            [],
-            {}
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
-          "args": [
-            "gpt-5.5"
+            {
+              "label": "gateway",
+              "providerName": "gateway"
+            }
           ]
         },
         {
@@ -6061,7 +4719,7 @@
             {
               "$exact": "error",
               "name": "MalformedStreamError",
-              "message": "gateway:responses malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+              "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
               "code": "malformed_stream",
               "cause": {
                 "$exact": "error",
@@ -6104,10 +4762,7 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                }
               }
             }
           ]
@@ -6118,7 +4773,7 @@
             {
               "$exact": "error",
               "name": "MalformedStreamError",
-              "message": "gateway:responses malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+              "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
               "code": "malformed_stream",
               "cause": {
                 "$exact": "error",
@@ -6161,58 +4816,10 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                },
-                "providerRecoveryExhausted": true,
-                "providerRecoveryOwner": "withRetry",
-                "providerRecoveryAttempts": 5
+                }
               }
             }
           ]
-        }
-      ],
-      "clock": [
-        {
-          "advanceMs": 927,
-          "fromMs": 75272,
-          "fired": [
-            {
-              "dueMs": 76199
-            }
-          ],
-          "toMs": 76199
-        },
-        {
-          "advanceMs": 2284,
-          "fromMs": 76199,
-          "fired": [
-            {
-              "dueMs": 78483
-            }
-          ],
-          "toMs": 78483
-        },
-        {
-          "advanceMs": 3270,
-          "fromMs": 78483,
-          "fired": [
-            {
-              "dueMs": 81483
-            },
-            {
-              "dueMs": 81753
-            }
-          ],
-          "toMs": 81753
-        },
-        {
-          "advanceMs": 9280,
-          "fromMs": 81753,
-          "fired": [
-            {
-              "dueMs": 91033
-            }
-          ],
-          "toMs": 91033
         }
       ],
       "requests": [
@@ -6287,342 +4894,10 @@
             ],
             [
               "content-length",
-              "161"
+              "46"
             ]
           ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "chunks": [
-              "data: not json\n\n"
-            ]
-          }
-        },
-        {
-          "method": "POST",
-          "origin": "https://gateway.example",
-          "path": "/v1/responses",
-          "headers": [
-            [
-              "host",
-              "gateway.example"
-            ],
-            [
-              "connection",
-              "keep-alive"
-            ],
-            [
-              "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer fixture-key"
-            ],
-            [
-              "content-type",
-              "application/json"
-            ],
-            [
-              "accept-language",
-              "*"
-            ],
-            [
-              "sec-fetch-mode",
-              "cors"
-            ],
-            [
-              "accept-encoding",
-              "gzip, deflate"
-            ],
-            [
-              "content-length",
-              "161"
-            ]
-          ],
-          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "body": "{\"model\":\"gpt-5.5\",\"input\":\"hi\",\"stream\":true}",
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
@@ -8506,16 +6781,16 @@
       "clock": [
         {
           "advanceMs": 300000,
-          "fromMs": 91033,
+          "fromMs": 32677,
           "fired": [
             {
-              "dueMs": 94033
+              "dueMs": 35677
             },
             {
-              "dueMs": 391033
+              "dueMs": 332677
             }
           ],
-          "toMs": 391033
+          "toMs": 332677
         }
       ],
       "requests": [
@@ -9164,13 +7439,13 @@
       "clock": [
         {
           "advanceMs": 300000,
-          "fromMs": 391033,
+          "fromMs": 332677,
           "fired": [
             {
-              "dueMs": 691033
+              "dueMs": 632677
             }
           ],
-          "toMs": 691033
+          "toMs": 632677
         }
       ],
       "requests": [
