@@ -211,6 +211,8 @@ pub struct SessionPayload {
     pub project_id: Option<String>,
     pub revision: u64,
     pub user_lines: Vec<String>,
+    /// Always empty (`core-memory-file.mjs:156`): generated records stay searchable and are never injected.
+    pub db_lines: Vec<String>,
 }
 
 pub fn session_payload(snapshot: &Snapshot, project_id: Option<&str>, agent_id: &str) -> SessionPayload {
@@ -231,5 +233,6 @@ pub fn session_payload(snapshot: &Snapshot, project_id: Option<&str>, agent_id: 
         project_id: project_id.map(str::to_owned),
         revision: snapshot.revision,
         user_lines: picked.into_iter().map(|(_, entry)| entry.summary.clone()).collect(),
+        db_lines: Vec::new(),
     }
 }

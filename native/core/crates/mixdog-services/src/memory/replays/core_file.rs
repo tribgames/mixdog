@@ -8,11 +8,10 @@
 //!   index meta here too. Statements are observed
 //!   under cfg(test) at `memory::core::index::observe`, with the transaction flag Node records.
 //! - `readSessionCoreMemoryPayload(dataDir, cwd)` is `resolve_project_scope(cwd)` then `session_payload`, the two
-//!   public steps `CoreMemoryContext::load` takes; Rust's payload has no `dbLines` (Node always answers `[]`, which
-//!   is asserted on the recording).
-//! - Case 91's `memoryStarts` is 0 by construction in Rust: `CoreMemoryContext` holds only the file lane and data
-//!   directory, no memory-runtime handle. Node's `bootProfile('core-memory:done')` hook has no Rust counterpart
-//!   (the core has no boot-profile channel); that call is listed as parked, not compared.
+//!   public steps `CoreMemoryContext::load` takes.
+//! - Case 91's `memoryStarts`: Node's `getMemoryModule` is the core's `MemoryStack` opening, whose first step is the
+//!   PostgreSQL install. A stack is built over the same data directory, as the daemon builds both, with an install that
+//!   counts its entries and fails like Node's scripted module; the count after the context loaded is compared.
 //! - UUIDs the product generates are labelled `<uuid-N>` by first appearance in the case, as the recorder labels them.
 
 use mixdog_testkit::Exact;
@@ -143,11 +142,37 @@ fn session_core_context_reads_the_file_without_starting_memory_runtime() {
     let c = case(&g, 2, name);
     clock(&g);
     assert_eq!(c.get("env").get("MIXDOG_BOOT_CORE_MEMORY").as_str(), "1", "{name}: the recording does not opt out");
-    assert_eq!(c.get("memoryStarts").as_f64(), 0.0, "{name}: memory-runtime starts");
     let dir = tempfile::tempdir().expect("data dir");
     let reserved = std::sync::atomic::AtomicU64::new(0);
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
     runtime.block_on(async {
+        use crate::memory::boot::{MemoryBoot, MemoryStack, PgInstall, PgRuntimeSource};
+        let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let install: PgInstall = {
+            let starts = starts.clone();
+            std::sync::Arc::new(move |_cancel: tokio_util::sync::CancellationToken| {
+                starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Box::pin(async { Err(crate::memory::error::MemoryError::Rejected("must not start".to_owned())) })
+            })
+        };
+        let stack = MemoryStack::start(MemoryBoot {
+            data_dir: dir.path().to_owned(),
+            pg_runtime: PgRuntimeSource::Install(install),
+            embedder: None,
+            embedding_provider: None,
+            flags: crate::memory::runtime::RuntimeFlags::default(),
+            progress: None,
+            sensitive: std::sync::Arc::new(crate::memory::sensitive::SensitiveStore::default()),
+            lane: lane(),
+            maintenance: mixdog_rt::testing::tokens().maintenance_io,
+            transcripts: None,
+            cycles: None,
+            backfill: None,
+            processes: crate::tidy::process::Processes::for_tests(),
+            cancel: tokio_util::sync::CancellationToken::new(),
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{name}: stack: {}", e.message()));
         let rows = vec![serde_json::json!({ "id": 1, "summary": "instant context", "project_id": null })];
         let result = crate::memory::core::snapshot::write_snapshot(lane(), dir.path(), &rows, None, &reserved)
             .await
@@ -160,11 +185,28 @@ fn session_core_context_reads_the_file_without_starting_memory_runtime() {
             std::sync::Arc::new(|| false),
         );
         let cwd = dir.path().to_string_lossy().into_owned();
+        crate::memory::core::context::BOOT_PROFILE.with(|seen| *seen.borrow_mut() = Some(Vec::new()));
         let text = tokio::time::timeout(std::time::Duration::from_secs(30), context.load(&cwd, ""))
             .await
             .unwrap_or_else(|_| panic!("{name}: the context did not load within 30 s"));
+        let profiled = crate::memory::core::context::BOOT_PROFILE.with(|seen| seen.borrow_mut().take()).unwrap_or_default();
+        // The elapsed milliseconds are wall clock; the manifest writes them `<ms>` (declared normalisation).
+        let hook_calls = profiled
+            .into_iter()
+            .map(|(event, ms)| {
+                let mut args = vec![string(event)];
+                if ms.is_some() {
+                    args.push(object(vec![("ms", string("<ms>"))]));
+                }
+                object(vec![("hook", string("bootProfile")), ("args", Exact::Array(args))])
+            })
+            .collect();
+        same(&format!("{name}: hookCalls"), c.get("hookCalls"), &Exact::Array(hook_calls));
         same(&format!("{name}: context"), c.get("context").get("result"), &string(text));
         same(&format!("{name}: filesAfter"), c.get("filesAfter"), &files(dir.path()));
+        let observed = starts.load(std::sync::atomic::Ordering::SeqCst);
+        same(&format!("{name}: memoryStarts"), c.get("memoryStarts"), &int(observed as i64));
+        assert!(!stack.is_open(), "{name}: the memory stack opened");
     });
 }
 
@@ -257,7 +299,6 @@ mod pg {
                         .await
                         .unwrap_or_else(|e| panic!("{name}: {label}: project scope: {e}"));
                     let payload = crate::memory::core::snapshot::session_payload(&snapshot, project_id.as_deref(), "");
-                    assert!(step.get("result").get("dbLines").as_array().is_empty(), "{name}: {label}: Node's dbLines");
                     object(vec![
                         ("label", string(label)),
                         (
@@ -266,7 +307,7 @@ mod pg {
                                 ("projectId", payload.project_id.map_or(Exact::Null, string)),
                                 ("revision", int(payload.revision as i64)),
                                 ("userLines", Exact::Array(payload.user_lines.into_iter().map(string).collect())),
-                                ("dbLines", step.get("result").get("dbLines").clone()),
+                                ("dbLines", Exact::Array(payload.db_lines.into_iter().map(string).collect())),
                             ]),
                         ),
                     ])
