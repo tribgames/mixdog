@@ -78,7 +78,7 @@ const schemaCase = (id, line, source, extra = () => ({})) => rec.run(id, `${SRC}
 });
 
 const SURFACE = [...BUILTIN_TOOLS, ...CODE_GRAPH_TOOL_DEFS, ...COMPUTER_TOOL_DEFS, ...TOOL_BRIDGE_TOOLS, SKILL_TOOL, SESSION_TOOL];
-await rec.run('full-builtin-bridge-surface-sent-as-authored', `${SRC}:84`, { surface: SURFACE, models: ['claude-sonnet-4-6', 'claude-opus-4-6-thinking'] }, () => {
+await rec.run('full-builtin-bridge-surface-sent-as-authored', `${SRC}:97`, { surface: SURFACE, models: ['claude-sonnet-4-6', 'claude-opus-4-6-thinking'] }, () => {
   const surface = SURFACE;
   const before = structuredClone(surface);
   const sonnet = claudeRequest(surface, 'claude-sonnet-4-6');
@@ -90,26 +90,26 @@ await rec.run('full-builtin-bridge-surface-sent-as-authored', `${SRC}:84`, { sur
   });
   return { surfaceHasUnion: hasUnion(surface.map((tool) => tool.inputSchema)), sonnetWarnings: sonnet.warnings, sonnetEqualsOpus: JSON.stringify(sonnet.declarations) === JSON.stringify(opus.declarations), opusDeclarations: opus.declarations, opusWarnings: opus.warnings, rows, surfaceUnchanged: JSON.stringify(surface) === JSON.stringify(before) };
 });
-await schemaCase('standard-2020-12-forms-sent-as-written', 115, {
+await schemaCase('standard-2020-12-forms-sent-as-written', 134, {
   $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'urn:example:tool', type: 'object',
   properties: { maybe: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] }, nullable: { type: ['string', 'null'] }, multi: { type: ['string', 'number'] }, level: { type: 'integer', enum: [1, 2, 3] }, flag: { const: null }, open: { nullable: true, type: 'string' }, deep: { type: 'array', items: { oneOf: [{ type: 'boolean' }, { type: 'object', properties: {} }] } } },
   additionalProperties: { type: 'string' },
 });
-await schemaCase('boolean-schemas-recursive-defs-keyword-like-names', 138, {
+await schemaCase('boolean-schemas-recursive-defs-keyword-like-names', 157, {
   type: 'object',
   properties: { examples: { type: 'array', items: { type: 'string' } }, type: { type: 'string', enum: ['a', 'b'] }, items: { type: 'array', items: { type: 'string' } }, definitions: { type: 'string' }, $ref: { type: 'string' }, anyOf: { type: 'string', default: { anyOf: 1 } }, anything: true, never: false, node: { $ref: '#/$defs/Node' } },
   required: ['type'], $defs: { Node: { type: 'object', properties: { child: { $ref: '#/$defs/Node' } } } },
 });
-await schemaCase('draft-07-standard-keyword-mapping', 160, {
+await schemaCase('draft-07-standard-keyword-mapping', 177, {
   $schema: 'http://json-schema.org/draft-07/schema#', $id: 'urn:example:tool', type: 'object',
   properties: { closed: { type: 'array', items: [{ type: 'string' }, { type: 'integer' }], additionalItems: false }, typed: { type: 'array', items: [{ type: 'string' }], additionalItems: { type: 'number' } }, open: { type: 'array', items: [{ type: 'string' }] }, plain: { type: 'array', items: { type: 'string' } }, ref: { $ref: '#/definitions/Name' }, definitions: { type: 'string' } },
   definitions: { Name: { type: 'string' } }, dependencies: { closed: ['open'], open: { required: ['typed'] }, plain: true },
 });
-await schemaCase('draft-07-definitions-follow-own-id-scope', 187, {
+await schemaCase('draft-07-definitions-follow-own-id-scope', 212, {
   $schema: 'http://json-schema.org/draft-07/schema#', type: 'object',
   properties: { embedded: { $id: 'urn:example:inner', type: 'object', definitions: { Leaf: { type: 'string' } }, properties: { leaf: { $ref: '#/definitions/Leaf' } } } },
 });
-await schemaCase('draft-07-keywords-beside-ref-ignored', 207, {
+await schemaCase('draft-07-keywords-beside-ref-ignored', 233, {
   $schema: 'http://json-schema.org/draft-07/schema#', type: 'object',
   properties: { sibling: { $ref: '#/definitions/s', maxLength: 1, description: 'ignored', type: 'integer' }, nested: { type: 'array', items: { anyOf: [{ $ref: '#/definitions/s', minLength: 5 }, { type: 'null' }] } }, deep: { type: 'object', properties: { inner: { $ref: '#/definitions/s', pattern: '^z$' } } }, $ref: { type: 'string', maxLength: 1 }, holder: { type: 'object', properties: { $ref: { type: 'string', minLength: 2 } }, required: ['$ref'] } },
   definitions: { s: { type: 'string' } },
@@ -118,26 +118,26 @@ await schemaCase('draft-07-keywords-beside-ref-ignored', 207, {
   const validate = meta().compile(out);
   return { validates: [{ sibling: 'long string', nested: ['abc', null], deep: { inner: 'abc' } }, { sibling: 5 }, { $ref: 'xx' }].map((value) => ({ value, valid: validate(value) })) };
 });
-await schemaCase('draft-07-definitions-reachable-from-ref-node', 236, {
+await schemaCase('draft-07-definitions-reachable-from-ref-node', 265, {
   $schema: 'http://json-schema.org/draft-07/schema#', type: 'object',
   properties: { x: { $ref: '#/properties/x/definitions/t', definitions: { t: { type: 'string' } }, maxLength: 1 } },
 });
-await rec.run('invalid-tool-left-out-with-warning-request-proceeds-in-order', `${SRC}:248`, {}, () => {
+await rec.run('invalid-tool-left-out-with-warning-request-proceeds-in-order', `${SRC}:276`, {}, () => {
   const good = (name) => mcp(name, { type: 'object', properties: { x: { type: 'string' } } });
   const { request, warnings, declarations } = claudeRequest([good('first'), mcp('badtype', { type: 'object', properties: { a: { type: 'bogus-type' } } }), good('second'), mcp('missing', { type: 'object', properties: { value: { $ref: '#/$defs/Absent' } } }), good('third')], 'claude-sonnet-4-6', { nativeTools: [{ type: 'google_search' }] });
   return { declarations, firstTool: request.tools[0], toolConfig: request.toolConfig, warnings };
 });
 const branch = { type: 'object', properties: { a: { type: 'string' } } };
-await rec.run('provider-forbidden-roots-exclude-the-tool', `${SRC}:279`, {}, () => Object.fromEntries([
+await rec.run('provider-forbidden-roots-exclude-the-tool', `${SRC}:306`, {}, () => Object.fromEntries([
   ['allOf', { type: 'object', allOf: [branch] }], ['anyOf', { type: 'object', anyOf: [branch] }], ['oneOf', { type: 'object', oneOf: [branch] }], ['not', { type: 'object', properties: {}, not: {} }],
   ['rootAnyOfNoType', { anyOf: [branch] }], ['stringRoot', { type: 'string' }], ['refRoot', { $ref: '#/$defs/A', $defs: { A: branch } }], ['undefinedSchema', undefined], ['trueSchema', true],
 ].map(([name, schema]) => [name, excluded(schema)])));
-await rec.run('schemas-invalid-under-their-dialect-excluded', `${SRC}:292`, {}, () => Object.fromEntries([
+await rec.run('schemas-invalid-under-their-dialect-excluded', `${SRC}:319`, {}, () => Object.fromEntries([
   ['duplicateRequired', { type: 'object', required: ['a', 'a'] }], ['bogusType', { type: 'object', properties: { a: { type: 'bogus-type' } } }], ['remoteRef', { type: 'object', properties: { a: { $ref: 'https://example.invalid/a.json' } } }],
   ['draft07TupleBoth', { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: { a: { items: [{}], prefixItems: [{}] } } }],
 ].map(([name, schema]) => [name, excluded(schema)])));
-await rec.run('every-tool-invalid-request-carries-no-tools', `${SRC}:312`, {}, () => { const { request, warnings } = claudeRequest([mcp('bad', { anyOf: [] })]); return { warnings, tools: request.tools, toolConfig: request.toolConfig }; });
-await rec.run('default-warning-channel-console-warn-once-per-problem', `${SRC}:319`, {}, () => {
+await rec.run('every-tool-invalid-request-carries-no-tools', `${SRC}:339`, {}, () => { const { request, warnings } = claudeRequest([mcp('bad', { anyOf: [] })]); return { warnings, tools: request.tools, toolConfig: request.toolConfig }; });
+await rec.run('default-warning-channel-console-warn-once-per-problem', `${SRC}:346`, {}, () => {
   const originalWarn = console.warn;
   const warned = [];
   console.warn = (...args) => warned.push(args[0]);
@@ -150,13 +150,13 @@ await rec.run('default-warning-channel-console-warn-once-per-problem', `${SRC}:3
   }
   return { warned };
 });
-await rec.run('missing-schema-excludes-tool-order-kept', `${SRC}:329`, {}, () => ({ declarations: claudeDeclarations([mcp('b', { type: 'object', properties: {} }), mcp('a', { type: 'object', properties: { x: { type: 'string' } } })]) }));
-await rec.run('gemini-declarations-unchanged-by-claude-normalization', `${SRC}:340`, { tools: realTools }, () => {
+await rec.run('missing-schema-excludes-tool-order-kept', `${SRC}:355`, {}, () => ({ declarations: claudeDeclarations([mcp('b', { type: 'object', properties: {} }), mcp('a', { type: 'object', properties: { x: { type: 'string' } } })]) }));
+await rec.run('gemini-declarations-unchanged-by-claude-normalization', `${SRC}:366`, { tools: realTools }, () => {
   const expected = toGeminiRequestTools(realTools, undefined).at(-1).functionDeclarations;
   const actual = claudeDeclarations(realTools, 'gemini-3.8-flash');
   return { equal: JSON.stringify(actual) === JSON.stringify(expected), hasUnion: hasUnion(actual), declarations: actual, geminiProjection: expected };
 });
-await rec.run('computer-per-action-alternatives-claude-flat-for-gemini', `${SRC}:355`, {}, () => {
+await rec.run('computer-per-action-alternatives-claude-flat-for-gemini', `${SRC}:383`, {}, () => {
   const computer = realToolsByName.get('computer');
   const actions = computer.inputSchema.properties.action.enum;
   const [claude] = claudeDeclarations([computer], 'claude-sonnet-4-6');
@@ -182,38 +182,38 @@ const toolTurn = (assistant, id = 'toolu_9') => [{ role: 'user', content: 'go' }
 const call = (id = 'toolu_9') => ({ functionCall: { name: 'glob', args: { pattern: '*' }, id } });
 const both = (history, models = [CLAUDE, GEMINI]) => Object.fromEntries(models.map((model) => [model, contentsOf(history, model, BUILTIN_TOOLS)]));
 
-await rec.run('claude-replay-drops-empty-text-parts-around-tool-call', `${SRC}:395`, {}, () => {
+await rec.run('claude-replay-drops-empty-text-parts-around-tool-call', `${SRC}:402`, {}, () => {
   const recorded = [{ text: '' }, { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_1' } }, { text: '' }, { text: '', thoughtSignature: 'sig' }];
   const history = (model) => [{ role: 'user', content: 'find markdown' }, { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_1', name: 'glob', arguments: { pattern: '*.md' } }], providerReplay: { version: 1, provider: 'antigravity', items: recorded, requestContext: { model } } }, { role: 'tool', toolCallId: 'toolu_1', content: 'README.md' }];
   return { claude: contentsOf(history('claude-sonnet-5-5-low'), 'claude-sonnet-5-5-low'), gemini: contentsOf(history(GEMINI), GEMINI) };
 });
-await rec.run('claude-turn-of-only-empty-parts-omitted', `${SRC}:424`, {}, () => {
+await rec.run('claude-turn-of-only-empty-parts-omitted', `${SRC}:434`, {}, () => {
   const history = (model) => [{ role: 'user', content: 'first' }, { role: 'assistant', content: '', providerReplay: { version: 1, provider: 'antigravity', items: [{ text: '' }, { text: '' }], requestContext: { model } } }, { role: 'user', content: 'second' }];
   return { claude: contentsOf(history('claude-sonnet-5-5-low'), 'claude-sonnet-5-5-low', []), gemini: contentsOf(history(GEMINI), GEMINI, []) };
 });
-await rec.run('claude-replay-rejoins-streamed-thinking-deltas', `${SRC}:452`, {}, () => {
+await rec.run('claude-replay-rejoins-streamed-thinking-deltas', `${SRC}:463`, {}, () => {
   const recorded = [{ text: '' }, { thought: true, text: 'first ' }, { thought: true, text: 'second' }, { thought: true, text: '', thoughtSignature: 'sig-a' }, { thought: true, text: 'next block', thoughtSignature: 'sig-b' }, { text: 'answer ' }, { text: 'text' }, { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_2' } }, { text: '' }];
   const history = (model) => [{ role: 'user', content: 'find markdown' }, { role: 'assistant', content: 'answer text', toolCalls: [{ id: 'toolu_2', name: 'glob', arguments: { pattern: '*.md' } }], providerReplay: { version: 1, provider: 'antigravity', items: recorded, requestContext: { model } } }, { role: 'tool', toolCallId: 'toolu_2', content: 'README.md' }];
   return { claude: contentsOf(history('claude-sonnet-5-5-low'), 'claude-sonnet-5-5-low'), gemini: contentsOf(history(GEMINI), GEMINI) };
 });
-await rec.run('plain-history-without-provider-replay-drops-thinking-for-claude', `${SRC}:512`, {}, () => both(toolTurn({ role: 'assistant', content: 'answer', providerMetadata: { gemini: { thoughtParts: [{ text: 'because', thoughtSignature: 'unknown-origin' }] } } })));
-await rec.run('replay-from-another-family-or-provider-drops-thinking-and-signatures', `${SRC}:526`, {}, () => {
+await rec.run('plain-history-without-provider-replay-drops-thinking-for-claude', `${SRC}:535`, {}, () => both(toolTurn({ role: 'assistant', content: 'answer', providerMetadata: { gemini: { thoughtParts: [{ text: 'because', thoughtSignature: 'unknown-origin' }] } } })));
+await rec.run('replay-from-another-family-or-provider-drops-thinking-and-signatures', `${SRC}:549`, {}, () => {
   const items = [{ thought: true, text: 'gemini thought', thoughtSignature: 'gemini-sig' }, { text: 'answer', thoughtSignature: 'gemini-text-sig' }, { ...call(), thoughtSignature: 'gemini-call-sig' }];
   return { variants: [replayOf(items, 'gemini-3.1-pro-high'), replayOf(items, 'gemini-3.1-pro-high', 'gemini'), replayOf(items, undefined, 'gemini')].map((providerReplay) => ({ providerReplay, claude: contentsOf(toolTurn({ role: 'assistant', content: 'answer', providerReplay }), CLAUDE) })) };
 });
-await rec.run('interrupted-thought-run-dropped-for-claude-sentinel-for-gemini', `${SRC}:548`, {}, () => {
+await rec.run('interrupted-thought-run-dropped-for-claude-sentinel-for-gemini', `${SRC}:571`, {}, () => {
   const history = (model) => toolTurn({ role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'cut ' }, { thought: true, text: 'off' }, { text: '' }, call()], model) });
   return { claude: contentsOf(history(CLAUDE), CLAUDE), gemini: contentsOf(history(GEMINI), GEMINI) };
 });
-await rec.run('recorded-sentinel-or-empty-signature-is-not-own', `${SRC}:568`, {}, () => ({ claude: contentsOf(toolTurn({ role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'a', thoughtSignature: SENTINEL }, { thought: true, text: 'b', thoughtSignature: '' }, call()], CLAUDE) }), CLAUDE) }));
-await rec.run('thinking-only-claude-turn-unsigned-omitted-signed-kept', `${SRC}:582`, {}, () => {
+await rec.run('recorded-sentinel-or-empty-signature-is-not-own', `${SRC}:590`, {}, () => ({ claude: contentsOf(toolTurn({ role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'a', thoughtSignature: SENTINEL }, { thought: true, text: 'b', thoughtSignature: '' }, call()], CLAUDE) }), CLAUDE) }));
+await rec.run('thinking-only-claude-turn-unsigned-omitted-signed-kept', `${SRC}:606`, {}, () => {
   const history = (items, model) => [{ role: 'user', content: 'first' }, { role: 'assistant', content: '', providerReplay: replayOf(items, model) }, { role: 'user', content: 'second' }];
   const unsigned = [{ thought: true, text: 'thinking' }, { text: '' }];
   const signed = [{ thought: true, text: 'thinking' }, { thought: true, text: '', thoughtSignature: 'sig' }];
   return { unsignedClaude: contentsOf(history(unsigned, CLAUDE), CLAUDE, []), signedClaude: contentsOf(history(signed, CLAUDE), CLAUDE), unsignedGemini: contentsOf(history(unsigned, GEMINI), GEMINI) };
 });
-await rec.run('thinking-after-tool-call-keeps-signed-run-drops-unsigned', `${SRC}:609`, {}, () => ({ claude: contentsOf(toolTurn({ role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'before', thoughtSignature: 'sig-1' }, call(), { thought: true, text: 'after ' }, { thought: true, text: 'call' }, { thought: true, text: '', thoughtSignature: 'sig-2' }, { thought: true, text: 'tail without signature' }], CLAUDE) }), CLAUDE) }));
-await rec.run('thought-runs-never-merge-across-messages-or-part-types', `${SRC}:633`, {}, () => ({ claude: contentsOf([{ role: 'user', content: 'go' }, { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_a', name: 'glob', arguments: { pattern: '*' } }], providerReplay: replayOf([{ thought: true, text: 'unsigned head' }, call('toolu_a')], CLAUDE) }, { role: 'tool', toolCallId: 'toolu_a', content: 'ok' }, { role: 'assistant', content: 'done', providerReplay: replayOf([{ thought: true, text: 'split ' }, { text: 'interleaved' }, { thought: true, text: 'run', thoughtSignature: 'sig-b' }], CLAUDE) }, { role: 'user', content: 'next' }], CLAUDE) }));
+await rec.run('thinking-after-tool-call-keeps-signed-run-drops-unsigned', `${SRC}:630`, {}, () => ({ claude: contentsOf(toolTurn({ role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'before', thoughtSignature: 'sig-1' }, call(), { thought: true, text: 'after ' }, { thought: true, text: 'call' }, { thought: true, text: '', thoughtSignature: 'sig-2' }, { thought: true, text: 'tail without signature' }], CLAUDE) }), CLAUDE) }));
+await rec.run('thought-runs-never-merge-across-messages-or-part-types', `${SRC}:658`, {}, () => ({ claude: contentsOf([{ role: 'user', content: 'go' }, { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_a', name: 'glob', arguments: { pattern: '*' } }], providerReplay: replayOf([{ thought: true, text: 'unsigned head' }, call('toolu_a')], CLAUDE) }, { role: 'tool', toolCallId: 'toolu_a', content: 'ok' }, { role: 'assistant', content: 'done', providerReplay: replayOf([{ thought: true, text: 'split ' }, { text: 'interleaved' }, { thought: true, text: 'run', thoughtSignature: 'sig-b' }], CLAUDE) }, { role: 'user', content: 'next' }], CLAUDE) }));
 
 const openLoop = (assistant) => [
   { role: 'user', content: 'earlier' },
@@ -222,7 +222,7 @@ const openLoop = (assistant) => [
   { ...assistant, toolCalls: [{ id: 'toolu_9', name: 'glob', arguments: { pattern: '*' } }] },
   { role: 'tool', toolCallId: 'toolu_9', content: 'ok' },
 ];
-await rec.run('open-loop-without-thinking-closed-with-fresh-turn-wire-only', `${SRC}:700`, {}, () => {
+await rec.run('open-loop-without-thinking-closed-with-fresh-turn-wire-only', `${SRC}:729`, {}, () => {
   const cases = { interrupted: { role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'cut' }, call()], THINKING) }, foreign: { role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'g', thoughtSignature: 'gemini-sig' }, call()], 'gemini-3.1-pro-high') }, compacted: { role: 'assistant', content: '' } };
   const out = {};
   for (const [name, assistant] of Object.entries(cases)) {
@@ -232,11 +232,11 @@ await rec.run('open-loop-without-thinking-closed-with-fresh-turn-wire-only', `${
   }
   return out;
 });
-await rec.run('signed-loop-no-open-loop-thinking-off-and-gemini-left-as-built', `${SRC}:738`, {}, () => {
+await rec.run('signed-loop-no-open-loop-thinking-off-and-gemini-left-as-built', `${SRC}:766`, {}, () => {
   const signed = openLoop({ role: 'assistant', content: '', providerReplay: replayOf([{ thought: true, text: 'plan', thoughtSignature: 'sig-plan' }, call()], THINKING) });
   const compacted = openLoop({ role: 'assistant', content: '' });
   const answered = [...compacted, { role: 'assistant', content: 'done' }, { role: 'user', content: 'next' }];
   return { signed: contentsOf(signed, THINKING), answered: contentsOf(answered, THINKING), sonnet: contentsOf(compacted, CLAUDE), sonnetEffortHigh: contentsOf(compacted, CLAUDE, BUILTIN_TOOLS, { effort: 'high' }), gemini: contentsOf(compacted, GEMINI) };
 });
-await rec.run('later-steps-keep-closure-and-fresh-turn-keeps-signed-thinking', `${SRC}:782`, {}, () => ({ contents: contentsOf([...openLoop({ role: 'assistant', content: '' }), { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_10', name: 'glob', arguments: { pattern: '*.md' } }], providerReplay: replayOf([{ thought: true, text: 'fresh', thoughtSignature: 'sig-fresh' }, { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_10' } }], THINKING) }, { role: 'tool', toolCallId: 'toolu_10', content: 'README.md' }], THINKING) }));
+await rec.run('later-steps-keep-closure-and-fresh-turn-keeps-signed-thinking', `${SRC}:795`, {}, () => ({ contents: contentsOf([...openLoop({ role: 'assistant', content: '' }), { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_10', name: 'glob', arguments: { pattern: '*.md' } }], providerReplay: replayOf([{ thought: true, text: 'fresh', thoughtSignature: 'sig-fresh' }, { functionCall: { name: 'glob', args: { pattern: '*.md' }, id: 'toolu_10' } }], THINKING) }, { role: 'tool', toolCallId: 'toolu_10', content: 'README.md' }], THINKING) }));
 await rec.finish();

@@ -4581,7 +4581,7 @@
     },
     {
       "id": "full-builtin-bridge-surface-sent-as-authored",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:84",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:97",
       "input": {
         "surface": [
           {
@@ -12727,7 +12727,7 @@
     },
     {
       "id": "standard-2020-12-forms-sent-as-written",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:115",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:134",
       "input": {
         "inputSchema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -12951,7 +12951,7 @@
     },
     {
       "id": "boolean-schemas-recursive-defs-keyword-like-names",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:138",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:157",
       "input": {
         "inputSchema": {
           "type": "object",
@@ -13152,7 +13152,7 @@
     },
     {
       "id": "draft-07-standard-keyword-mapping",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:160",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:177",
       "input": {
         "inputSchema": {
           "$schema": "http://json-schema.org/draft-07/schema#",
@@ -13390,7 +13390,7 @@
     },
     {
       "id": "draft-07-definitions-follow-own-id-scope",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:187",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:212",
       "input": {
         "inputSchema": {
           "$schema": "http://json-schema.org/draft-07/schema#",
@@ -13488,7 +13488,7 @@
     },
     {
       "id": "draft-07-keywords-beside-ref-ignored",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:207",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:233",
       "input": {
         "inputSchema": {
           "$schema": "http://json-schema.org/draft-07/schema#",
@@ -13800,7 +13800,7 @@
     },
     {
       "id": "draft-07-definitions-reachable-from-ref-node",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:236",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:265",
       "input": {
         "inputSchema": {
           "$schema": "http://json-schema.org/draft-07/schema#",
@@ -13882,7 +13882,7 @@
     },
     {
       "id": "invalid-tool-left-out-with-warning-request-proceeds-in-order",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:248",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:276",
       "input": {},
       "result": {
         "declarations": [
@@ -14030,7 +14030,7 @@
     },
     {
       "id": "provider-forbidden-roots-exclude-the-tool",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:279",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:306",
       "input": {},
       "result": {
         "allOf": {
@@ -14421,7 +14421,7 @@
     },
     {
       "id": "schemas-invalid-under-their-dialect-excluded",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:292",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:319",
       "input": {},
       "result": {
         "duplicateRequired": {
@@ -14603,7 +14603,7 @@
     },
     {
       "id": "every-tool-invalid-request-carries-no-tools",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:312",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:339",
       "input": {},
       "result": {
         "warnings": [
@@ -14652,7 +14652,7 @@
     },
     {
       "id": "default-warning-channel-console-warn-once-per-problem",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:319",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:346",
       "input": {},
       "result": {
         "warned": [
@@ -14726,7 +14726,7 @@
     },
     {
       "id": "missing-schema-excludes-tool-order-kept",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:329",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:355",
       "input": {},
       "result": {
         "declarations": [
@@ -14801,7 +14801,7 @@
     },
     {
       "id": "gemini-declarations-unchanged-by-claude-normalization",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:340",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:366",
       "input": {
         "tools": [
           {
@@ -17512,7 +17512,7 @@
     },
     {
       "id": "computer-per-action-alternatives-claude-flat-for-gemini",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:355",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:383",
       "input": {},
       "result": {
         "claude": {
@@ -18227,7 +18227,7 @@
     },
     {
       "id": "claude-replay-drops-empty-text-parts-around-tool-call",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:395",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:402",
       "input": {},
       "result": {
         "claude": [
@@ -18451,7 +18451,7 @@
     },
     {
       "id": "claude-turn-of-only-empty-parts-omitted",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:424",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:434",
       "input": {},
       "result": {
         "claude": [
@@ -18581,7 +18581,7 @@
     },
     {
       "id": "claude-replay-rejoins-streamed-thinking-deltas",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:452",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:463",
       "input": {},
       "result": {
         "claude": [
@@ -18879,7 +18879,7 @@
     },
     {
       "id": "plain-history-without-provider-replay-drops-thinking-for-claude",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:512",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:535",
       "input": {},
       "result": {
         "claude-sonnet-4-6": [
@@ -19087,7 +19087,7 @@
     },
     {
       "id": "replay-from-another-family-or-provider-drops-thinking-and-signatures",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:526",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:549",
       "input": {},
       "result": {
         "variants": [
@@ -19527,7 +19527,7 @@
     },
     {
       "id": "interrupted-thought-run-dropped-for-claude-sentinel-for-gemini",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:548",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:571",
       "input": {},
       "result": {
         "claude": [
@@ -19775,7 +19775,7 @@
     },
     {
       "id": "recorded-sentinel-or-empty-signature-is-not-own",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:568",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:590",
       "input": {},
       "result": {
         "claude": [
@@ -19896,7 +19896,7 @@
     },
     {
       "id": "thinking-only-claude-turn-unsigned-omitted-signed-kept",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:582",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:606",
       "input": {},
       "result": {
         "unsignedClaude": [
@@ -20102,7 +20102,7 @@
     },
     {
       "id": "thinking-after-tool-call-keeps-signed-run-drops-unsigned",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:609",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:630",
       "input": {},
       "result": {
         "claude": [
@@ -20245,7 +20245,7 @@
     },
     {
       "id": "thought-runs-never-merge-across-messages-or-part-types",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:633",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:658",
       "input": {},
       "result": {
         "claude": [
@@ -20398,7 +20398,7 @@
     },
     {
       "id": "open-loop-without-thinking-closed-with-fresh-turn-wire-only",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:700",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:729",
       "input": {},
       "result": {
         "interrupted": {
@@ -20848,7 +20848,7 @@
     },
     {
       "id": "signed-loop-no-open-loop-thinking-off-and-gemini-left-as-built",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:738",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:766",
       "input": {},
       "result": {
         "signed": [
@@ -21508,7 +21508,7 @@
     },
     {
       "id": "later-steps-keep-closure-and-fresh-turn-keeps-signed-thinking",
-      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:782",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-request.test.mjs:795",
       "input": {},
       "result": {
         "contents": [
