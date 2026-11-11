@@ -3,23 +3,51 @@
 //
 // - A case the core refuses by decision (`refused`): the client failure's detail equals the core's lone refusal of that field, whole;
 //   the local server got no request; for an MCP server, `mcp/mcpStatus` and `mcp/getMcpServerConfig` answer after the call what they
-//   answered before it (nothing was saved). Node's answer is shown beside it.
+//   answered before it, and every file of the world (lib/world-files.mjs: the config file among them) has the bytes it had before
+//   the call (nothing was saved). Node's answer is shown beside it.
+// - After the cases, `inventorySweep` (manifest): every refused request and notification field of the inventory, with the same
+//   checks on files and on the local server.
 // - Every other case: what the window is given (the value, or the failure's message as apps/desktop/src/main/protocol/core-error.ts
 //   frames it for the window) equals Node's outcome, and the requests the local server got equal Node's, in order; Node's values go
 //   through the manifest's one mapping (`mapping.at`, lone-mapping.mjs) and nothing else.
 import { basename, join } from 'node:path';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
-import { CASES, loneRefusal } from './lone-surrogate-wire-cases.mjs';
+import { CASES, ROOT, loneRefusal, permissionRefusal } from './lone-surrogate-wire-cases.mjs';
 import { mapAt } from './lone-mapping.mjs';
 import { endCore } from './core-stop.mjs';
 import { NoAnswer, answered, startCore } from './phone-files-replay.mjs';
+import { changedFiles, worldFiles } from './world-files.mjs';
 
 const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-lone-surrogate-wire-replay`);
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
+const readRepoJson = (path) => JSON.parse(readFileSync(join(REPO_ROOT, path), 'utf8'));
+
+/** The params of a frame holding a lone unit at the inventory's `pattern` and nothing else, and the field the core names (`*` is
+ *  member `0`, a last `{}` a key holding the unit, a last `**` member `x`; the core reads the unit as U+FFFD in the name). The frame
+ *  is refused before its params are read, so nothing else of them is needed. */
+function loneAt(pattern) {
+  const parts = pattern.split('/').slice(1);
+  const params = {};
+  const named = [];
+  let at = params;
+  parts.forEach((part, index) => {
+    const last = index === parts.length - 1;
+    if (last && part === '{}') {
+      at['a\ud800'] = 'v';
+      named.push('a\ufffd');
+      return;
+    }
+    const key = part === '*' ? '0' : part === '**' ? 'x' : part;
+    named.push(key);
+    if (last) at[key] = 'a\ud800';
+    else at = at[key] = {};
+  });
+  return { params, pointer: `/${named.join('/')}` };
+}
 
 export async function replay({ exe, golden, manifest, only, startServer, buildWorld }) {
   const stubBin = buildWorld();
@@ -50,6 +78,8 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
         return { ok: false, error: coreErrorForWindow(error)?.message ?? String(error), detail: error?.detail ? clone(error.detail) : null };
       }
     };
+    // Every file of the core's folders and of the cases' world, but the paths the manifest declares (`worldFiles.skip`).
+    const files = () => worldFiles({ core: join(WORLDS, 'core'), world: ROOT }, manifest.worldFiles.skip.map((entry) => entry.path));
     const unexpected = [];
     const refused = [];
     let compared = 0;
@@ -60,14 +90,17 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
       // What a client reads of an MCP server (`after`): the server list and its config.
       const state = async () => (entry.after ? { status: await call('mcp/mcpStatus', {}), config: await call('mcp/getMcpServerConfig', { name: entry.after }) } : null);
       const before = entry.refused ? await state() : null;
+      const filesBefore = entry.refused ? files() : null;
       server.log.splice(0);
       const got = await call(entry.core.method, entry.core.params);
       const requests = server.log.splice(0);
+      const filesAfter = entry.refused ? files() : null;
       compared += 1;
       if (entry.refused) {
-        // Refused naming the field, nothing sent, nothing stored: what a client reads after the call is what it read before.
-        const core = { detail: got.ok ? got : got.detail, requests, state: await state() };
-        const expected = { detail: loneRefusal(entry.refused), requests: [], state: before };
+        // Refused naming the field, nothing sent, nothing stored: what a client reads after the call is what it read before, and
+        // every file of the world (the config the server list is saved in among them) has the bytes it had.
+        const core = { detail: got.ok ? got : got.detail, requests, state: await state(), changedFiles: changedFiles(filesBefore, filesAfter) };
+        const expected = { detail: loneRefusal(entry.refused), requests: [], state: before, changedFiles: [] };
         if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: `${entry.name} (refused by decision)`, node: expected, core });
         else refused.push({ case: entry.name, node: node.node, nodeRequests: node.requests, core: core.detail });
         continue;
@@ -87,7 +120,40 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
       const expected = { node: mapped.node, requests: sent(mapped.requests) };
       if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: entry.name, node: expected, core });
     }
-    console.log(`lone-surrogate-wire replay over ${exe}: ${compared} compared, ${refused.length} refused by decision, ${unexpected.length} unexpected`);
+    // Every field the inventory refuses (a request's and a notification's), sent as a desktop client sends it with a lone unit
+    // there (manifest `inventorySweep`): before and after it, every file of the world has its bytes and no stand-in server got a
+    // request; a request is refused naming the field (one a desktop may not call, by its origin, before that).
+    let swept = 0;
+    if (!only || only === 'inventory-sweep') {
+      const { inventory, methodTable, relayOnly } = manifest.inventorySweep;
+      const origins = new Map(readRepoJson(methodTable).clientMethods.map((row) => [row.method, row.origins]));
+      for (const field of readRepoJson(inventory).classes.filter((entry) => entry.class === 'refused').flatMap((entry) => entry.fields)) {
+        const [kind, method, pattern] = field.split(' ');
+        if (kind === 'answer') continue;
+        const { params, pointer } = loneAt(pattern);
+        const before = files();
+        server.log.splice(0);
+        let answer = null;
+        if (kind === 'request') {
+          const got = await call(method, params);
+          answer = got.ok ? got : got.detail;
+        } else {
+          client.notify(method, params);
+          // Frames of one connection are read in order: the answer to a method no table has comes after the notification was read.
+          await call('inventorySweep/after', {});
+        }
+        const core = { answer, requests: server.log.splice(0), changedFiles: changedFiles(before, files()) };
+        const desktop = kind === 'request' && origins.get(method).includes('local');
+        if (kind === 'request' && !desktop && !relayOnly.methods.includes(method)) throw new Error(`${field}: neither a desktop's method nor declared relay-only`);
+        const expectedAnswer = kind === 'notification' ? null : desktop ? loneRefusal(`${method}.params${pointer}`) : permissionRefusal(method);
+        const expected = { answer: expectedAnswer, requests: [], changedFiles: [] };
+        swept += 1;
+        if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: `inventory-sweep ${field}`, node: expected, core });
+      }
+    }
+    console.log(
+      `lone-surrogate-wire replay over ${exe}: ${compared} compared, ${refused.length} refused by decision, ${swept} refused inventory fields swept over ${files().size} world files, ${unexpected.length} unexpected`,
+    );
     for (const entry of refused) {
       console.log(`REFUSED BY DECISION ${entry.case}`);
       console.log(`   node: ${JSON.stringify({ answer: entry.node, requests: entry.nodeRequests }).slice(0, 600)}`);
