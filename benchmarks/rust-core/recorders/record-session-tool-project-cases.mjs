@@ -136,15 +136,66 @@ const cases = [];
     recorded: { session: { title: 'T', provider: 'openai', model: 'gpt' }, workspace: rt.session.workspace, calls, pending },
   });
 }
+const liveTitle = (rt) => ({ title: rt.session.title ?? null, titleSource: rt.session.titleSource ?? null });
+{
+  // :173, the test's steps: the store holds the AI title; then it answers user-title; then the setting is off.
+  let outcome = { ok: true, title: 'Fix login' };
+  const store = { id: 'sess-1', title: 'Fix login', titleLocked: true, titleSource: 'ai' };
+  const getSessionManager = () => ({ updateSessionAiTitle: async () => outcome, getSession: () => store });
+  const { execute, rt } = harness({ getSessionManager });
+  const calls = [];
+  calls.push(await run(execute, 'session', { action: 'rename', title: 'Fix login' }, {}, 'rename'));
+  const live = liveTitle(rt);
+  calls.push(await run(execute, 'session', { action: 'rename', title: 'x' }, { callerSessionId: 'w' }, 'worker rename'));
+  calls.push(await run(execute, 'session', { action: 'rename' }, {}, 'rename without a title'));
+  outcome = { ok: false, reason: 'user-title' };
+  calls.push(await run(execute, 'session', { action: 'rename', title: 'x' }, {}, 'rename over a user title'));
+  rt.config.aiSessionTitles = false;
+  calls.push(await run(execute, 'session', { action: 'rename', title: 'x' }, {}, 'rename with AI titles off'));
+  cases.push({ case: 'session rename protects user titles, honors the setting, and is Lead-only', recorded: { store: { ...store }, calls, live } });
+}
+{
+  // :200: the user's manual rename lands while the AI title save is awaited.
+  const store = { id: 'sess-1', title: 'old', titleLocked: false };
+  const getSessionManager = () => ({
+    updateSessionAiTitle: async () => {
+      Object.assign(store, { title: 'AI title', titleLocked: true, titleSource: 'ai' });
+      await Promise.resolve();
+      Object.assign(store, { title: 'Mine', titleLocked: true, titleSource: 'user' });
+      return { ok: true, title: 'AI title' };
+    },
+    getSession: () => store,
+  });
+  const { execute, rt } = harness({ getSessionManager });
+  const calls = [await run(execute, 'session', { action: 'rename', title: 'AI title' }, {}, 'rename')];
+  cases.push({
+    case: 'a manual rename landing while the AI title saves wins on the live session',
+    recorded: { store: { id: 'sess-1', title: 'old', titleLocked: false }, calls, live: liveTitle(rt) },
+  });
+}
+{
+  // :238: the lifecycle API forks with compaction.
+  const forks = [];
+  const lifecycle = { inheritToNewSession: async (id, options) => (forks.push([id, options]), { sessionId: 'new-1', compacted: true }) };
+  const { execute } = harness({ getLifecycleApi: () => lifecycle });
+  const calls = [await run(execute, 'session', { action: 'fork', compact: true }, {}, 'fork')];
+  cases.push({ case: 'session fork calls the lifecycle API and returns the new session id', recorded: { calls, forks } });
+}
 rmSync(dir, { recursive: true, force: true });
 rmSync(home, { recursive: true, force: true });
 
 const excluded = {
-  'model-tool calls to disabled features are refused before any dispatch': 'COVERED (gaps-tools.md row 84): tools/policy/surface.rs:382',
-  'injected runtimes receive the caller context each tool expects': 'GONE (row 84): the ToolContext carries the caller',
-  'session rename protects user titles, honors the setting, and is Lead-only': 'COVERED (row 84): core/run_host/tool_pool/tests.rs:536',
-  'a manual rename landing while the AI title saves wins on the live session': 'COVERED (row 84): core/run_host/tool_pool/tests.rs:536',
-  'session fork calls the lifecycle API and returns the new session id': 'COVERED (row 84): core/run_host/tool_pool/tests.rs:559',
+  'model-tool calls to disabled features are refused before any dispatch':
+    "the executor's own gate (internal-tool-executor.mjs:76-80) never answers a model: its list is boot.featureDisallowedTools, " +
+    'the same function boot/tools.mjs:341 registers as the scope\'s live gate, which dispatch.mjs:125-128 checks first and ' +
+    "answers with its own text; the browser gate (bridge-tools.mjs:15-23) reads MIXDOG_FEATURE_BROWSER, the same process env " +
+    'the surface was built from (builtin-features.mjs:177), which nothing outside the process changes',
+  'injected runtimes receive the caller context each tool expects':
+    "the executor's argument plumbing into the test's injected recorders (internal-tool-executor.mjs, workspace-tools.mjs:352-364): " +
+    "what a client sees is each tool's own answer in the caller's cwd and session, replayed in that tool's set (code_graph, goal, " +
+    'agent, setup, memory, Skill); the unknown-tool throw is unreachable for a model, the surface refuses an unknown tool first',
+  'session fork calls the lifecycle API and returns the new session id: fork without a lifecycle API':
+    "the test's bare harness injects no getLifecycleApi (workspace-tools.mjs:145); every product runtime injects it (lifecycle-api.mjs:47)",
   'session reports, lists, and switches the Project through the caller or the runtime: the caller-owned switch ({path} with setCallerCwd)':
     "Node's MCP caller may own the cwd switch (setCallerCwd); the core's session tool has one switch, the session port's",
   'session reports, lists, and switches the Project through the caller or the runtime: the retired cwd tool':
@@ -169,5 +220,5 @@ writeSetManifest(stage, {
 commitStage(stage, finalDir);
 console.log(`session-tool-project-cases: ${cases.length} case(s), ${Object.keys(excluded).length} named exclusion(s)`);
 for (const c of cases) for (const call of c.recorded.calls) console.log(JSON.stringify(call));
-console.log(JSON.stringify(cases[0].recorded.switches));
+for (const c of cases.slice(3)) console.log(JSON.stringify({ live: c.recorded.live, forks: c.recorded.forks }));
 process.exit(0);

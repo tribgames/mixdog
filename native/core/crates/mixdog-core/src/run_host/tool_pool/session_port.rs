@@ -338,14 +338,8 @@ impl SessionPort for DirectorySessionPort {
     }
 
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {
-        // `thread/fork` copies the history as it stands; the compacting inheritance of
-        // `inheritToNewSession({compact: true})` has no handler behind it yet.
-        if compact {
-            return Err(PortError::Unavailable {
-                capability: "fork-compact".to_owned(),
-                message: "session: fork with compact is not available in this runtime".to_owned(),
-            });
-        }
+        // `inheritToNewSession(id, {compact, titleSuffix: ' (Fork)'})` (`inheritance.mjs:250`): `thread/fork`
+        // copies the history as it stands; with `compact` the copy, never the source, is then summarized.
         let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
         let reply = self.parts.requests.request(thread, "thread/fork", params).await.map_err(core)?;
         let id = reply
@@ -365,7 +359,13 @@ impl SessionPort for DirectorySessionPort {
             ]);
             self.parts.threads.patch_header(&copy, set, Vec::new()).await?;
         }
-        Ok((id, false))
+        if !compact {
+            return Ok((id, false));
+        }
+        let params = json!({ "threadId": id, "opId": uuid::Uuid::now_v7().to_string() });
+        let summary = self.parts.requests.request(&copy, "thread/compact/start", params).await.map_err(core)?;
+        // A skipped compaction (or none at all) left the copy as it was carried.
+        Ok((id, summary.is_object() && summary.get("skipped") != Some(&Value::Bool(true))))
     }
 
     async fn sidebar(&self, thread: &ThreadId, flag: SidebarFlag, value: bool) -> Result<(), PortError> {

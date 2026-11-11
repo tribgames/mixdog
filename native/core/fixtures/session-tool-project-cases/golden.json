@@ -269,6 +269,140 @@
           "sess-1"
         ]
       }
+    },
+    {
+      "case": "session rename protects user titles, honors the setting, and is Lead-only",
+      "recorded": {
+        "store": {
+          "id": "sess-1",
+          "title": "Fix login",
+          "titleLocked": true,
+          "titleSource": "ai"
+        },
+        "calls": [
+          {
+            "label": "rename",
+            "tool": "session",
+            "args": {
+              "action": "rename",
+              "title": "Fix login"
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"action\": \"rename\",\n  \"sessionId\": \"sess-1\",\n  \"title\": \"Fix login\"\n}"
+            }
+          },
+          {
+            "label": "worker rename",
+            "tool": "session",
+            "args": {
+              "action": "rename",
+              "title": "x"
+            },
+            "context": {
+              "callerSessionId": "w"
+            },
+            "outcome": {
+              "error": "session: rename belongs to the Lead session"
+            }
+          },
+          {
+            "label": "rename without a title",
+            "tool": "session",
+            "args": {
+              "action": "rename"
+            },
+            "context": {},
+            "outcome": {
+              "error": "session: title is required for action=rename"
+            }
+          },
+          {
+            "label": "rename over a user title",
+            "tool": "session",
+            "args": {
+              "action": "rename",
+              "title": "x"
+            },
+            "context": {},
+            "outcome": {
+              "error": "session: the user already titled this session; the title was not changed"
+            }
+          },
+          {
+            "label": "rename with AI titles off",
+            "tool": "session",
+            "args": {
+              "action": "rename",
+              "title": "x"
+            },
+            "context": {},
+            "outcome": {
+              "error": "session: AI session titles are disabled in settings"
+            }
+          }
+        ],
+        "live": {
+          "title": "Fix login",
+          "titleSource": "ai"
+        }
+      }
+    },
+    {
+      "case": "a manual rename landing while the AI title saves wins on the live session",
+      "recorded": {
+        "store": {
+          "id": "sess-1",
+          "title": "old",
+          "titleLocked": false
+        },
+        "calls": [
+          {
+            "label": "rename",
+            "tool": "session",
+            "args": {
+              "action": "rename",
+              "title": "AI title"
+            },
+            "context": {},
+            "outcome": {
+              "error": "session: the user already titled this session; the title was not changed"
+            }
+          }
+        ],
+        "live": {
+          "title": "Mine",
+          "titleSource": "user"
+        }
+      }
+    },
+    {
+      "case": "session fork calls the lifecycle API and returns the new session id",
+      "recorded": {
+        "calls": [
+          {
+            "label": "fork",
+            "tool": "session",
+            "args": {
+              "action": "fork",
+              "compact": true
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess-1\",\n  \"sessionId\": \"new-1\",\n  \"compacted\": true\n}"
+            }
+          }
+        ],
+        "forks": [
+          [
+            "sess-1",
+            {
+              "compact": true,
+              "titleSuffix": " (Fork)"
+            }
+          ]
+        ]
+      }
     }
   ]
 }
