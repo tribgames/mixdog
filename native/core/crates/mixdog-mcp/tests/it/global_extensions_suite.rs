@@ -403,12 +403,15 @@ async fn a_toggle_whose_callers_are_cancelled_completes_and_releases_the_glue() 
     let caller = tokio::spawn(async move { host.schedule_mcp_toggle(&name, true).await });
     tokio::time::timeout(Duration::from_secs(30), w.seen.entered.notified()).await.expect("the enable's connect to start within 30 s");
     caller.abort();
-    assert!(caller.await.unwrap_err().is_cancelled(), "the only caller is cancelled while the connect is pending");
+    let ended = tokio::time::timeout(Duration::from_secs(30), caller).await.expect("the aborted caller's task to end within 30 s");
+    assert!(ended.unwrap_err().is_cancelled(), "the only caller is cancelled while the connect is pending");
     w.seen.released.notify_one();
     tokio::time::timeout(Duration::from_secs(30), w.seen.refreshed.notified()).await.expect("the toggle to refresh the surface with no caller within 30 s");
     // A toggle asked next joins the chain if its cleanup has not run yet and starts a new one if it has; either way it ends
     // only after the chain it joined or started has dropped its glue.
-    w.host.schedule_mcp_toggle(args[0].as_str(), true).await;
+    tokio::time::timeout(Duration::from_secs(30), w.host.schedule_mcp_toggle(args[0].as_str(), true))
+        .await
+        .expect("the next toggle to end after the chain it joined or started dropped its glue within 30 s");
     assert_eq!(Arc::strong_count(&w.glue), held_by_others, "no finished toggle holds the glue");
 }
 
