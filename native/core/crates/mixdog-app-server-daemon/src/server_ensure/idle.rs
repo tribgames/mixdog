@@ -37,6 +37,8 @@ struct State {
     received: Vec<u8>,
     chunks: u64,
     ended: Option<std::io::Result<()>>,
+    /// Reader threads that have not finished.
+    readers: u64,
 }
 
 /// An exchange begun on an [`IdleWatch`].
@@ -80,16 +82,28 @@ impl IdleWatch {
         Exchange(state.exchange)
     }
 
-    /// `stream` read to its end, or `None` once it has been silent for [`ANSWER_IDLE`]. A reader given up on stays
-    /// blocked on its socket until the peer closes it or this one-shot program exits; it reports to nobody.
+    /// `stream` read to its end, or `None` once it has been silent for [`ANSWER_IDLE`]. Either way the reader has
+    /// finished and the connection is shut down when this returns: on the limit the socket is shut down, which ends
+    /// the blocked read, and the reader is joined.
     pub fn read_to_end(self: &Arc<Self>, exchange: Exchange, mut stream: TcpStream) -> Option<std::io::Result<Vec<u8>>> {
+        let closer = match stream.try_clone() {
+            Ok(closer) => closer,
+            Err(e) => return Some(Err(e)),
+        };
+        // The join below cannot outlast one read even where a shutdown would not wake a blocked read: no single read
+        // waits longer than the limit itself, which is a limit on inactivity like this one.
+        if let Err(e) = stream.set_read_timeout(Some(ANSWER_IDLE)) {
+            return Some(Err(e));
+        }
         let watch = Arc::clone(self);
-        std::thread::spawn(move || {
+        self.lock().readers += 1;
+        let reader = std::thread::spawn(move || {
             let mut buffer = [0u8; 8192];
             loop {
                 let read = stream.read(&mut buffer);
                 let mut state = watch.lock();
                 if state.exchange != exchange.0 {
+                    state.readers -= 1;
                     return;
                 }
                 match read {
@@ -103,12 +117,28 @@ impl IdleWatch {
                     Err(e) => state.ended = Some(Err(e)),
                 }
                 let ended = state.ended.is_some();
+                if ended {
+                    state.readers -= 1;
+                }
                 watch.changed.notify_all();
                 if ended {
                     return;
                 }
             }
         });
+        let outcome = self.wait();
+        if outcome.is_none() {
+            // Ends the reader's blocked read; an error means the connection is already gone, so the read has ended too.
+            let _ = closer.shutdown(std::net::Shutdown::Both);
+        }
+        // The reader ends on its read's return, which the shutdown, the end of the answer or the read timeout brings.
+        let _ = reader.join();
+        outcome
+    }
+
+    /// The current exchange's answer, or `None` once it has been silent for [`ANSWER_IDLE`] (the exchange is then given
+    /// up: its reader reports to nobody).
+    fn wait(&self) -> Option<std::io::Result<Vec<u8>>> {
         let mut state = self.lock();
         loop {
             if let Some(ended) = state.ended.take() {
@@ -134,6 +164,12 @@ impl IdleWatch {
     pub fn advance(&self, by: Duration) {
         self.lock().manual_now += by;
         self.changed.notify_all();
+    }
+
+    /// Reader threads that have not finished.
+    #[cfg(test)]
+    pub fn readers(&self) -> u64 {
+        self.lock().readers
     }
 
     /// Returns once the exchange has received `n` chunks.
