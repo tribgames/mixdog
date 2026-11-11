@@ -567,6 +567,8 @@ pub trait LogFile: Send {
     fn write_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()>;
     fn sync(&mut self) -> io::Result<()>;
     fn truncate(&mut self, len: u64) -> io::Result<()>;
+    /// The file's length now.
+    fn size(&mut self) -> io::Result<u64>;
 }
 
 pub trait WriterIo: Send + Sync {
@@ -593,6 +595,10 @@ impl LogFile for OsFile {
 
     fn truncate(&mut self, len: u64) -> io::Result<()> {
         self.0.set_len(len)
+    }
+
+    fn size(&mut self) -> io::Result<u64> {
+        self.0.metadata().map(|meta| meta.len())
     }
 }
 
@@ -870,6 +876,23 @@ impl LogWriter {
         }
     }
 
+    /// This writer is still the log's only one: its file ends where this writer's last frame ended (`end`). A file
+    /// that grew past it holds frames another writer appended after this writer's copy (Node's save refused because
+    /// another writer recorded after this copy, `ESESSIONCHANGED`): nothing of the batch is written, as it would land
+    /// over them.
+    fn alone(&mut self, end: u64) -> Result<(), AppendError> {
+        let file = self.file_handle().map_err(AppendError::BarrierFailed)?;
+        let size = file.size();
+        match size {
+            Ok(size) if size > end => {
+                let grown = io::Error::other(format!("another writer appended {} bytes after this writer's last frame", size - end));
+                Err(AppendError::BarrierFailed(self.io_err(IoOp::Write, grown)))
+            }
+            Ok(_) => Ok(()),
+            Err(e) => Err(AppendError::BarrierFailed(self.io_err(IoOp::Open, e))),
+        }
+    }
+
     fn path(&self, file_no: u32) -> PathBuf {
         self.dir.join(log_name(file_no))
     }
@@ -892,6 +915,7 @@ impl LogWriter {
 
     fn append(&mut self, batch: Vec<Encoded>, force_checkpoint: bool) -> Result<BatchAck, AppendError> {
         let end = self.ready()?;
+        self.alone(end)?;
         let deps = self.deps.clone();
 
         // Phase 1 of the fold: may fail; nothing is written then.
