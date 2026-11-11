@@ -10702,6 +10702,11 @@
       "delivery": null,
       "method": "ui/screenSessions/changed",
       "params": "UiScreenSessionsChangedParams"
+    },
+    {
+      "delivery": null,
+      "method": "remote/connectionTimeline",
+      "params": "RemoteConnectionTimelineParams"
     }
   ],
   "serverNotifications": [
@@ -10719,6 +10724,11 @@
       "delivery": "thread",
       "method": "thread/status/changed",
       "params": "ThreadStatusChangedParams"
+    },
+    {
+      "delivery": "thread",
+      "method": "thread/stage/updated",
+      "params": "ThreadStageUpdatedParams"
     },
     {
       "delivery": "thread",
