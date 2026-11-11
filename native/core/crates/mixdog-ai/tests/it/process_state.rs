@@ -25,6 +25,18 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/google/adapter.rs", "ANNOUNCED", Reset("google::adapter::reset_announced()")),
     ("providers/google/cache/registry.rs", "SHARED", Reset("Registry::reset_shared()")),
     ("transport/preconnect.rs", "PRECONNECTED_AT", Reset("transport::preconnect::reset()")),
+    ("providers/grok/mod.rs", "NUMBERED_REQUEST_IDS", Reset("providers::grok::reset_process_state()")),
+    ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
+    (
+        "oauth/lease.rs",
+        "THIS",
+        Survives("this process's identity as a lease owner and the leases it holds, keyed by lock path; a lease leaves when its holder ends, and a replay's credential files are its own"),
+    ),
+    (
+        "providers/grok/auth.rs",
+        "THIS",
+        Survives("this process's running Grok refreshes keyed by credential file path; an entry leaves when its refresh ends, and a replay's credential files are its own"),
+    ),
     ("catalog/listing.rs", "EMPTY", NotState("an empty JSON object")),
     ("catalog/service.rs", "EMPTY", NotState("an empty JSON object")),
     ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),

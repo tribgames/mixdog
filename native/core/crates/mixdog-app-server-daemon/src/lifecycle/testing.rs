@@ -30,6 +30,8 @@ pub struct Recorder {
     serving: std::sync::atomic::AtomicUsize,
     /// Run inside `cancel_running`, on the caller's thread.
     pub on_cancel: Mutex<Option<CancelHook>>,
+    /// Run inside `cut_new_tasks`, on the caller's thread; the cut is kept out of `events` so their order stays what the tests read.
+    pub on_cut: Mutex<Option<Box<dyn FnMut() + Send>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -96,6 +98,11 @@ impl CorePort for Recorder {
         lock(&self.cancelled).push(running.to_vec());
         if let Some(hook) = lock(&self.on_cancel).as_mut() {
             hook(running);
+        }
+    }
+    fn cut_new_tasks(&self) {
+        if let Some(hook) = lock(&self.on_cut).as_mut() {
+            hook();
         }
     }
     fn release_decision(&self, pid: u32) {

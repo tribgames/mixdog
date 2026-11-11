@@ -5,8 +5,9 @@
 // the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
-import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
-import { pairedDeviceInfo } from '../notification-center';
+import { announcedEvent } from '../../shared/core-announcements';
+import { readSettingsChange } from '../../shared/settings-changed';
+import { notificationWriteMode } from '../../shared/notification-state';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import { createProjectWatchRegistry } from '../../shared/project-watch-registry';
 import { defined, positional, SCM_OPERATION_ROUTES, SCM_REPLIES, type OperationMapper, type OperationRoute } from '../../shared/scm-operation-route';
@@ -18,7 +19,6 @@ import {
   visualizeRemoteViewing,
   DEFAULT_OPERATION_HOST,
   listConversationNotifications,
-  migratedAtOf,
   notificationPreferencesState,
   type OperationHost,
   readActivityRailPins,
@@ -250,25 +250,9 @@ const PREPARERS: Readonly<Record<string, Prepare>> = {
   // `config.notifications`: an unwritten subtree is a store Node would stamp `now` on first load, a written one without
   // the stamp reads 0 (`migratedAtOf`, notification-preferences.ts:228 and :120), as the notification state reads it.
   setNotificationPreferences: async (args, { entries }) => {
-    const deviceId = String(args[2] ?? '');
-    if (deviceId === 'pc') return [...args, 'mergePatch'];
-    const clients = record(entries().find((entry) => entry.section === 'remote' && entry.key === null)?.value).clients;
-    const client = (Array.isArray(clients) ? clients : [])
-      .map(record)
-      .find((candidate) => candidate.id === deviceId && candidate.pendingRemoval !== true);
-    if (!client) throw new TypeError('That device is not paired with this PC.');
-    const migratedAt = migratedAtOf(entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value);
-    const info = pairedDeviceInfo({
-      id: deviceId,
-      name: '',
-      platform: '',
-      browser: String(client.browser ?? ''),
-      createdAt: Number(client.createdAt),
-      lastSeenAt: 0,
-      online: false,
-    });
-    const botsFirst = info.kind === 'phone-app' && info.pairedAt !== undefined && info.pairedAt >= migratedAt;
-    return [...args, botsFirst ? 'mergePatchBots' : 'mergePatch'];
+    const remote = entries().find((entry) => entry.section === 'remote' && entry.key === null)?.value;
+    const notifications = entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value;
+    return [...args, notificationWriteMode(String(args[2] ?? ''), remote, notifications)];
   },
 };
 
@@ -404,12 +388,14 @@ export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SE
 /** Deleted by the spec, with a caller that still runs on a core connection (it shares code with the Node host). The
  *  pending browser approvals are core state (DS §12.3): the core raises `item/browser/requestApproval` to every client
  *  that can answer it, phones included, so nothing is announced; answered as Node answered it, `undefined`. (The two
- *  other deleted announcements, `notifySettingsChanged` and `notifyProviderModelsChanged`, are handled in `invoke`.) */
+ *  other announcements, `notifySettingsChanged` and `notifyProviderModelsChanged`, are the core's `ui/settings/announce`
+ *  and `ui/providerModels/announce`, sent from `invoke`.) */
 export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = ['publishBrowserApprovalSessions'];
 
 /** Deleted or core-internal; no caller exists on a core connection. Calling one is a bug and is refused. */
 export const DELETED_DESKTOP_OPERATIONS: Readonly<Record<string, string>> = {
-  browserRemoteFrame: 'paint frames are X17 media frames on the host connection (host/browser-view.ts)',
+  browserRemoteFrame:
+    'the host role sends it: host/browser/frame, then the picture as an X17 media frame on the host connection (host/browser-view.ts)',
   browserRemoteResolve: 'the host role answers the core\'s host/* requests itself (host/connection.ts)',
   browserRemoteWebrtcSignal: 'WebRTC runs in mixdog-remote (SPEC R36)',
   gitPathspecChanges: 'no caller (DS 17.2)',
@@ -437,6 +423,20 @@ export function routeDesktopOperation(name: string, args: readonly unknown[] = [
 
 export interface OperationLane {
   invoke(name: string, args: unknown[] | undefined): Promise<unknown>;
+}
+
+/** The core's announcements reach this process's windows as the desktop events Node's service raised for them
+ *  (`settings-changed`, `provider-models-changed`): the core tells every client, the announcer included. Returns the removal. */
+export function watchAnnouncements(
+  protocol: Pick<ProtocolConnection, 'onEvent'>,
+  emit: (name: string, value: unknown) => void
+): () => void {
+  return protocol.onEvent((event) => {
+    if (event.type !== 'notification') return;
+    const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+    const announced = announcedEvent(method, params);
+    if (announced) emit(announced.name, announced.value);
+  });
 }
 
 export function createOperationLane({
@@ -533,19 +533,20 @@ export function createOperationLane({
       if (name === 'notifySettingsChanged') {
         const change = readSettingsChange({ scope: args[0] });
         if (!change) throw new TypeError('settings scope is invalid.');
-        // The windows of this process re-read as Node's broadcast made them. Paired browsers hold the core's own
-        // sections (`config`, `providerSetup`, ...); the host's theme and language travel as
-        // `hostState.displayPreferences`, which Node's announcement made them re-read.
-        host.emitDesktopEvent?.(SETTINGS_CHANGED_EVENT, change);
+        // The host's theme and language travel as `hostState.displayPreferences`, which Node's announcement made the
+        // paired devices re-read: published first, so a re-read on the announcement sees them.
         if (change.scope === 'desktop' && host.readDisplayPreferences) {
           await call('host/state/set', { key: 'displayPreferences', value: await host.readDisplayPreferences() });
         }
+        // Node's broadcast reached this process's windows and every paired device: the core tells every client, these
+        // windows included (`ui/settings/changed`, wired in `watchAnnouncements`).
+        await call('ui/settings/announce', { scope: change.scope });
         return undefined;
       }
       if (name === 'notifyProviderModelsChanged') {
-        // A cache hint between UI peers: the windows drop their provider model lists; the core's providerSetup /
-        // providerAccounts sections already tell every client when the providers themselves change.
-        host.emitDesktopEvent?.('provider-models-changed', { origin: args[0] });
+        // A cache hint between UI peers: every client drops its provider model lists, this one too (Node's broadcast,
+        // desktop-operations.ts:455-458); the core tells every client (`ui/providerModels/changed`).
+        await call('ui/providerModels/announce', { origin: args[0] });
         return undefined;
       }
       if (IGNORED_DESKTOP_OPERATIONS.includes(name)) return undefined;

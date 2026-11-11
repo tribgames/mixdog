@@ -313,11 +313,22 @@ impl LiveRooms {
         let _ = self.shared.relays.set(fail);
     }
 
-    /// Start-up (`recover`): the rooms are loaded; an exchange a restart cut off is marked
-    /// interrupted, its members are stopped, and nothing resumes on its own. The rooms to republish.
+    /// Start-up (`recover`): [`Self::host_loaded`], then [`Self::recover`]. The rooms to republish.
     pub async fn start<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<Vec<String>, RoomError> {
+        self.host_loaded(rooms).await?;
+        self.recover(rooms).await
+    }
+
+    /// The rooms loaded are hosted (part of the rooms' first load, `ready`).
+    pub async fn host_loaded<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<(), RoomError> {
         let doc: RoomDoc = rooms.list().await?.into_iter().map(|room| (room.id.clone(), room)).collect();
         self.shared.follow(&doc);
+        Ok(())
+    }
+
+    /// `recover` after `ready` (`agent-rooms.ts:470-479`): an exchange a restart cut off is marked interrupted, its members are
+    /// stopped, and nothing resumes on its own; the catalog is republished. The rooms to republish.
+    pub async fn recover<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<Vec<String>, RoomError> {
         let cut = rooms.recover().await?;
         for room in &cut {
             let Some(live) = lock(&self.shared.live).get(&room.id).cloned() else { continue };
