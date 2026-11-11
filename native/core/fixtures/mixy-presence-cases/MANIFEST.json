@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,11 +66,12 @@
   "recorderSha256": "7ceb4ae8c8f18b69b36d5b5d6fcc22bda6a2191be004be2c41a5cb712b3f3b73",
   "replay": {
     "compare": "mixdog-core run_host heartbeat_parts.rs, home_directory.rs (mixy_exists), routine owner check and the home delivery drain: build the same profile (setup) and compare answers, the lead status, the lead manifest bytes and the profile file list after",
-    "entry": "Drive these public items on o1: mixdog-core/src/run_host/heartbeat_parts.rs:262 production_heartbeat; mixdog-core-agents/src/agents/mod.rs:209 AgentDefinitions (lead_status (agents/mod.rs:701), set_lead_created (agents/lead.rs:134)).",
-    "missingOnO1": [
-      "routineOwnerProblem (routine_host.rs:114 `owner_problem`) and mixy_exists (home_directory.rs:50, heartbeat_parts.rs:53) are private",
-      "the home delivery drain and the routine result queue: no public counterpart found"
+    "entry": "Drive these public items on o1: mixdog-core/src/run_host/heartbeat_parts.rs:262 production_heartbeat; mixdog-core-agents/src/agents/mod.rs:209 AgentDefinitions (lead_status (agents/mod.rs:701), set_lead_created (agents/lead.rs:134), mixy_exists (agents/mod.rs:715)); mixdog-services/src/bots/delivery/home.rs:589 drain; mixdog-services/src/bots/delivery/queue.rs:536 pending_homes.",
+    "existsButNotPublicOnO1": [
+      "routineOwnerProblem: mixdog-core/src/run_host/routine_host.rs:114 `owner_problem` is private",
+      "mixy_exists in mixdog-core/src/run_host/home_directory.rs:50 and heartbeat_parts.rs:53 are private (the public one is agents/mod.rs:715)"
     ],
+    "missingOnO1": [],
     "normalised": {
       "dataDir": "a fresh temp data dir per case; profileFilesAfter lists every file in the order readdir returned, with the separators Node produced (backslashes on win32), the per-check state files included"
     },
@@ -83,9 +84,19 @@
       },
       {
         "line": 209,
-        "methods": "lead_status (agents/mod.rs:701), set_lead_created (agents/lead.rs:134)",
+        "methods": "lead_status (agents/mod.rs:701), set_lead_created (agents/lead.rs:134), mixy_exists (agents/mod.rs:715)",
         "name": "AgentDefinitions",
         "path": "native/core/crates/mixdog-core-agents/src/agents/mod.rs"
+      },
+      {
+        "line": 589,
+        "name": "drain",
+        "path": "native/core/crates/mixdog-services/src/bots/delivery/home.rs"
+      },
+      {
+        "line": 536,
+        "name": "pending_homes",
+        "path": "native/core/crates/mixdog-services/src/bots/delivery/queue.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
