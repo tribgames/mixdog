@@ -294,7 +294,7 @@ async fn resumed(directory: &SessionDirectory, handle: &mixdog_core_session::ses
     assert_eq!(snapshot["thread"], subscribe.result["thread"], "the response and the snapshot name the same thread");
     let messages = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
     let Reply::Value(messages) = directory.request(messages).await.expect("thread/modelMessages/list") else { panic!("a value") };
-    json!({ "items": snapshot["items"], "state": snapshot["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await, "checkpoint": checkpoint_of(&id) })
+    json!({ "items": snapshot["items"], "state": snapshot["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await, "checkpoint": checkpoint_of(&id), "stage": handle.runtime_stage() })
 }
 
 async fn start_with(directory: &SessionDirectory, params: Value) -> Arc<mixdog_core_session::session::SessionHandle> {
@@ -317,7 +317,7 @@ async fn observe(directory: &SessionDirectory, handle: &mixdog_core_session::ses
     let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
     let messages = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": ThreadHandle::id(handle).as_str(), "start": 0 }), op: None, ctx: CallContext::internal("test") };
     let Reply::Value(messages) = directory.request(messages).await.expect("thread/modelMessages/list") else { panic!("a value") };
-    json!({ "items": read["items"], "state": read["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await, "checkpoint": checkpoint_of(ThreadHandle::id(handle).as_str()) })
+    json!({ "items": read["items"], "state": read["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await, "checkpoint": checkpoint_of(ThreadHandle::id(handle).as_str()), "stage": handle.runtime_stage() })
 }
 
 /// Node's `result` (what `askSession` returned, the answer): what a client is given as the turn's answer, the item its
@@ -582,6 +582,26 @@ async fn crash_child() {
     let dir = std::path::PathBuf::from(dir);
     // `a_child_past_its_deadline_is_killed_and_named`: a child that never ends by itself.
     if case == "deadline-probe" {
+        // A process the child started, which only the tree's end reaches (`a_child_past_its_deadline_is_killed_and_named`).
+        if std::env::var("TD_GRANDCHILD").is_err() {
+            let log = std::fs::File::create(dir.join("grandchild.log")).expect("the grandchild's log");
+            let mut grandchild = std::process::Command::new(std::env::current_exe().unwrap());
+            grandchild
+                .args(["--exact", &format!("{}::crash_child", module_path!().trim_start_matches("mixdog_core::")), "--nocapture", "--test-threads=1"])
+                .env("TD_CASE", &case)
+                .env("TD_DIR", &dir)
+                .env("TD_GRANDCHILD", "1")
+                .stdin(std::process::Stdio::null())
+                .stdout(log.try_clone().expect("the grandchild's log"))
+                .stderr(log);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                grandchild.creation_flags(0x0800_0000);
+            }
+            let started = grandchild.spawn().expect("the grandchild runs");
+            std::fs::write(dir.join("grandchild"), started.id().to_string()).unwrap();
+        }
         std::future::pending::<()>().await;
     }
     CASE.set((case.clone(), dir.clone())).unwrap();
@@ -624,8 +644,9 @@ async fn crash_child() {
                         return answer("answer");
                     }
                     if hangs {
+                        // Node's scripted `send` never returns: the request stays on the wire with no response begun.
                         ON_WIRE.notify_one();
-                        return Play { events: VecDeque::new(), hang: true, more: None };
+                        return std::future::pending().await;
                     }
                     answer("answer to the queued")
                 })
@@ -804,6 +825,45 @@ fn cases() -> Vec<Value> {
     golden["cases"].as_array().unwrap().clone()
 }
 
+/// What the manifest's `exclusions` may name: each line is `<key>: <reason>`. The comparison drops or translates a thing only
+/// while its key is listed; without the line the thing is compared as recorded (and the replay fails where the two sides differ).
+/// `result`, `refusal-class` and `requests` are lines that state how a value is read, not a drop.
+const EXCLUSION_KEYS: [&str; 20] = [
+    "minted-ids", "row-id", "view-messages", "system-message", "rust-disk-stamps", "end-row-message-id", "checkpoint-seal", "queued-stamps", "taken-disk",
+    "saved-uncleared-presence", "secret-before-mark", "secret-files", "busy", "result", "refusal-class", "live-view", "queued-rows", "spool", "requests", "usage-save-timer",
+];
+
+/// Whether the manifest's exclusions list `key`.
+fn excluded(key: &str) -> bool {
+    static LISTED: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    assert!(EXCLUSION_KEYS.contains(&key), "{key} is not an exclusion the replay knows");
+    LISTED
+        .get_or_init(|| {
+            let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-durability/MANIFEST.json")).unwrap();
+            manifest["exclusions"]
+                .as_array()
+                .expect("the manifest's exclusions")
+                .iter()
+                .map(|line| {
+                    let line = line.as_str().expect("an exclusion line");
+                    let (listed, reason) = line.split_once(": ").unwrap_or_else(|| panic!("an exclusion is `<key>: <reason>`: {line}"));
+                    assert!(
+                        EXCLUSION_KEYS.contains(&listed) && !reason.trim().is_empty(),
+                        "the manifest lists an exclusion the replay does not read, or one without its reason: {line}"
+                    );
+                    listed.to_owned()
+                })
+                .collect()
+        })
+        .iter()
+        .any(|listed| listed == key)
+}
+
+/// [`named`] while the manifest excludes minted ids, else the value as it is.
+fn ids(value: &Value, seen: &mut Vec<String>) -> Value {
+    if excluded("minted-ids") { named(value, seen) } else { value.clone() }
+}
+
 /// A minted id: a message, item, history row or session id, or a UUID (an attempt, a turn).
 fn is_minted(text: &str) -> bool {
     let uuid = text.len() == 36 && text.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() });
@@ -848,11 +908,13 @@ fn node_rows(items: &Value) -> Vec<Value> {
     rows.iter()
         .map(|row| {
             let mut row = row.as_object().unwrap().clone();
-            row.shift_remove("id");
-            // The tool card's open/closed state is the client's (`expanded`), not the session's.
-            row.shift_remove("expanded");
-            if let Some(target) = row.get("finalAssistantId").cloned() {
-                row.insert("finalAssistantId".into(), json!(rows.iter().position(|other| other["id"] == target)));
+            if excluded("row-id") {
+                row.shift_remove("id");
+                // The tool card's open/closed state is the client's (`expanded`), not the session's.
+                row.shift_remove("expanded");
+                if let Some(target) = row.get("finalAssistantId").cloned() {
+                    row.insert("finalAssistantId".into(), json!(rows.iter().position(|other| other["id"] == target)));
+                }
             }
             Value::Object(row)
         })
@@ -938,7 +1000,7 @@ fn rust_rows(items: &Value) -> Vec<Value> {
 
 /// Node's durable messages, the request's assembled system prompt left out (Rust assembles it per request and keeps none).
 fn node_disk(messages: &Value) -> Vec<Value> {
-    messages.as_array().unwrap().iter().filter(|message| message["role"] != "system").cloned().collect()
+    messages.as_array().unwrap().iter().filter(|message| !(excluded("system-message") && message["role"] == "system")).cloned().collect()
 }
 
 /// The stored model context, without what Rust's `turn/start` stamps on the input row beyond Node's
@@ -951,6 +1013,9 @@ fn rust_disk(messages: &Value) -> Vec<Value> {
         .iter()
         .map(|message| {
             let mut message = message.clone();
+            if !excluded("rust-disk-stamps") {
+                return message;
+            }
             // The cancel line's typed fact (`row_facts`), which Node reads from its text (`isTranscriptCancelledStatusText`).
             if let Some(meta) = message.get_mut("meta").and_then(Value::as_object_mut) {
                 meta.shift_remove("turnEnd");
@@ -971,23 +1036,42 @@ fn rust_disk(messages: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// One step as compared: the rows a client shows, the stored model context, whether the thread is busy.
+/// Node's recorded checkpoint as compared: null, or (`checkpoint-seal`) its seal alone, its `turnMessages` (the turn's messages
+/// it copies) being compared as the rows and the disk.
+fn node_checkpoint(checkpoint: &Value) -> Value {
+    if checkpoint.is_null() || !excluded("checkpoint-seal") { checkpoint.clone() } else { json!({ "sealed": checkpoint["sealed"] }) }
+}
+
+/// The queue's rows as compared (`queued-rows`: id, text, mode and priority, Node's id being the submission's).
+fn queued_rows(rows: &[Value], submission_key: &str) -> Value {
+    if excluded("queued-rows") { json!(rows.iter().map(|row| queued_row(row, &row[submission_key])).collect::<Vec<_>>()) } else { json!(rows) }
+}
+
+/// One step as compared: the rows a client shows, the stored model context, the runtime's stage.
 fn node_step(step: &Value) -> Value {
     let mut seen = Vec::new();
-    let rows = named(&json!(node_rows(&step["view"]["items"])), &mut seen);
-    let disk = named(&json!(node_disk(&step["disk"]["messages"])), &mut seen);
-    let mut out = json!({ "rows": rows, "disk": disk, "usage": step["disk"]["usage"], "busy": !step["stage"].is_null() });
+    let rows = ids(&json!(node_rows(&step["view"]["items"])), &mut seen);
+    let disk = ids(&json!(node_disk(&step["disk"]["messages"])), &mut seen);
+    let mut out = json!({ "rows": rows, "disk": disk, "usage": step["disk"]["usage"], "stage": step["stage"] });
+    if excluded("busy") {
+        out["busy"] = json!(!step["stage"].is_null());
+    }
+    if !excluded("view-messages") {
+        out["messages"] = step["view"]["messages"].clone();
+    }
     if let Some(result) = step.get("result") {
         out["result"] = result.clone();
     }
-    // The checkpoint's seal; its `turnMessages` (the turn's messages it copies) are compared as the rows and the disk.
     if let Some(checkpoint) = step.get("checkpoint") {
-        out["checkpoint"] = if checkpoint.is_null() { Value::Null } else { json!({ "sealed": checkpoint["sealed"] }) };
+        out["checkpoint"] = node_checkpoint(checkpoint);
     }
     // The queue cases: the queue the user is shown (the desktop's projection of it) and what each request gave the model.
     if let Some(queued) = step.get("queued").and_then(Value::as_array) {
-        out["queued"] = json!(queued.iter().map(|row| queued_row(row, &row["id"])).collect::<Vec<_>>());
+        out["queued"] = queued_rows(queued, "id");
         out["requests"] = step["requests"].clone();
+        if !excluded("spool") {
+            out["spool"] = step["spool"].clone();
+        }
     }
     out
 }
@@ -1008,72 +1092,51 @@ fn queued_row(row: &Value, submission: &Value) -> Value {
 
 fn rust_step(view: &Value) -> Value {
     let mut seen = Vec::new();
-    let rows = named(&json!(rust_rows(&view["items"])), &mut seen);
-    let disk = named(&json!(rust_disk(&view["disk"])), &mut seen);
-    let mut out = json!({ "rows": rows, "disk": disk, "usage": view["usage"], "busy": busy(view) });
+    let rows = ids(&json!(rust_rows(&view["items"])), &mut seen);
+    let disk = ids(&json!(rust_disk(&view["disk"])), &mut seen);
+    let mut out = json!({ "rows": rows, "disk": disk, "usage": view["usage"], "stage": view["stage"], "busy": busy(view) });
     for key in ["result", "checkpoint"] {
         if let Some(value) = view.get(key) {
             out[key] = value.clone();
         }
     }
     if let Some(requests) = view.get("requests") {
-        out["queued"] = json!(queued_of(view).iter().map(|row| queued_row(row, &row["clientSubmissionId"])).collect::<Vec<_>>());
+        out["queued"] = queued_rows(&queued_of(view), "clientSubmissionId");
         out["requests"] = requests.clone();
     }
     out
 }
 
-/// A queue case's step without what the two sides do not share (each is declared in the manifest's exclusions):
-/// - the submission's stamps: Node's `checkpointId` is Rust's `clientSubmissionId`, and Rust's rows and stored meta also
-///   carry model, modelId and provider, which Node's TUI queue flow stamps on none (outside this change);
-/// - at `queued` and `taken`, the owning process's live view: Node's turn is busy with a checkpoint from its start while
-///   Rust's draft file starts with the first chunk and its `runtime.busy` follows (open, blocker-d.md); Node's stored disk
-///   lags the running turn (its checkpoint holds the turn), Rust's log holds it as it goes;
-/// - `repeats_answer`: Node's recovery of a request killed while it took the queue appends the answer a second time, after the
-///   steered rows (its checkpoint re-played over a log that already held it); Rust shows it once.
-fn queue_comparable(step: &mut Value, label: &str, repeats_answer: bool) {
-    let live = label == "queued" || label == "taken";
-    for row in step["rows"].as_array_mut().unwrap() {
-        for key in ["checkpointId", "model", "modelId", "provider"] {
-            row.as_object_mut().unwrap().shift_remove(key);
-        }
-    }
-    for message in step["disk"].as_array_mut().unwrap() {
-        if let Some(transcript) = message.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
-            for key in ["checkpointId", "clientSubmissionId", "model", "modelId", "provider"] {
-                transcript.shift_remove(key);
+/// A queue case's step without what the two sides do not share (each listed in the manifest's exclusions; unlisted, it stays):
+/// - `queued-stamps`: Node's `checkpointId` is Rust's `clientSubmissionId`, and Rust's rows and stored meta also carry model,
+///   modelId and provider, which Node's TUI queue flow stamps on none (outside this change);
+/// - `taken-disk`, at `taken`: the owning process's stored disk: Node's lags the running turn (its checkpoint holds the turn),
+///   Rust's log holds it as it goes.
+fn queue_comparable(step: &mut Value, label: &str) {
+    if excluded("queued-stamps") {
+        for row in step["rows"].as_array_mut().unwrap() {
+            for key in ["checkpointId", "model", "modelId", "provider"] {
+                row.as_object_mut().unwrap().shift_remove(key);
             }
-            if let Some(completion) = transcript.get_mut("completion").and_then(Value::as_object_mut) {
-                completion.shift_remove("checkpointId");
+        }
+        for message in step["disk"].as_array_mut().unwrap() {
+            if let Some(transcript) = message.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
+                for key in ["checkpointId", "clientSubmissionId", "model", "modelId", "provider"] {
+                    transcript.shift_remove(key);
+                }
+                if let Some(completion) = transcript.get_mut("completion").and_then(Value::as_object_mut) {
+                    completion.shift_remove("checkpointId");
+                }
             }
         }
     }
-    if live {
-        let step = step.as_object_mut().unwrap();
-        step.shift_remove("busy");
-        step.shift_remove("checkpoint");
-    }
-    if label == "taken" {
+    if label == "taken" && excluded("taken-disk") {
         step["disk"] = json!([]);
     }
     // The turn this process ran after the restart: Node shows its live end row, which names no message (as `same` drops it).
-    if label == "drained" {
+    if label == "drained" && excluded("end-row-message-id") {
         for row in step["rows"].as_array_mut().unwrap().iter_mut().filter(|row| row["kind"] == "turndone") {
             row.as_object_mut().unwrap().shift_remove("messageId");
-        }
-    }
-    if repeats_answer && (label == "reopened" || label == "drained") {
-        for key in ["rows", "disk"] {
-            let mut seen: Vec<Value> = Vec::new();
-            step[key].as_array_mut().unwrap().retain(|entry| {
-                let answer = entry["kind"] == "assistant" || entry["role"] == "assistant";
-                let said = entry.get("text").or_else(|| entry.get("content")).cloned().unwrap_or(Value::Null);
-                let again = answer && seen.contains(&said);
-                if answer {
-                    seen.push(said);
-                }
-                !again
-            });
         }
     }
 }
@@ -1084,7 +1147,7 @@ fn same(case: &str, step: &Value, got: Value) {
     // no message; the recorder's view is the stored-transcript projection, whose end row takes the answer's `messageId`. An
     // heir ran no turn: it shows its carried rows restored, end rows with their `messageId`.
     let label = step["step"].as_str().unwrap_or_default();
-    if label != "reopened" && label != "read again" && !label.ends_with("(heir)") {
+    if excluded("end-row-message-id") && label != "reopened" && label != "read again" && !label.ends_with("(heir)") {
         for row in want["rows"].as_array_mut().unwrap() {
             if row["kind"] == "turndone" {
                 row.as_object_mut().unwrap().shift_remove("messageId");
@@ -1093,8 +1156,13 @@ fn same(case: &str, step: &Value, got: Value) {
     }
     let mut got = got;
     if case.starts_with("crash-queued-") {
-        queue_comparable(&mut got, label, false);
-        queue_comparable(&mut want, label, case == "crash-queued-while-take");
+        queue_comparable(&mut got, label);
+        queue_comparable(&mut want, label);
+    }
+    // `usage-save-timer`: whether the first request's usage is in the durable record at the kill follows a real 150 ms timer.
+    if case == "crash-queued-while-take" && ["taken", "reopened", "drained"].contains(&label) && excluded("usage-save-timer") {
+        got.as_object_mut().unwrap().shift_remove("usage");
+        want.as_object_mut().unwrap().shift_remove("usage");
     }
     if got != want {
         let diff = format!("{case} / {}:\n got {}\nwant {}", step["step"], serde_json::to_string(&got).unwrap(), serde_json::to_string(&want).unwrap());
@@ -1182,9 +1250,9 @@ async fn held_save(name: &str) {
     let refused = ask(&handle, "second task", "op-2").await.expect_err("refused while the first turn is not saved");
     let mixdog_core_api::CoreError::DomainError { code, message, .. } = &refused else { panic!("{refused:?}") };
     let mut seen = Vec::new();
-    let got = named(&json!({ "code": code, "message": message }), &mut seen);
+    let got = ids(&json!({ "code": code, "message": message }), &mut seen);
     let mut seen = Vec::new();
-    let want = named(&json!({ "code": steps[1]["code"], "message": steps[1]["message"] }), &mut seen);
+    let want = ids(&json!({ "code": steps[1]["code"], "message": steps[1]["message"] }), &mut seen);
     assert_eq!(got, want, "the refusal");
     assert_eq!(provider.sends.load(Ordering::SeqCst), steps[1]["sends"].as_u64().unwrap() as usize, "the refused turn asks nothing");
     same(name, &steps[1], rust_step(&observe(&directory, &handle).await));
@@ -1246,15 +1314,17 @@ async fn a_held_turn_forks_as_node_forks_it() {
                 let heir = directory.open_handle(&heir, &CallContext::internal("test")).await.expect("the heir");
                 let mut shown = step["heir"].clone();
                 shown["step"] = json!(format!("{label} (heir)"));
-                shown["view"]["items"] = step["heir"]["live"]["items"].clone();
+                if excluded("live-view") {
+                    shown["view"]["items"] = step["heir"]["live"]["items"].clone();
+                }
                 same(name, &shown, rust_step(&observe(&directory, &heir).await));
             }
             Ok(_) => panic!("{label}: thread/fork answers a value"),
             Err(error) => {
                 let mut seen = Vec::new();
-                let got = named(&json!({ "forked": false, "message": error.to_string() }), &mut seen);
+                let got = ids(&json!({ "forked": false, "message": error.to_string() }), &mut seen);
                 let mut seen = Vec::new();
-                let want = named(&json!({ "forked": step["forked"], "message": step["message"] }), &mut seen);
+                let want = ids(&json!({ "forked": step["forked"], "message": step["message"] }), &mut seen);
                 if got != want {
                     lock(&DIFFS).push(format!("{name} / {label}:\n got {got}\nwant {want}"));
                 }
@@ -1267,30 +1337,77 @@ async fn a_held_turn_forks_as_node_forks_it() {
     no_diffs();
 }
 
+/// A crash child that ends, with everything it started, on every exit path of its owner: its tree is ended when it is dropped
+/// still running (a panic, an assertion), and at its deadline.
+struct Crashed(tokio::process::Child);
+
+impl std::ops::Deref for Crashed {
+    type Target = tokio::process::Child;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Crashed {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Crashed {
+    /// Ends the child and every process it started, by its id.
+    fn end_tree(&self) {
+        let Some(pid) = self.0.id() else { return };
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("taskkill").args(["/F", "/T", "/PID", &pid.to_string()]).creation_flags(0x0800_0000).status();
+        }
+        #[cfg(unix)]
+        // SAFETY: signals the child's own process group (it is spawned as the leader of one).
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+}
+
+impl Drop for Crashed {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            self.end_tree();
+        }
+    }
+}
+
 /// A crash child running case `name` in `dir` (this test binary, `crash_child` alone).
-fn spawn_child(name: &str, dir: &Path) -> tokio::process::Child {
+fn spawn_child(name: &str, dir: &Path) -> Crashed {
     let child = format!("{}::crash_child", module_path!().trim_start_matches("mixdog_core::"));
     // Its output goes to a file in `dir`, not the runner's pipe: a process it started and the kill left behind would hold the
     // pipe open and the runner would wait on it.
     let log = std::fs::File::create(dir.join("child.log")).expect("the child's log");
-    tokio::process::Command::new(std::env::current_exe().unwrap())
+    let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+    command
         .args(["--exact", &child, "--nocapture", "--test-threads=1"])
         .env("TD_CASE", name)
         .env("TD_DIR", dir)
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone().expect("the child's log"))
         .stderr(log)
-        .kill_on_drop(true)
-        .spawn()
-        .expect("the child runs")
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    Crashed(command.spawn().expect("the child runs"))
 }
 
-/// The child's exit within `deadline`; past it the child is killed and the error names the case.
-async fn wait_child(name: &str, process: &mut tokio::process::Child, deadline: Duration) -> Result<std::process::ExitStatus, String> {
+/// The child's exit within `deadline`; past it the child and its tree are ended and the error names the case.
+async fn wait_child(name: &str, process: &mut Crashed, deadline: Duration) -> Result<std::process::ExitStatus, String> {
     match tokio::time::timeout(deadline, process.wait()).await {
         Ok(status) => Ok(status.expect("the child's status")),
         Err(_) => {
-            process.kill().await.expect("the expired child is killed");
+            process.end_tree();
+            tokio::time::timeout(Duration::from_secs(30), process.wait()).await.expect("the ended child is reaped within 30 s").expect("the child's status");
             Err(format!("{name}: the crash child did not end within {} s", deadline.as_secs()))
         }
     }
@@ -1304,6 +1421,17 @@ async fn a_child_past_its_deadline_is_killed_and_named() {
     let expired = wait_child("deadline-probe", &mut process, Duration::from_secs(5)).await.expect_err("the probe never ends by itself");
     assert_eq!(expired, "deadline-probe: the crash child did not end within 5 s");
     assert!(process.try_wait().expect("the child's status").is_some(), "the child is dead");
+    // The process the child started is gone with it (written before the child waits, so it is there once the child ran).
+    let grandchild: u32 = std::fs::read_to_string(dir.path().join("grandchild")).expect("the child started a process").parse().unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let listed = std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {grandchild}"), "/NH"]).creation_flags(0x0800_0000).output().expect("tasklist runs");
+        assert!(!String::from_utf8_lossy(&listed.stdout).contains(&grandchild.to_string()), "the child's process {grandchild} is gone with it");
+    }
+    #[cfg(unix)]
+    // SAFETY: signal 0 only tests that the process exists.
+    assert!(unsafe { libc::kill(grandchild as i32, 0) } != 0, "the child's process {grandchild} is gone with it");
 }
 
 /// Each crash point: the child process runs the turn until the store's crash hook kills it, then the thread is opened (the
@@ -1352,19 +1480,27 @@ async fn crash_replays(wanted: fn(&str) -> bool) {
             }
             let resumed: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("resumed.json")).unwrap()).unwrap();
             let mut shown = step.clone();
-            shown["view"]["items"] = step["live"]["items"].clone();
+            if excluded("live-view") {
+                shown["view"]["items"] = step["live"]["items"].clone();
+            }
             same(&name, &shown, rust_step(&resumed));
         }
         let sends: usize = std::fs::read_to_string(dir.path().join("sends")).unwrap().parse().unwrap();
         assert_eq!(sends, steps[killed]["sends"].as_u64().unwrap() as usize, "{name}: the requests sent before the kill");
         // Whether a file of the data holds the value marked sensitive (`crash-sensitive`): at the kill and after each open.
-        let secret = |step: &Value| step.get("secretFiles").map(|files| !files.as_array().unwrap().is_empty());
+        let secret = |step: &Value| {
+            step.get("secretFiles").map(|files| {
+                assert!(excluded("secret-files"), "the recording names the data files; only whether one holds the value is compared, which the manifest must list");
+                !files.as_array().unwrap().is_empty()
+            })
+        };
         let at_kill: bool = std::fs::read_to_string(dir.path().join("secret")).unwrap().parse().unwrap();
         if let Some(want) = secret(&steps[killed]) {
             assert_eq!(at_kill, want, "{name}: a file holds the value at the kill");
         }
         // Before the mark the value was in the draft file (so the redaction is what removed it).
         if let Some(files) = steps[killed].get("secretFilesBeforeMark") {
+            assert!(excluded("secret-before-mark"), "{name}: only whether a file held the value is compared, which the manifest must list");
             let before: bool = std::fs::read_to_string(dir.path().join("secret-before")).unwrap().parse().unwrap();
             assert_eq!(before, !files.as_array().unwrap().is_empty(), "{name}: a file holds the value before the mark");
         }
@@ -1373,11 +1509,11 @@ async fn crash_replays(wanted: fn(&str) -> bool) {
         let id = std::fs::read_to_string(dir.path().join("id")).unwrap();
         let left = checkpoint_in(&dir.path().join("data"), &id);
         if let Some(want) = steps[killed].get("checkpoint") {
-            let want = if want.is_null() { Value::Null } else { json!({ "sealed": want["sealed"] }) };
-            assert_eq!(left, want, "{name}: the draft file left at the kill");
+            assert_eq!(left, node_checkpoint(want), "{name}: the draft file left at the kill");
         }
         // `crash-saved-uncleared`: only that the file is left is recorded (its seal depends on Node's async journal flush).
         if let Some(present) = steps[killed].get("checkpointPresent") {
+            assert!(excluded("saved-uncleared-presence"), "{name}: the recording holds only that the draft file is left, which the manifest must list");
             assert_eq!(!left.is_null(), present.as_bool().unwrap(), "{name}: the draft file left at the kill");
         }
         if queued {
