@@ -34,8 +34,9 @@ const { createSessionService } = await set.load('src/standalone/session-service.
 const { registerBackgroundTask } = await set.load('src/runtime/shared/background-tasks.mjs');
 const { execShellCommand } = await set.load(`${T}shell-command.mjs`);
 const { killShellJob, shutdownShellJobs, watchBackgroundShellJob } = await set.load(`${T}builtin/shell-jobs.mjs`);
+const { shellJobsStatusFresh } = await set.load('src/runtime/shared/statusline/statusline-segments.mjs');
 const { stopBackgroundShellJob } = await set.load(`${T}builtin/task-tool.mjs`);
-const { getNativeTask, subscribeNativeTask, _resetNativeSpawnClientForTest, _setNativeSpawnBinaryForTest, shutdownNativeSpawnServer } = await set.load(`${T}lib/native-spawn-client.mjs`);
+const { _resetNativeSpawnClientForTest, _setNativeSpawnBinaryForTest, shutdownNativeSpawnServer } = await set.load(`${T}lib/native-spawn-client.mjs`);
 const { SessionHost } = await set.load('apps/desktop/src/main/session-host.ts');
 _setNativeSpawnBinaryForTest(binaryAt);
 
@@ -87,14 +88,16 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     if (found) return Promise.resolve(found);
     return within(label, new Promise((resolve) => { paneWaiter = { test, resolve }; }));
   };
-  /** The native task registry learns of the job (and of its end) from the spawn server's own events, in real time: wait for that event, with a
-   *  deadline, before the clock moves, so the single advance that follows is what publishes the row. */
-  const nativeTaskIs = (label, jobId, test) => within(label, new Promise((resolve) => {
-    let off = () => {};
-    const check = (task) => { if (task && test(task)) { off(); resolve(task); return true; } return false; };
-    if (!check(getNativeTask(jobId))) off = subscribeNativeTask(jobId, check);
-  }));
-  /** The pane row arrives through the host's own 5 s timer: one explicit 5000 ms advance (recorded by the clock in timers.advances), then the
+  /** The host's 5 s poll reads the job records the spawn server writes to disk (shellJobsStatusFresh), and those files appear a little after the
+   *  job starts or ends, in real time: before the clock moves, wait (deadline `within`) until the same scan the poll makes shows the state, so the
+   *  one advance that follows is what publishes the row. The scan is a read of the file-system state, not a count of turns. */
+  const scanShows = (label, test) => within(label, (async () => {
+    for (;;) {
+      const status = await shellJobsStatusFresh({ clientHostPid: hostPid });
+      if (test(status)) return status;
+      await new Promise((resolve) => realTimers.setTimeout(resolve, 25));
+    }
+  })());  /** The pane row arrives through the host's own 5 s timer: one explicit 5000 ms advance (recorded by the clock in timers.advances), then the
    *  publication it causes is awaited. */
   const WATCH_MS = 5_000;
   const paneAfterAdvance = (label, test) => {
@@ -134,7 +137,7 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     const context = { callerSessionId: SESSION, routingSessionId: SESSION, clientHostPid: hostPid };
     registerBackgroundTask({ taskId: jobId, surface: 'shell', operation: 'shell', label: 'serve', context, cancel: () => killShellJob(jobId) });
     watchBackgroundShellJob(jobId, context);
-    await nativeTaskIs('the spawn server to report the job running', jobId, (task) => task.status === 'running');
+    await scanShows('the job record to be on disk as running', (status) => JSON.stringify(status).includes(jobId));
     const running = await paneAfterAdvance('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId));
     mark('the job runs and is on the pane', { started: result, running });
 
@@ -145,7 +148,7 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     mark('hidden with the job running; the idle delay advanced 4x', { disposedSessions: [...disposed] });
 
     const stopped = await within('the stop to answer', host.stopShellJob(SESSION, jobId));
-    await nativeTaskIs('the spawn server to report the job ended', jobId, (task) => task.status !== 'running');
+    await scanShows('the job record to be on disk as ended', (status) => Object.values(status.sessions ?? {}).some((bucket) => bucket.finished?.some((row) => row.taskId === jobId)));
     const settled = await paneAfterAdvance('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId));
     mark('stopped', { stopped, settled, lastPane: paneRows.at(-1) });
     return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } };
