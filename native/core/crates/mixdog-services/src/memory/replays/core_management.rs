@@ -11,10 +11,9 @@
 //!   statements as `[]`.
 //! - Statements are observed under cfg(test) at `memory::core::index::observe` (index sync and the list select);
 //!   `indexReads` is the number of `pg_advisory_xact_lock` statements of the step, as the stand-in counted them.
-//! - `roundTrip` is the deleted TUI parser's (`parseMemoryCoreRows`). As the manifest states, the core's reader of a
-//!   list is its structured result: each recorded `perEntry[].listed` (id, project, summary, index revision) and
-//!   `rowCount.listed` are compared with the core's entries; the `parsed` TUI rows and the parser's per-field flags have
-//!   no core counterpart.
+//! - `roundTrip`: the core's formatted text is parsed by the reader of that text, the TUI's `parseMemoryCoreRows`
+//!   (`src/tui/app/input-parsers.mjs:50`, unchanged since b6f10295a), run by Node in a child process; the parsed rows,
+//!   the recorder's per-entry checks against the core's listed entries and both counts are compared whole.
 //! - `handleMemoryAction` answers `{text, isError?, entries, nextOffset, projectScopes}`; the core's `ToolReply` is the
 //!   same reply before the dispatch layer adds `content` (and `isError: false`): text, `isError` when set, its fields.
 //! - The temp project root is `<root>` in the recording; the replay makes its own folders with the recorded ids and
@@ -223,8 +222,8 @@ pub(in crate::memory::replays) mod pg {
                     Ok(page) => {
                         let text = format(&page);
                         fields.push(("result", page_value(&page)));
-                        fields.push(("formatted", string(text)));
-                        fields.push(("roundTrip", round_trip(&page)));
+                        fields.push(("formatted", string(text.clone())));
+                        fields.push(("roundTrip", round_trip(&text, &page)));
                     }
                     Err(error) => fields.push((
                         "error",
@@ -246,51 +245,83 @@ pub(in crate::memory::replays) mod pg {
             actual.push(value);
         }
         crate::memory::core::index::STATEMENTS.with(|log| *log.borrow_mut() = None);
-        let expected = Exact::Array(c.get("steps").as_array().iter().map(recorded_round_trip).collect());
         let mut actual = Exact::Array(actual);
         label_uuids(&mut actual, &mut Vec::new());
-        same(name, &expected, &actual);
+        same(name, c.get("steps"), &actual);
     }
 
-    /// What the core's reader of a list (its structured result) proves of each entry (see the header).
-    pub(in crate::memory::replays) fn round_trip(page: &crate::memory::core::list::Page) -> Exact {
-        let listed = page
+    /// `parseMemoryCoreRows(formatted)` of the shipped TUI (`src/tui/app/input-parsers.mjs:50`, the reader of this text),
+    /// run by Node over the core's formatted text and encoded with the recordings' encoder.
+    pub(in crate::memory::replays) fn parse_rows(formatted: &str) -> Exact {
+        use std::io::Write;
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().expect("repository root");
+        let url = |relative: &str| {
+            let path = repo.join(relative).to_string_lossy().replace('\\', "/");
+            // `canonicalize` answers a verbatim path (`\\?\C:\…`) on Windows.
+            format!("file:///{}", path.trim_start_matches("//?/").trim_start_matches('/'))
+        };
+        let script = format!(
+            "import {{ parseMemoryCoreRows }} from '{}'; import {{ exact }} from '{}';\n\
+             let text = ''; process.stdin.setEncoding('utf8'); for await (const chunk of process.stdin) text += chunk;\n\
+             process.stdout.write(JSON.stringify(exact(parseMemoryCoreRows(text))));",
+            url("src/tui/app/input-parsers.mjs"),
+            url("benchmarks/rust-core/recorders/lib/exact.mjs"),
+        );
+        let mut child = std::process::Command::new("node")
+            .args(["--input-type=module", "-e", &script])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("node runs the TUI parser");
+        child.stdin.take().expect("stdin").write_all(formatted.as_bytes()).expect("write the formatted text");
+        let (done, waited) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(child.wait_with_output());
+        });
+        let output = waited
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the TUI parser did not answer within 60 s")
+            .expect("the TUI parser's output");
+        assert!(output.status.success(), "the TUI parser failed: {}", String::from_utf8_lossy(&output.stderr));
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("the parser's JSON");
+        Exact::decode(&value).expect("the parser's encoded rows")
+    }
+
+    /// The recorder's `roundTrip(formatted, entries)` over the core's formatted text and the core's listed entries.
+    pub(in crate::memory::replays) fn round_trip(formatted: &str, page: &crate::memory::core::list::Page) -> Exact {
+        let parsed = parse_rows(formatted);
+        let rows = parsed.as_array();
+        let per_entry = page
             .entries
             .iter()
-            .map(|entry| {
+            .enumerate()
+            .map(|(i, entry)| {
+                let row = rows.get(i);
+                let field = |key: &str| row.and_then(|r| r.try_get(key)).cloned().unwrap_or(Exact::Undefined);
+                let id = entry.id.map_or(Exact::Null, |id| int(id as i64));
+                let project = entry.project_id.clone().map_or(Exact::Null, string);
+                let summary = string(entry.summary.clone());
+                // `String(entry.index_revision)`: a listed entry always carries the key, `null` when it has no revision.
+                let revision = string(entry.index_revision.clone().unwrap_or_else(|| "null".to_owned()));
                 object(vec![
-                    ("id", entry.id.map_or(Exact::Null, |id| int(id as i64))),
-                    ("project_id", entry.project_id.clone().map_or(Exact::Null, string)),
-                    ("summary", string(entry.summary.clone())),
-                    ("index_revision", entry.index_revision.clone().map_or(Exact::Null, string)),
+                    ("id", Exact::Bool(field("_id") == id)),
+                    ("projectId", Exact::Bool(field("_projectId") == project)),
+                    ("summary", Exact::Bool(field("_summary") == summary)),
+                    ("indexRevision", Exact::Bool(field("_indexRevision") == revision)),
+                    (
+                        "listed",
+                        object(vec![
+                            ("id", id),
+                            ("project_id", project),
+                            ("summary", summary),
+                            ("index_revision", entry.index_revision.clone().map_or(Exact::Null, string)),
+                        ]),
+                    ),
                 ])
             })
             .collect();
-        object(vec![("listed", Exact::Array(listed)), ("rowCountListed", int(page.entries.len() as i64))])
-    }
-
-    /// A recorded step with `roundTrip` reduced to what `round_trip` proves.
-    pub(in crate::memory::replays) fn recorded_round_trip(step: &Exact) -> Exact {
-        match step {
-            Exact::Object(entries) => Exact::Object(
-                entries
-                    .iter()
-                    .map(|(key, value)| {
-                        if key != "roundTrip" {
-                            return (key.clone(), value.clone());
-                        }
-                        let listed = value.get("perEntry").as_array().iter().map(|e| e.get("listed").clone()).collect();
-                        (
-                            key.clone(),
-                            object(vec![
-                                ("listed", Exact::Array(listed)),
-                                ("rowCountListed", value.get("rowCount").get("listed").clone()),
-                            ]),
-                        )
-                    })
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
+        let count = object(vec![("parsed", int(rows.len() as i64)), ("listed", int(page.entries.len() as i64))]);
+        object(vec![("parsed", parsed.clone()), ("perEntry", Exact::Array(per_entry)), ("rowCount", count)])
     }
 }

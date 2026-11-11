@@ -52,7 +52,7 @@ mod pg {
     use crate::memory::core::list::{ListOptions, format, list};
     use crate::memory::pg::db::Db;
     use crate::memory::replays::core_management::pg::{
-        label_uuids, page_value, recorded_round_trip, round_trip, stand_in, statements,
+        label_uuids, page_value, round_trip, stand_in, statements,
     };
     use crate::memory::replays::pg::{ReplayPg, memory_db};
     use crate::memory::replays::{case, int, object, same, string};
@@ -230,8 +230,7 @@ mod pg {
         let mut actual = Exact::Array(actual);
         label_uuids(&mut actual, &mut Vec::new());
         relabel(&mut actual, label_offset(expected));
-        let expected = Exact::Array(expected.as_array().iter().map(recorded_round_trip).collect());
-        by_step(name, &expected, &actual);
+        by_step(name, expected, &actual);
     }
 
     /// Step by step (a difference names its step), then whole (no step missing or extra).
@@ -397,11 +396,15 @@ mod pg {
         let options = ListOptions { scope: Some(scope), agent_id: None, args: &args, project_scopes: None };
         let page = settle(label, list(f.db(), options)).await.unwrap_or_else(|e| panic!("{label}: {}", e.message()));
         f.collect();
+        let text = format(&page);
+        // This recorder's `roundTrip` also carries the text it parsed.
+        let Exact::Object(mut trip) = round_trip(&text, &page) else { unreachable!("a round trip is an object") };
+        trip.insert(0, ("formatted".to_owned(), string(text.clone())));
         let step = object(vec![
             ("label", string(label)),
             ("result", page_value(&page)),
-            ("formatted", string(format(&page))),
-            ("roundTrip", round_trip(&page)),
+            ("formatted", string(text)),
+            ("roundTrip", Exact::Object(trip)),
             ("statements", f.splice()),
         ]);
         (step, page.entries)
