@@ -18,7 +18,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exact } from './lib/exact.mjs';
 import { DETERMINISM, DEADLINE_MS, installDeterminism, realClearTimeout, realSetTimeout } from './lib/session-wire-harness.mjs';
+import { parseArgs } from './lib/common.mjs';
 import { cleanup, runSessionRecorder } from './lib/session-rec.mjs';
+
+// Experiment switches (not used for the committed recording): --seeds 8,3,1 runs only those seeds in that order, --skip-detach drops the two detach cases.
+const cliArgs = parseArgs();
+const SEEDS = cliArgs.get('seeds') ? String(cliArgs.get('seeds')).split(',').map(Number) : Array.from({ length: 60 }, (_, i) => i + 1);
+const SKIP_DETACH = cliArgs.get('skip-detach') !== undefined;
 
 const determinism = installDeterminism();
 
@@ -110,11 +116,15 @@ await runSessionRecorder(import.meta.url, {
   let sequence = 0;
   const label = (tag) => `sess_sequence_${tag}_${++sequence}`;
   async function newSession(tag) {
+    armed.length = 0;
     const id = label(tag);
     const message = { role: 'user', content: 'm0' };
     const first = await saveSessionAsync({ id, generation: 0, closed: false, messages: [message] });
-    await quiesce([], 'after the initial save');
-    return { id, message, first };
+    // Everything of the initial save is recorded: the timers it armed and every clock step the recorder took.
+    const initial = { timersArmed: [], clockSteps: [] };
+    await quiesce(initial.clockSteps, 'after the initial save');
+    initial.timersArmed = armed.slice();
+    return { id, message, first, initial };
   }
 
   const cases = [];
@@ -126,8 +136,8 @@ await runSessionRecorder(import.meta.url, {
   };
   try {
     // test line 64
-    for (const fails of [false, true]) {
-      const { id, first } = await newSession(fails ? 'detach_fail' : 'detach_ok');
+    for (const fails of SKIP_DETACH ? [] : [false, true]) {
+      const { id, first, initial } = await newSession(fails ? 'detach_fail' : 'detach_ok');
       unlinks.length = 0; armed.length = 0;
       failing = (candidate) => fails && candidate === id;
       const deleting = deleteSession(id);
@@ -141,7 +151,7 @@ await runSessionRecorder(import.meta.url, {
         name: `detach-accepted-while-a-delete-${fails ? 'fails' : 'succeeds'}`,
         testLine: 64,
         input: { id, initialSave: { messages: ['m0'], generation: 0, closed: false }, ops: [{ op: 'deleteSession' }, { op: 'closeSession', reason: 'desktop-context-switch', options: { tombstone: false } }], unlinkPlan: [fails] },
-        result: { firstSave: exact(first), deleted, closed, commitError: exact(getSessionLifecycleCommitError(id)), unlinks: unlinks.slice(), timersArmed: armed.slice(), clockSteps, ...state(id) },
+        result: { firstSave: exact(first), initial, deleted, closed, commitError: exact(getSessionLifecycleCommitError(id)), unlinks: unlinks.slice(), timersArmed: armed.slice(), clockSteps, ...state(id) },
       });
     }
 
@@ -196,9 +206,9 @@ await runSessionRecorder(import.meta.url, {
       return plan;
     };
 
-    for (let seed = 1; seed <= 60; seed++) {
+    for (const seed of SEEDS) {
       const ops = scenario(seededRandom(seed * 7919));
-      const { id, message: first } = await newSession(`random_${seed}`);
+      const { id, message: first, initial } = await newSession(`random_${seed}`);
       const plan = unlinkPlanOf(ops, first);
       const queue = plan.slice();
       failing = () => queue.shift() === true;
@@ -224,7 +234,7 @@ await runSessionRecorder(import.meta.url, {
         name: `random-seed-${seed}`,
         testLine: 168,
         input: { id, seed, initialSave: { messages: ['m0'], generation: 0, closed: false }, ops: ops.map((kind, index) => ({ kind, content: `m${index + 1}` })), unlinkPlan: plan },
-        result: { results, commitError: exact(getSessionLifecycleCommitError(id)), unlinkPlanLeft: queue.slice(), unlinks: unlinks.slice(), timersArmed: armed.slice(), clockSteps, ...state(id) },
+        result: { initial, results, commitError: exact(getSessionLifecycleCommitError(id)), unlinkPlanLeft: queue.slice(), unlinks: unlinks.slice(), timersArmed: armed.slice(), clockSteps, ...state(id) },
       });
     }
   } finally {

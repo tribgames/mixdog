@@ -33,6 +33,10 @@
       },
       "result": {
         "firstSave": "saved",
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "deleted": true,
         "closed": true,
         "commitError": null,
@@ -79,6 +83,10 @@
       },
       "result": {
         "firstSave": "saved",
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "deleted": false,
         "closed": true,
         "commitError": null,
@@ -159,6 +167,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           null,
@@ -269,6 +281,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           1,
@@ -392,6 +408,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           1,
@@ -485,6 +505,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           true,
@@ -546,6 +570,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           {
@@ -638,6 +666,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           false,
@@ -729,6 +761,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           false,
@@ -830,6 +866,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           {
@@ -950,6 +990,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           true,
@@ -1063,6 +1107,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -1149,6 +1197,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           1,
@@ -1238,6 +1290,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -1344,6 +1400,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           1,
@@ -1440,6 +1500,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -1553,6 +1617,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           {
@@ -1676,6 +1744,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           {
@@ -1753,6 +1825,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -1846,6 +1922,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           false,
@@ -1926,6 +2006,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           false,
@@ -2031,6 +2115,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           false,
@@ -2140,6 +2228,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -2263,6 +2355,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -2375,6 +2471,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           "saved",
@@ -2488,6 +2588,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           false,
@@ -2609,6 +2713,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           null,
@@ -2711,6 +2819,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           true,
@@ -2837,6 +2949,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           {
@@ -2921,6 +3037,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -3013,6 +3133,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -3128,6 +3252,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -3231,6 +3359,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -3342,6 +3474,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           false,
@@ -3481,6 +3617,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           null,
@@ -3619,6 +3759,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           true,
           null,
@@ -3749,6 +3893,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -3846,6 +3994,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -3963,6 +4115,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           {
@@ -4058,6 +4214,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           1,
@@ -4172,6 +4332,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           "saved",
@@ -4301,6 +4465,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -4423,6 +4591,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           true,
@@ -4546,6 +4718,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -4701,6 +4877,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           true,
@@ -4819,6 +4999,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           true,
@@ -4933,6 +5117,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -5024,6 +5212,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -5134,6 +5326,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -5259,6 +5455,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           true,
@@ -5405,6 +5605,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           true,
@@ -5530,6 +5734,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -5672,6 +5880,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           false,
@@ -5823,6 +6035,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           true,
@@ -5964,6 +6180,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           true,
@@ -6084,6 +6304,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -6183,6 +6407,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -6280,6 +6508,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           1,
           "dropped",
@@ -6385,6 +6617,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           "saved",
@@ -6505,6 +6741,10 @@
         ]
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           false,
           1,
@@ -6625,6 +6865,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           {
             "$exact": "undefined"
@@ -6752,6 +6996,10 @@
         "unlinkPlan": []
       },
       "result": {
+        "initial": {
+          "timersArmed": [],
+          "clockSteps": []
+        },
         "results": [
           "saved",
           1,

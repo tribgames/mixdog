@@ -8,17 +8,23 @@
     "the recorded stored record is the whole readDurableSessionRecord result and the whole directory listing of the sessions dir (the OS's order), the log file is its exact text",
     "the random op lists come from the test's seeded generator (seed * 7919), recorded as inputs",
     "the temp data dir is a path under the OS temp dir: it is not recorded; a recorded string that holds it is a defect of the recording (the recorder fails on it)",
-    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
-    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)",
-    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\""
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\"",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 209222,
+      "bytes": 214678,
       "path": "recording.json",
-      "sha256": "adaa38dd1ef6a5a1b287a28377139ecd2ef9d2d080c44e6031aa17a0a7c92de2"
+      "sha256": "4e3f28bb53fd30ef95239d6995b9acd627630705f66a79af051da50415e42cea"
     }
   ],
   "inputs": [
@@ -40,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
+      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -61,10 +67,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-sequence.mjs",
-  "recorderSha256": "7cb5764cbf63b5b2a2162b809d76de6bb01d6b1c5cf653fa3ea9de3489ae29fe",
+  "recorderSha256": "c93e6d2fce65b9f24b1b8419c54809b7f7ac305074679385a37f07bb39dbea2e",
   "replay": "mixdog-core-session actor ordering (S/close.rs detach/close, S/delete.rs delete_session, the item-commit barrier) driven by the same op list per case with the case's unlink failures injected in the store writer: compare each op's result, the lifecycle commit error, the stored record (messages, generation, closed) and the log file (normalised) whole.",
   "set": "session-sequence",
   "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
-  "totalBytes": 209222,
+  "totalBytes": 214678,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
