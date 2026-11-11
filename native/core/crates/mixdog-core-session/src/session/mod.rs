@@ -63,6 +63,7 @@ pub mod heartbeat_host;
 pub mod thread_settings;
 pub mod thread_switches;
 mod live_rows;
+mod memory_feed;
 mod durability;
 mod frames;
 mod handle;
