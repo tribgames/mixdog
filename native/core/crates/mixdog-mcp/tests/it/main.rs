@@ -39,3 +39,15 @@ mod stdio_spawn_suite;
 mod transport_suite;
 mod uv_error_suite;
 mod watch_cache_suite;
+
+/// The OAuth test seams (`mixdog_mcp::oauth::callback::seam`, `LOGIN_DEADLINE_MS`) are process-wide: the login deadline
+/// one test sets or fires, and the listener events one test clears and reads, reach every login running in the process.
+/// A test that runs a login holds this for its whole run, so under `cargo test` (every test a thread of one process)
+/// those tests take turns, as they do in nextest's process per test; it starts with the deadline seam at rest.
+static OAUTH_SEAMS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn oauth_seams() -> tokio::sync::MutexGuard<'static, ()> {
+    let held = OAUTH_SEAMS.lock().await;
+    mixdog_mcp::oauth::callback::LOGIN_DEADLINE_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+    held
+}
