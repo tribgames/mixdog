@@ -9,7 +9,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-deepseek-replay',
   entry: 'openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, parseToolCalls, knownToolNames }); OpenAICompatProvider("deepseek", { apiKey, preconnect: false }) driven by session/agent-loop.mjs agentLoop over a loopback Chat endpoint (the OpenAI SDK sends real HTTP); openai-compat-wire.mjs toOpenAIMessages. Not run: a live endpoint.',
-  replay: 'mixdog-ai providers::compat chat decode (decode.rs:286-292, :530-537) and encode: feed `input.chunks` / the `requests[*].reply` SSE and compare `result` (reasoningContent and whether reasoning_content is present), the second request body (assistant message reasoning_content "") and the replayed messages.',
+  compare: 'mixdog-ai providers::compat chat decode (decode.rs:286-292, :530-537) and encode: feed `input.chunks` / the `requests[*].reply` SSE and compare `result` (reasoningContent and whether reasoning_content is present), the second request body (assistant message reasoning_content "") and the replayed messages.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { OpenAICompatProvider, parseToolCalls } = await rec.P(`${P}openai-compat.mjs`);
