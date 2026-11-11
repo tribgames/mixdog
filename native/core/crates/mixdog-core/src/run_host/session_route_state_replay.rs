@@ -1,26 +1,41 @@
 //! Node's recording `fixtures/session-route-state/recording.json` (`record-session-route-state.mjs`, test file
 //! `src/session-runtime/session-lifecycle.test.mjs`), read when the test runs and decoded with [`Exact`]: each case's
-//! recorded inputs go through the core's own route functions (the ones `refreshRouteEffort`, `setRoute` and the
-//! inheritance carry call) and the whole recorded result is compared. The `inheritFrom` cases (306, 372) are played
-//! through the protocol on a real session directory and compared at what a client observes: the preflight verdict, the
-//! carry's answer and the heir's conversation; the compactor calls Node's mocks counted are not observable.
+//! recorded inputs reach the core the way a client sends them: lines 27, 49, 74 and 229 as `route/set`
+//! (`RouteSetService` over the real `RouteService`, the real config file and `refresh_route_fields`; the model row is the
+//! recording's, the catalog seam), the `inheritFrom` cases (306, 372) through the thread protocol
+//! (`thread/inheritancePreflight`, `thread/fork`) on a real session directory, compared at what a client observes: the
+//! route `route/set` answers, the preflight verdict, the carry's answer and the heir's conversation; the compactor calls
+//! Node's mocks counted are not observable. Lines 10, 104, 149 and 255 call the route functions, each declared in the
+//! case table with the reason no client call carries the recorded step.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::admin_route::{
-    Obj, ContextState, model_meta_looks_resolved, resolve_route, resolve_route_context_state, resolve_route_effort_state,
-    route_fast_key, save_model_settings, selection_fast_capable, window_meta_of,
+    Obj, ContextState, model_meta_looks_resolved, refresh_route_fields, resolve_route_context_state, route_fast_key, save_model_settings,
+    selection_fast_capable, window_meta_of,
 };
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
 use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, ToolDefinition, WireRequest};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
 use mixdog_core_session::session::inheritance::{InheritTarget, InheritanceFit, inheritance_fit};
+use mixdog_core_base::support::OpScopes;
+use mixdog_core_base::support::testing::{request, scopes, value, with_op};
+use mixdog_core_config::config::Config;
+use mixdog_core_domains::domains::ai_admin::agent_route_service::AgentRouteSetter;
+use mixdog_core_domains::domains::ai_admin::chain::{CatalogRouteContext, RouteFacts};
+use mixdog_core_domains::domains::ai_admin::model_list::ModelListService;
+use mixdog_core_domains::domains::ai_admin::route_service::{LiveControls, RouteService, SessionFollow};
+use mixdog_core_domains::domains::ai_admin::route_set_service::{ROUTE_SET, RouteSetService};
+use mixdog_core_ports::ports::domain_sessions::AgentRoutePublisher;
+use mixdog_core_ports::ports::route::{FollowOptions, Followed};
+use mixdog_core_ports::ports::route_write::RouteWriter;
 use mixdog_store::schema::record::Header;
+use mixdog_tools::orch::util::PortError;
 use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
@@ -74,8 +89,188 @@ fn context_state(state: ContextState) -> Exact {
     Exact::Object(fields)
 }
 
+/// The catalog seam of `route/set` (the port the daemon backs with the provider catalog): the model row is the
+/// recording's own; the Fast capability is the real catalog's; every provider is known unless the case names the one that
+/// is (`makeResolveRoute`'s predicate).
+struct Facts {
+    meta: Value,
+    catalog: Arc<CatalogService>,
+    known: Option<String>,
+}
+
+#[async_trait]
+impl RouteFacts for Facts {
+    fn is_known(&self, provider: &str, _: &Obj) -> bool {
+        self.known.as_deref().is_none_or(|known| known == provider)
+    }
+
+    async fn ensure_ready(&self, _: &Obj, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn model_meta(&self, _: &str, _: &str) -> Value {
+        self.meta.clone()
+    }
+
+    fn window_meta(&self, _: &str, _: &str, meta: &Value) -> Option<Value> {
+        window_meta_of(Some(meta), None).cloned()
+    }
+
+    fn catalog_knows(&self, _: &str, _: &str) -> bool {
+        true
+    }
+
+    fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool {
+        self.catalog.fast_capable(provider, meta, effort, params)
+    }
+
+    fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool {
+        self.catalog.ultrafast_capable(provider, meta)
+    }
+}
+
+/// The thread's live route cell with `LiveRouteWriter`'s refresh (`refresh_route_fields` over the config and the row), minus
+/// the provider preparation the replay has no provider for.
+struct Cell {
+    route: Mutex<Obj>,
+    config: Config,
+    catalog: Arc<CatalogService>,
+}
+
+#[async_trait]
+impl RouteWriter for Cell {
+    fn route(&self, _: &ThreadId) -> Obj {
+        self.route.lock().unwrap().clone()
+    }
+
+    fn set_route_state(&self, _: &ThreadId, route: Obj) {
+        *self.route.lock().unwrap() = route;
+    }
+
+    fn generation(&self, _: &ThreadId) -> u64 {
+        0
+    }
+
+    async fn refresh_route_effort(&self, thread: &ThreadId, meta: Option<Value>, _: bool, _: Option<u64>) -> Result<Option<Obj>, PortError> {
+        let target = self.route(thread);
+        let config = self.config.agent();
+        let text = |key: &str| target.get(key).and_then(Value::as_str).unwrap_or("").trim().to_owned();
+        let (provider, model) = (text("provider"), text("model"));
+        let meta = meta.unwrap_or_else(|| self.catalog.model_meta_in(&provider, &model, None));
+        let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
+        let route = refresh_route_fields(&config, &target, Some(&meta), &provider, &fast);
+        self.set_route_state(thread, route.clone());
+        Ok(Some(route))
+    }
+
+    fn refresh_statusline_usage(&self, _: &ThreadId, _: &Obj) {}
+}
+
+/// No session follows an adopted route here: the replay holds only the route cell.
+struct NoFollow;
+
+#[async_trait]
+impl SessionFollow for NoFollow {
+    fn open_lease(&self, _: &ThreadId, origin: Option<u64>) -> u64 {
+        origin.unwrap_or(0)
+    }
+    async fn follow(&self, _: &ThreadId, _: &FollowOptions) -> Result<Followed, PortError> {
+        Ok(Followed::default())
+    }
+    async fn tune(&self, _: &ThreadId) -> Result<(), PortError> {
+        Ok(())
+    }
+    async fn switch_now(&self, _: &ThreadId) -> Result<Option<Value>, PortError> {
+        Ok(None)
+    }
+    async fn has_session(&self, _: &ThreadId) -> Result<bool, PortError> {
+        Ok(true)
+    }
+    async fn seat(&self, _: &ThreadId) -> Result<(), PortError> {
+        Ok(())
+    }
+}
+
+struct NoControls;
+
+impl LiveControls for NoControls {
+    fn sync_live(&self, _: &mut dyn FnMut(&ThreadId)) {}
+}
+
+struct NoPublish;
+
+#[async_trait]
+impl AgentRoutePublisher for NoPublish {
+    async fn publish(&self, _: &str, _: &Value) {}
+}
+
+/// What a case sets up: the config file's `agent` document, the model row the catalog holds and the one known
+/// provider, when the case names it.
+struct Setup {
+    config: Value,
+    meta: Value,
+    known: Option<String>,
+}
+
+/// One client of `route/set` over the real route service and the real config file.
+struct Client {
+    service: RouteSetService,
+    _dirs: (tempfile::TempDir, tempfile::TempDir),
+}
+
+/// The op store every `route/set` of a test records its op in; each call carries its own op id.
+struct Ops {
+    scopes: OpScopes,
+    _state: tempfile::TempDir,
+}
+
+async fn ops() -> Ops {
+    let state = tempfile::tempdir().unwrap();
+    Ops { scopes: scopes(state.path(), "route").await, _state: state }
+}
+
+impl Client {
+    async fn new(setup: Setup, ops: &Ops) -> Client {
+        let dir = tempfile::tempdir().unwrap();
+        let agents = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let path = dir.path().join("mixdog-config.json");
+        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": setup.config })).unwrap()).unwrap();
+        let (config, _) = Config::open(&path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+        let catalog = Arc::new(catalog(dir.path()).await);
+        let facts = Arc::new(Facts { meta: setup.meta, catalog: catalog.clone(), known: setup.known });
+        let cell = Arc::new(Cell { route: Mutex::default(), config: config.clone(), catalog: catalog.clone() });
+        let models = Arc::new(ModelListService {
+            catalog,
+            config: config.clone(),
+            primary_provider: Arc::new(String::new),
+            unsupported: Arc::new(mixdog_ai::service::effort_configuration::UnsupportedEfforts::default()),
+            host: None,
+        });
+        let routes = RouteService { config: config.clone(), facts: facts.clone(), writer: cell, session: Arc::new(NoFollow), models, controls: Arc::new(NoControls) };
+        let agent_routes = AgentRouteSetter {
+            routes: mixdog_core_config::config::AgentRoutes::new(config.clone(), agents.path()),
+            config: config.clone(),
+            context: Arc::new(CatalogRouteContext { config: config.clone(), facts: facts.clone() }),
+            publisher: Arc::new(NoPublish),
+            hidden: mixdog_core_config::config::hidden_agents::hidden_agents(),
+        };
+        let service = RouteSetService { routes: Arc::new(routes), agents: Arc::new(agent_routes), ops: ops.scopes.clone() };
+        Client { service, _dirs: (dir, agents) }
+    }
+
+    /// `route/set` of the thread `t` with `route`, op `n`: the live route it answers.
+    async fn set(&self, route: &Value, n: u64) -> Value {
+        let params = with_op(json!({ "threadId": "t", "route": route }), n);
+        value(&self.service, request(ROUTE_SET, params, Some(n))).await.expect("route/set")
+    }
+}
+
 /// Line 10: the Fast setting saved for a route (`saveModelSettings` with `selectionFastCapable`) over a placeholder, a
-/// row advertising the priority tier and a row without it.
+/// row advertising the priority tier and a row without it. Direct: a client's `route/set` hands `saveModelSettings` the
+/// route `resolveRoute` built (`modelParameters: {}` always present, saved as `{}`: `model-capabilities.mjs:171`), never the
+/// bare `{provider, model, effort, fast}` recorded here (see the case table).
 #[tokio::test]
 async fn a_placeholder_row_keeps_the_saved_fast_setting() {
     let recording = recording();
@@ -101,18 +296,17 @@ async fn a_placeholder_row_keeps_the_saved_fast_setting() {
     assert_eq!(Exact::Array(got), *case.get("result"));
 }
 
-/// `resolveRouteEffortState` over the case's route and row metadata, compared whole.
+/// The route the case's `route/set` answers, at the fields the recording keeps: the effective effort and the Fast
+/// capability; `metadataResolved` is Node's probe of the row (no reply carries it).
 async fn effort_state(line: f64) {
     let recording = recording();
-    let dir = tempfile::tempdir().unwrap();
-    let catalog = catalog(dir.path()).await;
-    let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| catalog.fast_capable(provider, meta, effort, params);
     let case = case(&recording, line);
-    let (route, meta) = (obj(case.get("input").get("route")), plain(case.get("input").get("meta")));
-    let (effective, fast_capable) = resolve_route_effort_state(&route, Some(&meta), &fast);
+    let (route, meta) = (plain(case.get("input").get("route")), plain(case.get("input").get("meta")));
+    let client = Client::new(Setup { config: json!({}), meta: meta.clone(), known: None }, &ops().await).await;
+    let answer = client.set(&route, 1).await;
     let got = Exact::Object(vec![
-        ("effectiveEffort".into(), Exact::plain(&effective)),
-        ("fastCapable".into(), Exact::Bool(fast_capable)),
+        ("effectiveEffort".into(), Exact::plain(&answer["effectiveEffort"])),
+        ("fastCapable".into(), Exact::Bool(answer["fastCapable"] == json!(true))),
         ("metadataResolved".into(), Exact::Bool(model_meta_looks_resolved(Some(&meta)))),
     ]);
     assert_eq!(got, *case.get("result"), "line {line}");
@@ -154,7 +348,9 @@ fn the_context_share_has_a_model_default_and_ten_point_steps() {
 
 /// Line 149: a placeholder row (no windows of its own) takes the catalog's cached windows, asked once per resolve as
 /// the route chain asks (`chain.rs` `window_meta`: `catalog.cached_windows` then `window_meta_of`); the recorded table
-/// is the catalog.
+/// is the catalog. Direct: tried through `route/set`, the route it answers carries no `contextDefaultPercent` and no
+/// `selectedContextWindow` for a placeholder row (`refresh_route_fields` sizes the route from the row alone), where Node's
+/// `refreshRouteEffort` resolves the cached windows (`route-resolution.mjs:48`); reported open, see the case table.
 #[test]
 fn a_placeholder_row_takes_the_catalogs_windows() {
     let recording = recording();
@@ -180,15 +376,15 @@ fn a_placeholder_row_takes_the_catalogs_windows() {
     assert_eq!(Exact::Array(got), *case.get("result"));
 }
 
-/// Line 229: `resolveRoute` reads a cleared saved percent as the model's default (no `contextPercent`).
-#[test]
-fn a_cleared_saved_share_is_the_model_default() {
+/// Line 229: a cleared saved percent is the model's default (`route/set` answers no `contextPercent`).
+#[tokio::test]
+async fn a_cleared_saved_share_is_the_model_default() {
     let recording = recording();
     let case = case(&recording, 229.0);
     let input = case.get("input");
-    let default = input.get("defaultProvider").as_str().to_owned();
-    let route = resolve_route(&obj(input.get("config")), &obj(input.get("route")), &|provider, _| provider == default).expect("resolves");
-    assert_eq!(route.get("contextPercent").map_or(Exact::Undefined, Exact::plain), *case.get("result"));
+    let setup = Setup { config: plain(input.get("config")), meta: json!({}), known: Some(input.get("defaultProvider").as_str().to_owned()) };
+    let answer = Client::new(setup, &ops().await).await.set(&plain(input.get("route")), 1).await;
+    assert_eq!(answer.get("contextPercent").map_or(Exact::Undefined, Exact::plain), *case.get("result"));
 }
 
 /// One recorded `inheritFrom` scenario of lines 306 and 372, played through the protocol a client uses on a real
@@ -380,8 +576,11 @@ impl RouteWindows for NoCatalogWindows {
 }
 
 /// Line 255: the same conversation judged on each heir session (a roomy one, an Anthropic one, a tight one and one with
-/// no windows). Node measures the heir session itself (`inheritFrom`'s `target`), which no client request names apart
-/// from the carry: the heir-session policy ([`HostInheritanceFit`]) is asked as the carry asks it.
+/// no windows). Node measures the heir session record itself (`inheritFrom`'s `target`, `inheritance.mjs:87,180`): the
+/// heir-session policy ([`HostInheritanceFit`]) is asked as the carry asks it. Direct: `thread/inheritancePreflight` measures
+/// the route the heir would open with (`inheritance.mjs:131`, the catalog's windows: tried through it, the roomy variant
+/// answers limit 272000 / 14 % where the recording has 500000 / 8 %), and `thread/fork` into a heir answers only ok or the
+/// refusal sentence; no client call reports the used/limit/percent of an arbitrary session record (see the case table).
 #[tokio::test]
 async fn the_inheritance_fit_is_judged_on_the_heirs_route() {
     let recording = recording();
