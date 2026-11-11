@@ -582,6 +582,10 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
         if state["busy"] == true && !busy {
             assert_eq!(state["spinner"]["startedAt"], json!(at), "the turn starts at the submit");
             out.push(("turn/started".to_owned(), json!({ "turn": { "id": "<turn>", "status": "inProgress", "startedAt": clock } })));
+            // The same publication shows the turn busy with its spinner (`runTurn`); the spinner starts at the submit.
+            let mut spinner = state["spinner"].clone();
+            spinner["startedAt"] = json!(clock);
+            out.push(("thread/runtime/updated".to_owned(), json!({ "value": { "busy": true, "commandBusy": state["commandBusy"], "spinner": spinner } })));
         }
         busy = state["busy"] == true;
     }
@@ -606,8 +610,8 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let frames = || rig.feeds.frames(handle.id.as_str());
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
-            // Its row, its history entry and its turn start: the setup is done when all three were published.
-            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
+            // Its row, its history entry, its turn start and its busy runtime: the setup is done when all four were published.
+            eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 4).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;
@@ -660,6 +664,10 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
             .into_iter()
             .map(|(_, method, mut params)| {
                 assert_eq!(params.as_object_mut().unwrap().remove("threadId"), Some(json!(handle.id)), "{name}: {method}");
+                // Node's recorder holds the runtime's busy, commandBusy and spinner; the note's other fields have no recorded value.
+                if method == "thread/runtime/updated" {
+                    params["value"].as_object_mut().unwrap().retain(|key, _| ["busy", "commandBusy", "spinner"].contains(&key.as_str()));
+                }
                 (method, anon(&params, ids, &mut rust_labels))
             })
             .collect();
