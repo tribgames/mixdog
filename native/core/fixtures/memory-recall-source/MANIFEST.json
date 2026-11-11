@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "a77c6c7ed731f67d9ec1dce798d2080b7c82613f6a1021b0c7920b40b9fdf58c"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -53,5 +53,6 @@
   "replay": "mixdog-services memory: mem/recall/browse.rs search_by_ids/session expansion, mem/recall/format.rs render_entry_lines/render_session_grouped_lines, mem/recall/compact.rs compact_handoff_rows, over the three rows in `rows`; compares the rendered text exactly, the search options handed to the seam and the ordered statements",
   "set": "memory-recall-source",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 91128
+  "totalBytes": 91128,
+  "uuidsNormalised": "none"
 }

@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "fd83ff5175102e916015aaa6cf8ed23501086ae0a70539af019aec1a5a8547e1",
   "replay": "mixdog-services memory: mem/recall/filters.rs project_scope_predicate and append_project_scope; compares clause text and bound params in order for cases 1 and 2. Case 3 is not replayable (typed Option<&str>): listed, not recorded for replay",
   "set": "memory-scope-filter",
-  "totalBytes": 4960
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 4960,
+  "uuidsNormalised": "none"
 }

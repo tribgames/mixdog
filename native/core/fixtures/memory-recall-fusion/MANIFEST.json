@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "720f03413b2a2f3ffcf9b015d2ff446adaf37e603f933d0fa46aaa49cdca2987",
   "replay": "mixdog-services memory: mem/recall/ranking.rs rrf_score, evidence_kind, is_semantic_only, rank_candidates (RRF_K = 60); compares scores exactly (f64) and the order. Rows with string ids/ranks, negative or fractional ranks are JS-coercion shapes: a replay with typed rows replays the numeric ones",
   "set": "memory-recall-fusion",
-  "totalBytes": 20355
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 20355,
+  "uuidsNormalised": "none"
 }

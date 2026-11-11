@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "429a1394f89fa0be97340eb4a018dfcdb84ddd50e75d7d1c8391d5a26d48c49d"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "f1a0d9cd6bbc1b02183e5ecf38814325a92bf807249f4355970df2ebff0b7274",
   "replay": "mixdog-services memory: mem/recall/ranking.rs (latest/historical/bound), mem/recall/format.rs interleave_raw_rows, mem/recall/mod.rs unique_rows_by_id; compares the returned rows in order (whole rows, including _historicalRootSummary on merged rows)",
   "set": "memory-query-ranking",
-  "totalBytes": 26859
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 26859,
+  "uuidsNormalised": "none"
 }

@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "69663c2ef7e2313832b57dabf28186fad020b722d7ec9f27a6bc6ccc981e5cce",
   "replay": "mixdog-services memory: mem/ingest/embed_flush.rs cache_max_rows and prune over a recording db seam; compares the returned {removed, truncated, remaining} (or the error text) and the ordered statements (text and params) exactly",
   "set": "memory-embedding-cache-retention",
-  "totalBytes": 14546
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 14546,
+  "uuidsNormalised": "none"
 }

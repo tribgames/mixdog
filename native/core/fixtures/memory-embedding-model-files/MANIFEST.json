@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -53,5 +53,7 @@
   "recorderSha256": "a1102e554e4e17cf0c6526da9aa690fb571ea94b30a97a5cab452711a20eb08e",
   "replay": "mixdog-services memory: mem/embed/install.rs ensure_model_file / graph install (holds_data, usable, weights-before-graph order) with a scripted hub transport; compares the returned relative path or error text, the ordered requests (URL) and the cache files after each step (path, bytes)",
   "set": "memory-embedding-model-files",
-  "totalBytes": 11083
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 11083,
+  "uuidsNormalised": "none"
 }

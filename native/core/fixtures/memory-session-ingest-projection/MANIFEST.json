@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "429a1394f89fa0be97340eb4a018dfcdb84ddd50e75d7d1c8391d5a26d48c49d"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "0188dbf3695843f5e4bb35bb542ecde6c6740026b90ff83ef51ec76da60e3699",
   "replay": "mixdog-services memory: svc/memory/ingest_shape.rs all_text_content + the projection and exclusion (and mixdog-agent compact/ingest.rs for the compact source list); compares projected rows, stripped content and exclusion flags exactly",
   "set": "memory-session-ingest-projection",
-  "totalBytes": 16007
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 16007,
+  "uuidsNormalised": "none"
 }

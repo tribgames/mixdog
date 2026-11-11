@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "edcf65dd38d8f36e0e80a60c6a560da2778a6be341823dd364808b27ff1a265d"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,9 +49,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs",
-  "recorderSha256": "5e56cd1b910a0bcb5167d4eaf6731f6b3aed8e14a90fbdce9e1fd1ac5862e268",
+  "recorderSha256": "4dd29543c2762f9be472a6b299d38880b73c1cac9532cbdd7345d2660efc0d81",
   "replay": "mixdog-services memory: mem/recall (retrieve_entries/browse, search_by_query + page_rows collapse, collapse_history_duplicates in ranking.rs) over a db seam holding the same entries rows; compares returned ids (or members), the ordered statements the handler sends (text and params) and the table after. Statement text is the Node SQL; a Rust replay maps it to its own statements and compares ids, order and params only",
   "set": "memory-history-duplicates",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 56292
+  "totalBytes": 56292,
+  "uuidsNormalised": "none"
 }

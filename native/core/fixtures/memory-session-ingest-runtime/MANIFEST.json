@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "a77c6c7ed731f67d9ec1dce798d2080b7c82613f6a1021b0c7920b40b9fdf58c"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -53,5 +53,6 @@
   "replay": "mixdog-services memory: mem/ingest/mod.rs ingest_session + ordinals.rs persist_durable/load, with a recording db seam and a recording flush seam; compares each call's result text (or error), the rows inserted (role, source_turn, time_source, ts, source_ref), the statements (text, params), the saved high-water snapshot and the flush option objects ({limit, ids} then the backlog sweep {limit})",
   "set": "memory-session-ingest-runtime",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 11329
+  "totalBytes": 11329,
+  "uuidsNormalised": "none"
 }
