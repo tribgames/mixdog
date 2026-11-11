@@ -196,7 +196,7 @@ pub(crate) struct DirInner {
     pub(super) left: tokio::sync::Notify,
     /// A test's gate between the adoption's listing of the control threads and its writes: it tells `.0` it arrived, then
     /// waits for `.1`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) adoption_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
@@ -302,7 +302,7 @@ impl SessionDirectory {
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             adoption_gate: Default::default(),
         });
         let me = Arc::downgrade(&inner);
@@ -351,7 +351,8 @@ impl SessionDirectory {
     }
 
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
         self.inner.gate()
     }
@@ -549,7 +550,8 @@ impl SessionDirectory {
     }
 
     /// Holds the next adoption between its listing and its writes ([`DirInner::adoption_gate`]).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn gate_adoption(&self, arrived: Arc<tokio::sync::Notify>, go: std::sync::mpsc::Receiver<()>) {
         *lock(&self.inner.adoption_gate) = Some((arrived, go));
     }
@@ -1772,7 +1774,7 @@ impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for Ses
     /// unloaded, its actor ended, its start abandoned) is skipped, and one that ends while it is synced ends after.
     fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId)) {
         let listed = self.controls();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some((arrived, go)) = lock(&self.inner.adoption_gate).take() {
             arrived.notify_one();
             go.recv().expect("the test lets the adoption go on");

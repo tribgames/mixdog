@@ -48,17 +48,17 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use super::callers::ThreadCallers;
-use super::model_surface::SurfaceInputs;
-use super::model_surface::model_internal_tools;
-use super::session_port::AiTitleSetting;
-use super::session_port::BotIds;
-use super::session_port::DirectorySessionPort;
-use super::session_port::ProjectList;
-use super::session_port::SessionPortParts;
-use super::session_port::Suggestions;
-use super::session_port::ThreadRequests;
-use crate::run_host::unattended::UnattendedRunRegistry;
+use mixdog_core::run_host::tool_pool::callers::ThreadCallers;
+use mixdog_core::run_host::tool_pool::model_surface::SurfaceInputs;
+use mixdog_core::run_host::tool_pool::model_surface::model_internal_tools;
+use mixdog_core::run_host::tool_pool::session_port::AiTitleSetting;
+use mixdog_core::run_host::tool_pool::session_port::BotIds;
+use mixdog_core::run_host::tool_pool::session_port::DirectorySessionPort;
+use mixdog_core::run_host::tool_pool::session_port::ProjectList;
+use mixdog_core::run_host::tool_pool::session_port::SessionPortParts;
+use mixdog_core::run_host::tool_pool::session_port::Suggestions;
+use mixdog_core::run_host::tool_pool::session_port::ThreadRequests;
+use mixdog_core::run_host::unattended::UnattendedRunRegistry;
 use mixdog_tools::policy::RunKind;
 
 fn golden(text: &str) -> Value {
@@ -66,15 +66,15 @@ fn golden(text: &str) -> Value {
 }
 
 fn caller_golden() -> Value {
-    golden(include_str!("../../../../../fixtures/tool-pool/caller-facts.json"))
+    golden(include_str!("../../../../fixtures/tool-pool/caller-facts.json"))
 }
 
 fn tool_list_golden() -> Value {
-    golden(include_str!("../../../../../fixtures/tool-pool/tool-list.json"))
+    golden(include_str!("../../../../fixtures/tool-pool/tool-list.json"))
 }
 
 fn dispatch_golden() -> Value {
-    golden(include_str!("../../../../../fixtures/tool-pool/dispatch.json"))
+    golden(include_str!("../../../../fixtures/tool-pool/dispatch.json"))
 }
 
 /// A thread store of headers, with the compare-and-set patch the session actor does.

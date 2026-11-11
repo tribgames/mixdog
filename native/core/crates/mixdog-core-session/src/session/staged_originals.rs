@@ -91,7 +91,7 @@ pub struct StagedOriginals {
     deadline: Mutex<Deadline>,
     rearmed: tokio::sync::Notify,
     /// Counts the prune task's first arming and each pass it finishes, for the tests to wait on.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     passes: tokio::sync::watch::Sender<u64>,
 }
 
@@ -101,17 +101,19 @@ impl StagedOriginals {
             data_dir: data_dir.to_owned(),
             blobs: BlobStore::new(data_dir), deadline: Mutex::default(),
             rearmed: tokio::sync::Notify::new(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             passes: tokio::sync::watch::channel(0).0,
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn passes(&self) -> tokio::sync::watch::Receiver<u64> {
         self.passes.subscribe()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn earliest_at(&self) -> Option<f64> {
         self.deadline().earliest_at
     }
@@ -304,7 +306,7 @@ impl StagedOriginals {
                 Self::arm_locked(&mut deadline, &entries);
             }
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.passes.send_modify(|n| *n += 1);
         loop {
             // An entry expires once strictly past the TTL (see `pruned`).
@@ -323,7 +325,7 @@ impl StagedOriginals {
                     self.deadline().earliest_at = None;
                     let (pruner, now) = (self.clone(), clock.now_ms());
                     drop(on_lane(lane, &cancel, move |lane| pruner.prune(lane, now, STAGED_ORIGINALS_TTL_MS)).await);
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "test-support"))]
                     self.passes.send_modify(|n| *n += 1);
                 }
             }

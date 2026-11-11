@@ -28,8 +28,8 @@ use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 
-use super::transcript_rows::Restored;
-use super::transcript_rows::restore;
+use mixdog_core_session::replay_access::Restored;
+use mixdog_core_session::replay_access::restore;
 
 const DEFAULT_DATA: &str = "C:/Users/tempe/.mixdog/data";
 const DEFAULT_CORPUS: &str = "C:/Users/tempe/.mixdog/data/scratch/rust-core/migration-corpus";
@@ -185,8 +185,8 @@ fn routine_notices_equal_nodes() {
     use mixdog_store::schema::blob::Slot;
     use mixdog_store::schema::record::ItemRecord;
 
-    use super::transcript_rows::Restored;
-    use super::transcript_rows::restore;
+    use mixdog_core_session::replay_access::Restored;
+    use mixdog_core_session::replay_access::restore;
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/migration/routine-notice/cases.json");
     let fixture: Value = serde_json::from_slice(&std::fs::read(path).expect("cases.json")).expect("json");

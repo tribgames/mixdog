@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use mixdog_rt::CancellationToken;
 
-use super::SnapshotCleanups;
-use crate::session::worktree::worktree_tests::rig;
+use mixdog_core_session::session::worktree::SnapshotCleanups;
+use mixdog_core_session::session::worktree::worktree_tests::rig;
 
 /// A retry delay that only a stop can end within the test.
 const FOREVER_MS: u64 = 3_600_000;
@@ -32,7 +32,7 @@ async fn a_stop_ends_the_retries_of_its_session_only_and_the_snapshot_is_left_fo
     cleanups.cancel_hook()(Some("worker-1"));
     run.await.unwrap();
     assert_eq!(cleanups.running(), 0);
-    assert!(crate::session::fixture_fs::exists(&path).unwrap());
+    assert!(mixdog_core_session::session::fixture_fs::exists(&path).unwrap());
     drop(lease);
 }
 

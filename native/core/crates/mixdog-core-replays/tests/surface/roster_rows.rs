@@ -40,7 +40,7 @@ use mixdog_protocol::ThreadId;
 use serde_json::Value;
 use serde_json::json;
 
-use super::room_list::RoomListRows;
+use mixdog_core::run_host::room_list::RoomListRows;
 
 struct NoDocuments;
 
@@ -236,7 +236,7 @@ async fn the_archive_and_retire_marks_the_core_writes_list_as_nodes_rows() {
     let rig = mixdog_core_session::session::testing::Rig::new();
     let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone()))));
     let state = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
-    let sessions = super::directory_sessions::DirectorySessions::new(directory, state.clone());
+    let sessions = mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory, state.clone());
     let home = answers["ids"]["home"].as_str().expect("home id");
     let archived = answers["ids"]["archived"].as_str().expect("archived id");
     for (id, mark) in [(home, "retiredAt"), (archived, "archivedAt")] {

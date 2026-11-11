@@ -51,12 +51,15 @@ mixdog-core-prompt = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-review = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
+# Only with `test-support` (refused in release): `session::tests`, whose helpers the replays share.
+mixdog-testkit = { workspace = true, optional = true }
+mixdog-migrate = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
 # A test build ends the process at the point MIXDOG_NEW_TASK_CRASH_AT names (session/new_task.rs); no normal build enables it.
 crash-gates = []
-test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
+test-support = ["dep:tempfile", "dep:mixdog-testkit", "dep:mixdog-migrate", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }

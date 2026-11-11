@@ -34,15 +34,15 @@ use serde_json::Value;
 use serde_json::json;
 
 use mixdog_core_agents::agents::ConnectorCatalog;
-use super::connectors::ProjectConnectors;
-use super::service::ProjectService;
-use super::service::Registry;
-use crate::session::worktree::LiveSession;
-use crate::session::worktree::LiveSessions;
-use crate::session::worktree::worktree_tests::enter;
-use crate::session::worktree::worktree_tests::git;
-use crate::session::worktree::worktree_tests::rig;
-use crate::session::worktree::worktree_tests::run;
+use mixdog_core_session::project::connectors::ProjectConnectors;
+use mixdog_core_session::project::service::ProjectService;
+use mixdog_core_session::project::service::Registry;
+use mixdog_core_session::session::worktree::LiveSession;
+use mixdog_core_session::session::worktree::LiveSessions;
+use mixdog_core_session::session::worktree::worktree_tests::enter;
+use mixdog_core_session::session::worktree::worktree_tests::git;
+use mixdog_core_session::session::worktree::worktree_tests::rig;
+use mixdog_core_session::session::worktree::worktree_tests::run;
 
 /// A process id no process has (above every platform's pid range): a lease on it is proven dead.
 const DEAD_PID: u32 = 2_000_000_000;
@@ -243,7 +243,7 @@ impl Replay {
     }
 
     /// A worktree for `session`, as the session's request for it makes one.
-    async fn make(&mut self, rig: &crate::session::worktree::worktree_tests::Rig, session: &str, name: &str, tx: &str) -> String {
+    async fn make(&mut self, rig: &mixdog_core_session::session::worktree::worktree_tests::Rig, session: &str, name: &str, tx: &str) -> String {
         let request = CreateRequest {
             project_path: rig.repo.clone(),
             session_id: session.to_owned(),
