@@ -44,12 +44,48 @@ pub(crate) async fn list_absent(ctx: &ToolContext, missing: &AbsPath, input: &st
 
 /// `grepMissingPathResult`: `Error: path does not exist: <path> (<code>)<hints>`.
 pub(crate) async fn grep_missing(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str) -> String {
-    let hint = with_cwd_note(ctx, hint_body(ctx, missing, "Search").await);
+    let mut hint = hint_body(ctx, missing, "Search").await;
+    if hint.is_empty() {
+        hint = suggest_indexed(ctx, missing).await;
+    }
+    let hint = with_cwd_note(ctx, hint);
     format!(
         "Error: path does not exist: {} ({code}){}",
         normalize_output_path(&missing.as_path().to_string_lossy()),
         finalize_tail(hint, input)
     )
+}
+
+/// `_suggestIndexedPaths`: when the scans concluded nothing, the first five rows of a `**/<basename>` glob (six
+/// asked), its empty-result and `... [` lines dropped; nothing for an outside path or a basename with glob magic.
+async fn suggest_indexed(ctx: &ToolContext, missing: &AbsPath) -> String {
+    if outside_project(&ctx.cwd, missing) {
+        return String::new();
+    }
+    let text = missing.as_path().to_string_lossy().replace('\\', "/");
+    let base = text.rsplit('/').next().unwrap_or_default();
+    if base.is_empty() || base.contains(['*', '?', '[', ']', '{', '}']) {
+        return String::new();
+    }
+    let args = serde_json::json!({ "pattern": format!("**/{base}"), "limit": 6 });
+    let Ok(output) = <super::search::GlobTool as mixdog_core_api::domain::tool::Tool>::call(&super::search::GlobTool::new(), ctx, args).await
+    else {
+        return String::new();
+    };
+    static NO_RESULT: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^\(no (?:files found|entries\b)").expect("a fixed pattern"));
+    let rows: String = output.parts.iter().filter_map(|p| if let mixdog_core_api::domain::tool::ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect();
+    let hits: Vec<&str> = rows
+        .split('\n')
+        .filter(|s| !s.is_empty() && !NO_RESULT.is_match(s) && !s.starts_with("... ["))
+        .map(mixdog_js::js_trim)
+        .filter(|s| !s.is_empty())
+        .take(5)
+        .collect();
+    if hits.is_empty() {
+        return String::new();
+    }
+    format!("\n[path not found here; same-named indexed file(s): {}]", hits.join(", "))
 }
 
 /// `appendNotFoundCwdNote`.
