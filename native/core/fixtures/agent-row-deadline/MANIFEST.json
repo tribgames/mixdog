@@ -1,0 +1,49 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-row-deadline.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3400,
+      "path": "golden.json",
+      "sha256": "a08f08193a6e15cbbc6e1d85710cd9af13bcdd4b5f9e4e29560204e552b99598"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "per step: the listed workers (tag:status), the number of onStatusChange announcements since the previous step, and the tags tombstoned in the index",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-row-deadline.mjs",
+  "recorderSha256": "723fdfb0c92a4e4a5f79dc9507a44287591ccd71eb4dcadd0f1563c98b98ecb0",
+  "set": "agent-row-deadline",
+  "syntheticInputs": [
+    "node:test mock.timers on setTimeout, setInterval and Date from 1793923200000; setImmediate real",
+    "a worker index of four running worker rows of one Lead whose sessions do not exist, stamped relative to the reap window of provider p under an empty config",
+    "the active row rewritten 5 s in with its updatedAt at that moment, through a second worker index over the same folder"
+  ],
+  "totalBytes": 3400
+}
