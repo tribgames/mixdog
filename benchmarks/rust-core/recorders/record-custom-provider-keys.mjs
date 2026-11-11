@@ -16,7 +16,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-custom-provider-keys',
   entry: 'providers/registry.mjs initProviders / getProvider, shared/provider-accounts.mjs newProviderAccountId / readProviderAccountPool / setCustomProviderKeyIds over a custom openai-chat provider on https://keys.example.com/v1 (fetch redirected to the scripted endpoint; additional keys come from the stubbed keychain map). Not run: the multi-key cases (covered by provider-gateways) and the stub-engine pool wrapper.',
-  replay: 'mixdog-ai registry builder.rs:902-911 and providers.rs:226-242 (single-key custom send): compare the `sends` (result/error, requests with the Authorization key in order) and `rosterFileExistsAfter...` flags and `pool.accounts`. NOTE the Rust builder uses the primary key only (K1 gap G5): the after-add send is expected to differ until that gap is closed.',
+  compare: 'mixdog-ai registry builder.rs:902-911 and providers.rs:226-242 (single-key custom send): compare the `sends` (result/error, requests with the Authorization key in order) and `rosterFileExistsAfter...` flags and `pool.accounts`. NOTE the Rust builder uses the primary key only (K1 gap G5): the after-add send is expected to differ until that gap is closed.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Per-key engines are not wired on the send path (K1 G5): the Rust side adds them.",
 });
 const { newProviderAccountId, readProviderAccountPool, setCustomProviderKeyIds } = await rec.P('shared/provider-accounts.mjs');
 const { initProviders, getProvider } = await rec.P('agent/orchestrator/providers/registry.mjs');
@@ -25,7 +26,7 @@ const custom = (apiKey) => ({ type: 'custom', name: 'Keys', protocol: 'openai-ch
 const prompt = [{ role: 'user', content: 'hello' }];
 const answer = (text) => ({ status: 200, contentType: 'text/event-stream', body: `${sseBody([{ id: 'c1', model: 'm1', choices: [{ index: 0, delta: { content: text }, finish_reason: 'stop' }] }])}data: [DONE]\n\n` });
 const quota = () => ({ status: 429, contentType: 'application/json', body: JSON.stringify({ error: { message: 'You exceeded your current quota.', type: 'insufficient_quota', code: 'insufficient_quota' } }) });
-const keyOf = (r) => String(r.headers.authorization || '').replace(/^Bearer /, '');
+const keyOf = (r) => String(r.h.authorization || '').replace(/^Bearer /, '');
 const attempt = async (promise) => {
   try {
     return { result: await promise };
@@ -42,7 +43,7 @@ await rec.run('single-key-provider-sends-as-before-no-roster', `${SRC}:138`, { i
     net.records = [];
     net.reply = reply;
     const out = await attempt(getProvider(id).send(prompt, 'm1', [], {}));
-    sends.push({ label, ...out, keys: net.records.map(keyOf), requests: net.records.map((r) => rec.view(r)) });
+    sends.push({ label, ...out, keys: net.records.map(keyOf), requests: net.records });
   };
   await initProviders({ [id]: custom('sk-solo') });
   await send('answers', () => answer('solo'));
