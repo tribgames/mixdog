@@ -68,6 +68,8 @@ mod live_rows;
 mod durability;
 mod frames;
 mod phone_frame;
+#[cfg(feature = "replay-settled")]
+mod replay_settled;
 mod handle;
 mod message_reactions;
 mod model_switch;

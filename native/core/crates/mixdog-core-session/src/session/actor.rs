@@ -565,6 +565,9 @@ pub(crate) struct ActorChannels {
     pub dur_rx: mpsc::Receiver<FromDurability>,
     /// The directory the thread unloads from.
     pub directory: std::sync::Weak<super::directory::DirInner>,
+    /// This actor's part of a replay's settled signal.
+    #[cfg(feature = "replay-settled")]
+    pub settled: Option<Arc<super::replay_settled::Lane>>,
 }
 
 pub(crate) struct SessionActor {
@@ -1049,28 +1052,33 @@ impl SessionActor {
         // the marks that move agent status are the status listener's signals.
         self.read_agent_status(false);
         let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
+        self.stepped();
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
             let marking = self.delete_closed.is_none() && self.delete_mark.is_some();
             tokio::select! {
                 biased;
-                Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
-                go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
-                Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
-                Some(done) = self.jobs_rx.recv() => self.on_job(done),
-                _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
-                _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
+                Some(ctl) = self.ch.ctl_rx.recv() => { self.stepping(); self.on_ctl(ctl) }
+                go = mark_go(&mut self.delete_mark), if marking => { self.stepping(); self.mark_deleted(go.ok()) }
+                Some(msg) = self.ch.dur_rx.recv() => { self.stepping(); self.on_durability(msg) }
+                Some(done) = self.jobs_rx.recv() => { self.stepping(); self.on_job(done) }
+                _ = sleep_until(deadline), if deadline.is_some() => { self.stepping(); self.on_deadline() }
+                _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => { self.stepping(); self.on_idle_evict() }
                 _ = sleep_until(self.frames.due()), if self.frames.due().is_some() => {
+                    self.stepping();
                     let flushed = self.frames.flush();
                     self.publish_frame(flushed);
                 }
-                Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
-                Some(msg) = self.ch.inbox_rx.recv() => match msg {
-                    Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
-                    msg => self.on_inbox(msg),
-                },
-                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
+                Some(msg) = self.ch.prod_rx.recv(), if producers_open => { self.stepping(); self.on_producer(msg) }
+                Some(msg) = self.ch.inbox_rx.recv() => {
+                    self.stepping();
+                    match msg {
+                        Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
+                        msg => self.on_inbox(msg),
+                    }
+                }
+                Some(announced) = settings_changed(&mut settings) => { self.stepping(); self.on_settings_changed(announced) }
                 else => break,
             }
             self.pump();
@@ -1088,6 +1096,7 @@ impl SessionActor {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
                 self.cell.stepped.notify_waiters();
             }
+            self.stepped();
             // An unloaded thread stops once its accepted records are handed off; a deleted one
             // also waits for its turn to end and its mark.
             if self.cell.closed.load(SeqCst)
@@ -2230,6 +2239,32 @@ impl SessionActor {
             projected.apply(change, None);
         }
         self.projected = projected;
+    }
+
+    /// A step began (a replay's settled signal, `replay_settled.rs`).
+    fn stepping(&self) {
+        #[cfg(feature = "replay-settled")]
+        if let Some(lane) = &self.ch.settled {
+            lane.stepping();
+        }
+    }
+
+    /// A step ended (a replay's settled signal): idle when it left nothing in flight, every record acknowledged by the store, every
+    /// job reported (the actor holds the only strong sender left: a job waiting on the clock or a registration holds a weak one).
+    fn stepped(&self) {
+        #[cfg(feature = "replay-settled")]
+        if let Some(lane) = &self.ch.settled {
+            let left = if !self.outbox.is_empty() {
+                Some("a record not yet acknowledged by its store")
+            } else if self.jobs_tx.strong_count() > 1 {
+                Some("a job in flight")
+            } else if !self.jobs_rx.is_empty() {
+                Some("a job's answer not yet taken")
+            } else {
+                None
+            };
+            lane.stepped(left);
+        }
     }
 
     fn publish(&mut self, notes: Vec<Note>) {
@@ -3729,11 +3764,14 @@ impl SessionActor {
         let mut toasts = self.projected.sections.runtime.as_ref().map(|runtime| runtime.toasts.clone()).unwrap_or_default();
         toasts.push(toast);
         self.accept_view_with(Change::Section(Section::Toasts(toasts)), Vec::new(), effects);
-        let jobs = self.jobs_tx.clone();
+        // Weak while it waits on the clock: the actor holds the channel open, and a timer is no job in flight.
+        let jobs = self.jobs_tx.downgrade();
         let expiring = id.clone();
         let timer = tokio::spawn(async move {
             tokio::time::sleep(TOAST_TTL).await;
-            let _ = jobs.send(JobDone::ToastExpired(expiring));
+            if let Some(jobs) = jobs.upgrade() {
+                let _ = jobs.send(JobDone::ToastExpired(expiring));
+            }
         });
         self.toast_timers.insert(id, timer.abort_handle());
     }
@@ -4880,10 +4918,12 @@ impl SessionActor {
     fn setup_ui_request(&mut self, id: String, window: std::time::Duration) {
         let request = mixdog_app_protocol::v2::thread::SetupUiRequest { id: id.clone(), at: self.deps.clock.now_ms() };
         self.accept_view(Change::Section(Section::SetupUiRequest(Some(request))), Vec::new());
-        let jobs = self.jobs_tx.clone();
+        let jobs = self.jobs_tx.downgrade();
         tokio::spawn(async move {
             tokio::time::sleep(window).await;
-            let _ = jobs.send(JobDone::SetupUiExpired(id));
+            if let Some(jobs) = jobs.upgrade() {
+                let _ = jobs.send(JobDone::SetupUiExpired(id));
+            }
         });
     }
 
@@ -4912,11 +4952,12 @@ impl SessionActor {
     /// listener's (`onAgentStatusChange`), which also schedules the Goal continuation; the
     /// load's first status pass (`runtimePulse`) only publishes.
     fn read_agent_status(&self, listener: bool) {
-        let (jobs, status, thread) = (self.jobs_tx.clone(), self.deps.agent_status.clone(), self.id.clone());
+        let (jobs, status, thread) = (self.jobs_tx.downgrade(), self.deps.agent_status.clone(), self.id.clone());
         tokio::spawn(async move {
             if !listener {
                 tokio::time::sleep(STATUS_SETTLE).await;
             }
+            let Some(jobs) = jobs.upgrade() else { return };
             let agents = status.status(&thread).await;
             let _ = jobs.send(JobDone::AgentStatus { agents, listener });
         });
@@ -5284,11 +5325,14 @@ impl SessionActor {
         let token = CancellationToken::new();
         let cancel = mixdog_agent::cancel::Cancel::from_token(&token);
         let (input_tx, input_rx) = watch::channel(InputState::Pending);
-        let jobs = self.jobs_tx.clone();
+        // A registration for the turn's life, not a job in flight.
+        let jobs = self.jobs_tx.downgrade();
         let marks = self.deps.sensitive.on_marked(
             &self.id,
             Box::new(move || {
-                let _ = jobs.send(JobDone::SensitiveMarked);
+                if let Some(jobs) = jobs.upgrade() {
+                    let _ = jobs.send(JobDone::SensitiveMarked);
+                }
             }),
         );
         let caller_watchdog = agent.as_ref().is_some_and(|start| start.turn.caller_watchdog);
@@ -5445,7 +5489,7 @@ impl SessionActor {
             review: review.clone(),
         });
         let ctl = self.cell.ctl_tx.clone();
-        mixdog_rt::spawn("session-run", TaskClass::Work, async move {
+        let run = async move {
             // Ended with the run, before it reports settled (`endCacheWarmTurn`, `ask-session.mjs:353,386`).
             let warm = warm.begin().await;
             // The turn is admitted to its workspace before its loop runs: no checkout it reads
@@ -5465,7 +5509,11 @@ impl SessionActor {
             let _ = ctl.send(Ctl::RunEnded { turn, outcome }).await;
             // `releaseWorkspace()` of `settleTurn`.
             drop(admitted);
-        });
+        };
+        // A replay's settled signal counts the turn busy until it ends, except while it waits on the model or the user.
+        #[cfg(feature = "replay-settled")]
+        let run = mixdog_ai::transport::replay_bytes::in_run(run);
+        mixdog_rt::spawn("session-run", TaskClass::Work, run);
     }
 
     /// Open-time recovery: a run without a terminal record is interrupted, and so are its
@@ -5545,11 +5593,12 @@ impl SessionActor {
             prompt_history::Next::Wait { epoch, delay } => {
                 #[cfg(any(test, feature = "test-support"))]
                 self.cell.prompt_timers.fetch_add(1, SeqCst);
-                let jobs = self.jobs_tx.clone();
+                let jobs = self.jobs_tx.downgrade();
                 // The wait starts as it is armed, as Node's `setTimeout` does, not when the task first runs.
                 let due = tokio::time::sleep(delay);
                 drop(tokio::spawn(async move {
                     due.await;
+                    let Some(jobs) = jobs.upgrade() else { return };
                     let _ = jobs.send(JobDone::PromptRetryDue(epoch));
                 }));
             }

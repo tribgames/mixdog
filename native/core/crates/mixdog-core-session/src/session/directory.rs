@@ -283,6 +283,8 @@ struct Opened {
 
 impl SessionDirectory {
     pub fn new(deps: Arc<SessionDeps>) -> Self {
+        #[cfg(feature = "replay-settled")]
+        super::replay_settled::start();
         // Startup prune and the deadline timer for abandoned staged originals (`startStagedOriginalsPrune`).
         let prune = mixdog_rt::CancellationToken::new();
         deps.staged_originals.start_prune(deps.lanes.durability, deps.clock.clone(), prune.clone());
@@ -1247,6 +1249,8 @@ impl DirInner {
             limits.window_records + limits.reserve_records + limits.control_lane + 1,
         );
         let (dur_out, dur_rx) = mpsc::channel(8);
+        #[cfg(feature = "replay-settled")]
+        let settled = super::replay_settled::Lane::register(id.as_str(), &ctl_tx, &inbox_tx, &prod_tx);
         let epoch = new_epoch();
         let feed_id = FeedId::from(id.as_str());
         let view = Arc::new(SessionView::build(
@@ -1335,6 +1339,8 @@ impl DirInner {
                 dur_tx,
                 dur_rx,
                 directory: self.me.clone(),
+                #[cfg(feature = "replay-settled")]
+                settled,
             },
         );
         let mut actor = actor;

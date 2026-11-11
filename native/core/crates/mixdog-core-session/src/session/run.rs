@@ -670,7 +670,12 @@ impl ApprovalGate for RunPort {
         let asked = self
             .scoped(async {
                 self.ctl.send(msg).await.map_err(|_| RunError::Closed)?;
-                (&mut rx).await.map_err(|_| RunError::Closed)
+                // The user's decision is a replay's input (its settled signal).
+                #[cfg(feature = "replay-settled")]
+                let decided = mixdog_ai::transport::replay_bytes::turn_parked(&mut rx).await;
+                #[cfg(not(feature = "replay-settled"))]
+                let decided = (&mut rx).await;
+                decided.map_err(|_| RunError::Closed)
             })
             .await;
         match asked {

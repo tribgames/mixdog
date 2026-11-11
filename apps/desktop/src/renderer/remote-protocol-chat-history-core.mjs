@@ -241,6 +241,10 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   let bytesServer;
   let bytesHandled = 0;
   const bytesSockets = new Set();
+  let settleServer;
+  let settle;
+  let settleWhy = null;
+  const settleSockets = new Set();
   let handledAll;
   let watcher;
   let provider;
@@ -255,7 +259,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   const message = () => {
     const want = compared[reached.matched];
     const last = log.findLast((e) => e.kind === 'state');
-    return `${name}: Node's entry ${reached.matched} (${want?.kind} ${want?.input ?? ''}) not reached; differing fields of the core's last state: ${JSON.stringify(want?.kind === 'state' ? differingFields(want.value, last?.value) : null).slice(0, 6000)}\ncore: ${core?.tail?.() ?? ''}`;
+    return `${name}: Node's entry ${reached.matched} (${want?.kind} ${want?.input ?? ''}) not reached; the core's settled signal last waited on: ${settleWhy ?? 'nothing'}; differing fields of the core's last state: ${JSON.stringify(want?.kind === 'state' ? differingFields(want.value, last?.value) : null).slice(0, 6000)}\ncore: ${core?.tail?.() ?? ''}`;
   };
   let deadline = createDeadline(deadlineMs, message);
   try {
@@ -345,7 +349,53 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         bytesWaiters.add(waiter);
       }), `the core to handle the model's ${want} response bytes (handled ${bytesHandled})`);
     };
-    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}`, MIXDOG_REPLAY_BYTES: `127.0.0.1:${bytesServer.address().port}`, MIXDOG_ASSIGNED_PG_PORT: String(pgPort) }), cwd: paths.envRoot });
+    // The core's settled signal (mixdog-core-session replay_settled.rs): `settle <n>` is answered `settled <n>` once no conversation has
+    // anything in flight (inbox empty, no step running, every record acknowledged by its store, every turn waiting on this replay).
+    settleServer = createServer();
+    let settleSocket = null;
+    let settleBuffer = '';
+    let settleLost = null;
+    let settleAsked = 0;
+    let settleAnswered = 0;
+    const settleWaiters = new Set();
+    const settleSeen = () => { for (const waiter of settleWaiters) waiter(); };
+    settleServer.on('connection', (socket) => {
+      settleSocket = socket;
+      settleSockets.add(socket);
+      socket.setEncoding('utf8');
+      const lost = (error) => { settleLost = new Error(`the core's settled signal ended (${error?.message ?? 'closed'}); core: ${core?.tail?.() ?? ''}`); settleSeen(); };
+      socket.on('error', lost);
+      socket.on('close', () => lost());
+      socket.on('data', (chunk) => {
+        settleBuffer += chunk;
+        for (let at = settleBuffer.indexOf('\n'); at >= 0; at = settleBuffer.indexOf('\n')) {
+          const line = settleBuffer.slice(0, at).trim();
+          settleBuffer = settleBuffer.slice(at + 1);
+          const n = Number(/^settled (\d+)$/.exec(line)?.[1]);
+          if (Number.isFinite(n)) {
+            settleAnswered = n;
+            settleWhy = null;
+          } else if (line.startsWith('waiting ')) settleWhy = line.slice('waiting '.length);
+          else settleLost = new Error(`the core's settled signal sent ${JSON.stringify(line)}`);
+        }
+        settleSeen();
+      });
+    });
+    await new Promise((resolve) => settleServer.listen(0, '127.0.0.1', resolve));
+    settle = (after) => {
+      if (!settleSocket) return Promise.reject(new Error(`${name}: the core never connected its settled signal (a mixdogd built with --features replay-settled)`));
+      const n = (settleAsked += 1);
+      settleSocket.write(`settle ${n}\n`);
+      return deadline.race(new Promise((resolve, reject) => {
+        const waiter = () => {
+          if (settleLost) { settleWaiters.delete(waiter); reject(settleLost); }
+          else if (settleAnswered >= n) { settleWaiters.delete(waiter); resolve(); }
+        };
+        settleWaiters.add(waiter);
+        waiter();
+      }), `the core to settle after ${after}`);
+    };
+    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}`, MIXDOG_REPLAY_BYTES: `127.0.0.1:${bytesServer.address().port}`, MIXDOG_REPLAY_SETTLED: `127.0.0.1:${settleServer.address().port}`, MIXDOG_ASSIGNED_PG_PORT: String(pgPort) }), cwd: paths.envRoot });
     await deadline.race(clockLine.promise, 'the core to connect to the replay clock (a mixdogd built with --features virtual-clock)');
     const daemonDoc = () => {
       const file = join(paths.runtimeRoot, 'daemon.json');
@@ -479,7 +529,11 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       }
       throw new Error(`${name}: no phone call for Node's input ${label}`);
     };
+    let previous = 'the core served';
     for (const input of node.inputs) {
+      // Everything the previous input started has settled before the next one, so no clock move lands inside its work.
+      await settle(previous);
+      previous = input.input === 'clock' ? `the clock moved to ${input.clock}` : input.input;
       const owed = compared.filter((h) => h.at < input.at);
       await owe(owed, `the core to publish its entries for Node's ${owed.length} before ${input.input}`);
       // Node's clocks stood at `input.clock` for this input (its own moves, and the recorder's `afterInputMs` after each input): the
@@ -521,6 +575,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       log.push({ kind: 'reply', input: input.input, value: norm(entry) });
       wake();
     }
+    await settle(previous);
     await owe(compared, `the core to publish as many entries as Node's ${compared.length}`);
     // The core's state behind one more round trip is still Node's last.
     // (A deleted thread has nothing to read: the round trip is a listing then.)
@@ -556,6 +611,9 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       }
       if (bytesServer) {
         await ending.race(new Promise((resolve) => { bytesServer.close(resolve); for (const s of bytesSockets) s.destroy(); }), 'the byte barrier to close');
+      }
+      if (settleServer) {
+        await ending.race(new Promise((resolve) => { settleServer.close(resolve); for (const s of settleSockets) s.destroy(); }), 'the settled signal to close');
       }
     } finally {
       ending.clear();

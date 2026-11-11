@@ -58,6 +58,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 crash-gates = []
 # A replay's clock: the session's wall clock reads mixdog-rt's virtual clock once a replay froze it. Never in an ordinary build.
 virtual-clock = ["mixdog-rt/virtual-clock"]
+# A replay's settled signal (session/replay_settled.rs, MIXDOG_REPLAY_SETTLED). Never in an ordinary build.
+replay-settled = ["mixdog-ai/replay-bytes"]
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]
@@ -79,7 +81,7 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
-mixdog-core-session = { path = ".", features = ["crash-gates", "test-support", "virtual-clock"] }
+mixdog-core-session = { path = ".", features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
