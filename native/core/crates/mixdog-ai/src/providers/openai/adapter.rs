@@ -740,7 +740,8 @@ impl OpenAiAdapter {
                 Wire::Ws => self.open_ws(request, authorized, &credential).await?,
                 Wire::Http => self.open_http(codec, request, authorized).await?,
             };
-            let handshake = wire_kind == Wire::Ws && matches!(opened, Opened::Rejected(_));
+            let refused = matches!(opened, Opened::Rejected(_));
+            let handshake = wire_kind == Wire::Ws && refused;
             let rejected = match opened {
                 Opened::Stream(stream) => match stream.first_frame_failure() {
                     Some(failure) if !stripped && without_effort_updates(&wire, &failure).is_some() => failure,
@@ -761,6 +762,16 @@ impl OpenAiAdapter {
                 continue;
             }
             let mut err = codec.classify(&rejected);
+            // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
+            let label = match (wire_kind, self.codec.route()) {
+                (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",
+                (Wire::Ws, _) => "OpenAI WS handshake",
+                (Wire::Http, Route::Codex) => "OpenAI OAuth HTTP fallback",
+                (Wire::Http, _) => "OpenAI HTTP fallback",
+            };
+            if refused {
+                err.message = super::error::http_response_message(label, &rejected, &err, self.context.now_unix_ms());
+            }
             if rejected.status == Some(401) && refreshed && err.kind == ErrorKind::Auth {
                 err.reauth_required = true;
             }

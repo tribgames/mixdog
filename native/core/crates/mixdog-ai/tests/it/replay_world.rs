@@ -198,10 +198,17 @@ pub async fn adapter(builder: &DefaultProviderBuilder, name: &str, cfg: &Value) 
 pub struct Events {
     pub events: Vec<StreamEvent>,
     pub discards: u32,
+    /// The caller's cancel once the first text reached it (the recorder's `onTextDelta` abort).
+    pub cancel_on_text: Option<CancellationToken>,
 }
 
 impl AttemptSink for Events {
     fn event(&mut self, event: StreamEvent) {
+        if matches!(event, StreamEvent::TextDelta(_))
+            && let Some(cancel) = self.cancel_on_text.take()
+        {
+            cancel.cancel();
+        }
         self.events.push(event);
     }
     fn discard(&mut self) {
@@ -210,11 +217,15 @@ impl AttemptSink for Events {
 }
 
 /// One send through `ModelBroker::send`.
-pub async fn send(adapter: &dyn ProviderAdapter, request: ModelRequest, cancel: &CancellationToken) -> (Result<u32, SendError>, Events) {
+pub async fn send_with(
+    adapter: &dyn ProviderAdapter,
+    request: ModelRequest,
+    cancel: &CancellationToken,
+    mut events: Events,
+) -> (Result<u32, SendError>, Events) {
     let admission = Arc::new(Admission::new());
     let lane = admission.lane(&LaneKey::new(adapter.id().clone(), "default"), LaneSettings::default());
     let broker = ModelBroker::new(admission, Arc::new(StandardRetryDecider));
-    let mut events = Events::default();
     let sent = broker
         .send(adapter, SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() }, &mut events, cancel)
         .await;
