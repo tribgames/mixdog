@@ -993,7 +993,11 @@
       "steps": [
         {
           "step": "killed",
-          "sends": 1
+          "sends": 1,
+          "checkpoint": {
+            "sealed": false,
+            "turnMessages": 1
+          }
         },
         {
           "step": "reopened",
@@ -2395,7 +2399,8 @@
       "steps": [
         {
           "step": "killed",
-          "sends": 1
+          "sends": 1,
+          "checkpointPresent": true
         },
         {
           "step": "reopened",
@@ -7644,7 +7649,10 @@
         {
           "step": "killed",
           "sends": 1,
-          "secretFiles": []
+          "secretFiles": [],
+          "secretFilesBeforeMark": [
+            "mixdog_data_dir/turn-checkpoints/sess_1_1800000000000_1800000000000_5a3cc90af27d4c29d299dacec47b0302.jsonl"
+          ]
         },
         {
           "step": "reopened",
