@@ -53,12 +53,12 @@ impl File {
 
     /// [`std::fs::File::sync_all`].
     pub fn sync_all<P: WriteProof>(&self, _proof: &P) -> io::Result<()> {
-        self.0.sync_all()
+        crate::elide::sync_all(&self.0)
     }
 
     /// [`std::fs::File::sync_data`].
     pub fn sync_data<P: WriteProof>(&self, _proof: &P) -> io::Result<()> {
-        self.0.sync_data()
+        crate::elide::sync_data(&self.0)
     }
 
     /// [`std::fs::File::set_len`].

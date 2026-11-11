@@ -193,6 +193,3 @@ impl MeasuredThreads for DirectoryThreads {
         Some(self.world.facts(thread, &header, rows).await.media)
     }
 }
-
-#[cfg(test)]
-pub(crate) mod tests;

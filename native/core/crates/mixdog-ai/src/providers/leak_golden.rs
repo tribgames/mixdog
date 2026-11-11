@@ -8,7 +8,7 @@ use mixdog_core_api::domain::provider::ToolCall;
 use serde_json::Value;
 
 pub(crate) fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json"))
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json"))
         .expect("golden")
 }
 

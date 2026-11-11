@@ -1,4 +1,93 @@
 {
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": [
+        [
+          "host",
+          "127.0.0.1:<port>"
+        ],
+        [
+          "connection",
+          "keep-alive"
+        ],
+        [
+          "Accept",
+          "application/json"
+        ],
+        [
+          "User-Agent",
+          "Anthropic/JS 0.137.0"
+        ],
+        [
+          "X-Stainless-Retry-Count",
+          "0"
+        ],
+        [
+          "X-Stainless-Timeout",
+          "600"
+        ],
+        [
+          "X-Stainless-Lang",
+          "js"
+        ],
+        [
+          "X-Stainless-Package-Version",
+          "0.137.0"
+        ],
+        [
+          "X-Stainless-OS",
+          "<recording host x-stainless-os>"
+        ],
+        [
+          "X-Stainless-Arch",
+          "<recording host x-stainless-arch>"
+        ],
+        [
+          "X-Stainless-Runtime",
+          "node"
+        ],
+        [
+          "X-Stainless-Runtime-Version",
+          "<recording host x-stainless-runtime-version>"
+        ],
+        [
+          "anthropic-version",
+          "2023-06-01"
+        ],
+        [
+          "x-api-key",
+          "fixture-key-not-a-credential"
+        ],
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "anthropic-beta",
+          "interleaved-thinking-2025-05-14,effort-2025-11-24"
+        ],
+        [
+          "accept-language",
+          "*"
+        ],
+        [
+          "sec-fetch-mode",
+          "cors"
+        ],
+        [
+          "accept-encoding",
+          "gzip, deflate"
+        ],
+        [
+          "content-length",
+          "366"
+        ]
+      ],
+      "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up three values.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}"
+    }
+  ],
   "dispatchedToolCalls": [
     {
       "id": "toolu_1",
@@ -16,24 +105,120 @@
     }
   ],
   "error": {
+    "$exact": "error",
+    "name": "TruncatedStreamError",
+    "message": "Anthropic SSE stream truncated: message_start without message_stop (pending tool_use input)",
     "code": "TRUNCATED_STREAM",
-    "truncatedStream": true,
-    "pendingToolUse": true,
-    "partialToolCalls": [
-      {
-        "id": "toolu_1",
-        "name": "lookup",
-        "arguments": {
-          "key": "a"
+    "props": {
+      "name": "TruncatedStreamError",
+      "truncatedStream": true,
+      "pendingToolUse": true,
+      "stopReason": null,
+      "partialContent": "",
+      "partialToolCalls": [
+        {
+          "id": "toolu_1",
+          "name": "lookup",
+          "arguments": {
+            "key": "a"
+          }
+        },
+        {
+          "id": "toolu_2",
+          "name": "lookup",
+          "arguments": {
+            "key": "b"
+          }
         }
+      ],
+      "partialModel": "claude-sonnet-4-6",
+      "partialUsage": {
+        "inputTokens": 20,
+        "outputTokens": 1,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0,
+        "raw": {
+          "input_tokens": 20,
+          "output_tokens": 1
+        },
+        "promptTokens": 20
       },
-      {
-        "id": "toolu_2",
-        "name": "lookup",
-        "arguments": {
-          "key": "b"
+      "partialHasThinking": false,
+      "partialThinkingBlocks": {
+        "$exact": "undefined"
+      },
+      "partialAssistantBlocks": [
+        {
+          "type": "tool_use",
+          "id": "toolu_1",
+          "name": "lookup",
+          "input": {
+            "key": "a"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_2",
+          "name": "lookup",
+          "input": {
+            "key": "b"
+          }
         }
-      }
-    ]
+      ],
+      "partialStopReason": {
+        "$exact": "undefined"
+      },
+      "partialProviderReplay": {
+        "version": 1,
+        "provider": "anthropic",
+        "items": [
+          {
+            "type": "tool_use",
+            "id": "toolu_1",
+            "name": "lookup",
+            "input": {
+              "key": "a"
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_2",
+            "name": "lookup",
+            "input": {
+              "key": "b"
+            }
+          }
+        ]
+      },
+      "streamOutcome": {
+        "version": 1,
+        "provider": "anthropic",
+        "transport": "sse",
+        "terminalObserved": false,
+        "continuation": true,
+        "declaredContinuation": false,
+        "textEmitted": false,
+        "textObservedChars": 0,
+        "reasoningEmitted": false,
+        "toolCallsStarted": true,
+        "toolCallsComplete": 2,
+        "toolCallsDispatched": 2,
+        "dispatchAmbiguous": true,
+        "pendingToolInput": true,
+        "userAbort": false,
+        "stallObserved": false,
+        "truncatedStream": true,
+        "visibleOutput": false,
+        "observedOutput": true,
+        "sideEffectDispatched": true,
+        "replayUnsafe": true,
+        "replaySafe": false,
+        "successEligible": false
+      },
+      "partialToolCall": true,
+      "emittedToolCall": true,
+      "toolCallEmitted": true,
+      "unsafeToRetry": true
+    }
   }
 }

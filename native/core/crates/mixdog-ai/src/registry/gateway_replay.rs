@@ -630,7 +630,7 @@ async fn wire_left_through(id: &str) -> (Vec<Option<StreamEvent>>, Vec<bool>) {
         }));
     }
     // Every answer is served from the recording: a stream still pending after this hangs.
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(30), async {
         while let Some(item) = stream.next().await {
             seen.lock().unwrap().push(Some(item.unwrap_or_else(|e| panic!("{id}: {e:?}"))));
         }

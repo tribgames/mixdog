@@ -110,7 +110,7 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
 }
 
 async fn settle() {
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
 }
 
 #[test]

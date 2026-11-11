@@ -128,7 +128,7 @@ async fn answering_websocket_peer_stays_alive_and_delivers_frames() {
         .unwrap();
     assert!(conn.link().may_start_response());
     // Several probe rounds pass with no data in flight.
-    tokio::time::sleep(schedule.ws.interval * 4).await;
+    mixdog_rt::time::sleep(schedule.ws.interval * 4).await;
     assert_eq!(conn.link().liveness(), LinkLiveness::Alive);
     assert!(
         !conn.link().may_start_response(),
@@ -207,7 +207,7 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     let url = format!("http://{addr}/");
     let request = tokio::spawn(async move { client.get(url).send().await });
     // Real I/O first (connect, preface); no virtual time has to pass for it.
-    tokio::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
+    mixdog_rt::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
     let started = tokio::time::Instant::now();
     let bound = (schedule.h2.interval + schedule.h2.timeout) * 3;
     let step = Duration::from_millis(10);
@@ -338,7 +338,7 @@ fn recorded_texts(kind: &str) -> Vec<(mixdog_ai::transport::Exchange, String, St
     use mixdog_rt::Liveness;
 
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
     let transports = &golden["transports"];
     let timer = if kind == "responseTimeout" { Duration::from_millis(transports["timeoutMs"].as_u64().unwrap()) } else { Duration::from_secs(60) };
     [

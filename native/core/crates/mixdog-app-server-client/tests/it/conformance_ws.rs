@@ -223,7 +223,7 @@ impl Net for WsNet {
         self.fail.store(n, Ordering::SeqCst);
     }
     async fn settle(&self) {
-        tokio::time::sleep(SETTLE).await;
+        mixdog_rt::time::sleep(SETTLE).await;
     }
 }
 

@@ -509,5 +509,3 @@ impl TranscriptTexts for ThreadTranscript {
     }
 }
 
-#[cfg(test)]
-mod tests;

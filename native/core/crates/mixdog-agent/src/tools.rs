@@ -1255,6 +1255,7 @@ impl Run {
             log.batch(&batch);
         }
         self.emit(RunEvent::ToolBatch(batch));
+        self.emit(RunEvent::ExecutionCalls(execution));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
@@ -1290,6 +1291,10 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     let name = name.to_lowercase();
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
+#[cfg(test)]
+#[path = "tools_coerce_session_tests.rs"]
+mod coerce_session_tests;
+
 #[cfg(test)]
 mod tests {
     #[test]

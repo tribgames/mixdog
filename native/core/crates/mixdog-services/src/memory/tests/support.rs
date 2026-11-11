@@ -35,10 +35,17 @@ impl TestPg {
     pub async fn db(&self, schema: Schema) -> Db {
         Db::open(&self.cluster, schema).await.expect("db opens")
     }
-}
 
-impl Drop for TestPg {
-    fn drop(&mut self) {
+    /// A kill of the postmaster (an immediate stop: no checkpoint, crash recovery at the next
+    /// start), then a start on the same data directory.
+    pub async fn kill_and_restart(&mut self) {
+        self.stop_immediate();
+        self.cluster = PgCluster::ensure(PgRuntime::new(&self.runtime), self.dir.path(), self.cluster.port(), mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &crate::memory::pg::cluster::Start::node(), &|| true)
+            .await
+            .expect("postgres starts again");
+    }
+
+    fn stop_immediate(&self) {
         let mut stop = Command::new(self.runtime.join("bin").join(if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" }));
         stop.args(["stop", "-m", "immediate", "-w", "-D"])
             .arg(self.cluster.data_dir())
@@ -52,6 +59,12 @@ impl Drop for TestPg {
             stop.env("PATH", path);
         }
         let _ = stop.status();
+    }
+}
+
+impl Drop for TestPg {
+    fn drop(&mut self) {
+        self.stop_immediate();
         std::thread::sleep(Duration::from_millis(200));
     }
 }

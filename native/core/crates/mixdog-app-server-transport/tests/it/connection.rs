@@ -318,7 +318,7 @@ async fn one_heartbeat_task_serves_every_connection() {
     let keep_alive = async {
         for _ in 0..200 {
             live.send.send(Incoming::Activity).unwrap();
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
         }
     };
     let (silent_wire, quiet_wire, ()) = tokio::join!(silent_wire, quiet_wire, keep_alive);

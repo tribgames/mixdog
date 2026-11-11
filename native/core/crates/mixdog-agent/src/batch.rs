@@ -284,7 +284,8 @@ pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Opt
 }
 
 /// `getToolKind(name)` (`session/loop/tool-helpers.mjs`): the skill tools, then `apply_patch` / `code_graph`
-/// (builtin), the `mcp__` prefix, a tool of the surface that is not a builtin (an internal tool), else builtin.
+/// (builtin), the `mcp__` prefix, a tool the session runs that is not a builtin (an internal tool: Node's scope
+/// provider registers the deferred tools too, so one reached through the registry, as `browser`, is internal), else builtin.
 fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
     if matches!(name, "Skill" | "skills_list" | "skill_view") {
         "skill"
@@ -292,7 +293,7 @@ fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
         "builtin"
     } else if name.starts_with("mcp__") {
         "mcp"
-    } else if tools.get(name).is_some() && !tools.builtin_names().contains(&name) {
+    } else if tools.resolve(name).is_some() && !tools.builtin_names().contains(&name) {
         "internal"
     } else {
         "builtin"
