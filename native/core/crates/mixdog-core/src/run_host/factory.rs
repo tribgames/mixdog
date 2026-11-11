@@ -1602,18 +1602,39 @@ mod tests {
             // declared exclusion: this rig's thread stores no route and the windows are `thread/context/updated`'s.
             // A publication that does not carry `turnEffort` is the client's first snapshot of a route that never changed (the
             // `none` scenario): the core publishes no frame for a route that did not change. Declared in the MANIFEST.
+            // The core's publications, as Node's keys: the route frames carry `turnEffort`, the context frames the windows
+            // and limits. Node publishes only what changed, so the first publication holds the whole route and each later
+            // one the keys that changed; the core's first route frame and first context frame make the first, each later
+            // route frame one more, and a later context frame must repeat the first's windows (nothing changed).
             let routes = frames("thread/route/updated");
-            let mut state = serde_json::Map::new();
-            let mut node_states = Vec::new();
-            for patch in recorded["client"]["published"].as_array().unwrap() {
-                state.extend(patch.as_object().unwrap().clone());
-                if patch.get("turnEffort").is_some() {
-                    node_states.push(state.clone());
-                }
+            let contexts = frames("thread/context/updated");
+            const CONTEXT_KEYS: [&str; 6] = ["contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "displayContextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
+            let window_of = |frame: &Value| -> serde_json::Map<String, Value> { CONTEXT_KEYS.iter().map(|k| ((*k).to_owned(), frame["value"][*k].clone())).collect() };
+            let first_context = window_of(contexts.first().expect("a context frame"));
+            for later in &contexts[1..] {
+                assert_eq!(window_of(later), first_context, "{name}: a later context frame changes no window");
             }
-            assert_eq!(routes.len(), node_states.len(), "{name}: one route frame per publication of the effort");
-            for (n, (state, frame)) in node_states.iter().zip(&routes).enumerate() {
-                assert_eq!(&frame["value"]["turnEffort"], &state["turnEffort"], "{name}: publication {n}: turnEffort");
+            let mut core: Vec<serde_json::Map<String, Value>> = routes.iter().map(|f| serde_json::Map::from_iter([("turnEffort".to_owned(), f["value"]["turnEffort"].clone())])).collect();
+            if core.is_empty() {
+                core.push(serde_json::Map::new());
+            }
+            core[0].extend(first_context);
+            let node = recorded["client"]["published"].as_array().unwrap();
+            assert_eq!(core.len(), node.len(), "{name}: one publication for each of Node's");
+            // Each publication compared whole, key by key. The keys that differ are the named absences, asserted exactly: the
+            // core's frames carry no `sessionId` and no `agentScope` (the frame's `threadId` names the thread), this rig's
+            // thread stores no route (`sessionProvider`, `sessionModel`) and its route has no catalog window (the core's
+            // `contextWindow`, `rawContextWindow` and `effectiveContextWindowPercent` are null where Node's recording had the
+            // catalog's 500000, 500000 and 100). A publication without `turnEffort` (scenario `none`: a route that never
+            // changed) is compared as it is: the core has no route frame, and no such key.
+            const NAMED_ABSENCES: [&str; 7] = ["agentScope", "contextWindow", "effectiveContextWindowPercent", "rawContextWindow", "sessionId", "sessionModel", "sessionProvider"];
+            for (n, (node, core)) in node.iter().zip(&core).enumerate() {
+                let node = node.as_object().unwrap();
+                let mut differing: Vec<&str> = node.keys().chain(core.keys()).filter(|k| node.get(*k) != core.get(*k)).map(String::as_str).collect();
+                differing.sort_unstable();
+                differing.dedup();
+                let named: &[&str] = if n == 0 { &NAMED_ABSENCES } else { &[] };
+                assert_eq!(differing, named, "{name}: publication {n}: the keys that differ from Node's");
             }
             let sent: Vec<Value> = lock(&provider.requests).iter().map(|r| json!(r.options.effort)).collect();
             let node: Vec<Value> = recorded["sends"].as_array().unwrap().iter().map(|s| s["requestEffort"].clone()).collect();
