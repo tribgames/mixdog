@@ -391,6 +391,8 @@ impl ProviderAdapter for DevinAdapter {
             execution_id: random_uuid(),
         });
         let wire = codec.encode(&request)?;
+        // `_streamTurn` raises `requesting` once the chat request is built, before it is sent (devin.mjs:383).
+        request.options.send_identity.raise_requesting_once();
         // `transportError` (`devin-wire-transport.mjs:243-261`) words what the raw `fetch` threw.
         let head = self.http.send(wire, DEVIN_STREAM).await.map_err(|error| error::connection_failed(error, &[]))?;
         if (300..400).contains(&head.status) {

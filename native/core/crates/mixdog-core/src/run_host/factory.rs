@@ -639,6 +639,7 @@ impl RunObserver for PortObserver {
                 lock(&self.observed).tools = false;
                 self.progress.stage("connecting");
             }
+            RunEvent::Stage(Stage::Requesting) => self.progress.stage("requesting"),
             RunEvent::Stage(Stage::Streaming) => self.progress.stage("streaming"),
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),

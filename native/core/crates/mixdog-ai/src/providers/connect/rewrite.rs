@@ -124,6 +124,13 @@ pub async fn run_attempt(
     // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
     // has run on, so the resend does not get it; it is let go once the resend went out.
     let mut held = None;
+    // `requesting`: Chat Completions raises it for every attempt of its ladder (openai-compat-chat-send.mjs:276), the
+    // Messages wire (anthropic.mjs:300) and Responses (grok-oauth.mjs, openai-compat-xai-send.mjs:103) once before it.
+    if wire.url.ends_with("/chat/completions") {
+        request.options.send_identity.raise_stage("requesting");
+    } else {
+        request.options.send_identity.raise_requesting_once();
+    }
     loop {
         let mut sent = wire.clone();
         if let Some(header) = header.clone() {

@@ -11,11 +11,16 @@
 // (a Connect end frame carrying an error reaches the bridge as that error, not as the `aborted` its own cancel raises).
 //   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch [--only <case>]
 import crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { startH2World } from './lib/h2-world.mjs';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
+// A keep-alive socket of the loopback endpoint carries every request of the recording process, and each request adds a `close`
+// listener to it: the eleventh makes Node write a `MaxListenersExceededWarning` to stderr, which lands in whichever case sends it
+// (the count of requests before a case decides which). The warning is the recording process's, not the product's output.
+EventEmitter.defaultMaxListeners = 0;
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-retry-stages',
@@ -23,7 +28,8 @@ const rec = await startRecording({
     '`draws` is not compared: the recorder\'s count of its own seeded `Math.random` stream before the send and during it (`Math.random` wrapped right after `startRecording`), not an output of the product; the replay reads it to find the retry jitter sample among the SDK clients\' draws, and the sample is compared through the recorded wait',
     '`attemptRequests` is not compared: the recorder\'s own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed',
     'The Cursor case\'s HTTP/2 streams are recorded by the world\'s h2c hub (lib/h2-world.mjs): `:authority` is written as the host and `:scheme` as the scheme of the origin the product addressed (the loopback address and clear text are the world\'s), the pseudo-headers in the order :method, :scheme, :authority, :path (the client library\'s choice, not the product\'s), and the body of the Run stream is its first Connect frame (later frames - heartbeats - are not part of the arrival). Replay side: the Rust h2 client (reqwest) adds `accept: */*` to every request and the `content-length` of a whole body, and `node:http2` adds no header of its own, so the replay\'s h2 listener leaves those two headers out of the arrival',
-    '`requesting and streaming stages` is not compared: the core raises them from its run loop around the whole send (mixdog-agent/src/send.rs:460, `RunEvent::Stage`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder\'s `reconnecting` stage, compared whole and in order',
+    'no `MaxListenersExceededWarning` is recorded: every request of the recording process adds a `close` listener to the loopback endpoint\'s shared keep-alive socket, and Node warns on the eleventh (the recorder sets `EventEmitter.defaultMaxListeners = 0`); the warning is the recording process\'s, which the number of cases before a send decides, and no product output',
+    '`streaming stages` is not compared: the core raises `streaming` from its run loop when a stream opens (mixdog-agent/src/send.rs, `RunEvent::Stage(Stage::Streaming)`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder\'s `reconnecting` stage and the provider\'s own `requesting` stage (raised where Node\'s send raises it: SendIdentity::raise_stage / SendStages), compared whole and in order',
   ],
   entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and cursor.mjs CursorOAuthProvider({}) (over node:http2, against the world\'s h2c hub) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case\'s input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
   compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages and the stderr lines.',
@@ -106,6 +112,24 @@ const cases = [
     () => new AnthropicProvider({ apiKey: 'fixture-key' }),
     'claude',
     [json(503, anthropicError('overloaded_error', 'busy'), ADVICE), json(400, anthropicError('invalid_request_error', 'bad field'))],
+  ],
+  [
+    'anthropic-api-key-redacts-an-opaque-credential-in-a-400',
+    'src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109',
+    { provider: 'anthropic' },
+    () => new AnthropicProvider({ apiKey: 'fixture-key' }),
+    'claude',
+    // A refusal that echoes the key it was sent inside ordinary message text (no bearer prefix, no token shape, no secret field): only the credential the request carried names it. The error text and the error's parsed body carry it redacted.
+    [json(400, anthropicError('invalid_request_error', 'the credential fixture-key was refused for this model'))],
+  ],
+  [
+    'anthropic-api-key-redacts-an-opaque-credential-in-a-429',
+    'src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109',
+    { provider: 'anthropic' },
+    () => new AnthropicProvider({ apiKey: 'fixture-key' }),
+    'claude',
+    // A rate-limit refusal echoing the key is retried, so the retry line the ladder writes (it quotes the refusal's message) is recorded too.
+    [json(429, anthropicError('rate_limit_error', 'the credential fixture-key is over its limit'), { 'retry-after': '30' }), json(400, anthropicError('invalid_request_error', 'bad field'))],
   ],
   [
     'xai-responses-raises-the-stage',
@@ -213,6 +237,17 @@ const cursorEndFrameRoute = [
     'fixture-model',
     // The first run ends with a retryable error in its Connect end frame, the second with one that is not: the send waits once and fails with the server's error.
     [cursorEndFrameError('unavailable', 'the run is busy'), cursorEndFrameError('invalid_argument', 'the model is not available')],
+    cursorAux,
+    { sessionId: 'fixture-session' },
+];
+const cursorTooLargeRoute = [
+    'cursor-oversized-request-is-terminal',
+    'src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs:368',
+    cursorRoute[2],
+    () => new CursorOAuthProvider({}),
+    'fixture-model',
+    // A resource_exhausted whose text names the tool catalog as too large is a 413 `request_too_large`, not a throttle: no retry follows, nothing was shown.
+    [cursorEndFrameError('resource_exhausted', 'The tool catalog is too large')],
     cursorAux,
     { sessionId: 'fixture-session' },
 ];
@@ -354,6 +389,7 @@ const routes = [
   // Last: its h2c streams and token exchanges leave the shared keep-alive sockets of the `fetch` endpoint as the cases before it left them.
   cursorRoute,
   cursorEndFrameRoute,
+  cursorTooLargeRoute,
 ];
 for (const [id, source, input, make, model, replies, aux, options] of routes) {
   await rec.run(id, source, input, async (ctx) => {

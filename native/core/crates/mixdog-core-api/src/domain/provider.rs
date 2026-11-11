@@ -306,9 +306,32 @@ pub struct SendIdentity {
     wire: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
     /// The attempts of this send that began so far.
     attempts: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// The display stages the adapter raised from inside an attempt (`onStageChange`), in order, for the caller to take
+    /// after the attempt.
+    stages: std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>,
+    /// Whether this send raised its once-per-send `requesting` yet.
+    requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl SendIdentity {
+    /// Raises a display stage from inside an attempt.
+    pub fn raise_stage(&self, stage: &'static str) {
+        self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(stage);
+    }
+
+    /// Raises `requesting` for a provider that raises it once before its whole retry ladder (Node raises it outside
+    /// `withRetry`): the send's first attempt raises it, a retry does not.
+    pub fn raise_requesting_once(&self) {
+        if !self.requested.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            self.raise_stage("requesting");
+        }
+    }
+
+    /// The stages raised inside the attempt that ended, in order.
+    pub fn take_stages(&self) -> Vec<&'static str> {
+        std::mem::take(&mut *self.stages.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+
     /// Marks an attempt of this send as begun and returns how many began before it: 0 for the send's first attempt,
     /// more for a retry.
     pub fn next_attempt(&self) -> u32 {

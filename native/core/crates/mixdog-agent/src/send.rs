@@ -440,6 +440,20 @@ impl Run {
             }))
         };
         let provider = Arc::clone(&self.provider);
+        // The provider's own `requesting` stages (`onStageChange`): those it raises before a send's first attempt and
+        // before every attempt, here; those it raises from inside the attempt, once the attempt is over.
+        let stages = provider.send_stages_of(&request);
+        let first_attempt = self.retry.get(RetryClass::Request).count(None).retries == 0
+            && self.retry.get(RetryClass::Midstream).count(None).retries == 0;
+        if first_attempt {
+            for _ in 0..stages.preparing {
+                self.emit(RunEvent::Stage(Stage::Requesting));
+            }
+        }
+        if stages.each_attempt {
+            self.emit(RunEvent::Stage(Stage::Requesting));
+        }
+        let identity = request.options.send_identity.clone();
         // The projection is rebuilt from the transcript for every request.
         let attempt = match &self.config.effort {
             Some(wiring) => {
@@ -449,6 +463,11 @@ impl Run {
             }
             None => or_cancelled(&self.cancel, provider.attempt(request)).await,
         };
+        for stage in identity.take_stages() {
+            if stage == "requesting" {
+                self.emit(RunEvent::Stage(Stage::Requesting));
+            }
+        }
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
             Some(Err(error)) => {

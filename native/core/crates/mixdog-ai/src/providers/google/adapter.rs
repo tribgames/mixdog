@@ -425,7 +425,11 @@ impl ProviderAdapter for GoogleAdapter {
         if !self.direct_gemini(model) {
             // Antigravity's attempt notes `model_thinking` once its request is on the wire (antigravity-transport.mjs:236).
             let model_thinking = matches!(self.codec.target(), Target::Antigravity { .. });
-            return SendStages { ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, model_thinking, ..SendStages::default() };
+            // Antigravity (antigravity-transport.mjs:216) and Vertex AI's open models (openai-compat-chat-send.mjs:276) raise
+            // `requesting` before every attempt of their ladder; Vertex AI's Claude (anthropic.mjs:300) and Gemini models
+            // (vertex-ai.mjs:382) once, before it.
+            let each_attempt = model_thinking || self.codec.maas_model(model).is_some();
+            return SendStages { preparing: u32::from(!each_attempt), each_attempt, ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, model_thinking, ..SendStages::default() };
         }
         SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true, model_thinking: false }
     }

@@ -498,8 +498,8 @@ fn excluded_kind(exclusion: &str, item: &Exact) -> bool {
     match exclusion {
         // `onStreamDelta('transport')`: the delta kinds Node recorded as strings.
         "onStreamDelta('transport')" => item.as_str() == "transport",
-        // The stages the run loop raises around the send: `requesting` and `streaming`, and no other.
-        "requesting and streaming stages" => matches!(item.get("stage").as_str(), "requesting" | "streaming"),
+        // The stage the run loop raises when a stream opens: `streaming`, and no other.
+        "streaming stages" => item.get("stage").as_str() == "streaming",
         other => panic!("no kind is known for the exclusion `{other}`"),
     }
 }
@@ -2238,20 +2238,20 @@ fn a_whole_comparison_leaves_out_only_declared_members() {
     assert!(excessive.contains("deltas"), "{excessive}");
 }
 
-/// The `requesting and streaming stages` line leaves out those two stages and no other: a provider's own `model_thinking`
-/// (or any later stage) stays in the comparison.
+/// The `streaming stages` line leaves out that stage and no other: the provider's own `requesting` and `model_thinking`
+/// (and any later stage) stay in the comparison.
 #[test]
-fn the_stages_filter_leaves_out_only_requesting_and_streaming() {
+fn the_stages_filter_leaves_out_only_streaming() {
     let stage = |name: &str| object(&[("stage", Exact::String(name.into()))]);
     let recorded = || Exact::Array(["requesting", "model_thinking", "streaming", "reconnecting"].map(stage).to_vec());
-    let line = "`requesting and streaming stages` is not compared: synthetic";
+    let line = "`streaming stages` is not compared: synthetic";
     let set = synthetic_set(object(&[("stages", recorded())]), &[line]);
-    set.cases[0].recorded().get("stages").assert_filtered("stages", "requesting and streaming stages", &Exact::Array(vec![stage("model_thinking"), stage("reconnecting")]));
+    set.cases[0].recorded().get("stages").assert_filtered("stages", "streaming stages", &Exact::Array(vec![stage("requesting"), stage("model_thinking"), stage("reconnecting")]));
     drop(set);
 
     let lossy = std::panic::catch_unwind(|| {
         let set = synthetic_set(object(&[("stages", recorded())]), &[line]);
-        set.cases[0].recorded().get("stages").assert_filtered("stages", "requesting and streaming stages", &Exact::Array(vec![stage("reconnecting")]));
+        set.cases[0].recorded().get("stages").assert_filtered("stages", "streaming stages", &Exact::Array(vec![stage("model_thinking"), stage("reconnecting")]));
     })
     .map_err(panic_text)
     .expect_err("a stage the line does not name is compared");

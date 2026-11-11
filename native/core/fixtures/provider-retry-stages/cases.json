@@ -348,6 +348,570 @@
       ]
     },
     {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109",
+      "input": {
+        "provider": "anthropic"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential [REDACTED] was refused for this model\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "workspaceID": null,
+            "error": {
+              "type": "error",
+              "error": {
+                "type": "invalid_request_error",
+                "message": "the credential [REDACTED] was refused for this model"
+              }
+            },
+            "type": "invalid_request_error",
+            "httpStatus": 400,
+            "initialResponseError": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "anthropic",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 3,
+          "count": 1,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "156"
+            ]
+          ],
+          "body": "{\"model\":\"claude\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential fixture-key was refused for this model\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-429",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:109",
+      "input": {
+        "provider": "anthropic"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "workspaceID": null,
+            "error": {
+              "type": "error",
+              "error": {
+                "type": "invalid_request_error",
+                "message": "bad field"
+              }
+            },
+            "type": "invalid_request_error",
+            "httpStatus": 400,
+            "initialResponseError": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "anthropic",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 2,
+              "max": 11,
+              "waitMs": 30000,
+              "retryAt": 1794225632000,
+              "reason": "Rate limited by the provider",
+              "classifier": "rate_limit_error",
+              "message": "Rate limited by the provider · retry 2/11 in 30s"
+            }
+          }
+        ],
+        "stderr": [
+          "[anthropic] retry attempt 2 after 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"the credential [REDACTED] is over its limit\"}}, delay 30000ms (retry-after)\n"
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 4,
+          "count": 2,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 30000,
+          "fromMs": 2000,
+          "fired": [
+            {
+              "dueMs": 5000
+            },
+            {
+              "dueMs": 8000
+            },
+            {
+              "dueMs": 32000
+            }
+          ],
+          "toMs": 32000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "156"
+            ]
+          ],
+          "body": "{\"model\":\"claude\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "30"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"the credential fixture-key is over its limit\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "156"
+            ]
+          ],
+          "body": "{\"model\":\"claude\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "xai-responses-raises-the-stage",
       "source": "src/runtime/agent/orchestrator/providers/openai-compat-xai-send.mjs:154",
       "input": {
@@ -406,8 +970,8 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 15,
-              "waitMs": 2305,
-              "retryAt": 1794225604305,
+              "waitMs": 1897,
+              "retryAt": 1794225633897,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/15 in 2s"
@@ -415,14 +979,14 @@
           }
         ],
         "stderr": [
-          "[xai:responses] retry attempt 2 after 503 busy, delay 2305ms (retry-after)\n"
+          "[xai:responses] retry attempt 2 after 503 busy, delay 1897ms (retry-after)\n"
         ],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 3,
+          "first": 6,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -460,17 +1024,17 @@
       ],
       "clock": [
         {
-          "advanceMs": 2305,
-          "fromMs": 2000,
+          "advanceMs": 1897,
+          "fromMs": 32000,
           "fired": [
             {
-              "dueMs": 2499
+              "dueMs": 32499
             },
             {
-              "dueMs": 4305
+              "dueMs": 33897
             }
           ],
-          "toMs": 4305
+          "toMs": 33897
         }
       ],
       "requests": [
@@ -700,8 +1264,8 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 15,
-              "waitMs": 1897,
-              "retryAt": 1794225606202,
+              "waitMs": 2083,
+              "retryAt": 1794225635980,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/15 in 2s"
@@ -712,14 +1276,14 @@
           }
         ],
         "stderr": [
-          "[xai] retry attempt 2 after 503 busy, delay 1897ms (retry-after)\n"
+          "[xai] retry attempt 2 after 503 busy, delay 2083ms (retry-after)\n"
         ],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 6,
+          "first": 9,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -758,17 +1322,17 @@
       ],
       "clock": [
         {
-          "advanceMs": 1897,
-          "fromMs": 4305,
+          "advanceMs": 2083,
+          "fromMs": 33897,
           "fired": [
             {
-              "dueMs": 5000
+              "dueMs": 35000
             },
             {
-              "dueMs": 6202
+              "dueMs": 35980
             }
           ],
-          "toMs": 6202
+          "toMs": 35980
         }
       ],
       "requests": [
@@ -1016,7 +1580,7 @@
           1
         ],
         "draws": {
-          "first": 9,
+          "first": 12,
           "count": 0,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -1054,13 +1618,13 @@
       "clock": [
         {
           "advanceMs": 1000,
-          "fromMs": 6202,
+          "fromMs": 35980,
           "fired": [
             {
-              "dueMs": 7202
+              "dueMs": 36980
             }
           ],
-          "toMs": 7202
+          "toMs": 36980
         }
       ],
       "requests": [
@@ -1240,7 +1804,7 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225609202,
+              "retryAt": 1794225638980,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
@@ -1259,7 +1823,7 @@
           1
         ],
         "draws": {
-          "first": 9,
+          "first": 12,
           "count": 0,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -1294,13 +1858,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 7202,
+          "fromMs": 36980,
           "fired": [
             {
-              "dueMs": 9202
+              "dueMs": 38980
             }
           ],
-          "toMs": 9202
+          "toMs": 38980
         }
       ],
       "requests": [
@@ -1536,7 +2100,7 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225611202,
+              "retryAt": 1794225640980,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
@@ -1551,7 +2115,7 @@
           1
         ],
         "draws": {
-          "first": 9,
+          "first": 12,
           "count": 2,
           "uuidFirst": 1,
           "uuidCount": 0
@@ -1590,13 +2154,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 9202,
+          "fromMs": 38980,
           "fired": [
             {
-              "dueMs": 11202
+              "dueMs": 40980
             }
           ],
-          "toMs": 11202
+          "toMs": 40980
         }
       ],
       "requests": [
@@ -1867,8 +2431,8 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 15,
-              "waitMs": 1985,
-              "retryAt": 1794225613187,
+              "waitMs": 2101,
+              "retryAt": 1794225643081,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/15 in 2s"
@@ -1876,14 +2440,14 @@
           }
         ],
         "stderr": [
-          "[xai:responses] retry attempt 2 after 503 busy, delay 1985ms (retry-after)\n"
+          "[xai:responses] retry attempt 2 after 503 busy, delay 2101ms (retry-after)\n"
         ],
         "attemptRequests": [
           0,
           1
         ],
         "draws": {
-          "first": 11,
+          "first": 14,
           "count": 3,
           "uuidFirst": 1,
           "uuidCount": 1
@@ -1917,14 +2481,14 @@
       ],
       "clock": [
         {
-          "advanceMs": 1985,
-          "fromMs": 11202,
+          "advanceMs": 2101,
+          "fromMs": 40980,
           "fired": [
             {
-              "dueMs": 13187
+              "dueMs": 43081
             }
           ],
-          "toMs": 13187
+          "toMs": 43081
         }
       ],
       "requests": [
@@ -2207,7 +2771,7 @@
               "attempt": 2,
               "max": 4,
               "waitMs": 2000,
-              "retryAt": 1794225615187,
+              "retryAt": 1794225645081,
               "reason": "Provider overloaded",
               "classifier": "model_capacity_exhausted",
               "message": "Provider overloaded · retry 2/4 in 2s"
@@ -2228,7 +2792,7 @@
           2
         ],
         "draws": {
-          "first": 14,
+          "first": 17,
           "count": 1,
           "uuidFirst": 2,
           "uuidCount": 1
@@ -2263,13 +2827,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 13187,
+          "fromMs": 43081,
           "fired": [
             {
-              "dueMs": 15187
+              "dueMs": 45081
             }
           ],
-          "toMs": 15187
+          "toMs": 45081
         }
       ],
       "requests": [
@@ -2496,7 +3060,7 @@
           0
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -2714,7 +3278,7 @@
           0
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -2889,7 +3453,7 @@
           0
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -3107,7 +3671,7 @@
           0
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -3287,7 +3851,7 @@
           2
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -3580,7 +4144,7 @@
           0
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -3781,8 +4345,8 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 10,
-              "waitMs": 6024,
-              "retryAt": 1794225621211,
+              "waitMs": 5735,
+              "retryAt": 1794225650816,
               "reason": "Provider server error",
               "classifier": "unavailable",
               "message": "Provider server error · retry 2/10 in 6s"
@@ -3800,7 +4364,7 @@
           1
         ],
         "draws": {
-          "first": 15,
+          "first": 18,
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -3846,23 +4410,20 @@
       ],
       "clock": [
         {
-          "advanceMs": 6024,
-          "fromMs": 15187,
+          "advanceMs": 5735,
+          "fromMs": 45081,
           "fired": [
             {
-              "dueMs": 18187
+              "dueMs": 48081
             },
             {
-              "dueMs": 20187
+              "dueMs": 50081
             },
             {
-              "dueMs": 21187
-            },
-            {
-              "dueMs": 21211
+              "dueMs": 50816
             }
           ],
-          "toMs": 21211
+          "toMs": 50816
         }
       ],
       "requests": [
@@ -4089,7 +4650,7 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225623211,
+              "retryAt": 1794225652816,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
@@ -4102,7 +4663,7 @@
           2
         ],
         "draws": {
-          "first": 17,
+          "first": 20,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -4141,13 +4702,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 21211,
+          "fromMs": 50816,
           "fired": [
             {
-              "dueMs": 23211
+              "dueMs": 52816
             }
           ],
-          "toMs": 23211
+          "toMs": 52816
         }
       ],
       "requests": [
@@ -4380,7 +4941,7 @@
               "attempt": 2,
               "max": 5,
               "waitMs": 2000,
-              "retryAt": 1794225625211,
+              "retryAt": 1794225654816,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/5 in 2s"
@@ -4398,7 +4959,7 @@
           2
         ],
         "draws": {
-          "first": 17,
+          "first": 20,
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -4437,13 +4998,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 23211,
+          "fromMs": 52816,
           "fired": [
             {
-              "dueMs": 25211
+              "dueMs": 54816
             }
           ],
-          "toMs": 25211
+          "toMs": 54816
         }
       ],
       "requests": [
@@ -4736,7 +5297,7 @@
           2
         ],
         "draws": {
-          "first": 19,
+          "first": 22,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 2
@@ -5045,7 +5606,7 @@
               "attempt": 2,
               "max": 6,
               "waitMs": 2000,
-              "retryAt": 1794225627211,
+              "retryAt": 1794225656816,
               "reason": "Provider server error",
               "classifier": "unavailable",
               "message": "Provider server error · retry 2/6 in 2s"
@@ -5061,7 +5622,7 @@
           3
         ],
         "draws": {
-          "first": 19,
+          "first": 22,
           "count": 1,
           "uuidFirst": 5,
           "uuidCount": 5
@@ -5097,13 +5658,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 25211,
+          "fromMs": 54816,
           "fired": [
             {
-              "dueMs": 27211
+              "dueMs": 56816
             }
           ],
-          "toMs": 27211
+          "toMs": 56816
         }
       ],
       "requests": [
@@ -5423,11 +5984,11 @@
               "reasonClass": "server_error",
               "attempt": 2,
               "max": 6,
-              "waitMs": 208,
-              "retryAt": 1794225627419,
+              "waitMs": 239,
+              "retryAt": 1794225657055,
               "reason": "Provider server error",
               "classifier": "unavailable",
-              "message": "Provider server error · retry 2/6 in 208ms"
+              "message": "Provider server error · retry 2/6 in 239ms"
             }
           },
           {
@@ -5440,7 +6001,7 @@
           3
         ],
         "draws": {
-          "first": 20,
+          "first": 23,
           "count": 2,
           "uuidFirst": 10,
           "uuidCount": 5
@@ -5475,14 +6036,14 @@
       ],
       "clock": [
         {
-          "advanceMs": 208,
-          "fromMs": 27211,
+          "advanceMs": 239,
+          "fromMs": 56816,
           "fired": [
             {
-              "dueMs": 27419
+              "dueMs": 57055
             }
           ],
-          "toMs": 27419
+          "toMs": 57055
         }
       ],
       "requests": [
@@ -5727,6 +6288,243 @@
               "$exact": "bytes",
               "type": "Buffer",
               "base64": "AgAAAEx7ImVycm9yIjp7ImNvZGUiOiJpbnZhbGlkX2FyZ3VtZW50IiwibWVzc2FnZSI6InRoZSBtb2RlbCBpcyBub3QgYXZhaWxhYmxlIn19"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "cursor-oversized-request-is-terminal",
+      "source": "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs:368",
+      "input": {
+        "provider": "cursor-oauth",
+        "credentials": {
+          "cursor-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000
+          }
+        },
+        "env": {
+          "MIXDOG_CURSOR_CLIENT_VERSION": "cli-2026.11.01-0123456"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Cursor resource_exhausted: The tool catalog is too large",
+          "code": "request_too_large",
+          "props": {
+            "status": 413,
+            "httpStatus": 413,
+            "cursorCode": "resource_exhausted",
+            "cursorDetail": "The tool catalog is too large",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          1
+        ],
+        "draws": {
+          "first": 25,
+          "count": 1,
+          "uuidFirst": 15,
+          "uuidCount": 4
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/cursor.mjs.CursorOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/cursor.mjs.CursorOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "fixture-model",
+            [],
+            {
+              "sessionId": "fixture-session",
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/aiserver.v1.AiService/AvailableModels",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/aiserver.v1.AiService/AvailableModels"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "c2c52b10-6403-4056-8e6f-0e6711e867f3"
+            ]
+          ],
+          "body": "\u0010\u0001(\u00010\u00008\u0000@\u0000",
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "EiUKDWZpeHR1cmUtbW9kZWwoAXjAmgyKAQ1GaXh0dXJlIE1vZGVsWAE="
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/agent.v1.AgentService/Run",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/agent.v1.AgentService/Run"
+            ],
+            [
+              "content-type",
+              "application/connect+proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "c98ca38f-9415-44d8-8369-61aca0f773df"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ]
+          ],
+          "body": "\u0000\u0000\u0000\u0000q\no\n\u0000\u00122\n0\n,\n\u0002hi\u0012$5cef9295-91ba-4b76-88c1-94f3cdf674cc\u001a\u0000\u0012\u0000*$ae863df9-23f8-48bf-9b16-0c0bc0e9cfc1J\u0011\n\rfixture-model\u0010\u0000",
+          "reply": {
+            "status": 200,
+            "contentType": "application/connect+proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "AgAAAFF7ImVycm9yIjp7ImNvZGUiOiJyZXNvdXJjZV9leGhhdXN0ZWQiLCJtZXNzYWdlIjoiVGhlIHRvb2wgY2F0YWxvZyBpcyB0b28gbGFyZ2UifX0="
             }
           }
         }

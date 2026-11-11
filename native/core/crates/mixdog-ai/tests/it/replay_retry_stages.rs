@@ -7,8 +7,8 @@
 //! `DefaultProviderBuilder::build(<provider>)` and `ModelBroker::send` on the paused clock.
 //!
 //! Compared whole: the requests as they arrived, the clock steps, the error through `ERROR_FIELDS`, the `reconnecting`
-//! stages with their payloads (the `requesting` / `streaming` stages are declared not compared: the core raises them
-//! from its run loop) and the stderr lines.
+//! and `requesting` stages with their payloads (the `streaming` stage is declared not compared: the core raises it from
+//! its run loop) and the stderr lines.
 
 use futures::FutureExt as _;
 use mixdog_ai::providers::openai::adapter::SessionContext;
@@ -34,7 +34,7 @@ use crate::replay_world;
 pub const REPLAYS: &[Replay] = &[Replay { set: "retry-stages", run: every_case_replays_as_nodes }];
 
 /// The manifest's line for the stages the core raises outside the provider send.
-const OTHER_STAGES: &str = "requesting and streaming stages";
+const OTHER_STAGES: &str = "streaming stages";
 
 /// The builder's config of the case's recorded constructor call.
 fn config(case: &Case, provider: &str) -> serde_json::Value {
@@ -65,7 +65,11 @@ fn config(case: &Case, provider: &str) -> serde_json::Value {
 /// so a provider that draws another number fails here rather than shifting the sample.
 fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
     match id {
-        "anthropic-api-key-raises-the-stage" | "gateway-messages-raises-the-stage" | "vertex-maas-raises-the-stage" => (2, None),
+        "anthropic-api-key-raises-the-stage"
+        | "anthropic-api-key-redacts-an-opaque-credential-in-a-429"
+        | "gateway-messages-raises-the-stage"
+        | "vertex-maas-raises-the-stage" => (2, None),
+        "anthropic-api-key-redacts-an-opaque-credential-in-a-400" => (1, None),
         "xai-responses-raises-the-stage" | "xai-chat-raises-the-stage" | "grok-oauth-raises-the-stage" => (3, Some((1, 1))),
         // Antigravity's capacity ladder draws the one jitter sample (antigravity-retry-policy.mjs:144).
         "antigravity-raises-the-stage" => (1, Some((0, 0))),
@@ -73,7 +77,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
         // (`retryDelayFor`, retry-executor.mjs:320-324; `jitterDelayMs`, retry-backoff.mjs:93-104).
         "opencode-go-gemini-raises-the-ladder-stage" => (2, Some((0, 1))),
         // Cursor draws one `Math.random` of its own (not a retry sample: the server's advice is waited in full).
-        "cursor-raises-the-stage" => (1, None),
+        "cursor-raises-the-stage" | "cursor-oversized-request-is-terminal" => (1, None),
         // The one backoff sample of the retry the server's error (no advice) asks for, then the draw of its own.
         "cursor-end-frame-error-surfaces-the-server-error" => (2, Some((0, 0))),
         "vertex-gemini-retries-its-stream-without-the-stage"
@@ -94,7 +98,7 @@ fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 20, "the recorded cases");
+    assert_eq!(set.cases.len(), 23, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
@@ -228,13 +232,9 @@ async fn every_case_replays_as_nodes() {
                 })
                 .collect(),
         );
-        if provider == "opencode-go-oauth" {
-            // The Gemini engine raises its own `requesting` stages (GeminiProvider's send), so none is the run loop's to
-            // leave out: the stages are compared whole.
-            recorded.get("stages").assert_eq(&format!("{what}: stages"), &stages);
-        } else {
-            recorded.get("stages").assert_filtered(&format!("{what}: stages"), OTHER_STAGES, &stages);
-        }
+        // `requesting` is the provider's own stage, raised where its Node send raises it and compared whole with the
+        // `reconnecting` ones; only the `streaming` stage the run loop raises is left out.
+        recorded.get("stages").assert_filtered(&format!("{what}: stages"), OTHER_STAGES, &stages);
         let stderr = Exact::Array(
             lines
                 .lock()

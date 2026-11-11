@@ -543,6 +543,8 @@ impl ProviderAdapter for CursorAdapter {
         };
         let mut refreshed = false;
         loop {
+            // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries (cursor.mjs:656).
+            request.options.send_identity.raise_requesting_once();
             let error = match self.open(&request, &token).await {
                 Ok(mut stream) => {
                     stream.prime().await;

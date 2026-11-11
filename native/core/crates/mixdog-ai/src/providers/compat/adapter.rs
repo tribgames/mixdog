@@ -219,6 +219,13 @@ impl CompatAdapter {
         };
         let mut reloaded = false;
         loop {
+            // Chat Completions raises `requesting` for every attempt of its ladder (openai-compat-chat-send.mjs:276),
+            // Responses once before it (openai-compat-xai-send.mjs:103).
+            if wire.url.ends_with("/chat/completions") {
+                request.options.send_identity.raise_stage("requesting");
+            } else {
+                request.options.send_identity.raise_requesting_once();
+            }
             let response = self
                 .http
                 .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
