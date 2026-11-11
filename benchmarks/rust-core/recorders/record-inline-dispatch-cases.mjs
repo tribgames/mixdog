@@ -65,12 +65,90 @@ calls.push({ call: 'running, its caller aborted "caller gave up"', payload: { di
 await slow.close();
 
 const cases = [{ case: 'agentDispatch rejects a missing or already-running dispatch id and aborts with the caller signal', recorded: { calls } }];
+
+// The test's harness host for the forwarding case: each call's answer and what its dispatcher was handed.
+{
+  const handed = [];
+  const host = createInlineSessionRuntimeHost({
+    cwd: 'C:/work',
+    loadLocalModule: async () => ({ async createLocalSessionRuntime() { return { getState: () => ({}), async dispose() {} }; } }),
+    loadAgentGraph: async () => ({
+      config: { loadConfig: () => ({ providers: { openai: { key: 'a' } } }) },
+      registry: { initProviders: async () => {} },
+      dispatch: {
+        makeAgentDispatch: () => async (a) => {
+          handed.push({
+            prompt: a.prompt,
+            preset: a.preset ?? null,
+            cwd: a.cwd ?? null,
+            idleTimeoutMs: 'idleTimeoutMs' in a ? a.idleTimeoutMs : null,
+            parentSignal: a.parentSignal instanceof AbortSignal,
+          });
+          return `answer for ${a.prompt}`;
+        },
+      },
+    }),
+    warmKeychain: async () => {},
+    executeAgentControl: async () => null,
+  });
+  const payloads = [
+    { dispatchId: 'd1', agent: 'worker', params: { prompt: 'hello', preset: 'p1', cwd: 'D:/proj', idleTimeoutMs: 5000 } },
+    { dispatchId: 'd2', agent: 'worker', params: { prompt: 'again', idleTimeoutMs: -1 } },
+  ];
+  const forwarded = [];
+  for (const payload of payloads) forwarded.push({ payload, outcome: await outcome(host.agentDispatch(payload)) });
+  await host.close();
+  cases.push({ case: 'agentDispatch caches one dispatcher per agent and forwards the call parameters', recorded: { calls: forwarded, handed } });
+}
+
+// The test's failing-then-working graph: each dispatch's whole outcome.
+{
+  let loads = 0;
+  const host = createInlineSessionRuntimeHost({
+    warmKeychain: async () => {},
+    loadAgentGraph: async () => {
+      loads += 1;
+      if (loads === 1) throw new Error('graph import failed');
+      return {
+        config: { loadConfig: () => ({}) },
+        registry: { initProviders: async () => {} },
+        dispatch: { makeAgentDispatch: () => async ({ prompt }) => `answer for ${prompt}` },
+      };
+    },
+  });
+  const retried = [];
+  for (const payload of [
+    { dispatchId: 'failed', agent: 'worker' },
+    { dispatchId: 'retried', agent: 'worker', params: { prompt: 'retried' } },
+    { dispatchId: 'cached', agent: 'worker', params: { prompt: 'cached' } },
+  ]) {
+    retried.push({ payload, outcome: await outcome(host.agentDispatch(payload)) });
+  }
+  await host.close();
+  cases.push({ case: 'agent graph loading retries after a failure and shares the successful graph', recorded: { calls: retried } });
+}
+
 const excluded = {
-  'agentDispatch caches one dispatcher per agent and forwards the call parameters':
-    'GONE (gaps-tools.md row 88): the lazily loaded JS agent graph and its per-config provider preparation',
-  'agent graph loading retries after a failure and shares the successful graph': 'GONE (row 88): no lazily imported agent graph',
-  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered': 'GONE (row 88): no in-process runtimes',
-  'agentControl forwards to the injected executor and the placeholder actions stay inert': 'GONE (row 88): JS inline host placeholders',
+  'agentDispatch caches one dispatcher per agent and forwards the call parameters: the factory options and the dispatcher cache':
+    "not reachable by a client: the one caller of the host's agentDispatch is the memory-cycle broker " +
+    '(src/standalone/daemon.mjs:1059), whose payload never names factory options beyond taskType/sourceType/brief ' +
+    '(src/standalone/agent-dispatch-broker.mjs:105), so `options.preset` never reaches makeAgentDispatch; the per-agent ' +
+    'dispatcher cache and the once-per-config provider preparation have no effect beyond the answers and forwarded ' +
+    'parameters replayed here',
+  'agent graph loading retries after a failure and shares the successful graph: the load count':
+    "not observable: the graph is a lazy `import()` inside the host (session-runtime-inline-host/agent-dispatch.mjs); a " +
+    'client sees each dispatch\'s outcome, replayed here, and the core has no module to import',
+  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered':
+    'the routing among several in-process JS runtimes (src/standalone/session-runtime-inline-host.mjs:91, hinted by ' +
+    'sessionId or discovered by setSessionId) has no core counterpart: the core runs every session in one daemon; the ' +
+    "observable delivery (the owner's session gets the completion, a missing one gets nothing) is replayed in " +
+    'agent-worker-cases "agent completion notifications route to the owner exactly once"',
+  'agentControl forwards to the injected executor and the placeholder actions stay inert':
+    "not reachable by a client: agentControl only forwards to the daemon's canonical agent control (src/standalone/daemon.mjs:1122 " +
+    '`executeAgentControl: agentControl.execute`), whose answers the agent tool replays cover; agentSessionAction, ' +
+    'agentSessionState, subscribeAgentSessionStates and refreshRuntimeWorkload have no caller outside the host ' +
+    '(session-runtime-inline-host.mjs:96-100; no other reference in src/), and the unavailable/closed refusals need a host ' +
+    'built without the executor or used after close, which daemon.mjs never does',
 };
 
 const finalDir = join(FIXTURES_ROOT, 'inline-dispatch-cases');
