@@ -214,12 +214,19 @@ async fn replay_fs_search(scenario: &str) {
         std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
         std::fs::write(ws.join(rel), text.as_str().unwrap()).unwrap();
     }
+    // Files that are not UTF-8 text, as base64.
+    let binary = fixture["filesBase64"].as_object().cloned().unwrap_or_default();
+    for (rel, b64) in &binary {
+        use base64::Engine as _;
+        std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(ws.join(rel), base64::engine::general_purpose::STANDARD.decode(b64.as_str().unwrap()).unwrap()).unwrap();
+    }
     for (rel, target) in fixture["junctions"].as_object().cloned().unwrap_or_default() {
         // mklink reads `/` as a switch: the target is built segment by segment.
         let target = target.as_str().unwrap().split('/').fold(ws.clone(), |path, segment| path.join(segment));
         assert!(link_dir(&ws.join(&rel), &target), "junction {rel}");
     }
-    for rel in files.keys() {
+    for rel in files.keys().chain(binary.keys()) {
         set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
     }
     if let Some(bulk) = fixture.get("bulk") {
@@ -401,6 +408,15 @@ async fn glob_refuses_a_path_that_is_not_a_string_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_over_several_paths_budgets_and_caps_as_node_does() {
     replay_fs_search("grep-path-budget").await;
+}
+
+/// grep's rendering for one path and for several: context mode past 40 matches (automatic, explicit, 0), the head/tail
+/// selection and its continuation, the bounded anchor stream, long lines, several patterns, binary and invalid UTF-8
+/// files, files and count over five paths past the final cap, matches on a file's first and last line, offsets past
+/// the end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_renders_as_node_does() {
+    replay_fs_search("grep-render").await;
 }
 
 /// Every non-string path shape (array, number, object, boolean, null, blank, blank-only and nested arrays) at list,

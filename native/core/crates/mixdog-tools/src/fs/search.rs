@@ -1,7 +1,6 @@
 //! `glob`, `find` and `grep` over the file service's walk and text-search
 //! streams, which run on the maintenance lane (T §3.3).
 
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
@@ -48,7 +47,6 @@ const GREP_DEFAULT_LIMIT: usize = 250;
 const GREP_CONTEXT_LIMIT_MAX: usize = 40;
 /// `PUBLIC_PATH_BATCH_LIMIT`: the scopes one grep `path` array may name.
 const GREP_PATH_BATCH_LIMIT: usize = 10;
-const GREP_CONTENT_MATCH_CAP: usize = 300;
 const GREP_MAX_COLUMNS: usize = 500;
 
 // ---------------------------------------------------------------------------
@@ -935,8 +933,11 @@ fn escape_glob(name: &str) -> String {
     out
 }
 
+/// The search server's printer (`--max-columns=500 --max-columns-preview`, grep-printer `write_exceeded_line`): a line
+/// longer than 500 bytes with its terminator keeps its first 500 characters and is marked; no match count is kept, so
+/// the mark is always the omitted-end one. The match text carries no terminator; a `\n` one is counted.
 fn clip_match_text(s: &str) -> String {
-    if s.chars().count() <= GREP_MAX_COLUMNS {
+    if s.len() < GREP_MAX_COLUMNS {
         return s.to_owned();
     }
     let head: String = s.chars().take(GREP_MAX_COLUMNS).collect();
@@ -975,6 +976,7 @@ impl GrepTool {
         pattern: &str,
         globs: &[String],
         mode: Mode,
+        bound: Option<usize>,
     ) -> Result<(Vec<Hit>, bool, String, bool, bool), ToolError> {
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
@@ -1033,7 +1035,14 @@ impl GrepTool {
                     if mode == Mode::Content && hits.len() >= 200_000 {
                         return false;
                     }
+                    // A file list is one row per file (`--files-with-matches`).
+                    if mode == Mode::Files && hits.last().is_some_and(|h: &Hit| h.path == path) {
+                        return true;
+                    }
                     hits.push(Hit { path, line, text });
+                    if bound.is_some_and(|n| hits.len() >= n) {
+                        return false;
+                    }
                 }
                 Err(e) => match e.kind {
                     FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
@@ -1121,6 +1130,10 @@ impl GrepTool {
             }
             if list.len() > 1 {
                 let per_path = (budget / list.len()).max(512);
+                if let Some(bodies) = self.combined_paths(ctx, &args, &list, &patterns, per_path).await? {
+                    return Ok(fanout_sections(Fanout::Path, &list, &bodies));
+                }
+                // `runGrepPathFanout`'s fallback: each path an independent grep.
                 let mut bodies = Vec::with_capacity(list.len());
                 for p in &list {
                     let mut one = args.clone();
@@ -1137,22 +1150,25 @@ impl GrepTool {
                 args["path"] = JsonValue::String(one);
             }
         }
-        let mode = match arg_str(&args, "mode") {
-            Some("files") => Mode::Files,
-            Some("count") => Mode::Count,
-            _ => Mode::Content,
-        };
+        let mode = mode_of(&args);
         // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
         // each; a match line or block an earlier pattern showed is not repeated.
         if patterns.len() > 1 && mode == Mode::Content {
             // `perPatternCharBudget` (grep-pattern-fanout.mjs).
             let per_pattern = (budget / patterns.len()).max(512);
+            let bodies = match self.combined_patterns(ctx, &args, &patterns, per_pattern).await? {
+                Some(bodies) => bodies,
+                // `runPerPatternFanout`: each pattern an independent grep.
+                None => {
+                    let mut bodies = Vec::with_capacity(patterns.len());
+                    for pattern in &patterns {
+                        bodies.push(self.search(ctx, &args, pattern, mode, true, per_pattern).await?);
+                    }
+                    bodies
+                }
+            };
             let mut seen = std::collections::HashSet::new();
-            let mut bodies = Vec::with_capacity(patterns.len());
-            for pattern in &patterns {
-                let body = self.search(ctx, &args, pattern, mode, true, per_pattern).await?;
-                bodies.push(dedupe_fanout_match_lines(&body, &mut seen));
-            }
+            let bodies: Vec<String> = bodies.iter().map(|body| dedupe_fanout_match_lines(body, &mut seen)).collect();
             return Ok(fanout_sections(Fanout::Pattern, &patterns, &bodies));
         }
         let pattern = if patterns.len() == 1 {
@@ -1166,49 +1182,11 @@ impl GrepTool {
     /// One grep of `pattern`, rendered. `fanout`: a section of a several-pattern answer, whose
     /// bare match lines carry their file (Node's combined pass, `disableContentGrouping`).
     async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, budget: usize) -> Result<String, ToolError> {
-        let args = args.clone();
-        let limit = match arg_u64(&args, "limit") {
-            Some(0) => usize::MAX,
-            // arg-guard.mjs `clampGrepContextHeadLimit`: in content mode the limit counts match blocks, at most 40.
-            Some(n) if mode == Mode::Content => (n as usize).min(GREP_CONTEXT_LIMIT_MAX),
-            Some(n) => n as usize,
-            None => GREP_DEFAULT_LIMIT,
-        };
-        let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        // An explicit radius (at most `GREP_CONTEXT_MAX`); none is the automatic window, 0 bare match lines.
-        let context = arg_u64(&args, "context").map(|c| c.min(200));
-        let mut roots = arg_strings(&args, "path");
-        if roots.is_empty() {
-            roots.push(".".to_owned());
-        }
-        let globs = arg_strings(&args, "glob");
-
-        let mut all: Vec<(String, Hit)> = Vec::new();
-        let mut complete = true;
-        let mut errors: Vec<String> = Vec::new();
-        let mut single = false;
-        let mut all_bad = true;
-        for raw in &roots {
-            let (hits, ok, error, is_file, bad) =
-                self.run_one_root(ctx, raw, &args, &pattern, &globs, mode).await?;
-            complete &= ok;
-            single = is_file && roots.len() == 1;
-            if !error.is_empty() {
-                all_bad &= bad;
-                errors.push(error);
-                continue;
-            }
-            let abs = resolve_path(&ctx.cwd, raw)?;
-            let prefix = grep_display_root(raw, &abs, &ctx.cwd);
-            for h in hits {
-                let label = if is_file {
-                    display_path(h.path.as_path(), &ctx.cwd)
-                } else {
-                    format!("{prefix}/{}", display_under(h.path.as_path(), abs.as_path()))
-                };
-                all.push((label, h));
-            }
-        }
+        let window = Window::of(args, mode);
+        // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
+        // can show, so the length of a cut stream is unknown.
+        let Collected { all, complete, errors, single, all_bad } =
+            self.collect(ctx, args, pattern, mode, window.stream_bound(mode)).await?;
         if all.is_empty() && !errors.is_empty() {
             // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
             // In a several-pattern answer it fails only its own section.
@@ -1218,15 +1196,8 @@ impl GrepTool {
             }
             return Ok(errors.join("\n"));
         }
-        all.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.line.cmp(&b.1.line)));
-        all.dedup_by(|a, b| a.0 == b.0 && a.1.line == b.1.line);
-
-        let body = match mode {
-            Mode::Files => files_body(&all, offset, limit, complete),
-            Mode::Count => count_body(&all, offset, limit, complete),
-            Mode::Content => content_body(ctx, &all, offset, limit, context, single && !fanout, fanout, complete, pattern, budget).await?,
-        };
-        let mut text = body;
+        let shape = Shape { mode, single: single && !fanout, fanout, complete, totals: Totals::Streamed };
+        let mut text = render(ctx, &all, &window, shape, pattern, budget).await?;
         for e in errors {
             text.push_str(&format!("\n{e}"));
         }
@@ -1235,6 +1206,166 @@ impl GrepTool {
         }
         let _ = (BTreeSet::<u8>::new(), ToolPart::Text(String::new()), ToolOutput::default());
         Ok(text)
+    }
+
+    /// grep-pattern-fanout.mjs `runCombinedFanout`: one scan carrying every pattern over a folder, its lines attributed
+    /// to each pattern they match, when every pattern compiles as a JavaScript regex. It keeps `min(4000, max(400,
+    /// (offset + limit + 4) × patterns))` lines (300 per pattern when unlimited); past that, or over a file, a missing
+    /// path or a pattern the scan refuses, it declines (`None`). Its sections know their totals.
+    async fn combined_patterns(
+        &self,
+        ctx: &ToolContext,
+        args: &JsonValue,
+        patterns: &[String],
+        budget: usize,
+    ) -> Result<Option<Vec<String>>, ToolError> {
+        if patterns.iter().any(|p| mixdog_js::JsRegex::new(p, "").is_err()) {
+            return Ok(None);
+        }
+        let window = Window::of(args, Mode::Content);
+        let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
+        let cap = per_window.saturating_mul(patterns.len()).clamp(400, 4000);
+        let mut lines = std::collections::HashSet::new();
+        let mut sections = Vec::with_capacity(patterns.len());
+        for pattern in patterns {
+            let found = self.collect(ctx, args, pattern, Mode::Content, Some(cap + 1)).await?;
+            if !found.complete || !found.errors.is_empty() || found.single || found.all.len() > cap {
+                return Ok(None);
+            }
+            lines.extend(found.all.iter().map(|(_, h)| (h.path.clone(), h.line)));
+            if lines.len() > cap {
+                return Ok(None);
+            }
+            sections.push(found.all);
+        }
+        let mut bodies = Vec::with_capacity(patterns.len());
+        for (pattern, all) in patterns.iter().zip(&sections) {
+            bodies.push(if all.is_empty() {
+                no_matches(true)
+            } else {
+                let shape = Shape { mode: Mode::Content, single: false, fanout: true, complete: true, totals: Totals::Combined };
+                render(ctx, all, &window, shape, pattern, budget).await?
+            });
+        }
+        Ok(Some(bodies))
+    }
+
+    /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
+    async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>) -> Result<Collected, ToolError> {
+        let mut roots = arg_strings(args, "path");
+        if roots.is_empty() {
+            roots.push(".".to_owned());
+        }
+        let globs = arg_strings(args, "glob");
+        let mut all: Vec<(String, Hit)> = Vec::new();
+        let mut complete = true;
+        let mut errors: Vec<String> = Vec::new();
+        let mut single = false;
+        let mut all_bad = true;
+        for raw in &roots {
+            let left = bound.map(|n| n.saturating_sub(all.len()));
+            let (hits, ok, error, is_file, bad) = self.run_one_root(ctx, raw, args, pattern, &globs, mode, left).await?;
+            complete &= ok;
+            single = is_file && roots.len() == 1;
+            if !error.is_empty() {
+                all_bad &= bad;
+                errors.push(error);
+                continue;
+            }
+            all.extend(label_hits(ctx, raw, is_file, hits)?);
+        }
+        sort_hits(&mut all);
+        Ok(Collected { all, complete, errors, single, all_bad })
+    }
+
+    /// grep-path-fanout.mjs `runCombinedPathFanout`: one scan over every path, attributed back to each path's section,
+    /// when the call is one pattern outside `count` mode over existing, non-glob, non-share paths none of which lies in
+    /// another and which share one filter set. The scan keeps `min(4000, max(400, (offset + limit + 4) × paths))` hits
+    /// (300 per path when unlimited); past that, or when a path cannot be scanned, it declines (`None`) and every path is
+    /// searched on its own. Its sections know their totals.
+    async fn combined_paths(
+        &self,
+        ctx: &ToolContext,
+        args: &JsonValue,
+        list: &[String],
+        patterns: &[String],
+        budget: usize,
+    ) -> Result<Option<Vec<String>>, ToolError> {
+        let mode = mode_of(args);
+        let single: Vec<&String> = patterns.iter().filter(|p| !p.is_empty()).collect();
+        // `combinedPathRequest`: one pattern, no literal `\n`, nothing ripgrep's default engine refuses (arg-guard.mjs
+        // `hasUnsupportedRipgrepRegex`).
+        let [pattern] = single.as_slice() else { return Ok(None) };
+        if mode == Mode::Count || pattern.contains("\\n") || UNSUPPORTED_REGEX.is_match(pattern) {
+            return Ok(None);
+        }
+        let window = Window::of(args, mode);
+        let globs = arg_strings(args, "glob");
+        let include_noise = arg_bool(args, "include_noise");
+        // `resolvePathRoots`, then `combinedPathRgArgs`' one-filter-set rule: a path inside a noise directory keeps
+        // that directory, and a file operand drops the globs.
+        let mut roots = Vec::with_capacity(list.len());
+        for raw in list {
+            if has_glob_magic(raw) || is_unc_or_smb(raw) {
+                return Ok(None);
+            }
+            let abs = resolve_path(&ctx.cwd, raw)?;
+            let Ok(stat) = guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? else {
+                return Ok(None);
+            };
+            let is_file = stat.kind == EntryKind::File;
+            let kept: Vec<&str> = if include_noise {
+                Vec::new()
+            } else {
+                NOISE_DIRS.iter().copied().filter(|n| abs.as_path().components().any(|c| c.as_os_str() == *n)).collect()
+            };
+            let rules = (kept, if is_file { Vec::new() } else { globs.clone() });
+            roots.push((raw, abs, is_file, rules));
+        }
+        if roots.windows(2).any(|w| w[0].3 != w[1].3) {
+            return Ok(None);
+        }
+        let key = |p: &AbsPath| {
+            let s = fwd(p.as_path());
+            let s = s.trim_end_matches('/').to_owned();
+            if cfg!(windows) { s.to_lowercase() } else { s }
+        };
+        for (i, a) in roots.iter().enumerate() {
+            for b in &roots[i + 1..] {
+                let (l, r) = (key(&a.1), key(&b.1));
+                if l == r || l.starts_with(&format!("{r}/")) || r.starts_with(&format!("{l}/")) {
+                    return Ok(None);
+                }
+            }
+        }
+        let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
+        let cap = per_window.saturating_mul(roots.len()).clamp(400, 4000);
+        let mut sections = Vec::with_capacity(roots.len());
+        let mut seen = 0usize;
+        for (raw, _, _, _) in &roots {
+            let (hits, complete, error, is_file, _) =
+                self.run_one_root(ctx, raw, args, pattern, &globs, mode, Some(cap + 1 - seen)).await?;
+            if !complete || !error.is_empty() {
+                return Ok(None);
+            }
+            seen += hits.len();
+            if seen > cap {
+                return Ok(None);
+            }
+            let mut labelled = label_hits(ctx, raw, is_file, hits)?;
+            sort_hits(&mut labelled);
+            sections.push((labelled, is_file));
+        }
+        let mut bodies = Vec::with_capacity(sections.len());
+        for (hits, is_file) in &sections {
+            bodies.push(if hits.is_empty() {
+                no_matches(true)
+            } else {
+                let shape = Shape { mode, single: *is_file, fanout: false, complete: true, totals: Totals::Combined };
+                render(ctx, hits, &window, shape, pattern, budget).await?
+            });
+        }
+        Ok(Some(bodies))
     }
 }
 
@@ -1373,85 +1504,248 @@ fn no_matches(complete: bool) -> String {
     format!("(no matches{})", if complete { "" } else { " in partial results" })
 }
 
-fn files_body(all: &[(String, Hit)], offset: usize, limit: usize, complete: bool) -> String {
-    let files: Vec<&str> = all.iter().map(|(l, _)| l.as_str()).collect::<BTreeSet<_>>().into_iter().collect();
-    page_lines(files.iter().map(|s| s.to_string()).collect(), offset, limit, complete, None)
+fn mode_of(args: &JsonValue) -> Mode {
+    match arg_str(args, "mode") {
+        Some("files") => Mode::Files,
+        Some("count") => Mode::Count,
+        _ => Mode::Content,
+    }
 }
 
-fn count_body(all: &[(String, Hit)], offset: usize, limit: usize, complete: bool) -> String {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for (l, _) in all {
-        *counts.entry(l.as_str()).or_default() += 1;
-    }
-    let total_matches: usize = counts.values().sum();
-    let summary = format!(
-        "\n[total {total_matches} match{} across {} file{}]",
-        if total_matches == 1 { "" } else { "es" },
-        counts.len(),
-        if counts.len() == 1 { "" } else { "s" }
-    );
-    let lines = counts.iter().map(|(p, n)| format!("{p}:{n}")).collect();
-    page_lines(lines, offset, limit, complete, Some(summary))
+/// arg-guard.mjs `hasUnsupportedRipgrepRegex`: a lookaround or a backreference.
+static UNSUPPORTED_REGEX: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"\(\?(?:[=!]|<[=!])|\\[1-9]").expect("a fixed pattern"));
+
+/// A root's hits under the names grep shows: a file's path from the cwd, a folder's hits under the folder as given.
+fn label_hits(ctx: &ToolContext, raw: &str, is_file: bool, hits: Vec<Hit>) -> Result<Vec<(String, Hit)>, ToolError> {
+    let abs = resolve_path(&ctx.cwd, raw)?;
+    let prefix = grep_display_root(raw, &abs, &ctx.cwd);
+    Ok(hits
+        .into_iter()
+        .map(|h| {
+            let label = if is_file {
+                display_path(h.path.as_path(), &ctx.cwd)
+            } else {
+                format!("{prefix}/{}", display_under(h.path.as_path(), abs.as_path()))
+            };
+            (label, h)
+        })
+        .collect())
 }
 
-fn page_lines(lines: Vec<String>, offset: usize, limit: usize, complete: bool, summary: Option<String>) -> String {
-    if lines.is_empty() {
-        return no_matches(complete);
-    }
-    let total = lines.len();
-    let window = lines.get(offset..).unwrap_or(&[]);
-    let page = &window[..window.len().min(limit)];
-    let mut text = page.join("\n");
-    if page.is_empty() || window.len() > page.len() || !complete {
-        text.push_str(&paging_notice(page.len(), total, complete, offset, offset + page.len()));
-    }
-    if let Some(s) = summary {
-        text.push_str(&s);
-    }
-    let _ = BTreeMap::<u8, u8>::new();
-    text
+/// One grep's hits over its roots: whether the scan finished, the roots' errors (`all_bad`: every one a refused
+/// pattern), and whether the one root is a file.
+struct Collected {
+    all: Vec<(String, Hit)>,
+    complete: bool,
+    errors: Vec<String>,
+    single: bool,
+    all_bad: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn content_body(
+fn sort_hits(all: &mut Vec<(String, Hit)>) {
+    all.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.line.cmp(&b.1.line)));
+    all.dedup_by(|a, b| a.0 == b.0 && a.1.line == b.1.line);
+}
+
+/// One call's page: `limit` (`usize::MAX` for none) and `offset` count matches, files or count rows; `context` is the
+/// explicit radius (none is the automatic window, 0 bare match lines).
+struct Window {
+    limit: usize,
+    offset: usize,
+    context: Option<u64>,
+}
+
+impl Window {
+    fn of(args: &JsonValue, mode: Mode) -> Self {
+        let limit = match arg_u64(args, "limit") {
+            Some(0) => usize::MAX,
+            // arg-guard.mjs `clampGrepContextHeadLimit`: in content mode the limit counts match blocks, at most 40.
+            Some(n) if mode == Mode::Content => (n as usize).min(GREP_CONTEXT_LIMIT_MAX),
+            Some(n) => n as usize,
+            None => GREP_DEFAULT_LIMIT,
+        };
+        let offset = arg_u64(args, "offset").unwrap_or(0) as usize;
+        // `GREP_CONTEXT_MAX`.
+        let context = arg_u64(args, "context").map(|c| c.min(200));
+        Self { limit, offset, context }
+    }
+
+    /// search-grep-tool.mjs:431 `anchorCap`: the matches the adaptive renderer is fed, `min(4000, max(200, offset +
+    /// limit + 4))`, 4000 when unlimited.
+    fn anchor_cap(&self) -> usize {
+        if self.limit == usize::MAX {
+            return 4000;
+        }
+        self.offset.saturating_add(self.limit).saturating_add(4).clamp(200, 4000)
+    }
+
+    /// What one path's scan keeps (the native server's `collect_until`, `limit + offset + 1`): the anchor stream past
+    /// its cap, a limited bare listing past its page (`runRgWindowedLines`); an unlimited listing, a file list and
+    /// counts read every hit (`runRg`).
+    fn stream_bound(&self, mode: Mode) -> Option<usize> {
+        match mode {
+            Mode::Content if self.context != Some(0) => Some(self.anchor_cap() + 1),
+            Mode::Content if self.limit != usize::MAX => Some(self.offset.saturating_add(self.limit).saturating_add(1)),
+            _ => None,
+        }
+    }
+}
+
+/// Whether a section's hits are a stream one path's scan cut at its window (the single-path grep), or every hit of a
+/// combined scan that finished inside its cap (`runCombinedPathFanout`, whose bodies pass `totalKnown: true`).
+#[derive(Clone, Copy, PartialEq)]
+enum Totals {
+    Streamed,
+    Combined,
+}
+
+#[derive(Clone, Copy)]
+struct Shape {
+    mode: Mode,
+    /// A file operand's bare lines carry no path (`filenameOmitted`).
+    single: bool,
+    /// A section of a several-pattern answer: bare lines keep their path, ungrouped.
+    fanout: bool,
+    /// The scan finished (no deadline).
+    complete: bool,
+    totals: Totals,
+}
+
+async fn render(
     ctx: &ToolContext,
     all: &[(String, Hit)],
-    offset: usize,
-    limit: usize,
-    context: Option<u64>,
-    single: bool,
-    fanout: bool,
-    complete: bool,
+    window: &Window,
+    shape: Shape,
     pattern: &str,
     budget: usize,
 ) -> Result<String, ToolError> {
-    if all.is_empty() {
-        return Ok(no_matches(complete));
-    }
-    // search-grep-tool.mjs `adaptiveContextEligible`: the automatic window or an explicit radius is Node's adaptive
-    // context within the character budget (`runAdaptiveContextGrep`).
-    if context != Some(0) {
-        let matches = all
-            .iter()
-            .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: clip_match_text(&h.text) })
-            .collect();
-        let text = super::grep_context::expand(ctx, matches, pattern, offset, limit, complete, context.unwrap_or(0), budget).await?;
-        return Ok(if text.is_empty() { no_matches(complete) } else { text });
-    }
-    let total = all.len();
-    let window = all.get(offset..).unwrap_or(&[]);
-    let hard = limit.min(GREP_CONTENT_MATCH_CAP);
-    let page = &window[..window.len().min(hard)];
-    let mut out = if fanout {
-        page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, clip_match_text(&h.text))).collect::<Vec<_>>().join("\n")
-    } else {
-        bare_content(page, single)
+    Ok(match shape.mode {
+        Mode::Files => files_body(ctx, all, window, shape).await,
+        Mode::Count => count_body(all, window, shape.complete),
+        Mode::Content if window.context != Some(0) => adaptive_body(ctx, all, window, shape, pattern, budget).await?,
+        Mode::Content => bare_body(all, window, shape),
+    })
+}
+
+/// `runAdaptiveContextGrep`: the anchors after the stream's cap, whose total is known only when the stream ended inside
+/// it; a cut stream says so after the rendering.
+async fn adaptive_body(
+    ctx: &ToolContext,
+    all: &[(String, Hit)],
+    window: &Window,
+    shape: Shape,
+    pattern: &str,
+    budget: usize,
+) -> Result<String, ToolError> {
+    let cap = match shape.totals {
+        Totals::Streamed => window.anchor_cap(),
+        Totals::Combined => usize::MAX,
     };
-    let shown = page.len();
-    if shown < window.len() || !complete {
-        out.push_str(&paging_notice(shown, total, complete, offset, offset + shown));
+    let known = shape.complete && all.len() <= cap;
+    let anchors = &all[..all.len().min(cap)];
+    let matches = anchors
+        .iter()
+        .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: clip_match_text(&h.text) })
+        .collect();
+    let text = super::grep_context::expand(ctx, matches, pattern, window.offset, window.limit, known, window.context.unwrap_or(0), budget).await?;
+    let mut out = if text.is_empty() { no_matches(known) } else { text };
+    if shape.complete && !known {
+        out.push_str(&format!(
+            "\n[warning] anchor output capped at {cap} matches; results partial — narrow path/glob/pattern for the full match set."
+        ));
     }
     Ok(out)
+}
+
+/// `formatGrepOutput`'s page: the rows after `offset`, at most `limit`, with the paging line when rows remain or the
+/// total is unknown (`total` is `offset` plus the rows after it).
+fn page_rows(rows: &[String], window: &Window, known: bool) -> (Vec<String>, String) {
+    let after = rows.get(window.offset..).unwrap_or(&[]);
+    let page = after[..after.len().min(window.limit)].to_vec();
+    let remaining = after.len() - page.len();
+    let notice = if remaining > 0 || !known {
+        paging_notice(page.len(), window.offset + after.len(), known, window.offset, window.offset + page.len())
+    } else {
+        String::new()
+    };
+    (page, notice)
+}
+
+/// Bare match lines (`context: 0`): a streamed listing with a limit stopped one match past its page, so it knows its
+/// total only when it ended inside the page.
+fn bare_body(all: &[(String, Hit)], window: &Window, shape: Shape) -> String {
+    let after = all.get(window.offset..).unwrap_or(&[]);
+    let known = shape.complete
+        && (shape.totals == Totals::Combined || window.limit == usize::MAX || after.len() <= window.limit);
+    let page = &after[..after.len().min(window.limit)];
+    let mut out = if shape.fanout {
+        page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, clip_match_text(&h.text))).collect::<Vec<_>>().join("\n")
+    } else {
+        bare_content(page, shape.single)
+    };
+    if after.len() > page.len() || !known {
+        out.push_str(&paging_notice(page.len(), window.offset + after.len(), known, window.offset, window.offset + page.len()));
+    }
+    empty_page(out, known, shape.totals)
+}
+
+/// An empty page is a no-match answer on its own (`grepEmptyBody`); a combined scan's section body stays empty
+/// (`combinedPathBody` / `combinedPatternBody` return `formatGrepOutput`'s text as it is), so the section is left out.
+fn empty_page(out: String, known: bool, totals: Totals) -> String {
+    if out.is_empty() && totals == Totals::Streamed { no_matches(known) } else { out }
+}
+
+/// A file list: one row per file; on its own, newest first with the path breaking ties and files whose stat failed
+/// last in path order (`orderFileListLines`); in a combined scan, in scan order.
+async fn files_body(ctx: &ToolContext, all: &[(String, Hit)], window: &Window, shape: Shape) -> String {
+    let mut files: Vec<(&str, &AbsPath)> = Vec::new();
+    for (label, h) in all {
+        if files.last().map(|f| f.0) != Some(label.as_str()) {
+            files.push((label, &h.path));
+        }
+    }
+    let code_units = |a: &str, b: &str| a.encode_utf16().cmp(b.encode_utf16());
+    let rows: Vec<String> = if shape.totals == Totals::Streamed && files.len() > 1 {
+        let mut statted = Vec::new();
+        let mut unstatted = Vec::new();
+        for (label, path) in files {
+            match mtime_millis(ctx, path).await {
+                Some(ms) => statted.push((label, ms)),
+                None => unstatted.push(label),
+            }
+        }
+        statted.sort_by(|a, b| b.1.cmp(&a.1).then(code_units(a.0, b.0)));
+        unstatted.sort_by(|a, b| code_units(a, b));
+        statted.into_iter().map(|(l, _)| l.to_owned()).chain(unstatted.into_iter().map(str::to_owned)).collect()
+    } else {
+        files.into_iter().map(|(l, _)| l.to_owned()).collect()
+    };
+    let (page, notice) = page_rows(&rows, window, shape.complete);
+    empty_page(format!("{}{notice}", page.join("\n")), shape.complete, shape.totals)
+}
+
+/// `path:count` rows in path order (code units), the summary counting the rows shown (`grepCountSummary`); with no row
+/// the summary alone.
+fn count_body(all: &[(String, Hit)], window: &Window, complete: bool) -> String {
+    let mut rows: Vec<(String, usize)> = Vec::new();
+    for (label, _) in all {
+        match rows.last_mut() {
+            Some((l, n)) if l == label => *n += 1,
+            _ => rows.push((label.clone(), 1)),
+        }
+    }
+    rows.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    let rows: Vec<String> = rows.into_iter().map(|(p, n)| format!("{p}:{n}")).collect();
+    let (page, notice) = page_rows(&rows, window, complete);
+    let total: usize = page.iter().filter_map(|r| r.rsplit(':').next()?.parse::<usize>().ok()).sum();
+    let files = page.len();
+    format!(
+        "{}{notice}\n[total {total} match{} across {files} file{}]",
+        page.join("\n"),
+        if total == 1 { "" } else { "es" },
+        if files == 1 { "" } else { "s" }
+    )
 }
 
 fn bare_content(page: &[(String, Hit)], single: bool) -> String {

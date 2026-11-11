@@ -643,6 +643,108 @@ const SCENARIOS = [
       ],
     }];
   })(),
+  // grep's rendering, each for one path and for several (search-grep-tool.mjs, lib/grep-path-fanout.mjs,
+  // lib/grep-context-expander.mjs, lib/grep-output.mjs): more than 40 matches in context mode (automatic, explicit N, 0),
+  // the head/tail selection and the offset it reports with its follow-up, the anchor stream's bound, long lines, several
+  // patterns, a binary file and invalid UTF-8 among text files, files and count over five paths past the final cap, a
+  // match on the first and the last line of a file without a trailing newline, offsets past the end. `filesBase64`
+  // holds the files that are not UTF-8 text.
+  ...(() => {
+    const many = (tag, n) => `${Array.from({ length: n * 2 }, (_, i) => (i % 2 === 0 ? `export const ${tag}${i} = "hit ${tag}";` : `// pad ${tag} ${i}`)).join('\n')}\n`;
+    const lines = (n, f) => `${Array.from({ length: n }, (_, i) => f(i)).join('\n')}\n`;
+    const files = {
+      'm/many.ts': many('m', 60),
+      'n/many.ts': many('n', 70),
+      'big/huge.ts': lines(300, (i) => `hit ${i}`),
+      'huge/h.ts': lines(5000, (i) => `hit ${i}`),
+      'edge/edges.ts': 'edge first\nmiddle 1\nmiddle 2\nmiddle 3\nedge last',
+      'long/long.ts': `${[
+        'pre 1',
+        `hit ${'a'.repeat(496)}`,
+        `${'é'.repeat(300)} hit`,
+        `hit ${'b'.repeat(495)}`,
+        `ctx ${'c'.repeat(700)}`,
+        'post hit',
+        `${'d'.repeat(1000)} hit ${'e'.repeat(10)}`,
+        `hit ${'f'.repeat(1200)}`,
+      ].join('\n')}\n`,
+      'bin/ok.ts': 'export const ok = "hit";\n',
+    };
+    const mtimes = {};
+    for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
+      for (let i = 0; i < 40; i++) files[`${d}/file_with_a_rather_long_name_${String(i).padStart(2, '0')}.ts`] = lines((i % 5) + 1, (k) => `hit ${d} ${i} ${k}`);
+    }
+    mtimes['f1/file_with_a_rather_long_name_07.ts'] = '2026-03-01T00:00:00Z';
+    mtimes['f1/file_with_a_rather_long_name_31.ts'] = '2026-02-01T00:00:00Z';
+    mtimes['f1/file_with_a_rather_long_name_02.ts'] = '2025-12-01T00:00:00Z';
+    const filesBase64 = {
+      'bin/blob.bin': Buffer.from('hit before\n\0\0binary hit\nhit after\n', 'latin1').toString('base64'),
+      'bin/bad.ts': Buffer.concat([
+        Buffer.from('const a = 1;\nbad ', 'latin1'),
+        Buffer.from([0xff, 0xfe]),
+        Buffer.from(' hit here\nctx ', 'latin1'),
+        Buffer.from([0xc3]),
+        Buffer.from(' after\nlast hit \xe9\n', 'latin1'),
+      ]).toString('base64'),
+    };
+    const two = ['m', 'n'];
+    const five = ['f1', 'f2', 'f3', 'f4', 'f5'];
+    const both = (input, paths = two, single = 'm') => [
+      { tool: 'grep', input: { ...input, path: single } },
+      { tool: 'grep', input: { ...input, path: paths } },
+    ];
+    return [{
+      name: 'grep-render',
+      files,
+      filesBase64,
+      mtimes,
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: [
+        ...both({ pattern: 'hit' }),
+        ...both({ pattern: 'hit', context: 3 }),
+        ...both({ pattern: 'hit', context: 0 }),
+        ...both({ pattern: 'hit', context: 0, limit: 100 }),
+        ...both({ pattern: 'hit', limit: 100 }),
+        ...both({ pattern: 'hit', limit: 100, offset: 20 }),
+        ...both({ pattern: 'hit', limit: 7 }),
+        ...both({ pattern: 'hit', limit: 7, offset: 4 }),
+        ...both({ pattern: 'hit', context: 0, limit: 7, offset: 4 }),
+        ...both({ pattern: 'hit', context: 3, limit: 7 }),
+        ...both({ pattern: 'hit', offset: 500 }),
+        ...both({ pattern: 'hit', context: 0, offset: 500 }),
+        ...both({ pattern: 'hit' }, ['big', 'm'], 'big'),
+        ...both({ pattern: 'hit', limit: 10 }, ['big', 'm'], 'big'),
+        ...both({ pattern: 'hit', limit: 0 }, ['huge', 'big'], 'huge'),
+        ...both({ pattern: 'hit', context: 0, limit: 0 }, ['huge', 'big'], 'huge'),
+        ...both({ pattern: 'hit', context: 0 }, ['huge', 'big'], 'huge'),
+        ...both({ pattern: 'hit' }, ['long', 'edge'], 'long'),
+        ...both({ pattern: 'hit', context: 0 }, ['long', 'edge'], 'long'),
+        ...both({ pattern: 'hit', limit: 2 }, ['long', 'm'], 'long'),
+        ...both({ pattern: ['hit', 'pad'] }),
+        ...both({ pattern: ['hit', 'pad'], context: 0, limit: 5 }),
+        ...both({ pattern: ['edge', 'middle'] }, ['edge', 'm'], 'edge'),
+        ...both({ pattern: 'hit' }, ['bin', 'edge'], 'bin'),
+        ...both({ pattern: 'hit', context: 0 }, ['bin', 'edge'], 'bin'),
+        ...both({ pattern: 'hit', context: 1 }, ['bin/bad.ts', 'bin/ok.ts'], 'bin/bad.ts'),
+        ...both({ pattern: 'hit', context: 0 }, ['bin/bad.ts', 'bin/blob.bin'], 'bin/blob.bin'),
+        ...both({ pattern: 'hit', mode: 'files' }, five, 'f1'),
+        ...both({ pattern: 'hit', mode: 'count' }, five, 'f1'),
+        ...both({ pattern: 'hit', mode: 'files', limit: 10, offset: 5 }, five, 'f1'),
+        ...both({ pattern: 'hit', mode: 'count', limit: 3 }, five, 'f1'),
+        ...both({ pattern: 'hit', mode: 'files', offset: 100 }, five, 'f1'),
+        ...both({ pattern: 'hit', mode: 'count', offset: 100 }, five, 'f1'),
+        ...both({ pattern: 'zzz-none', mode: 'count' }, five, 'f1'),
+        ...both({ pattern: 'zzz-none', mode: 'files' }, five, 'f1'),
+        ...both({ pattern: 'hit' }, ['m', 'n', 'big', 'long', 'f1'], 'f1'),
+        ...both({ pattern: 'hit', context: 0 }, ['m', 'n', 'big', 'long', 'f1'], 'f1'),
+        ...both({ pattern: 'edge' }, ['edge', 'm'], 'edge'),
+        ...both({ pattern: 'edge', context: 2 }, ['edge', 'm'], 'edge'),
+        ...both({ pattern: 'edge', context: 0 }, ['edge', 'm'], 'edge'),
+        ...both({ pattern: 'edge' }, ['edge/edges.ts', 'm'], 'edge/edges.ts'),
+        ...both({ pattern: 'last', context: 3 }, ['edge/edges.ts', 'bin/ok.ts'], 'edge/edges.ts'),
+      ],
+    }];
+  })(),
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
   // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
   // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
@@ -701,11 +803,15 @@ if (process.argv[2] === '--child') {
     mkdirSync(dirname(join(ws, rel)), { recursive: true });
     writeFileSync(join(ws, rel), text);
   }
+  for (const [rel, b64] of Object.entries(scenario.filesBase64 ?? {})) {
+    mkdirSync(dirname(join(ws, rel)), { recursive: true });
+    writeFileSync(join(ws, rel), Buffer.from(b64, 'base64'));
+  }
   for (const [rel, target] of Object.entries(scenario.junctions ?? {})) {
     mkdirSync(dirname(join(ws, rel)), { recursive: true });
     symlinkSync(join(ws, target), join(ws, rel), 'junction');
   }
-  for (const rel of Object.keys(scenario.files ?? {})) {
+  for (const rel of [...Object.keys(scenario.files ?? {}), ...Object.keys(scenario.filesBase64 ?? {})]) {
     const at = new Date(scenario.mtimes?.[rel] ?? FIXED);
     utimesSync(join(ws, rel), at, at);
   }
