@@ -844,7 +844,7 @@ async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
     ]);
     let auth = Arc::new(vertex::VertexAuth::new(http.clone(), credential, clock()));
     let identity = auth.identity().to_owned();
-    let adapter = super::vertex(VertexPlace::project("projectaa-a5af6", Some("us-central1"), None), auth, identity, http.clone(), traits());
+    let adapter = super::vertex(VertexPlace::project("projectaa-a5af6", Some("us-central1"), None), auth, identity, http.clone(), traits(), Arc::new(|_| None));
     let (_, err) = collect(&adapter, fixture_request("gemini-2.5-pro")).await;
     let err = err.expect("401");
     assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
@@ -855,7 +855,7 @@ async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
 }
 
 fn vertex_at(place: VertexPlace, http: &Arc<Scripted>) -> super::adapter::GoogleAdapter {
-    super::vertex(place, Arc::new(super::auth::ApiKeyAuth::new("key-1")), String::new(), http.clone(), traits())
+    super::vertex(place, Arc::new(super::auth::ApiKeyAuth::new("key-1")), String::new(), http.clone(), traits(), Arc::new(|_| None))
 }
 
 const NOT_FOUND: &str = r#"{"error":{"code":404,"status":"NOT_FOUND","message":"gone"}}"#;
