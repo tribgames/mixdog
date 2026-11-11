@@ -11,11 +11,12 @@ use mixdog_ai::providers::openai::transport_policy::Transport;
 use mixdog_testkit::Exact;
 use serde_json::Value;
 
+use crate::provider_case::Case;
+use crate::provider_case::CaseSet;
 use crate::provider_cases::args_of;
 use crate::provider_cases::assert_result;
-use crate::provider_cases::case;
-use crate::provider_cases::ids_at_level;
 use crate::provider_cases::object;
+use crate::provider_cases::pure_ids;
 use crate::provider_cases::string;
 use crate::replay_openai_ws_delta::compute_recorded;
 use crate::replay_openai_ws_delta::frame_recorded;
@@ -76,18 +77,18 @@ fn responses_policy(args: &[Exact]) -> Exact {
     policy(transport_policy::resolve(setting(&args[0]).as_deref(), capabilities(&args[1])))
 }
 
-fn policy_defaults_and_modes(case: &Exact) -> Exact {
+fn policy_defaults_and_modes(case: &Case) -> Exact {
     let calls = args_of(case, &format!("{POLICY}resolveOpenAiTransportPolicy"));
     Exact::Array(calls.iter().map(|args| object(vec![("env", args[0].clone()), ("policy", openai_policy(args))])).collect())
 }
 
-fn response_frame_omits_transport_fields(case: &Exact) -> Exact {
+fn response_frame_omits_transport_fields(case: &Case) -> Exact {
     let calls = args_of(case, "._buildResponseCreateFrame");
     let frame = |args: &[Exact]| Exact::plain(&Value::Object(frame_recorded(args)));
     object(vec![("full", frame(&calls[0])), ("delta", frame(&calls[1]))])
 }
 
-fn mode_token_aliases(case: &Exact) -> Exact {
+fn mode_token_aliases(case: &Case) -> Exact {
     let calls = args_of(case, &format!("{POLICY}_normalizeTransportMode"));
     Exact::Array(
         calls
@@ -100,9 +101,9 @@ fn mode_token_aliases(case: &Exact) -> Exact {
     )
 }
 
-fn compute_delta_case(case: &Exact) -> Exact {
+fn compute_delta_case(case: &Case) -> Exact {
     let args = &args_of(case, "._computeDelta")[0];
-    let env = case.get("input").get("env").as_str().to_owned();
+    let env = case.input.get("env").as_str().to_owned();
     object(vec![
         ("body", args[0].get("body").clone()),
         ("entry", args[0].get("entry").clone()),
@@ -110,7 +111,7 @@ fn compute_delta_case(case: &Exact) -> Exact {
     ])
 }
 
-fn responses_policy_full_caps_equal_legacy(case: &Exact) -> Exact {
+fn responses_policy_full_caps_equal_legacy(case: &Case) -> Exact {
     let legacy = args_of(case, &format!("{POLICY}resolveOpenAiTransportPolicy"));
     let shared = args_of(case, &format!("{POLICY}resolveResponsesTransportPolicy"));
     Exact::Array(
@@ -130,24 +131,24 @@ fn responses_policy_full_caps_equal_legacy(case: &Exact) -> Exact {
     )
 }
 
-fn responses_policy_capabilities_table(_case: &Exact) -> Exact {
+fn responses_policy_capabilities_table(_case: &Case) -> Exact {
     let table = transport_policy::CAPABILITIES.iter().map(|(name, c)| ((*name).to_owned(), caps(*c))).collect();
     object(vec![("capabilities", Exact::Object(table)), ("full", caps(transport_policy::FULL))])
 }
 
-fn responses_policy_openai_direct_ws_delta(case: &Exact) -> Exact {
+fn responses_policy_openai_direct_ws_delta(case: &Case) -> Exact {
     let args = &args_of(case, &format!("{POLICY}resolveResponsesTransportPolicy"))[0];
     object(vec![("direct", responses_policy(args))])
 }
 
-fn responses_policy_xai(case: &Exact) -> Exact {
+fn responses_policy_xai(case: &Case) -> Exact {
     let calls = args_of(case, &format!("{POLICY}resolveResponsesTransportPolicy"));
     let names = ["auto", "explicitAuto", "wsDelta", "wsFull", "httpSse"];
     assert_eq!(calls.len(), names.len());
     object(names.iter().zip(&calls).map(|(name, args)| (*name, responses_policy(args))).collect())
 }
 
-fn gate_transport_mode_down_shifts(case: &Exact) -> Exact {
+fn gate_transport_mode_down_shifts(case: &Case) -> Exact {
     let calls = args_of(case, &format!("{POLICY}_gateTransportMode"));
     // The recorder gates the four modes under each capability set in turn: its three named sets, then the full one.
     let names = ["noDelta", "httpOnly", "wsOnly", "full"];
@@ -182,7 +183,7 @@ fn progress_kind(arg: &Exact) -> Option<ProgressKind> {
     }
 }
 
-fn stream_progress_visible_ttft(case: &Exact) -> Exact {
+fn stream_progress_visible_ttft(case: &Case) -> Exact {
     let visible = args_of(case, "stream-progress.mjs.isVisibleStreamProgress");
     let shown = |args: &Vec<Exact>| Exact::Bool(progress_kind(&args[0]).is_some_and(ProgressKind::is_visible));
     let named = visible[..5].iter().map(|args| (args[0].as_str().to_owned(), shown(args))).collect();
@@ -198,7 +199,7 @@ fn stream_progress_visible_ttft(case: &Exact) -> Exact {
 
 #[test]
 fn every_pure_case_replays_as_node_recorded_it() {
-    let replays: [(&str, fn(&Exact) -> Exact); 11] = [
+    let replays: [(&str, fn(&Case) -> Exact); 11] = [
         ("stream-progress-visible-ttft", stream_progress_visible_ttft),
         ("policy-defaults-and-modes", policy_defaults_and_modes),
         ("response-frame-omits-transport-fields", response_frame_omits_transport_fields),
@@ -211,10 +212,11 @@ fn every_pure_case_replays_as_node_recorded_it() {
         ("responses-policy-xai", responses_policy_xai),
         ("gate-transport-mode-down-shifts", gate_transport_mode_down_shifts),
     ];
-    let pure = ids_at_level(SET, "pure");
+    let set = CaseSet::load(SET);
+    let pure = pure_ids(&set);
     for (id, replay) in replays {
         assert!(pure.contains(&id.to_owned()), "{id} is a PURE case of {SET}");
-        let case = case(SET, id);
-        assert_result(SET, &case, replay(&case));
+        let case = set.case(id);
+        assert_result(&set, case, &replay(case));
     }
 }

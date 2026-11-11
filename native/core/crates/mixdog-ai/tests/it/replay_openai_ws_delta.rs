@@ -11,11 +11,12 @@ use mixdog_testkit::Exact;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::provider_case::Case;
+use crate::provider_case::CaseSet;
 use crate::provider_cases::args_of;
 use crate::provider_cases::assert_result;
-use crate::provider_cases::case;
-use crate::provider_cases::ids_at_level;
 use crate::provider_cases::number;
+use crate::provider_cases::pure_ids;
 use crate::provider_cases::object;
 use crate::provider_cases::plain;
 use crate::provider_cases::string;
@@ -123,11 +124,11 @@ fn keys(frame: &Map<String, Value>) -> Exact {
 }
 
 /// The setting `input.env` names (`ws-delta`), unset when the case names none.
-fn setting(case: &Exact) -> Option<String> {
-    case.get("input").try_get("env").map(|e| e.as_str().to_owned())
+fn setting(case: &Case) -> Option<String> {
+    case.input.try_get("env").map(|e| e.as_str().to_owned())
 }
 
-fn default_delta_falls_back_on_request_property_mismatch(case: &Exact) -> Exact {
+fn default_delta_falls_back_on_request_property_mismatch(case: &Case) -> Exact {
     let args = &args_of(case, "._computeDelta")[0];
     object(vec![
         ("body", args[0].get("body").clone()),
@@ -136,7 +137,7 @@ fn default_delta_falls_back_on_request_property_mismatch(case: &Exact) -> Exact 
     ])
 }
 
-fn ws_delta_previous_response_id_safe_fallbacks(case: &Exact) -> Exact {
+fn ws_delta_previous_response_id_safe_fallbacks(case: &Case) -> Exact {
     let setting = setting(case);
     let results: Vec<Exact> =
         args_of(case, "._computeDelta").iter().map(|args| compute_recorded(args, setting.as_deref())).collect();
@@ -157,7 +158,7 @@ fn ws_delta_previous_response_id_safe_fallbacks(case: &Exact) -> Exact {
     ])
 }
 
-fn canonical_full_frame_key_order(case: &Exact) -> Exact {
+fn canonical_full_frame_key_order(case: &Case) -> Exact {
     let args = &args_of(case, "._buildResponseCreateFrame")[0];
     let frame = frame_recorded(args);
     let json = serde_json::to_string(&Value::Object(frame.clone())).unwrap();
@@ -169,7 +170,7 @@ fn canonical_full_frame_key_order(case: &Exact) -> Exact {
     ])
 }
 
-fn canonical_delta_frame_key_order(case: &Exact) -> Exact {
+fn canonical_delta_frame_key_order(case: &Case) -> Exact {
     let calls = args_of(case, "._buildResponseCreateFrame");
     let delta = frame_recorded(&calls[0]);
     let no_instr = frame_recorded(&calls[1]);
@@ -184,15 +185,16 @@ fn canonical_delta_frame_key_order(case: &Exact) -> Exact {
 
 #[test]
 fn every_pure_case_replays_as_node_recorded_it() {
-    let replays: [(&str, fn(&Exact) -> Exact); 4] = [
+    let replays: [(&str, fn(&Case) -> Exact); 4] = [
         ("default-delta-falls-back-on-request-property-mismatch", default_delta_falls_back_on_request_property_mismatch),
         ("ws-delta-previous-response-id-safe-fallbacks", ws_delta_previous_response_id_safe_fallbacks),
         ("canonical-full-frame-key-order", canonical_full_frame_key_order),
         ("canonical-delta-frame-key-order", canonical_delta_frame_key_order),
     ];
-    assert_eq!(replays.map(|(id, _)| id.to_owned()).to_vec(), ids_at_level(SET, "pure"));
+    let set = CaseSet::load(SET);
+    assert_eq!(replays.map(|(id, _)| id.to_owned()).to_vec(), pure_ids(&set));
     for (id, replay) in replays {
-        let case = case(SET, id);
-        assert_result(SET, &case, replay(&case));
+        let case = set.case(id);
+        assert_result(&set, case, &replay(case));
     }
 }
