@@ -23,10 +23,10 @@ use super::Client;
 use super::Rig;
 use super::VERSION;
 
-const RECORDED: &str = include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json");
+const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/phone-chat-core/phone-chat-core.json");
 
 fn recorded(name: &str) -> Value {
-    let all: Value = serde_json::from_str(RECORDED).unwrap();
+    let all: Value = serde_json::from_str(&RECORDED).unwrap();
     all["cases"].as_array().unwrap().iter().find(|case| case["name"] == name).unwrap_or_else(|| panic!("no recorded case {name}")).clone()
 }
 

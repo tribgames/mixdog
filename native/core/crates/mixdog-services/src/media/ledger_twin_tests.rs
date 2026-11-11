@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 
 use super::ledger::{MediaUsageCall, record_media_usage};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-ledger-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-ledger-twin.json");
 
 /// Prices nothing, as an empty catalog does.
 struct Unpriced;
@@ -48,7 +48,7 @@ impl UsageSink for Refuse {
 
 #[tokio::test]
 async fn the_ledger_row_is_the_one_node_writes() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let now = golden["clock"].as_i64().unwrap();
     for case in golden["rows"].as_array().unwrap() {
         let sink = Collect::default();

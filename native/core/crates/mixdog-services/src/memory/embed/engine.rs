@@ -133,7 +133,8 @@ impl Embedder {
                         .with_memory_pattern(false)?;
                     builder.commit_from_file(&graph)
                 };
-                sessions.push(build().map_err(|error| runtime_error("onnxruntime session", error))?);
+                // The worker reports onnxruntime's own text (`err.message`).
+                sessions.push(build().map_err(|error| MemoryError::Embedding(error.to_string()))?);
             }
             Ok((tokenizer, sessions))
         })

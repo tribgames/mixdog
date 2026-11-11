@@ -14,11 +14,11 @@ use mixdog_core_base::support::testing::scopes;
 use mixdog_core_base::support::testing::value;
 use mixdog_core_base::support::testing::with_op;
 
-const GOLDEN: &str = include_str!("../goldens/feedback.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/domains/goldens/feedback.json");
 
 #[test]
 fn normalization_answers_what_the_desktop_answered() {
-    let cases: Vec<Value> = serde_json::from_str(GOLDEN).unwrap();
+    let cases: Vec<Value> = serde_json::from_str(&GOLDEN).unwrap();
     assert!(cases.len() > 20);
     for case in cases {
         let name = case["name"].as_str().unwrap();

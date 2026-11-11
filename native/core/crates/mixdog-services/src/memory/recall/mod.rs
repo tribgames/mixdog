@@ -246,6 +246,11 @@ impl Recall {
         (self.deps.clock)()
     }
 
+    /// The memory runtime's `Date.now()`.
+    pub(crate) fn now_ms(&self) -> i64 {
+        self.clock().now_ms
+    }
+
     /// The `recall` tool.
     pub async fn recall(&self, args: &Value) -> RecallOutcome {
         match self.handle_search(&recall_search_args(args)).await {

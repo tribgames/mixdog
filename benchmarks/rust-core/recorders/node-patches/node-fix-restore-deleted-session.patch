@@ -1,0 +1,207 @@
+diff --git a/src/runtime/agent/orchestrator/session/store-summary-reader.mjs b/src/runtime/agent/orchestrator/session/store-summary-reader.mjs
+index 577d662..f834c0a 100644
+--- a/src/runtime/agent/orchestrator/session/store-summary-reader.mjs
++++ b/src/runtime/agent/orchestrator/session/store-summary-reader.mjs
+@@ -362,6 +362,28 @@ export function storedSessionExists(id) {
+   return value === true;
+ }
+ 
++/** What is known of session `id`'s record: 'present' (storedSessionExists),
++ *  'absent' (no record: deleted or never stored), or 'unknown' when it could
++ *  not be read or is ambiguous, invalid or foreign — never proof it is gone. */
++export function storedSessionPresence(id) {
++  const sessionId = String(id || '').trim();
++  if (!isStoredSessionId(sessionId)) return 'unknown';
++  let probe;
++  try {
++    probe = stampedDerivation(
++      'exists',
++      join(dataDir(), 'sessions'),
++      sessionId,
++      (outcome) => Boolean(recordLifecycle(outcome, sessionId)),
++      { messages: false }
++    );
++  } catch {
++    return 'unknown';
++  }
++  if (probe.state === PROBE_ABSENT) return 'absent';
++  return probe.state === PROBE_PRESENT && probe.value === true ? 'present' : 'unknown';
++}
++
+ /** Metadata of session `sessionId`'s record (its header), or null when it is
+  *  absent, unreadable, ambiguous or foreign to `sessionId`. */
+ function readStoredSessionMetadata(sessionId) {
+diff --git a/src/standalone/channel-transport.mjs b/src/standalone/channel-transport.mjs
+index 916ed72..dab21b5 100644
+--- a/src/standalone/channel-transport.mjs
++++ b/src/standalone/channel-transport.mjs
+@@ -44,6 +44,9 @@ export function createChannelTransport({
+   admitWork = () => true,
+   // Why admitWork refused (fenced, daemon-refusal.mjs).
+   workRefusal,
++  // Whether a stored session is 'present', 'absent' or 'unknown'; the boot restore drops a pin
++  // only to an absent one.
++  sessionPresence = null,
+ } = {}) {
+   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
+ 
+@@ -84,6 +87,7 @@ export function createChannelTransport({
+     remoteStatePath,
+     remoteIntentPath,
+     onRemoteStateChange,
++    sessionPresence,
+   });
+   const registry = createClientRegistry({
+     state,
+diff --git a/src/standalone/channel-transport/remote-binding-restore.test.mjs b/src/standalone/channel-transport/remote-binding-restore.test.mjs
+new file mode 100644
+index 0000000..d14d0cf
+--- /dev/null
++++ b/src/standalone/channel-transport/remote-binding-restore.test.mjs
+@@ -0,0 +1,61 @@
++import assert from 'node:assert/strict';
++import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++import { createChannelTransport } from '../channel-transport.mjs';
++
++function pinned(t, sessionId, presence) {
++  const dir = mkdtempSync(join(tmpdir(), 'remote-restore-'));
++  t.after(() => rmSync(dir, { recursive: true, force: true }));
++  const intentPath = join(dir, 'channel-remote-intent.json');
++  writeFileSync(intentPath, JSON.stringify({ version: 1, sessionId, transcriptPath: `/work/${sessionId}.jsonl`, cwd: '/work', updatedAt: 1 }));
++  const calls = [];
++  const logs = [];
++  const states = [];
++  const transport = createChannelTransport({
++    remoteIntentPath: intentPath,
++    log: (line) => logs.push(line),
++    handleCall: async (name) => {
++      calls.push(name);
++      return { content: [{ type: 'text', text: 'channel bridge activated' }] };
++    },
++    onRemoteStateChange: (state) => states.push({ enabled: state.enabled, sessionId: state.sessionId }),
++    sessionPresence: async () => presence(),
++  });
++  t.after(() => transport.stop());
++  return { transport, intentPath, calls, logs, states };
++}
++
++test('a pin to a deleted session is dropped at restore, with a log line, and Remote stays off', async (t) => {
++  const { transport, intentPath, calls, logs, states } = pinned(t, 'sess_gone', () => 'absent');
++  assert.equal(await transport.restoreRemoteIntent(), false);
++  assert.deepEqual(calls, [], 'the bridge is not activated for a session that is gone');
++  assert.equal(transport.remoteSessionId, null);
++  assert.equal(transport.remoteIntentSessionId, null);
++  assert.equal(existsSync(intentPath), false, 'the pin is cleared');
++  assert.ok(logs.includes('remote intent restore skipped session=sess_gone: the session no longer exists'));
++  assert.ok(states.every((state) => state.enabled === false && state.sessionId === null));
++});
++
++test('a pin to a session that still exists is restored as before', async (t) => {
++  const { transport, intentPath, calls } = pinned(t, 'sess_here', () => 'present');
++  assert.equal(await transport.restoreRemoteIntent(), true);
++  assert.deepEqual(calls, ['activate_channel_bridge']);
++  assert.equal(transport.remoteSessionId, 'sess_here');
++  assert.equal(existsSync(intentPath), true);
++});
++
++for (const [why, presence] of [
++  ['an unreadable or ambiguous record', () => 'unknown'],
++  ['a lookup that failed', () => { throw new Error('EBUSY'); }],
++]) {
++  test(`a pin whose session is not known to be gone (${why}) is kept and restored, with a log line`, async (t) => {
++    const { transport, intentPath, calls, logs } = pinned(t, 'sess_unread', presence);
++    assert.equal(await transport.restoreRemoteIntent(), true);
++    assert.deepEqual(calls, ['activate_channel_bridge']);
++    assert.equal(transport.remoteSessionId, 'sess_unread');
++    assert.equal(existsSync(intentPath), true, 'the pin is kept');
++    assert.ok(logs.includes('remote intent restore kept session=sess_unread: the session record could not be read'));
++  });
++}
+diff --git a/src/standalone/channel-transport/remote-binding.mjs b/src/standalone/channel-transport/remote-binding.mjs
+index 0a32bd6..bd21a36 100644
+--- a/src/standalone/channel-transport/remote-binding.mjs
++++ b/src/standalone/channel-transport/remote-binding.mjs
+@@ -32,6 +32,7 @@ export function createRemoteBinding({
+   remoteStatePath,
+   remoteIntentPath,
+   onRemoteStateChange,
++  sessionPresence = null,
+ }) {
+   // Binding calls (manual ON/OFF, rebind) mutate GLOBAL pointer/pin state after
+   // reading it. The control lane is unbounded, so two sessions toggling at once
+@@ -58,6 +59,28 @@ export function createRemoteBinding({
+     if (remoteRestorePromise) return remoteRestorePromise;
+     const restore = runExclusiveBinding(async () => {
+       if (state.closed || state.remoteIntent !== intent || state.pinnedSessionId !== intent.sessionId) return false;
++      // A pin outlives the session it names: binding Remote to a deleted session would announce
++      // Remote enabled for a session no list shows. Such a pin is dropped, and the log says so.
++      // Only a session known to be gone drops it: a record that could not be read (or a store not
++      // loaded yet) is no proof, so the pin is kept and restored, and the log says so.
++      if (typeof sessionPresence === 'function') {
++        let presence;
++        try {
++          presence = await sessionPresence(intent.sessionId);
++        } catch (err) {
++          presence = `unknown (${err?.message || err})`;
++        }
++        if (state.closed || state.remoteIntent !== intent) return false;
++        if (presence === 'absent') {
++          log(`remote intent restore skipped session=${intent.sessionId}: the session no longer exists`);
++          clearRemoteIntent('pinned session deleted', intent.sessionId);
++          publishRemoteState();
++          return false;
++        }
++        if (presence !== 'present') {
++          log(`remote intent restore kept session=${intent.sessionId}: the session record could not be read`);
++        }
++      }
+       try {
+         const result = await handleCall(
+           ACTIVATE_TOOL,
+diff --git a/src/standalone/daemon-stored-session-views.mjs b/src/standalone/daemon-stored-session-views.mjs
+index ab8d074..0200cc6 100644
+--- a/src/standalone/daemon-stored-session-views.mjs
++++ b/src/standalone/daemon-stored-session-views.mjs
+@@ -40,6 +40,10 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
+       const store = await desktopRuntime.loadSessionStore();
+       return store.storedSessionExists?.(sessionId) === true;
+     },
++    sessionPresence: async (sessionId) => {
++      const store = await desktopRuntime.loadSessionStore();
++      return store.storedSessionPresence(sessionId);
++    },
+     readStoredSession: async (sessionId, options = {}) => {
+       const store = await desktopRuntime.loadSessionStore();
+       if (typeof store.readStoredSessionTranscript !== 'function') return null;
+diff --git a/src/standalone/daemon.mjs b/src/standalone/daemon.mjs
+index 4fcb802..ee8364b 100644
+--- a/src/standalone/daemon.mjs
++++ b/src/standalone/daemon.mjs
+@@ -177,6 +177,8 @@ let memoryRuntime = null;
+ let transcriptPurgeUnregister = null;
+ let agentDispatchBroker = null;
+ let remoteSessionState = { enabled: false, sessionId: null };
++// The stored-session presence check, set once the session views exist (before the after-ready restore asks it).
++let storedSessionPresence = null;
+ let shuttingDown = false;
+ // Stops Mixy's heartbeat from scheduling; resolves when its running check ended.
+ let stopHeartbeat = null;
+@@ -902,6 +904,7 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
+     // the pinned session (nothing to restore) and every catalog reports Remote
+     // disabled because no state ever reaches getRemoteSessionState().
+     remoteIntentPath: remoteIntentPath(RUNTIME_ROOT),
++    sessionPresence: async (sessionId) => (storedSessionPresence ? storedSessionPresence(sessionId) : 'unknown'),
+     onRemoteStateChange: (state) => {
+       remoteSessionState = {
+         enabled: state?.enabled === true,
+@@ -1092,6 +1095,7 @@ async function main() {
+   localSessionBridge = createLocalSessionBridge({ getSessionService: () => sessionService, log });
+   const desktopRuntime = createDesktopRuntime({ getLocalSessionBridge: () => localSessionBridge });
+   const storedSessionViews = createStoredSessionViews({ desktopRuntime, dataDir: DATA_DIR });
++  storedSessionPresence = storedSessionViews.sessionPresence;
+   const agentControl = createCanonicalAgentControl({
+     getSessionService: () => sessionService,
+     getSessionRuntimeHost: () => sessionRuntimeHost,

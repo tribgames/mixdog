@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use super::intent::{IntentFile, RemoteIntent, normalize_intent};
 use super::running::RunningWork;
 use super::tools::ACTIVATE_TOOL;
 
@@ -113,13 +114,40 @@ fn call_signature(name: &str, args: &Value) -> String {
     Sha256::digest(canonical.to_string().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Hears `(remote acquired, pinned session id)`.
-pub type BindingObserver = Arc<dyn Fn(bool, Option<&str>) + Send + Sync>;
+/// The binding as it is announced (`publishRemoteState`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteState<'a> {
+    pub acquired: bool,
+    pub pinned_session_id: Option<&'a str>,
+    /// The pinned intent's working directory: the core's clients send none, so Node's `pointerClient.cwd` is always
+    /// absent and its fallback `remoteIntent.cwd` is the value.
+    pub cwd: Option<&'a str>,
+}
+
+impl RemoteState<'_> {
+    /// The state a client reads (`remote-state.mjs`): `{enabled, sessionId, cwd}`.
+    pub fn to_value(&self) -> Value {
+        let session = self.pinned_session_id.filter(|id| self.acquired && !id.is_empty());
+        json!({ "enabled": session.is_some(), "sessionId": session, "cwd": self.cwd })
+    }
+}
+
+/// Hears the binding after each change.
+pub type BindingObserver = Arc<dyn Fn(&RemoteState<'_>) + Send + Sync>;
 
 #[derive(Clone, Default, PartialEq)]
 struct Binding {
     remote_acquired: bool,
     pinned_session_id: Option<String>,
+    /// The persisted intent the pin came from or was saved as (`state.remoteIntent`); a restore
+    /// applies only while it is still this one.
+    intent: Option<Arc<RemoteIntent>>,
+}
+
+impl Binding {
+    fn state(&self) -> RemoteState<'_> {
+        RemoteState { acquired: self.remote_acquired, pinned_session_id: self.pinned_session_id.as_deref(), cwd: self.intent.as_ref().and_then(|i| i.cwd.as_deref()) }
+    }
 }
 
 struct Entry {
@@ -140,7 +168,15 @@ pub struct CallDispatch {
     binding_turn: mixdog_rt::Gate,
     /// Ends every wait on `binding_turn` and every binding call in flight ([`Self::close`]).
     cancel: CancellationToken,
+    /// Where a manual Remote ON is persisted for the next start ([`Self::load_intent`]).
+    intent_file: std::sync::OnceLock<IntentFile>,
+    /// What is known of a stored session ([`Self::bind_session_presence`]); the restore drops a pin only to one known gone.
+    session_presence: std::sync::OnceLock<SessionPresence>,
 }
+
+/// What is known of the stored session with this id: `Some(true)` present, `Some(false)` known to be gone, `None`
+/// when its record could not be read.
+pub type SessionPresence = Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, Option<bool>> + Send + Sync>;
 
 fn is_soft_error(result: &Value) -> bool {
     result["isError"] == Value::Bool(true)
@@ -161,20 +197,122 @@ impl CallDispatch {
             on_binding: Default::default(),
             binding_turn: mixdog_rt::Gate::new(),
             cancel: CancellationToken::new(),
+            intent_file: std::sync::OnceLock::new(),
+            session_presence: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Binds the stored-session lookup the restore asks before it activates a pin.
+    pub fn bind_session_presence(&self, presence: SessionPresence) {
+        let _ = self.session_presence.set(presence);
+    }
+
+    /// Binds the intent file and pins the session it holds (`createChannelTransport`'s boot read).
+    /// The pin is not a live binding until [`Self::restore_intent`] activates it.
+    pub async fn load_intent(&self, file: IntentFile) {
+        let intent = file.load().await;
+        if self.intent_file.set(file).is_err() {
+            return;
+        }
+        if let Some(intent) = intent {
+            let mut binding = self.binding.lock().unwrap();
+            binding.pinned_session_id = Some(intent.session_id.clone());
+            binding.intent = Some(Arc::new(intent));
+        }
+    }
+
+    /// The pinned session, live or waiting for its restore (`remoteIntentSessionId`).
+    pub fn pinned_session(&self) -> Option<String> {
+        self.binding.lock().unwrap().pinned_session_id.clone()
+    }
+
+    /// The session remote control is bound to (`remoteSessionId`).
+    pub fn remote_session(&self) -> Option<String> {
+        let binding = self.binding.lock().unwrap();
+        binding.pinned_session_id.clone().filter(|_| binding.remote_acquired)
+    }
+
+    /// `restoreRemoteIntent`: activates the bridge for the persisted session, in turn with the
+    /// manual binding calls. `true` when the session is bound.
+    pub async fn restore_intent(&self) -> bool {
+        let (Some(file), Some(intent)) = (self.intent_file.get(), self.binding.lock().unwrap().intent.clone()) else {
+            return false;
+        };
+        if self.cancel.is_cancelled() {
+            return false;
+        }
+        if self.binding.lock().unwrap().remote_acquired {
+            return true;
+        }
+        let Ok(_turn) = self.binding_turn.enter(&self.cancel).await else { return false };
+        let current = |binding: &Binding| {
+            binding.intent.as_ref().is_some_and(|i| Arc::ptr_eq(i, &intent)) && binding.pinned_session_id.as_deref() == Some(&intent.session_id)
+        };
+        if !current(&self.binding.lock().unwrap()) {
+            return false;
+        }
+        // A pin outlives the session it names: binding Remote to a deleted session would announce Remote enabled
+        // for a session no list shows, so such a pin is dropped and the log says so. Only a session known to be gone
+        // drops it: a record that could not be read is no proof, so the pin is kept and restored, and the log says so.
+        if let Some(presence) = self.session_presence.get() {
+            let known = presence(intent.session_id.clone()).await;
+            if known == Some(false) {
+                {
+                    let mut binding = self.binding.lock().unwrap();
+                    if !current(&binding) {
+                        return false;
+                    }
+                    *binding = Binding::default();
+                }
+                file.log(&format!("remote intent restore skipped session={}: the session no longer exists", intent.session_id));
+                file.clear("pinned session deleted").await;
+                self.binding_changed();
+                return false;
+            }
+            if !current(&self.binding.lock().unwrap()) {
+                return false;
+            }
+            if known.is_none() {
+                file.log(&format!("remote intent restore kept session={}: the session record could not be read", intent.session_id));
+            }
+        }
+        let args = json!({"active": true, "sessionId": intent.session_id, "transcriptPath": intent.transcript_path, "restore": true});
+        // Node's restore has no client (`clientToken: null`).
+        let client = ChannelClient { token: String::new(), lead_pid: None };
+        let Some(result) = Scope::new().cancel(&self.cancel).run(self.handler.call(ACTIVATE_TOOL, &args, &client)).await.done() else {
+            return false;
+        };
+        let failure = match result {
+            Ok(value) if is_soft_error(&value) => value["content"][0]["text"].as_str().filter(|t| !t.is_empty()).unwrap_or("restored activation failed").to_string(),
+            Ok(_) => {
+                {
+                    let mut binding = self.binding.lock().unwrap();
+                    if !current(&binding) {
+                        return false;
+                    }
+                    binding.remote_acquired = true;
+                }
+                file.log(&format!("remote intent restored session={}", intent.session_id));
+                self.binding_changed();
+                return true;
+            }
+            Err(message) => message,
+        };
+        file.log(&format!("remote intent restore failed session={}: {failure}", intent.session_id));
+        false
     }
 
     /// Registers who hears the binding change, and tells it the binding now.
     pub fn observe_binding(&self, observer: BindingObserver) {
         let binding = self.binding.lock().unwrap().clone();
-        observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+        observer(&binding.state());
         *self.on_binding.lock().unwrap() = Some(observer);
     }
 
     fn binding_changed(&self) {
         let binding = self.binding.lock().unwrap().clone();
         if let Some(observer) = self.on_binding.lock().unwrap().as_ref() {
-            observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+            observer(&binding.state());
         }
     }
 
@@ -276,7 +414,7 @@ impl CallDispatch {
         if activating {
             // Remote shows acquired before the bridge initialises its providers, as Node's daemon on the worker's
             // `notifications/mixdog/remote` (`owned-start.mjs:56`, `remote-pointer.mjs` `acquireRemoteState`).
-            self.set_binding(Binding { remote_acquired: true, pinned_session_id: session });
+            self.set_binding(Binding { remote_acquired: true, pinned_session_id: session.clone(), intent: binding.intent.clone() });
         }
         let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done();
         // A soft `isError` envelope is a failed call: it must leave the binding as it was.
@@ -284,10 +422,42 @@ impl CallDispatch {
             Some(Ok(value)) if !is_soft_error(value) => {
                 if deactivating {
                     self.set_binding(Binding::default());
+                    if let Some(file) = self.intent_file.get() {
+                        file.clear("explicit Remote OFF").await;
+                    }
+                } else if activating {
+                    // Acquired and pinned were announced before the call; the pin only adds the saved intent.
+                    self.pin(session.expect("a manual ON names its session"), &req.args).await;
                 }
             }
             _ => self.set_binding(binding),
         }
         result.ok_or_else(dropped)?
+    }
+
+    /// `writeRemoteIntent`: the session is pinned; the intent is saved only when its transcript
+    /// is named after it, and otherwise the saved one stays as it was.
+    async fn pin(&self, session: String, args: &Value) {
+        let Some(file) = self.intent_file.get() else {
+            let mut binding = self.binding.lock().unwrap();
+            binding.remote_acquired = true;
+            binding.pinned_session_id = Some(session);
+            return;
+        };
+        // The core's clients send no working directory with a call.
+        let candidate = json!({"sessionId": session, "transcriptPath": args.get("transcriptPath").cloned().unwrap_or(Value::Null), "cwd": null, "updatedAt": file.now()});
+        let intent = normalize_intent(&candidate, file.now()).map(Arc::new);
+        {
+            let mut binding = self.binding.lock().unwrap();
+            binding.remote_acquired = true;
+            binding.pinned_session_id = Some(session.clone());
+            if let Some(intent) = &intent {
+                binding.intent = Some(intent.clone());
+            }
+        }
+        match intent {
+            Some(intent) => file.write(&intent).await,
+            None => file.log(&format!("remote intent not persisted: session/transcript mismatch session={session}")),
+        }
     }
 }

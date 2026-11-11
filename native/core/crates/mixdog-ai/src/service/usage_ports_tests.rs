@@ -20,7 +20,7 @@ use crate::service::oauth_usage::OAuthUsage;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 
-const TWIN: &str = include_str!("../../../../fixtures/usage-ports/usage-ports-twin.json");
+const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
 
 struct Body(Option<Bytes>);
 
@@ -176,7 +176,7 @@ fn assert_wire(at: &str, rig: &Rig, flow: &Value) {
 
 #[tokio::test]
 async fn the_usage_fetch_puts_nodes_requests_on_the_wire_and_hands_nodes_samples_to_the_history() {
-    let twin: Value = serde_json::from_str(TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&TWIN).unwrap();
     let mut reads = 0;
     for flow in twin["flows"].as_array().unwrap().iter().filter(|f| f["redeem"] != true) {
         let at = flow["name"].as_str().unwrap();
@@ -211,7 +211,7 @@ async fn the_usage_fetch_puts_nodes_requests_on_the_wire_and_hands_nodes_samples
 
 #[tokio::test]
 async fn a_redeem_posts_nodes_body_with_nodes_headers_and_replays_once() {
-    let twin: Value = serde_json::from_str(TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&TWIN).unwrap();
     for flow in twin["flows"].as_array().unwrap().iter().filter(|f| f["redeem"] == true) {
         let at = flow["name"].as_str().unwrap();
         let mut seeded = flow.clone();

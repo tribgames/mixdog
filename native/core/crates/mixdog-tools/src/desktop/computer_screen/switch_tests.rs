@@ -25,7 +25,7 @@ use super::switch::secure_desktop_identity;
 use super::testing::manifest_names;
 
 const DECISIONS: &str = include_str!("../../../../../fixtures/screen-control/switch/decisions.json");
-const STATUSES: &str = include_str!("../../../../../fixtures/screen-control/switch/statuses.json");
+const STATUSES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/screen-control/switch/statuses.json");
 const MISC: &str = include_str!("../../../../../fixtures/screen-control/switch/misc.json");
 const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/switch/MANIFEST.json");
 
@@ -75,7 +75,7 @@ fn every_recorded_input_of_the_decision_gets_nodes_whole_output() {
 #[test]
 fn every_recorded_status_is_nodes_whole_status() {
     let decisions = parse(DECISIONS);
-    let statuses = parse(STATUSES);
+    let statuses = parse(&STATUSES);
     let facts: Vec<ScreenHelperFacts> = serde_json::from_value(statuses["facts"].clone()).expect("facts parse");
     let cases = statuses["cases"].as_array().expect("cases");
     // The recorder's loop: every distinct decision × control granted × helper video × each facts block.

@@ -116,7 +116,7 @@ mod tests {
         assert!(!screen.shows("a"));
     }
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/remote-viewing/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-viewing/golden.json");
 
     /// The sessions `hostState.remoteViewing` names, as the desktop reads them.
     fn viewed(registry: &DeviceRegistry) -> Vec<String> {
@@ -130,7 +130,7 @@ mod tests {
     /// and ignores them for this lane; the notification carries neither, and still agrees with every row.
     #[test]
     fn one_phone_counts_as_viewing_a_visualize_panel_exactly_when_node_counts_it() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let rows = golden["table"].as_array().unwrap();
         assert_eq!(rows.len(), 320);
         for row in rows {
@@ -154,7 +154,7 @@ mod tests {
     /// `viewsSessionLane` said are viewed are the sessions the core publishes as `remoteViewing`.
     #[test]
     fn remote_viewing_follows_the_phones_calls_as_nodes_relay_does() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let steps = golden["scenarios"].as_array().unwrap();
         assert_eq!(steps.len(), 19);
         let registry = Arc::new(DeviceRegistry::default());

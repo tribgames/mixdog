@@ -206,14 +206,14 @@ mod tests {
         assert_eq!(open_command(p, true, "linux").1, vec!["/a/b & c".to_owned()]);
     }
 
-    const METHOD_TABLE: &str = include_str!("../../../mixdog-app-protocol/schema/method_table.json");
-    const CLIENT_REQUEST: &str = include_str!("../../../mixdog-app-protocol/schema/client_request.json");
+    const METHOD_TABLE: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/method_table.json");
+    const CLIENT_REQUEST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_request.json");
 
     /// The property names the protocol schema gives `method`'s params.
     fn schema_fields(method: &str) -> Vec<String> {
-        let table: Value = serde_json::from_str(METHOD_TABLE).unwrap();
+        let table: Value = serde_json::from_str(&METHOD_TABLE).unwrap();
         let name = table["clientMethods"].as_array().unwrap().iter().find(|m| m["method"] == method).unwrap_or_else(|| panic!("{method} is not in the protocol"))["params"].as_str().unwrap().to_owned();
-        let requests: Value = serde_json::from_str(CLIENT_REQUEST).unwrap();
+        let requests: Value = serde_json::from_str(&CLIENT_REQUEST).unwrap();
         requests["definitions"][&name]["properties"].as_object().unwrap_or_else(|| panic!("no schema for {name}")).keys().cloned().collect()
     }
 

@@ -47,7 +47,7 @@ use super::tests::Scripted;
 use super::tests::runtime;
 use super::*;
 
-const STREAMS: &str = include_str!("../../../fixtures/browser-streams/streams.json");
+const STREAMS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/browser-streams/streams.json");
 const HOST_CONNECTION: u64 = 99;
 
 /// The recording's clock: time moves only by `advance`, which runs the due timers in due-time then registration order, one at a time.
@@ -451,7 +451,7 @@ fn same_on_the_wire(got: Vec<Value>, want: &[Value], what: &str) {
 }
 
 fn recording() -> (Value, f64) {
-    let recorded: Value = serde_json::from_str(STREAMS).unwrap();
+    let recorded: Value = serde_json::from_str(&STREAMS).unwrap();
     let clock_start = recorded["clockStart"].as_f64().unwrap();
     (recorded, clock_start)
 }
