@@ -31,8 +31,8 @@ fn config() -> ModelConfig {
     }
 }
 
-fn lane() -> mixdog_rt::CpuBulk {
-    mixdog_rt::testing::tokens().cpu_bulk
+fn lane() -> crate::effort_judge::JudgeLanes {
+    crate::effort_judge::JudgeLanes::of(&mixdog_rt::testing::tokens())
 }
 
 /// The input as the loop hands it over: raw results, not yet windowed.
@@ -238,7 +238,7 @@ fn a_model_without_step_support_is_refused() {
         std::fs::copy(c.dir.join(file), dir.path().join(file)).expect("copy");
     }
     std::fs::write(dir.path().join("calibration.json"), r#"{"temperature":1.55,"maxTokens":256}"#).expect("write");
-    let model = JudgeModel::load(&ModelConfig { dir: dir.path().to_owned(), ..c }).expect("loads");
+    let model = JudgeModel::load(&ModelConfig { dir: dir.path().to_owned(), ..c }, lane().thread).expect("loads");
     let case = &golden()["cases"][0];
     let err = model.probs(&input_of(case)).expect_err("refused");
     assert!(matches!(err, crate::effort_judge::error::JudgeError::StepsUnsupported));
@@ -301,7 +301,7 @@ async fn a_platform_without_a_binding_answers_unsupported_and_never_loads() {
     let dir = tempfile::tempdir().unwrap();
     let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::NoBinding };
     assert!(!config.runtime_supported());
-    assert!(matches!(JudgeModel::load(&config), Err(crate::effort_judge::error::JudgeError::Unsupported)));
+    assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::Unsupported)));
     let judge = EffortJudgeModel::new(config, lane()).unwrap();
     assert!(!judge.is_available());
     assert!(!judge.prewarm().await);
@@ -314,6 +314,6 @@ async fn a_known_library_leaves_the_judge_to_the_installed_files() {
     let config = ModelConfig { dir: dir.path().to_owned(), explicit: true, ort_library: OrtRuntime::Library(dir.path().join("ort")) };
     assert_eq!(config.runtime_supported(), crate::tool_state::onnx_runtime_supported());
     if config.runtime_supported() {
-        assert!(matches!(JudgeModel::load(&config), Err(crate::effort_judge::error::JudgeError::NotInstalled(_))));
+        assert!(matches!(JudgeModel::load(&config, lane().thread), Err(crate::effort_judge::error::JudgeError::NotInstalled(_))));
     }
 }

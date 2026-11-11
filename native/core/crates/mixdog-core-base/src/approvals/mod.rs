@@ -474,6 +474,7 @@ pub fn request_frame(request: &ApprovalRequest, params: Value) -> Bytes {
             method: request.ask.kind.method().as_str().to_owned(),
             params: Some(params),
             trace: None,
+            lone_surrogates: Vec::new(),
         })
         .expect("protocol types serialize"),
     )
@@ -496,6 +497,7 @@ pub fn resolved_frame(
             params: Some(serde_json::to_value(params).expect("protocol types serialize")),
             emitted_at_ms: None,
             feed: None,
+            lone_surrogates: Vec::new(),
         })
         .expect("protocol types serialize"),
     )

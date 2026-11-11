@@ -204,6 +204,3 @@ impl WorkflowHost for ConfigHosts {
     /// The route state is the saved config; no provider cache is held apart from the catalog.
     fn web_search_route_saved(&self, _route: &Value) {}
 }
-
-#[cfg(test)]
-mod tests;

@@ -397,7 +397,22 @@ async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T 
 /// The windows of this checkout (`review-reread-replay.mjs`) given the core's deliveries: what each window asked, when, and showed.
 async fn windows_trace(scratch: &Path, input: &Value) -> Value {
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
-    let checkout = PathBuf::from(plain(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap()));
+    // The checkout the running test belongs to, from the manifest directory cargo and nextest give the test process (this
+    // crate's tests or mixdog-app-server-daemon's, both four levels below it). Read at run time, not with `env!`: a
+    // compiled-in path made this library differ between checkouts, so rustc-slot's cache could not share it, nor
+    // anything above it, and a library compiled elsewhere would have run that checkout's scripts.
+    // A test binary started by hand has no such variable: then the checkout is the one it was started in.
+    const REPLAY: &str = "benchmarks/rust-core/recorders/lib/review-reread-replay.mjs";
+    let checkout = match std::env::var_os("CARGO_MANIFEST_DIR") {
+        Some(manifest_dir) => Path::new(&manifest_dir).join("../../../..").canonicalize().unwrap(),
+        None => {
+            let here = std::env::current_dir().expect("a current directory");
+            here.ancestors().find(|dir| dir.join(REPLAY).is_file()).map(Path::to_path_buf).unwrap_or_else(|| {
+                panic!("CARGO_MANIFEST_DIR is not set (cargo and nextest set it) and {} is not inside a checkout: start the test binary from the checkout it was built from", here.display())
+            })
+        }
+    };
+    let checkout = PathBuf::from(plain(&checkout));
     let file_url = |path: PathBuf| format!("{}{}", if cfg!(windows) { "file:///" } else { "file://" }, plain(&path).replace('\\', "/"));
     let input_path = scratch.join("review-reread-input.json");
     std::fs::write(&input_path, serde_json::to_vec(input).unwrap()).unwrap();

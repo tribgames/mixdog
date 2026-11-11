@@ -265,7 +265,7 @@ impl Inner {
         }
         let Some(entry) = entry else { return Ok(with_fields(result, vec![("removed", JsonValue::Null)])) };
         let revision = result["revision"].as_u64().unwrap_or(previous.revision);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(hook) = self.before_remove.lock().unwrap().take() {
             hook();
         }
@@ -360,6 +360,9 @@ impl Inner {
             self.host.set_workspace(session, stored);
         }
         drop(leave);
+        // The settled workspace reaches the session's clients before the transition answers (Node's next status pass).
+        let live = self.live_workspace(session).await;
+        self.host.publish_workspace(session, live).await;
         outcome
     }
 

@@ -124,6 +124,41 @@ async fn the_real_sources_answer_what_nodes_loaders_answered() {
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(12).cloned().collect::<Vec<_>>().join("\n"));
 }
 
+/// An agent Node saved with a name and a job a phone sent cut inside an emoji
+/// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): its identity line is Node's
+/// `agentModeIdentityLine` (the half emoji as U+FFFD), not the bare id a failed manifest read gives.
+#[tokio::test]
+async fn an_agent_manifest_node_wrote_with_half_an_emoji_names_the_agent() {
+    let set = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+    let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+    let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "agent-definition").unwrap().clone();
+    let plugin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt/plugin");
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    fs::create_dir_all(data.join("agents/helper")).unwrap();
+    for file in ["agent.json", "AGENT.md"] {
+        fs::copy(set.join("agent-definition/before/agents/helper").join(file), data.join("agents/helper").join(file)).unwrap();
+    }
+    let home = dir.path().join("home");
+    let tokens = mixdog_rt::testing::tokens();
+    let line = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+        let observed = StartupObservations::new(Arc::new(Frozen));
+        let host = HostFacts {
+            plugin_root: &plugin,
+            data_dir: &data,
+            home_dir: &home,
+            path_env: "",
+            locale: "en-US",
+            instruction_files_forced_off: false,
+            stored_instruction_files: None,
+        };
+        RealSources::new(lane, host, &observed).agent_mode_identity_line("helper")
+    })
+    .await
+    .unwrap();
+    assert_eq!(line, case["nodeRead"]["identityLine"].as_str().unwrap());
+}
+
 #[tokio::test]
 async fn the_startup_observations_land_in_the_git_and_listing_lines() {
     let dir = tempfile::tempdir().unwrap();

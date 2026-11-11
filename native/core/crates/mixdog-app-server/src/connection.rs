@@ -21,6 +21,7 @@ use mixdog_core_api::HostError;
 use mixdog_core_api::FeedSource;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
@@ -69,7 +70,7 @@ enum Waiter {
 #[derive(Default)]
 struct HostState {
     /// Requests sent to this connection as the host claimant; `None` once closed.
-    pending: Option<HashMap<RequestId, Waiter>>,
+    pending: Option<HashMap<RequestId, (Method, Waiter)>>,
 }
 
 pub(crate) struct Connection {
@@ -244,9 +245,10 @@ impl Connection {
     pub(crate) fn register_host_request(
         &self,
         id: RequestId,
+        method: Method,
     ) -> Option<oneshot::Receiver<HostReply>> {
         let (tx, rx) = oneshot::channel();
-        lock(&self.host).pending.as_mut()?.insert(id, Waiter::Reply(tx));
+        lock(&self.host).pending.as_mut()?.insert(id, (method, Waiter::Reply(tx)));
         Some(rx)
     }
 
@@ -255,10 +257,16 @@ impl Connection {
     pub(crate) fn register_host_stream(
         &self,
         id: RequestId,
+        method: Method,
     ) -> Option<mpsc::UnboundedReceiver<Streamed>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        lock(&self.host).pending.as_mut()?.insert(id, Waiter::Stream(tx));
+        lock(&self.host).pending.as_mut()?.insert(id, (method, Waiter::Stream(tx)));
         Some(rx)
+    }
+
+    /// The method of the `host/*` request `id` pending here.
+    pub(crate) fn host_request_method(&self, id: &RequestId) -> Option<Method> {
+        lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)).map(|(method, _)| *method)
     }
 
     /// Delivers the claimant's answer; gives it back when the request is not pending here.
@@ -270,7 +278,8 @@ impl Connection {
         let waiter = lock(&self.host)
             .pending
             .as_mut()
-            .and_then(|pending| pending.remove(id));
+            .and_then(|pending| pending.remove(id))
+            .map(|(_, waiter)| waiter);
         match waiter {
             // The requester may have abandoned the request; the answer is then unwanted.
             Some(Waiter::Reply(sender)) => {
@@ -289,7 +298,7 @@ impl Connection {
     /// (a late event after the answer, or a request that is not streamed).
     pub(crate) fn host_stream_event(&self, id: &RequestId, event: Value) -> bool {
         match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
-            Some(Waiter::Stream(sender)) => sender.send(Streamed::Event(event)).is_ok(),
+            Some((_, Waiter::Stream(sender))) => sender.send(Streamed::Event(event)).is_ok(),
             _ => false,
         }
     }
@@ -297,7 +306,7 @@ impl Connection {
     /// Tells a pending streamed request its claimant is alive; `false` when none such is pending here.
     pub(crate) fn host_stream_alive(&self, id: &RequestId) -> bool {
         match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
-            Some(Waiter::Stream(sender)) => sender.send(Streamed::Alive).is_ok(),
+            Some((_, Waiter::Stream(sender))) => sender.send(Streamed::Alive).is_ok(),
             _ => false,
         }
     }
