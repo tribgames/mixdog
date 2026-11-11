@@ -19,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 347368,
+      "bytes": 347512,
       "path": "cases.json",
-      "sha256": "a30aa0f3b53149cc2c568ef300101e3cd993a85ca204e61571eb9efc65ea9355"
+      "sha256": "54981eb0ac1131a492f4b51905d75f07aabcea18bbaa727f8ce27e8aee78c84b"
     }
   ],
   "inputs": [
@@ -75,9 +75,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs",
-  "recorderSha256": "6125c20d15107c0e528c99ac7f2bc801bbf77ef40daf64a9a6c52a0772bd9eaa",
+  "recorderSha256": "13aabe1f0859816d56165b5ff58a2353769e719092ad62a695e3e15bd96a1469",
   "replay": "WIRE: the desktop requests as sent over a socket to the Rust daemon (the same /client/register and /call exchanges). No public Rust function replaces the daemon entry for these admin requests; the pure functions named in earlier revisions (service/admin_models provider_available, ai_account provider_setup and list_provider_accounts) cover availability, setup rows and the account error only, not the status rows nor the config writes.",
   "set": "provider-admin-dev-providers",
-  "totalBytes": 347368,
+  "totalBytes": 347512,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

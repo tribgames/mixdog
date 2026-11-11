@@ -126,7 +126,9 @@ const step = async (developer) => {
     out.configAfter = configText();
   }
   out.settings = await action('session.read', 'getDeveloperSettings', []);
-  out.setup = await action('session.read', 'getProviderSetup', [{}]);
+  // `recheckKeychain: true` is the desktop's own request for the authoritative setup: the daemon answers a plain request from its warm-up cache (a quick snapshot first, the full one once its background
+  // check has finished), which depends on timing; the forced request always returns the full answer.
+  out.setup = await action('session.read', 'getProviderSetup', [{ recheckKeychain: true }]);
   out.accounts = {};
   for (const id of KNOWN) out.accounts[id] = await action('session.read', 'getProviderAccounts', [id]);
   return out;
