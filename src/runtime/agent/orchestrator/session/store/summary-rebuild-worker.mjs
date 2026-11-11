@@ -8,7 +8,7 @@ try {
     import('./summary-cache.mjs'),
     import('../store-summary-index.mjs'),
   ]);
-  const { rows } = await _scanStoredSessionSummaryRowsAsync();
+  const { rows } = await _scanStoredSessionSummaryRowsAsync({ resumable: true });
   const indexedRows = await _writeSummaryIndex(rows);
   parentPort?.postMessage({ ok: true, dataDir, rows: indexedRows });
 } catch (error) {

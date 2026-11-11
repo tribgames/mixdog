@@ -217,20 +217,30 @@ async function _deleteSession(id, options) {
   await settleRecorder(id);
   // What the scans of the log kept of it goes BEFORE the log does, and none
   // can be published until the files are gone (session-scan-checkpoint.mjs).
-  const unlinked = await withScanCheckpointsRetired(sessionScanCheckpointDir(), plan.logPath, async () => {
-    try {
-      // The copies kept aside first, then the json: a delete cut short leaves
-      // at most the log, which reads as the session (orphan), never an older
-      // legacy copy of it.
-      for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
-      if (plan.json === 'damaged') await renameWithRetry(plan.jsonPath, quarantinePath(plan.jsonPath));
-      else if (plan.json === 'ours') _unlinkIfThere(plan.jsonPath);
-      if (plan.logPresent) _unlinkIfThere(plan.logPath);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  // A checkpoint that cannot be removed (or a lock that cannot be had) fails
+  // the delete before any file is touched: false, as for any delete that did not
+  // happen, and the failure is recorded where the caller's next look finds it.
+  let unlinked;
+  try {
+    unlinked = await withScanCheckpointsRetired(sessionScanCheckpointDir(), plan.logPath, async () => {
+      try {
+        // The copies kept aside first, then the json: a delete cut short leaves
+        // at most the log, which reads as the session (orphan), never an older
+        // legacy copy of it.
+        for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
+        if (plan.json === 'damaged') await renameWithRetry(plan.jsonPath, quarantinePath(plan.jsonPath));
+        else if (plan.json === 'ours') _unlinkIfThere(plan.jsonPath);
+        if (plan.logPresent) _unlinkIfThere(plan.logPath);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  } catch (error) {
+    process.stderr.write(`[session-store] ${error?.message} — refusing to delete it\n`);
+    _recordLifecycleCommitFailure(id, error, 'delete');
+    return false;
+  }
   if (!unlinked) return false;
   // Removed: only now does what this process holds of it go — the debounced
   // copy is cancelled and the recorder's queue discarded.

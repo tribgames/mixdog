@@ -11,6 +11,23 @@
  * torn, foreign or unwritable file — reads as no checkpoint: the log is
  * scanned from its start, as before.
  *
+ * READERS take no lock. A reader that validated a checkpoint just before a
+ * retirement removed it (or holds a descriptor of the old log) can resume from
+ * it, and what it gets is the old log's content its own descriptor shows it:
+ * what it already had a right to read. It can keep nothing of it: the only way
+ * to persist anything derived from a scan is publishSync, which takes the lock
+ * (refused while a retirement holds it) and opens the log by its path again,
+ * where a rewritten or deleted log fails the identity and first-bytes check.
+ * A reader never writes back the checkpoint it adopted. (The test 'a scan that
+ * adopted the old log cannot publish it', session-scan-checkpoint-processes.test.mjs,
+ * holds the check this rests on.)
+ *
+ * RETIREMENT FAILS CLOSED: an error other than "does not exist" listing the
+ * checkpoint directory or removing one of its files, and any failure to take
+ * the lock, throws (code ESCANCHECKPOINT, naming the file) before `run` is
+ * called, so the log is not touched. A Windows sharing violation is not
+ * retried: there is no event to wait for.
+ *
  * LIFETIME INVARIANT: a checkpoint never exists for content that no longer
  * exists in its log. It holds digests of the log's first and last bytes, which
  * a guesser can test a candidate secret against, so what protects a redacted
@@ -38,18 +55,20 @@
  *    retirement removes that as well); a retirement that dies leaves no
  *    checkpoint, for nothing could be published while it held the lock;
  *  - orphans (their log gone) are swept at startup and by the stale sweep.
+ * The epoch token (`<stem>.epoch`) is not part of this: it tells the summary
+ * rows (summary-cache.mjs) that a log was rewritten while they were built.
  */
 import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, unlinkSync } from 'node:fs';
 import { open, readFile, readdir, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { acquireOsExclusiveLockSync } from '../../../../shared/os-exclusive-lock.mjs';
 
-// 2: the first and last bytes the scan covered are kept as digests, never as
-// the bytes, so a checkpoint holds nothing of a transcript's text but what the
-// scan itself kept (the log's header).
-const CHECKPOINT_VERSION = 2;
+// 3: the first and last bytes the scan covered are kept as SHA-256 digests,
+// never as the bytes, so a checkpoint holds nothing of a transcript's text but
+// what the scan itself kept (the header; the facts of a facts scan).
+const CHECKPOINT_VERSION = 3;
 export const SCAN_GUARD_BYTES = 1024;
 // A log shorter than this is scanned whole faster than a checkpoint is read.
 const DEFAULT_STRIDE_BYTES = 16 * 1024 * 1024;
@@ -62,10 +81,10 @@ export function _setScanCheckpointStrideForTest(bytes) {
   strideBytes = bytes ?? DEFAULT_STRIDE_BYTES;
 }
 
-const stemOf = (logPath) => createHash('sha1').update(logPath).digest('hex');
-
-export function scanCheckpointPath(dir, logPath) {
-  return join(dir, `${stemOf(logPath)}.json`);
+/** `kind`: '' for a scan that keeps the header, `facts-<version>` for one that
+ *  keeps a fact of each message too. */
+export function scanCheckpointPath(dir, logPath, kind = '') {
+  return join(dir, `${createHash('sha1').update(logPath).digest('hex')}${kind ? `.${kind}` : ''}.json`);
 }
 
 /** Whether a scan that stopped at `offset` (its last checkpoint at `persisted`)
@@ -80,7 +99,7 @@ export function bytesDigest(bytes) {
 }
 
 function encode(logPath, { ino, offset, first, guard, replay }) {
-  const { base, count, length, lastCompacted, skipped } = replay;
+  const { base, count, length, lastCompacted, skipped, project, messages } = replay;
   return JSON.stringify({
     v: CHECKPOINT_VERSION,
     path: logPath,
@@ -88,7 +107,7 @@ function encode(logPath, { ino, offset, first, guard, replay }) {
     offset,
     first: bytesDigest(first),
     guard: bytesDigest(guard),
-    replay: { base, count, length, lastCompacted, skipped },
+    replay: { base, count, length, lastCompacted, skipped, ...(project ? { facts: messages } : {}) },
   });
 }
 
@@ -97,7 +116,7 @@ const isCount = (value) => Number.isSafeInteger(value) && value >= 0;
 /** The scan state a checkpoint's text holds for `logPath`, as
  *  `{ ino (BigInt), offset, guardLength, firstDigest, guardDigest, replay }`, or null when it holds
  *  none. Nothing about the log itself is proven here. */
-function decode(text, logPath) {
+function decode(text, logPath, kind) {
   let doc;
   try {
     doc = JSON.parse(text);
@@ -111,6 +130,8 @@ function decode(text, logPath) {
   if (!replay || typeof replay !== 'object' || !replay.base || typeof replay.base !== 'object') return null;
   if (!isCount(replay.count) || replay.count < 2 || !isCount(replay.length) || !Array.isArray(replay.skipped)) return null;
   if (!Number.isSafeInteger(replay.lastCompacted) || replay.lastCompacted < 0) return null;
+  // A checkpoint of facts is read by a scan that keeps them, and only by it.
+  if (Boolean(kind) !== Array.isArray(replay.facts)) return null;
   const { base, count, length, lastCompacted, skipped } = replay;
   return {
     ino: BigInt(doc.ino),
@@ -119,23 +140,53 @@ function decode(text, logPath) {
     guardLength: Math.min(SCAN_GUARD_BYTES, doc.offset),
     firstDigest: doc.first,
     guardDigest: doc.guard,
-    replay: { base, count, length, lastCompacted, skipped, messages: undefined, damage: null, tornTail: null },
+    replay: { base, count, length, lastCompacted, skipped, messages: replay.facts, damage: null, tornTail: null },
   };
 }
 
-export function loadScanCheckpointSync(dir, logPath) {
+export function loadScanCheckpointSync(dir, logPath, kind = '') {
   try {
-    return decode(readFileSync(scanCheckpointPath(dir, logPath), 'utf8'), logPath);
+    return decode(readFileSync(scanCheckpointPath(dir, logPath, kind), 'utf8'), logPath, kind);
   } catch {
     return null;
   }
 }
 
-export async function loadScanCheckpoint(dir, logPath) {
+export async function loadScanCheckpoint(dir, logPath, kind = '') {
   try {
-    return decode(await readFile(scanCheckpointPath(dir, logPath), 'utf8'), logPath);
+    return decode(await readFile(scanCheckpointPath(dir, logPath, kind), 'utf8'), logPath, kind);
   } catch {
     return null;
+  }
+}
+
+const stemOf = (logPath) => createHash('sha1').update(logPath).digest('hex');
+const epochPath = (dir, logPath) => join(dir, `${stemOf(logPath)}.epoch`);
+const tokenOf = (text) => {
+  try {
+    const token = JSON.parse(text)?.t;
+    return typeof token === 'string' ? token : null;
+  } catch {
+    return null;
+  }
+};
+
+/** The epoch of `logPath` (null: never retired): what a summary row is built under. */
+export async function scanEpoch(dir, logPath) {
+  try {
+    return tokenOf(await readFile(epochPath(dir, logPath), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// A bump of the log's epoch token: summary rows built while it changed are built again.
+function bumpEpoch(dir, logPath) {
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileAtomicSync(epochPath(dir, logPath), JSON.stringify({ path: logPath, t: randomBytes(12).toString('hex') }));
+  } catch {
+    /* the retirement itself does not depend on it */
   }
 }
 
@@ -150,12 +201,22 @@ const lockPathOf = (dir, logPath) => join(`${dir}.locks`, `${stemOf(logPath).sli
 // redaction and a delete) share it here instead of waiting for each other.
 const retiring = new Map();
 // The wait for a publisher in another process, or a retirement of another log of the stripe.
-const RETIRE_WAIT_MS = 60_000;
+let retireWaitMs = 60_000;
+/** Tests: how long a retirement waits for a lock another process holds. */
+export function _setRetirementWaitForTest(ms) {
+  retireWaitMs = ms ?? 60_000;
+}
 const RETIRE_RETRY_MS = 2;
 
+const checkpointError = (message, path, cause) =>
+  Object.assign(new Error(`${message}: ${path}${cause ? ` (${cause.code ?? cause.message})` : ''}`, cause ? { cause } : undefined), {
+    code: 'ESCANCHECKPOINT',
+    path,
+  });
+
 // True: the retirement holds the lock now. False: another holder. An error
-// opening the lock file (an unwritable directory) means nothing can be
-// published there either: the retirement goes on without the lock.
+// opening the lock file throws: without the lock a publisher could write a
+// checkpoint during the rewrite.
 function takeRetirementLock(path) {
   const mine = retiring.get(path);
   if (mine) {
@@ -165,9 +226,8 @@ function takeRetirementLock(path) {
   let lock;
   try {
     lock = acquireOsExclusiveLockSync(path, LOCK_OPTIONS);
-  } catch {
-    retiring.set(path, { lock: null, count: 1 });
-    return true;
+  } catch (error) {
+    throw checkpointError('the lock of a session log\'s checkpoints cannot be taken', path, error);
   }
   if (!lock.held) return false;
   retiring.set(path, { lock, count: 1 });
@@ -178,27 +238,35 @@ function releaseRetirementLock(path) {
   const mine = retiring.get(path);
   if (!mine || --mine.count > 0) return;
   retiring.delete(path);
-  mine.lock?.release();
+  mine.lock.release();
 }
 
-const lockTimeout = () => Object.assign(new Error('the checkpoints of a session log are locked by another process'), { code: 'ESCANCHECKPOINTLOCK' });
+const lockTimeout = (path) => checkpointError('the checkpoints of a session log are locked by another process', path);
 
 async function awaitRetirementLock(path) {
   // The OS offers a lock that is taken or refused, never waited for; the
   // holder is a publisher's few milliseconds, so the retries are few.
-  const deadline = Date.now() + RETIRE_WAIT_MS;
+  const deadline = Date.now() + retireWaitMs;
   while (!takeRetirementLock(path)) {
-    if (Date.now() >= deadline) throw lockTimeout();
+    if (Date.now() >= deadline) throw lockTimeout(path);
     await new Promise((resolve) => setTimeout(resolve, RETIRE_RETRY_MS));
   }
 }
 
+const syncPause = new Int32Array(new SharedArrayBuffer(4));
+
 function awaitRetirementLockSync(path) {
-  const deadline = Date.now() + RETIRE_WAIT_MS;
-  while (!takeRetirementLock(path)) if (Date.now() >= deadline) throw lockTimeout();
+  const deadline = Date.now() + retireWaitMs;
+  while (!takeRetirementLock(path)) {
+    if (Date.now() >= deadline) throw lockTimeout(path);
+    // The exit drain cannot yield; without this pause the wait for another
+    // process's retirement (a rewrite of a large log) would spin a core.
+    Atomics.wait(syncPause, 0, 0, RETIRE_RETRY_MS);
+  }
 }
 
 function retire(dir, logPath) {
+  bumpEpoch(dir, logPath);
   removeScanCheckpoints(dir, logPath);
 }
 
@@ -208,11 +276,15 @@ function retire(dir, logPath) {
  *  cannot be had within a minute. */
 export async function withScanCheckpointsRetired(dir, logPath, run) {
   const path = lockPathOf(dir, logPath);
-  await awaitRetirementLock(path);
+  // A lock that is free is taken without yielding: `run` starts in the caller's
+  // turn, as a write without a retirement does (the exit drain relies on a
+  // rewrite being queued by the time a save returns its promise).
+  if (!takeRetirementLock(path)) await awaitRetirementLock(path);
   try {
     retire(dir, logPath);
     return await run();
   } finally {
+    bumpEpoch(dir, logPath);
     releaseRetirementLock(path);
   }
 }
@@ -225,6 +297,7 @@ export function withScanCheckpointsRetiredSync(dir, logPath, run) {
     retire(dir, logPath);
     return run();
   } finally {
+    bumpEpoch(dir, logPath);
     releaseRetirementLock(path);
   }
 }
@@ -256,7 +329,7 @@ function logIsStill(logPath, { ino, offset, first, guard }) {
 }
 
 // The one synchronous step: lock (without waiting), validate, write.
-function publishSync(dir, logPath, state, text) {
+function publishSync(dir, logPath, state, kind, text) {
   const path = lockPathOf(dir, logPath);
   if (retiring.has(path)) return;
   let lock;
@@ -269,7 +342,7 @@ function publishSync(dir, logPath, state, text) {
   try {
     if (!logIsStill(logPath, state)) return;
     mkdirSync(dir, { recursive: true });
-    writeFileAtomicSync(scanCheckpointPath(dir, logPath), text);
+    writeFileAtomicSync(scanCheckpointPath(dir, logPath, kind), text);
   } catch {
     /* a checkpoint is only a hint */
   } finally {
@@ -277,18 +350,18 @@ function publishSync(dir, logPath, state, text) {
   }
 }
 
-export function saveScanCheckpointSync(dir, logPath, state) {
+export function saveScanCheckpointSync(dir, logPath, state, kind = '') {
   try {
-    publishSync(dir, logPath, state, encode(logPath, state));
+    publishSync(dir, logPath, state, kind, encode(logPath, state));
   } catch {
     /* a checkpoint is only a hint */
   }
 }
 
 /** The log is gone: so is the place kept in it. */
-export function dropScanCheckpoint(dir, logPath) {
+export function dropScanCheckpoint(dir, logPath, kind = '') {
   try {
-    unlinkSync(scanCheckpointPath(dir, logPath));
+    unlinkSync(scanCheckpointPath(dir, logPath, kind));
   } catch {
     /* none, or not ours to remove */
   }
@@ -297,21 +370,24 @@ export function dropScanCheckpoint(dir, logPath) {
 // Also the temporary file of a publication a process died in (writeFileAtomicSync).
 const CHECKPOINT_FILE = /^([0-9a-f]{40})(?:\.facts-[^.\\/]+)?\.json(?:\.mixdog-tmp-[0-9a-f]+)?$/;
 
-/** The log is gone or rewritten: so is every place kept in it. */
+/** The log is gone or rewritten: so is every place kept in it (of each kind
+ *  of scan). Throws (ESCANCHECKPOINT, naming the file) when one cannot be
+ *  listed or removed. */
 export function removeScanCheckpoints(dir, logPath) {
   const stem = stemOf(logPath);
   let names;
   try {
     names = readdirSync(dir);
-  } catch {
-    return;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw checkpointError('the checkpoints of a session log cannot be listed', dir, error);
   }
   for (const name of names) {
     if (CHECKPOINT_FILE.exec(name)?.[1] !== stem) continue;
     try {
       unlinkSync(join(dir, name));
-    } catch {
-      /* none, or not ours to remove */
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw checkpointError('a checkpoint of a session log cannot be removed', join(dir, name), error);
     }
   }
 }
@@ -324,7 +400,7 @@ async function checkpointLogPath(file) {
   try {
     handle = await open(file, 'r');
     const { bytesRead, buffer } = await handle.read(Buffer.alloc(4096), 0, 4096, 0);
-    const match = /^\{"v":\d+,"path":("(?:[^"\\]|\\.)*")/.exec(buffer.toString('utf8', 0, bytesRead));
+    const match = /^\{"(?:v":\d+,"path|path)":("(?:[^"\\]|\\.)*")/.exec(buffer.toString('utf8', 0, bytesRead));
     return match ? JSON.parse(match[1]) : null;
   } catch {
     return undefined;
@@ -332,6 +408,11 @@ async function checkpointLogPath(file) {
     await handle?.close().catch(() => {});
   }
 }
+
+// A retirement's token outlives its log this long (a scan that began before
+// the delete cannot still be running); then the sweep removes it.
+const EPOCH_FILE = /^[0-9a-f]{40}\.epoch$/;
+const EPOCH_KEEP_MS = 10 * 60 * 1000;
 
 /** Removes the checkpoints whose log is gone (its session deleted by another
  *  process or by a delete cut short, the data directory moved or restored).
@@ -345,8 +426,13 @@ export async function sweepOrphanScanCheckpoints(dir) {
   }
   let removed = 0;
   for (const name of names) {
-    if (!CHECKPOINT_FILE.test(name)) continue;
+    const isEpoch = EPOCH_FILE.test(name);
+    if (!isEpoch && !CHECKPOINT_FILE.test(name)) continue;
     const file = join(dir, name);
+    if (isEpoch) {
+      const info = await stat(file).catch(() => null);
+      if (!info || Date.now() - info.mtimeMs < EPOCH_KEEP_MS) continue;
+    }
     const logPath = await checkpointLogPath(file);
     if (logPath === undefined) continue;
     if (logPath !== null) {

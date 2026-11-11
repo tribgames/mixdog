@@ -6,7 +6,7 @@
 // has been replaced goes with the next scan of the name.
 import '../../../../../../scripts/lib/isolated-test-env.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -20,7 +20,7 @@ const { sweepStaleSessions } = await import('./sweep/stale-sweep.mjs');
 const { readSessionLogSync } = await import('./session-log-reader.mjs');
 const { encodeAppend, encodeCompacted, encodeSessionRecord } = await import('./session-log-format.mjs');
 const { sessionLogPath, sessionScanCheckpointDir } = await import('./session-paths.mjs');
-const { _setScanCheckpointStrideForTest, removeScanCheckpoints, scanCheckpointPath, sweepOrphanScanCheckpoints } =
+const { _setScanCheckpointStrideForTest, removeScanCheckpoints, scanCheckpointPath, withScanCheckpointsRetiredSync, sweepOrphanScanCheckpoints } =
   await import('./session-scan-checkpoint.mjs');
 
 test.beforeEach(() => {
@@ -38,7 +38,8 @@ const msg = (text) => ({ role: 'user', content: text });
 const scanned = (logPath) => readSessionLogSync(logPath, { messages: false, checkpoints: sessionScanCheckpointDir() });
 const leftBy = () => {
   try {
-    return readdirSync(sessionScanCheckpointDir());
+    // The epoch tokens (.epoch) hold a path and a random value, nothing of a log.
+    return readdirSync(sessionScanCheckpointDir()).filter((name) => !name.endsWith('.epoch'));
   } catch {
     return [];
   }
@@ -116,4 +117,21 @@ test('a checkpoint of a file that has been replaced under the name goes with the
     _setScanCheckpointStrideForTest(1);
   }
   assert.deepEqual(leftBy(), []);
+});
+
+test('the digests are SHA-256, and the sweep removes the epoch token of a log that is gone', async () => {
+  const logPath = writeLog('sess_cp_sha256', 'x'.repeat(2000), 'two');
+  scanned(logPath);
+  const doc = JSON.parse(readFileSync(scanCheckpointPath(sessionScanCheckpointDir(), logPath), 'utf8'));
+  assert.match(doc.first, /^[0-9a-f]{64}$/);
+  assert.match(doc.guard, /^[0-9a-f]{64}$/);
+  const gone = join(root, 'sessions', 'sess_cp_gone.log.jsonl');
+  withScanCheckpointsRetiredSync(sessionScanCheckpointDir(), gone, () => {});
+  const token = readdirSync(sessionScanCheckpointDir()).find((name) => name.endsWith('.epoch'));
+  assert.ok(token, 'a retirement leaves its token');
+  assert.equal(await sweepOrphanScanCheckpoints(sessionScanCheckpointDir()), 0, 'a fresh token stays');
+  const old = new Date(Date.now() - 3600_000);
+  utimesSync(join(sessionScanCheckpointDir(), token), old, old);
+  assert.equal(await sweepOrphanScanCheckpoints(sessionScanCheckpointDir()), 1);
+  assert.equal(readdirSync(sessionScanCheckpointDir()).includes(token), false);
 });

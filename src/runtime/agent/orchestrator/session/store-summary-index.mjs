@@ -239,9 +239,70 @@ function _desktopSessionSummary(value, cwd = null) {
   return projectPath ? { classification: 'project', projectPath } : null;
 }
 
-export function _sessionSummary(session) {
+/**
+ * What the summary reads of one message, and nothing else: the facts a
+ * transcript is folded from (projectionOfFacts) when it is too large to be
+ * held (a 205 MB log took a listing's rebuild worker past its heap and the
+ * daemon with it, 2026-11-10) or is read piece by piece (session-log-reader's
+ * resumable scan). Plain JSON, so a scan can keep its place in a file.
+ *
+ *   c  1 for a user or assistant message (what messageCount counts)
+ *   r  1 for a real turn (realTurnCount)
+ *   p  the text this message offers as the first-prompt preview, '' if none
+ *   l  the text it offers as the last-message line, '' if none
+ *   i  1 for an incoming message with text (the unread tail)
+ *   o  the routine provenance of that line (null for any other message)
+ *
+ * Bump MESSAGE_FACTS_VERSION when any of these changes meaning: facts kept by
+ * an older build are then no longer used.
+ */
+export const MESSAGE_FACTS_VERSION = 1;
+
+export function messageFacts(message) {
+  const last = _lastPreviewFromMessage(message);
+  return {
+    c: message && (message.role === 'user' || message.role === 'assistant') ? 1 : 0,
+    r: isRealTurnMessage(message) ? 1 : 0,
+    p: _previewFromMessage(message),
+    l: last,
+    i: last && isIncomingKind(message) ? 1 : 0,
+    o: last ? routineProvenance(message) : null,
+  };
+}
+
+/** `_sessionMessageProjection` of a session whose messages gave `facts`
+ *  (messageFacts of each, in order), for the session `sessionId`. */
+export function projectionOfFacts(facts, sessionId) {
+  const wantsIncoming = wantsIncomingTail(sessionId);
+  let count = 0;
+  let real = 0;
+  let preview = '';
+  const incoming = [];
+  for (const fact of facts) {
+    if (fact.c) {
+      count += 1;
+      if (wantsIncoming && fact.i) {
+        incoming.push(count);
+        if (incoming.length > INCOMING_TAIL_MAX) incoming.shift();
+      }
+    }
+    real += fact.r;
+    if (!preview && fact.p) preview = fact.p;
+  }
+  let last = '';
+  let lastRoutine = null;
+  for (let index = facts.length - 1; index >= 0 && !last; index -= 1) {
+    last = facts[index].l;
+    if (last) lastRoutine = facts[index].o;
+  }
+  return { count, real, incoming: wantsIncoming ? incoming : null, preview, last, lastRoutine };
+}
+
+/** `projection` (projectionOfFacts): the session's messages already folded;
+ *  without it they are read off `session.messages`. */
+export function _sessionSummary(session, projection = null) {
   if (!session?.id) return null;
-  const messageProjection = _sessionMessageProjection(session);
+  const messageProjection = projection ?? _sessionMessageProjection(session);
   return {
     id: String(session.id),
     updatedAt: _positiveNumber(session.updatedAt, Date.now()),
