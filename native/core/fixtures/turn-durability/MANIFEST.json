@@ -11,7 +11,7 @@
     "disk on the Rust side: the input row's meta.transcript checkpointId, device and completionVerb and its completion's checkpointId (stamps of Rust's turn/start, outside this change), and the cancel line's meta.turnEnd (the typed fact Node reads from the line's text)",
     "save-failure rows: the end row's messageId: in the process that ran the turn Node shows its live end row (turnDoneItem), which names no message; this view is the stored-transcript projection",
     "checkpoint: compared as present (null or not) and `sealed`, against the session's draft files beside its log; `turnMessages`, the count of the turn's messages the 1.4.5 checkpoint copies: Rust's draft keeps only what the log does not hold yet (the streamed text, the seal), the turn's messages being compared as view and disk",
-    "crash-queued-*, the input row's stamps: Node's `checkpointId` is Rust's `clientSubmissionId`; Rust's `turn/start` also stamps model, modelId and provider on the row and its stored transcript meta (rows and disk compared without them)",
+    "crash-queued-*, the stamps: Node's `checkpointId` is Rust's `clientSubmissionId`; Rust's rows and stored transcript meta also carry model, modelId and provider, which Node's TUI queue flow stamps on none (rows and disk compared without them)",
     "crash-queued-*, steps `queued` and `taken` (the owning process's live view): `busy` and `checkpoint` (Node's turn is busy with a checkpoint from its start; Rust's `runtime.busy` and draft file begin with the first streamed chunk: open, blocker-d.md) and `disk` at `taken` (Node's stored record lags the running turn, its checkpoint holding it; Rust's log holds it as it goes)",
     "crash-queued-while-take, steps `reopened` and `drained`: the second `assistant` row and message equal to an earlier one: Node's recovery of the request that took the queue appends the first answer again after the steered rows, its checkpoint re-played over a log that already held it; Rust shows it once",
     "killed step, `checkpoint` (crash-mid-stream) and `checkpointPresent` (crash-saved-uncleared): the draft file the dead process left, read by the parent from disk before the next open; at crash-saved-uncleared only its presence, as its seal and message count follow Node's async journal flush (two recordings differed)",
@@ -65,7 +65,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-durability.mjs",
-  "recorderSha256": "88b607ba8c53d393596a0b4405d21e3523ecd2e38ee6aa2f1d200cb6d9256462",
+  "recorderSha256": "1ba73a0cd5f594b0f1555c2298445b4f07926b7b69804d2294c2354a08b7a9fa",
   "set": "turn-durability",
   "totalBytes": 1324885
 }
