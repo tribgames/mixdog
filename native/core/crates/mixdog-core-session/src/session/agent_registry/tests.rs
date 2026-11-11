@@ -32,6 +32,8 @@ struct Store {
     dirs: Mutex<HashSet<String>>,
     /// The stored session records asked for.
     header_reads: std::sync::atomic::AtomicUsize,
+    /// Every row write.
+    written: tokio::sync::Notify,
 }
 
 #[async_trait]
@@ -64,6 +66,8 @@ impl WorkerStore for Store {
             (None, Some(m)) => maps.insert(0, (session.to_owned(), m)),
             (None, None) => {}
         }
+        drop(maps);
+        self.written.notify_waiters();
     }
 }
 
@@ -665,41 +669,90 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
 }
 
-/// The registry's clock on tokio's (paused) time: the deadline timer sleeps on the clock the rows are judged by.
-struct TokioClock(tokio::time::Instant);
-impl Clock for TokioClock {
+/// A virtual clock: it moves only when the test advances it, and a wait on it resolves at the advance that reaches it.
+struct Virtual(tokio::sync::watch::Sender<i64>);
+impl Virtual {
+    fn advance(&self, ms: i64) {
+        self.0.send_modify(|now| *now += ms);
+    }
+}
+impl Clock for Virtual {
     fn now_ms(&self) -> i64 {
-        NOW + self.0.elapsed().as_millis() as i64
+        *self.0.borrow()
+    }
+    fn until_ms(&self, at_ms: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        let mut now = self.0.subscribe();
+        Box::pin(async move {
+            let _ = now.wait_for(|now| *now >= at_ms).await;
+        })
     }
 }
 
-/// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs): a running row whose session is gone leaves
-/// the index as a tombstone when its reap deadline comes, with no agent call, status read or other event after the one
-/// that showed the timer the rows (a refresh arms it again).
-#[tokio::test(start_paused = true)]
-async fn a_rows_reap_deadline_tombstones_it_with_no_event() {
+/// Resolves once `done` holds, re-checked at every row write; fails at the deadline naming `what`.
+async fn until_written(store: &Store, what: &str, done: impl Fn() -> bool) {
+    let wait = async {
+        loop {
+            let written = store.written.notified();
+            tokio::pin!(written);
+            written.as_mut().enable();
+            if done() {
+                return;
+            }
+            written.await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
+}
+
+/// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs), on the registry's clock: a running row whose
+/// session is gone leaves the index as a tombstone when the clock reaches its reap deadline, with no agent call, status read
+/// or other event; a row already past its deadline when the timer starts (the core was down) is reaped at once (Node's first
+/// pass looks at every deadline after 0); a row that became active again before its deadline is reaped at its new one.
+#[tokio::test]
+async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event() {
     let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
     let stamped = |due_in: i64| at(NOW - HOUR + due_in);
     let running = |id: &str, tag: &str, due_in: i64| worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }));
+    rig.store.write("s-overdue", Some(running("s-overdue", "overdue", -60_000)));
     rig.store.write("s-late", Some(running("s-late", "late", 60_000)));
     rig.store.write("s-early", Some(running("s-early", "early", 10_000)));
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), Arc::new(TokioClock(tokio::time::Instant::now()))));
-    // The timer starts before the index is loaded: it knows no row yet.
-    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    rig.store.write("s-active", Some(running("s-active", "active", 20_000)));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
     let reaped = |id: &str| rig.store.map(id).is_some_and(|map| map.contains_key("tombstone"));
+    // The index is loaded (the boot's first read), then the timer starts.
+    registry.refresh_tags_from_sessions(false, &lead("lead-b")).await;
+    assert!(!reaped("s-overdue"), "another lead's read reaps nothing");
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    until_written(&rig.store, "the row that came due while the core was down", || reaped("s-overdue")).await;
+    assert!(!reaped("s-early") && !reaped("s-late") && !reaped("s-active"), "nothing else is due yet");
 
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    registry.refresh_tags_from_sessions(false, &lead("lead-a")).await;
-    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-    assert!(!reaped("s-early") && !reaped("s-late"), "nothing is due yet");
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    assert!(reaped("s-early"), "the early row is a tombstone at its deadline");
-    assert!(!reaped("s-late"), "the late row is not due yet");
-    tokio::time::sleep(std::time::Duration::from_secs(50)).await;
-    assert!(reaped("s-late"), "the late row is a tombstone at its deadline");
+    // `s-active` works again 5 s in: its stamps move, and its deadline with them.
+    clock.advance(5_000);
+    {
+        let mut st = registry.lock();
+        let mut active = st.map("s-active").cloned().expect("the active row");
+        active.insert("updatedAt".into(), json!(at(NOW + 5_000)));
+        registry.persist(&mut st, "s-active", Some(active));
+    }
+    clock.advance(4_999);
+    assert!(!reaped("s-early"), "not before its deadline");
+    clock.advance(1);
+    until_written(&rig.store, "the early row's tombstone at its deadline", || reaped("s-early")).await;
+    assert!(!reaped("s-late") && !reaped("s-active"), "the others are not due yet");
+    clock.advance(10_000);
+    assert!(!reaped("s-active"), "its old deadline has passed, its new one (an hour after it worked) has not");
+    clock.advance(40_000);
+    until_written(&rig.store, "the late row's tombstone at its deadline", || reaped("s-late")).await;
+    assert!(!reaped("s-active"), "the active row is not due yet");
+    // Now NOW + 60 s; its new deadline is NOW + 5 s + the reap window.
+    clock.advance(HOUR - 55_001);
+    assert!(!reaped("s-active"), "not before its new deadline");
+    clock.advance(1);
+    until_written(&rig.store, "the active row's tombstone at its new deadline", || reaped("s-active")).await;
     drop(registry);
-    tokio::time::sleep(std::time::Duration::from_secs(3_601)).await;
-    assert!(timer.is_finished(), "the timer ends with its registry");
+    clock.advance(HOUR);
+    tokio::time::timeout(std::time::Duration::from_secs(10), timer).await.expect("the timer ends with its registry").unwrap();
 }
 
 /// A settled row past its retention and its continuation window becomes a tombstone when the

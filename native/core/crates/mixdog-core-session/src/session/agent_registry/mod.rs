@@ -459,13 +459,17 @@ impl AgentRegistry {
     /// alone after the last pass began, so a row past its reap deadline leaves the index then, not at the next agent
     /// event. A deadline crossed while a pass ran starts the next pass at once; one due before the pass began was looked at
     /// by it. Every refresh and row write arms the timer again. Ends once the registry is gone.
+    /// The timer waits on the registry's own clock (`Clock::until_ms`), the clock the rows' deadlines are read on.
     pub async fn keep_deadlines(registry: std::sync::Weak<Self>) {
         // Node re-arms a deadline past setTimeout's largest delay when it fires; this looks at the registry again.
-        const LONGEST_WAIT: std::time::Duration = std::time::Duration::from_secs(3_600);
+        const LONGEST_WAIT_MS: f64 = 3_600_000.0;
         let Some(first) = registry.upgrade() else { return };
         let rearm = first.rearm.clone();
-        let mut since = first.now();
+        let clock = first.clock.clone();
         drop(first);
+        // Node's first pass looks at every deadline after 0 (`lastPassStart` starts at 0): a row that came due while the
+        // core was down is reaped at once.
+        let mut since = 0.0;
         loop {
             let rearmed = rearm.notified();
             tokio::pin!(rearmed);
@@ -478,9 +482,9 @@ impl AgentRegistry {
                 continue;
             }
             drop(this);
-            let wait = if next.is_finite() { std::time::Duration::from_millis((next - now).ceil() as u64).min(LONGEST_WAIT) } else { LONGEST_WAIT };
+            let at = next.min(now + LONGEST_WAIT_MS).ceil() as i64;
             tokio::select! {
-                () = tokio::time::sleep(wait) => {}
+                () = clock.until_ms(at) => {}
                 () = &mut rearmed => {}
             }
         }
