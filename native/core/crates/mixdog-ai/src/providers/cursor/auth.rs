@@ -144,8 +144,9 @@ pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTo
                 method: "POST".to_owned(),
                 url: EXCHANGE_URL.to_owned(),
                 headers: vec![
-                    ("authorization".to_owned(), format!("Bearer {token}")),
-                    ("content-type".to_owned(), "application/json".to_owned()),
+                    // As the caller's `fetch` spells them (cursor-auth.mjs `exchangeCursorToken`).
+                    ("Authorization".to_owned(), format!("Bearer {token}")),
+                    ("Content-Type".to_owned(), "application/json".to_owned()),
                 ],
                 body: b"{}".to_vec(),
             },

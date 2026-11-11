@@ -59,6 +59,26 @@ impl Environment for CaseEnv {
     }
 }
 
+/// The two links of the world: an HTTP/2 request (Cursor's unary calls) rides the h2c link, every other request the Node-equal one.
+struct ByTransport {
+    http1: Arc<dyn mixdog_ai::transport::HttpSend>,
+    http2: Arc<dyn mixdog_ai::transport::HttpSend>,
+}
+
+#[async_trait]
+impl mixdog_ai::transport::HttpSend for ByTransport {
+    async fn send(
+        &self,
+        request: mixdog_core_api::domain::provider::WireRequest,
+        exchange: mixdog_ai::transport::Exchange,
+    ) -> Result<mixdog_ai::transport::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        match request.transport {
+            mixdog_core_api::domain::keepalive::TransportKind::Http2 => self.http2.send(request, exchange).await,
+            _ => self.http1.send(request, exchange).await,
+        }
+    }
+}
+
 /// The OAuth pacing on the paused test clock.
 struct PausedPace;
 
@@ -183,6 +203,10 @@ pub async fn builder_versioned(
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let env: Arc<dyn Environment> = Arc::new(CaseEnv(env));
     let link = Arc::new(endpoint.link(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).expect("the production link")));
+    // Cursor's Connect run and its unary calls go over HTTP/2: the recorders' stand-in for `node:http2` reached an h2c hub, so the
+    // link of a stream and of an HTTP/2 request speaks HTTP/2 with prior knowledge to the endpoint's h2c listener.
+    let h2 = Arc::new(endpoint.link(ReqwestLink::new(&KeepaliveSchedule::SPEC, true).expect("the production h2 link")));
+    let by_transport = Arc::new(ByTransport { http1: link.clone(), http2: h2.clone() });
     // The product's Anthropic caps over an empty catalog, as the recorders ran: Node's release-generation floor.
     let metadata = ModelsDevSource::new(link.clone(), home.join("catalog"), io);
     // The models.dev disk copy a case recorded as its input (none for the others), as the product's boot reads it.
@@ -190,9 +214,10 @@ pub async fn builder_versioned(
     let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
     let traits_of = catalog.clone();
     let versions = versioned.then(|| mixdog_ai::client_versions::ClientVersions::new(link.clone(), home.to_path_buf(), io, env.clone()));
+    let cursor_client_version = versions.as_ref().map(|v| v.cursor_live());
     DefaultProviderBuilder::new(BuilderEnv {
-        http: link.clone(),
-        bidi: link,
+        http: by_transport,
+        bidi: h2,
         dial: Arc::new(endpoint.dialer(KeepaliveSchedule::SPEC)),
         keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
         accounts: AccountStore::new(home.to_path_buf(), io),
@@ -214,7 +239,7 @@ pub async fn builder_versioned(
         antigravity_client_version: versions.as_ref().map_or_else(|| "".into(), |v| v.antigravity_live()),
         client_versions: versions,
         grok_client_version: None,
-        cursor_client_version: None,
+        cursor_client_version,
         listing: ListingLookup::new(),
         env,
         home_dir: home.to_path_buf(),

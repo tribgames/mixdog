@@ -199,7 +199,8 @@ pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
     let shared = BuilderShared { http: link.clone(), versions: versions.clone(), identity: identity.clone() };
     let built = BuilderEnv {
         http: link.clone(),
-        bidi: link,
+        // A request stream needs an `http2_only` link (the Node-equal client refuses it): Cursor's Connect run.
+        bidi: Arc::new(ReqwestLink::routed(&schedule, true, p.network.clone())),
         dial: Arc::new(KeepaliveDialer::routed(schedule, p.network.clone())),
         keys: ApiKeyStore::new(p.vault.clone(), p.env.clone(), client),
         accounts: AccountStore::new(p.plugin_data.clone(), io).remote_client(client),

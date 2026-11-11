@@ -4098,6 +4098,393 @@
           }
         }
       ]
+    },
+    {
+      "id": "cursor-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs:119",
+      "input": {
+        "provider": "cursor-oauth",
+        "credentials": {
+          "cursor-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000
+          }
+        },
+        "env": {
+          "MIXDOG_CURSOR_CLIENT_VERSION": "cli-2026.11.01-0123456"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Cursor request failed (400)",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "date": "Thu, 01 Jan 2026 00:00:00 GMT",
+              "content-type": "application/proto"
+            },
+            "response": {
+              "status": 400,
+              "headers": {
+                "date": "Thu, 01 Jan 2026 00:00:00 GMT",
+                "content-type": "application/proto"
+              }
+            },
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 6,
+              "waitMs": 2000,
+              "retryAt": 1794225627211,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 2/6 in 2s"
+            }
+          },
+          {
+            "stage": "streaming"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          1,
+          3
+        ],
+        "draws": {
+          "first": 19,
+          "count": 1,
+          "uuidFirst": 5,
+          "uuidCount": 5
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/cursor.mjs.CursorOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/cursor.mjs.CursorOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "fixture-model",
+            [],
+            {
+              "sessionId": "fixture-session",
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 25211,
+          "fired": [
+            {
+              "dueMs": 27211
+            }
+          ],
+          "toMs": 27211
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/aiserver.v1.AiService/AvailableModels",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/aiserver.v1.AiService/AvailableModels"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "84538130-fc1f-4399-884c-428d489c3690"
+            ]
+          ],
+          "body": "\u0010\u0001(\u00010\u00008\u0000@\u0000",
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "EiUKDWZpeHR1cmUtbW9kZWwoAXjAmgyKAQ1GaXh0dXJlIE1vZGVsWAE="
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/agent.v1.AgentService/Run",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/agent.v1.AgentService/Run"
+            ],
+            [
+              "content-type",
+              "application/connect+proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "f0814a8b-776f-4f1b-89c1-1af8b005c872"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ]
+          ],
+          "body": "\u0000\u0000\u0000\u0000q\no\n\u0000\u00122\n0\n,\n\u0002hi\u0012$728edffa-1442-4650-8c29-7695d6161852\u001a\u0000\u0012\u0000*$ae863df9-23f8-48bf-9b16-0c0bc0e9cfc1J\u0011\n\rfixture-model\u0010\u0000",
+          "reply": {
+            "status": 503,
+            "contentType": "application/proto",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": ""
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/auth/exchange_user_api_key",
+          "headers": [
+            [
+              "host",
+              "api2.cursor.sh"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-refresh-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"accessToken\":\"fixture-exchanged-token-1\",\"refreshToken\":\"fixture-refresh-token-2\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/agent.v1.AgentService/Run",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/agent.v1.AgentService/Run"
+            ],
+            [
+              "content-type",
+              "application/connect+proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-exchanged-token-1"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "00dcc167-129a-4d4a-8d6a-70b02f1d6d75"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ]
+          ],
+          "body": "\u0000\u0000\u0000\u0000q\no\n\u0000\u00122\n0\n,\n\u0002hi\u0012$728edffa-1442-4650-8c29-7695d6161852\u001a\u0000\u0012\u0000*$ae863df9-23f8-48bf-9b16-0c0bc0e9cfc1J\u0011\n\rfixture-model\u0010\u0000",
+          "reply": {
+            "status": 400,
+            "contentType": "application/proto",
+            "body": ""
+          }
+        }
+      ]
     }
   ]
 }

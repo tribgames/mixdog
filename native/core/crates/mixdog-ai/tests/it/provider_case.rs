@@ -958,6 +958,8 @@ struct State {
     bodies: Vec<Body>,
     /// The sends through the link that failed (a connection fault among them).
     failed: usize,
+    /// The arrivals (by index) whose HTTP/2 stream the client has ended or reset.
+    closed: std::collections::HashSet<usize>,
 }
 
 /// What the product did with one response body: reads begun, whether a read returned its end (or fault), whether it
@@ -1167,6 +1169,11 @@ impl Endpoint {
     /// The sends through the link that failed so far.
     pub fn failed(&self) -> usize {
         self.inner.state.lock().unwrap().failed
+    }
+
+    /// Whether the client has ended or reset the HTTP/2 stream of the k-th arrival.
+    pub fn stream_closed(&self, k: usize) -> bool {
+        self.inner.state.lock().unwrap().closed.contains(&k)
     }
 
     /// What the product did with the k-th response body its link returned (none yet: the default).
@@ -1434,8 +1441,128 @@ async fn read_body(socket: &mut TcpStream, buf: &mut Vec<u8>, head: &Head) -> Op
     Some(buf.drain(..length).collect())
 }
 
-/// One TCP connection: HTTP/1.1 requests answered from the script, or a WebSocket upgrade.
+/// One HTTP/2 connection in clear text (a client with prior knowledge: the HTTP/2 twin of the recorders' h2c hub,
+/// `lib/h2-world.mjs`): each stream is answered from the script like an HTTP/1 request.
+async fn h2_connection(inner: Arc<Inner>, socket: TcpStream) {
+    let Ok(mut connection) = h2::server::handshake(socket).await else { return };
+    while let Some(Ok((request, respond))) = connection.accept().await {
+        tokio::spawn(h2_stream(inner.clone(), request, respond));
+    }
+}
+
+/// One stream, as the hub records it: the pseudo-headers first (`:method`, `:scheme`, `:authority`, `:path`: the scheme and
+/// authority of the origin the product addressed, the order the recorder writes them in), then every header in arrival order
+/// but the redirect's own; the body of a Connect stream is its first frame once whole, any other body whole.
+async fn h2_stream(
+    inner: Arc<Inner>,
+    request: tokio_tungstenite::tungstenite::http::Request<h2::RecvStream>,
+    mut respond: h2::server::SendResponse<bytes::Bytes>,
+) {
+    let (parts, mut body) = request.into_parts();
+    let origin = parts.headers.get(ORIGIN_HEADER).expect("the redirect names the origin").to_str().expect("an origin").to_owned();
+    let addressed = url::Url::parse(&origin).expect("an origin URL");
+    let host = match addressed.port() {
+        Some(port) => format!("{}:{port}", addressed.host_str().expect("a host")),
+        None => addressed.host_str().expect("a host").to_owned(),
+    };
+    let path = parts.uri.path_and_query().map_or("/", |p| p.as_str()).to_owned();
+    let mut headers = vec![
+        (":method".to_owned(), parts.method.as_str().to_owned()),
+        (":scheme".to_owned(), addressed.scheme().to_owned()),
+        (":authority".to_owned(), host),
+        (":path".to_owned(), path.clone()),
+    ];
+    for (name, value) in &parts.headers {
+        // Declared (manifest exclusion on HTTP/2 streams): reqwest's client adds `accept: */*` and the `content-length` of a
+        // whole body, and Node's `node:http2` adds no header of its own; those two are left out of the arrival.
+        let library_default = (name.as_str() == "accept" && value.as_bytes() == b"*/*") || name.as_str() == "content-length";
+        if name.as_str() != ORIGIN_HEADER && !library_default {
+            headers.push((name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()));
+        }
+    }
+    const CONNECT: &[u8] = b"application/connect+proto";
+    let connect = parts.headers.get("content-type").is_some_and(|v| v.as_bytes().windows(CONNECT.len()).any(|w| w == CONNECT));
+    let mut raw = Vec::new();
+    let mut whole = false;
+    while let Some(Ok(chunk)) = body.data().await {
+        let n = chunk.len();
+        raw.extend_from_slice(&chunk);
+        let _ = body.flow_control().release_capacity(n);
+        if connect && raw.len() >= 5 {
+            let frame = 5 + u32::from_be_bytes(raw[1..5].try_into().expect("4 bytes")) as usize;
+            if raw.len() >= frame {
+                raw.truncate(frame);
+                whole = true;
+                break;
+            }
+        }
+    }
+    let arrival = obj(vec![
+        ("method", text(parts.method.as_str())),
+        ("origin", text(origin)),
+        ("path", text(path)),
+        ("headers", Exact::Array(headers.into_iter().map(|(name, value)| Exact::Array(vec![text(name), text(value)])).collect())),
+        ("body", body_of(raw)),
+    ]);
+    let (index, reply) = {
+        let mut state = inner.state.lock().unwrap();
+        state.arrivals.push(arrival);
+        let index = state.arrivals.len() - 1;
+        (index, state.replies.get(index).cloned())
+    };
+    inner.bump();
+    // The rest of the request body (a run's heartbeats) is read and dropped: the stream is closed once the client ends or resets it.
+    let watching = inner.clone();
+    tokio::spawn(async move {
+        if whole {
+            while let Some(Ok(chunk)) = body.data().await {
+                let _ = body.flow_control().release_capacity(chunk.len());
+            }
+        }
+        watching.state.lock().unwrap().closed.insert(index);
+        watching.bump();
+    });
+    let reply = reply.unwrap_or_else(|| {
+        obj(vec![
+            ("status", Exact::Number(404.0)),
+            ("contentType", text("application/json")),
+            ("body", text(r#"{"error":{"message":"not scripted"}}"#)),
+        ])
+    });
+    for key in ["hold", "destroy", "later", "reset"] {
+        assert!(reply.try_get(key).is_none(), "the h2 hub does not serve a reply's `{key}`");
+    }
+    let status = reply.try_get("status").map_or(200, |s| s.as_f64() as u16);
+    // The recorder's hub writes `date` first, then `content-type` and the reply's headers.
+    let mut response = tokio_tungstenite::tungstenite::http::Response::builder()
+        .status(status)
+        .header("date", "Thu, 01 Jan 2026 00:00:00 GMT")
+        .header("content-type", reply.try_get("contentType").map_or("application/connect+proto", |c| c.as_str()));
+    if let Some(extra) = reply.try_get("headers") {
+        for (name, value) in extra.entries() {
+            response = response.header(name.as_str(), value.as_str());
+        }
+    }
+    let chunks: Vec<Vec<u8>> = match reply.try_get("chunks") {
+        Some(chunks) => chunks.as_array().iter().map(bytes_of).collect(),
+        None => reply.try_get("body").map(bytes_of).filter(|b| !b.is_empty()).into_iter().collect(),
+    };
+    let Ok(mut send) = respond.send_response(response.body(()).expect("a response head"), chunks.is_empty()) else { return };
+    for chunk in chunks {
+        if send.send_data(bytes::Bytes::from(chunk), false).is_err() {
+            return;
+        }
+    }
+    let _ = send.send_data(bytes::Bytes::new(), true);
+}
+
+/// One TCP connection: HTTP/1.1 requests answered from the script, a WebSocket upgrade, or HTTP/2 (the client's preface).
 async fn connection(inner: Arc<Inner>, mut socket: TcpStream) {
+    let mut preface = [0u8; 3];
+    if matches!(socket.peek(&mut preface).await, Ok(3)) && &preface == b"PRI" {
+        h2_connection(inner, socket).await;
+        return;
+    }
     let port = socket.peer_addr().map(|a| a.port()).unwrap_or_default();
     let mut buf = Vec::new();
     while let Some(head) = read_head(&mut socket, &mut buf).await {

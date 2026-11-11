@@ -277,7 +277,9 @@ pub struct ReqwestLink {
 fn link_builder(schedule: &KeepaliveSchedule, http2_only: bool) -> reqwest::ClientBuilder {
     let mut builder = client_builder(schedule).redirect(reqwest::redirect::Policy::none());
     if http2_only {
-        builder = builder.http2_prior_knowledge();
+        // Connect streams carry their own framing and `node:http2` offers no `accept-encoding`: the client asks for no
+        // compression and decodes none.
+        builder = builder.http2_prior_knowledge().no_gzip().no_brotli().no_deflate();
     }
     builder
 }

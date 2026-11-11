@@ -8,10 +8,11 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider('xai', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: 'api-key', apiKey } or { authMode: 'adc', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case's input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.",
+  "entry": "anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider('xai', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: 'api-key', apiKey } or { authMode: 'adc', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and cursor.mjs CursorOAuthProvider({}) (over node:http2, against the world's h2c hub) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case's input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.",
   "exclusions": [
     "`draws` is not compared: the recorder's count of its own seeded `Math.random` stream before the send and during it (`Math.random` wrapped right after `startRecording`), not an output of the product; the replay reads it to find the retry jitter sample among the SDK clients' draws, and the sample is compared through the recorded wait",
     "`attemptRequests` is not compared: the recorder's own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed",
+    "The Cursor case's HTTP/2 streams are recorded by the world's h2c hub (lib/h2-world.mjs): `:authority` is written as the host and `:scheme` as the scheme of the origin the product addressed (the loopback address and clear text are the world's), the pseudo-headers in the order :method, :scheme, :authority, :path (the client library's choice, not the product's), and the body of the Run stream is its first Connect frame (later frames - heartbeats - are not part of the arrival). Replay side: the Rust h2 client (reqwest) adds `accept: */*` to every request and the `content-length` of a whole body, and `node:http2` adds no header of its own, so the replay's h2 listener leaves those two headers out of the arrival",
     "`requesting and streaming stages` is not compared: the core raises them from its run loop around the whole send (mixdog-agent/src/send.rs:460, `RunEvent::Stage`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder's `reconnecting` stage, compared whole and in order",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -20,9 +21,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 111545,
+      "bytes": 121777,
       "path": "cases.json",
-      "sha256": "e484431cf261194ad58a4a51a6ec75a801d0f82dc6a954b5fe18c140693d9ee7"
+      "sha256": "5af430e42342f095b088b9434504b92b7aadff6231482fa37680515f4d95bd7b"
     }
   ],
   "inputs": [
@@ -39,6 +40,10 @@
       "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/h2-world.mjs",
+      "sha256": "ff5314bd38892469a101aeda1f07abf9ec59b668b66fbf2371bb682c49c13022"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
@@ -49,6 +54,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
       "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/world-http2.mjs",
+      "sha256": "3c60c5e19e285a4337b23c17283e7ee0888442153bf302d9ed39513e7ca55d03"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -111,6 +120,10 @@
     {
       "id": "devin-surfaces-the-first-failure",
       "level": "wire"
+    },
+    {
+      "id": "cursor-raises-the-stage",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -132,12 +145,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "1ee33f41bb48d9a27ca8a982a5c62145571e42421102e15444b4637b6868cd7c",
+  "recorderSha256": "2f7d3288bf2769948f10c28361fccd1f84f1c8c220317ec1e311e0ece403e417",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 111545,
+  "totalBytes": 121777,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
