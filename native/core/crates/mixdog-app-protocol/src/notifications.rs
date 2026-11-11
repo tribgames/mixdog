@@ -136,6 +136,7 @@ crate::notification_definitions! {
     ThreadSnapshot => "thread/snapshot" (ThreadSnapshotParams) @thread,
     ThreadClosed => "thread/closed" (ThreadIdParams) @thread,
     ThreadStatusChanged => "thread/status/changed" (ThreadStatusChangedParams) @thread,
+    ThreadStageUpdated => "thread/stage/updated" (ThreadStageUpdatedParams) @thread,
     ThreadNameUpdated => "thread/name/updated" (ThreadNameUpdatedParams) @thread,
     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (TokenUsageUpdatedParams) @thread,
     ThreadGoalUpdated => "thread/goal/updated" (ThreadValueParams) @thread,
@@ -348,6 +349,10 @@ pub enum ClientNotification {
     #[serde(rename = "ui/screenSessions/changed")]
     #[cfg_attr(feature = "codegen", ts(rename = "ui/screenSessions/changed"))]
     UiScreenSessionsChanged(crate::v2::host::UiScreenSessionsChangedParams),
+    /// A paired phone's account of a slow reconnect, for the core's log.
+    #[serde(rename = "remote/connectionTimeline")]
+    #[cfg_attr(feature = "codegen", ts(rename = "remote/connectionTimeline"))]
+    RemoteConnectionTimeline(crate::v2::host::RemoteConnectionTimelineParams),
 }
 
 pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
@@ -444,6 +449,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "ui/screenSessions/changed",
         params: "UiScreenSessionsChangedParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "remote/connectionTimeline",
+        params: "RemoteConnectionTimelineParams",
         delivery: None,
     },
 ];
