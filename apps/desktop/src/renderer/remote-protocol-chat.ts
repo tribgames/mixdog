@@ -80,6 +80,8 @@ export interface ChatShared {
   whenFolded(threadId: string, resume: () => Promise<unknown>): Promise<void>;
   /** Resolves once the core no longer asks request `id` of this connection (`serverRequest/resolved`, or the socket's end). */
   whenSettled(id: string): Promise<void>;
+  /** The pending server request whose card shows `cardId`; an id no card shows is passed on as it is. */
+  approvalRequestId(cardId: string): string;
   /** `remoteToolOutput` (main/remote-transcript.ts) over a folded state. */
   remoteToolOutput(
     state: unknown,
@@ -134,7 +136,9 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
 
   // Node's host answered once the daemon had resolved the approval (session-host resolveToolApproval awaits the daemon's reply), so a
   // second answer to it found it settled: an answer here is over when the core has resolved the request it answered.
-  const resolveApproval = async (sessionId: string, id: string, decision: Record<string, unknown>): Promise<boolean> => {
+  const resolveApproval = async (sessionId: string, cardId: string, decision: Record<string, unknown>): Promise<boolean> => {
+    // The phone names the approval by its card's id (room_approval.rs `card_id`); the core answers the request that carries it.
+    const id = shared.approvalRequestId(cardId);
     const settled = shared.whenSettled(id);
     const answered = await lane.resolveToolApproval(sessionId, id, decision);
     if (answered) await settled;
@@ -598,6 +602,13 @@ const sharedFor = (scoped: ChatClient): ChatHostShared => {
           resolve();
         });
       }),
+    approvalRequestId: (cardId) => {
+      const asked = client.pendingServerRequests().find((r) => {
+        const card = (r.params as { card?: { id?: unknown } } | undefined)?.card;
+        return card?.id === cardId;
+      });
+      return asked ? String(asked.id) : cardId;
+    },
     remoteToolOutput,
     // The client's own fold of thread items into transcript rows (`rowOf`, then `mergeToolRows`).
     foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item as never)).filter((row) => row !== null)),

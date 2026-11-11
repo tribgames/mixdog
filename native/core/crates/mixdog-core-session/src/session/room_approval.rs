@@ -357,6 +357,21 @@ pub fn hook_request(request: &ApprovalRequest) -> Obj {
     Obj::new()
 }
 
+/// The id the phone's card and its result show for approval `aid` (the server request's id). Node's card took the session's next
+/// row id (`requestToolApproval`: `const id = nextId()`, tool-approval.mjs:224), so its card's id is row-shaped and drawn before
+/// the call's row; the core's is derived from the approval, so the card, its `toolApprovalResult` and an answer name the same one
+/// without a table.
+pub fn card_id(aid: &str) -> String {
+    use std::hash::Hash;
+    use std::hash::Hasher;
+    let half = |salt: u8| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (salt, "approval-card", aid).hash(&mut hasher);
+        hasher.finish()
+    };
+    format!("itm_{:016x}{:016x}", half(0), half(1))
+}
+
 /// Node's `state.toolApproval` for the request the session shows: [`hook_request`] presented
 /// as the queue does, its id the server request's.
 pub fn tool_approval(request: &ApprovalRequest) -> Value {

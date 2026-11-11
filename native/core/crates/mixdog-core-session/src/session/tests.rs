@@ -559,7 +559,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
         .expect("result");
     assert_eq!(
         serde_json::to_value(result).unwrap(),
-        json!({ "id": published.id.as_str(), "approved": true, "device": "desktop-8", "at": 1000 })
+        json!({ "id": crate::session::room_approval::card_id(published.id.as_str()), "approved": true, "device": "desktop-8", "at": 1000 })
     );
 }
 

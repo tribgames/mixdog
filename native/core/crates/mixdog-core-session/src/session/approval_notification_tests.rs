@@ -56,7 +56,8 @@ async fn answer(directory: &SessionDirectory, thread: &str, approval: &str, acti
 async fn answer_from(directory: &SessionDirectory, phone: ConnectionId, thread: &str, approval: &str, action: &str) -> Value {
     let request = CoreRequest {
         method: Method("thread/approval/answerNotification"),
-        params: json!({ "threadId": thread, "approvalId": approval, "action": action }),
+        // A notification names the approval by the id its card shows.
+        params: json!({ "threadId": thread, "approvalId": crate::session::room_approval::card_id(approval), "action": action }),
         op: None,
         ctx: CallContext::connection(phone, Origin::Relay, Default::default()),
     };
