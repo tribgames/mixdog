@@ -14,9 +14,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 366158,
+      "bytes": 557582,
       "path": "golden.json",
-      "sha256": "23b0b155565a7367337bbc62064cbb0545b1afc84667257fe42ad1427dcac0ef"
+      "sha256": "c406794eca8e0dd7590766c96118ec998561cd61a748ab9e9f7b8cead7873c9c"
     }
   ],
   "inputs": [
@@ -76,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "64cacf43ce5127bef86b49282562b3c30d603f5cf009beb718e5435732ff509f",
+  "recorderSha256": "b7684fc7d331b5e4ba985a9cafba7de0c91e3869e208a126d9443c113ce93dd9",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
     "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",
@@ -98,6 +98,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "model-proxy-host-trust-cases",
-  "totalBytes": 366158,
+  "totalBytes": 557582,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
