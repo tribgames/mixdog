@@ -9,7 +9,9 @@
           "input": {
             "scope": "common",
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "project_id IS NULL",
@@ -20,7 +22,9 @@
           "input": {
             "scope": "all",
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "",
@@ -30,10 +34,12 @@
         {
           "input": {
             "scope": {
-              "$undefined": true
+              "$exact": "undefined"
             },
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "",
@@ -59,7 +65,9 @@
           "input": {
             "scope": "mixdog",
             "next": 1,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "(project_id IS NULL OR project_id = $1)",
@@ -87,7 +95,9 @@
           "input": {
             "scope": null,
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "",
@@ -98,7 +108,9 @@
           "input": {
             "scope": "",
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "",
@@ -109,7 +121,9 @@
           "input": {
             "scope": 0,
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "",
@@ -120,7 +134,9 @@
           "input": {
             "scope": "COMMON",
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "(project_id IS NULL OR project_id = $3)",
@@ -133,7 +149,9 @@
           "input": {
             "scope": "ALL",
             "next": 3,
-            "options": null
+            "options": {
+              "$exact": "undefined"
+            }
           },
           "result": {
             "clause": "(project_id IS NULL OR project_id = $3)",
@@ -203,14 +221,30 @@
       "probes": [
         {
           "label": "number 7 at $3",
-          "clause": "(project_id IS NULL OR project_id = $3)",
-          "paramCount": 1,
+          "scope": 7,
+          "next": 3,
+          "result": {
+            "clause": "(project_id IS NULL OR project_id = $3)",
+            "params": [
+              7
+            ]
+          },
           "boundParamIsTheScopeItself": true
         },
         {
           "label": "object at $4",
-          "clause": "(project_id IS NULL OR project_id = $4)",
-          "paramCount": 1,
+          "scope": {
+            "id": 42
+          },
+          "next": 4,
+          "result": {
+            "clause": "(project_id IS NULL OR project_id = $4)",
+            "params": [
+              {
+                "id": 42
+              }
+            ]
+          },
           "boundParamIsTheScopeItself": true
         }
       ]

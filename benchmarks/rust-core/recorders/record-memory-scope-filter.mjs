@@ -12,7 +12,7 @@ const ctx = begin();
 const { appendProjectScopeClause, projectScopePredicate } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory-recall-scope-filter.mjs');
 const objectScope = { id: 42 };
 
-const predicate = async (scope, next, options) => ({ input: { scope: exact(scope), next, options: options ?? null }, ...(await capture(() => projectScopePredicate(scope, next, options))) });
+const predicate = async (scope, next, options) => ({ input: { scope: exact(scope), next, options }, ...(await capture(() => projectScopePredicate(scope, next, options))) });
 const shapes = [];
 for (const [scope, next, options] of [
   ['common', 3], ['all', 3], [undefined, 3], ['mixdog', 5, { column: 'e.project_id' }], ['mixdog', 1], ['mixdog', 12, { column: 'x.pid' }],
@@ -40,7 +40,7 @@ const appendCases = [];
 const typing = [];
 for (const [label, scope, next] of [['number 7 at $3', 7, 3], ['object at $4', objectScope, 4]]) {
   const out = await capture(() => projectScopePredicate(scope, next));
-  typing.push({ label, clause: out.result?.clause ?? null, paramCount: out.result?.params?.length ?? null, boundParamIsTheScopeItself: out.result ? scope === (label.startsWith('object') ? objectScope : 7) && projectScopePredicate(scope, next).params[0] === scope : null });
+  typing.push({ label, scope: exact(scope), next, ...out, boundParamIsTheScopeItself: out.result ? scope === (label.startsWith('object') ? objectScope : 7) && projectScopePredicate(scope, next).params[0] === scope : null });
 }
 
 finish(ctx, {
@@ -57,7 +57,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'projectScopePredicate and appendProjectScopeClause (memory-recall-scope-filter.mjs)', notRun: 'the queries that embed the clause (hybrid SQL, browse): other test files' },
-    replay: 'mixdog-services memory: mem/recall/filters.rs project_scope_predicate and append_project_scope; compares clause text and bound params in order for cases 1 and 2. Case 3 is not replayable (typed Option<&str>): listed, not recorded for replay',
+    replay: "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35); the projectScope argument is read by recall/plan.rs:95 and reaches it through the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
     exclusions: 'case 3 (truthy non-string scopes): JS-only typing, recorded as Node behaves; the recording holds the clause and param count',
     normalised: { none: 'no run-dependent value' },
   },
