@@ -1,6 +1,7 @@
 {
   "set": "provider-opencode-go-gemini",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "gemini-to-generateContent-with-go-key",
@@ -17,6 +18,12 @@
         "result": {
           "content": "ok",
           "model": "gemini-4-argon-contributor",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "gemini",
@@ -28,6 +35,12 @@
             "requestContext": {
               "model": "gemini-4-argon-contributor"
             }
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "providerState": {
+            "$exact": "undefined"
           },
           "usage": {
             "inputTokens": 7,
@@ -42,25 +55,101 @@
           }
         }
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider",
+          "args": [
+            {
+              "apiKey": "go-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider#resolveWireRoute",
+          "args": [
+            "gemini-4-argon-contributor",
+            {
+              "agent": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "be brief"
+              },
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-4-argon-contributor",
+            [],
+            {
+              "sessionId": "s1"
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://opencode.ai",
           "path": "/inference/go/v1/models/gemini-4-argon-contributor:streamGenerateContent?alt=sse",
-          "headers": {
-            "host": "opencode.ai",
-            "connection": "keep-alive",
-            "content-type": "application/json",
-            "authorization": "Bearer go-key",
-            "x-goog-api-key": "go-key",
-            "user-agent": "mixdog",
-            "x-opencode-session": "s1",
-            "accept": "*/*",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "169"
-          },
+          "headers": [
+            [
+              "host",
+              "opencode.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer go-key"
+            ],
+            [
+              "x-goog-api-key",
+              "go-key"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "x-opencode-session",
+              "s1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "169"
+            ]
+          ],
           "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"be brief\"}]},\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
           "reply": {
             "status": 200,
@@ -80,6 +169,12 @@
         "result": {
           "content": "ok",
           "model": "gemini-4-argon",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "gemini",
@@ -91,28 +186,101 @@
             "requestContext": {
               "model": "gemini-4-argon"
             }
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "providerState": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
           }
         }
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider",
+          "args": [
+            {
+              "apiKey": "tok",
+              "preconnect": false,
+              "baseURL": "https://opencode.ai/inference/go/openai/v1"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-4-argon",
+            [],
+            {
+              "sessionId": "s1"
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://opencode.ai",
           "path": "/inference/go/v1/models/gemini-4-argon:streamGenerateContent?alt=sse",
-          "headers": {
-            "host": "opencode.ai",
-            "connection": "keep-alive",
-            "content-type": "application/json",
-            "authorization": "Bearer tok",
-            "x-goog-api-key": "tok",
-            "user-agent": "mixdog",
-            "x-opencode-session": "s1",
-            "accept": "*/*",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "117"
-          },
+          "headers": [
+            [
+              "host",
+              "opencode.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer tok"
+            ],
+            [
+              "x-goog-api-key",
+              "tok"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "x-opencode-session",
+              "s1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
           "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
           "reply": {
             "status": 200,
@@ -162,7 +330,53 @@
             ]
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.toOpenAIMessages",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "a",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "openrouter",
+            {
+              "cacheControl": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs.toOpenAIMessages",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "a",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "deepseek",
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "mistral-groq-tool-choice",
@@ -188,7 +402,47 @@
           "tool_choice": "required",
           "parallel_tool_calls": false
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs.applyCompatToolChoice",
+          "args": [
+            {
+              "tools": [
+                {}
+              ]
+            },
+            {
+              "toolChoice": "required",
+              "parallelToolCalls": false
+            },
+            {
+              "provider": "custom-x",
+              "baseURL": "https://api.mistral.ai/v1",
+              "wire": "chat"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs.applyCompatToolChoice",
+          "args": [
+            {
+              "tools": [
+                {}
+              ]
+            },
+            {
+              "toolChoice": "required",
+              "parallelToolCalls": false
+            },
+            {
+              "provider": "custom-x",
+              "baseURL": "https://api.groq.com/openai/v1",
+              "wire": "chat"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
