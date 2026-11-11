@@ -9,7 +9,12 @@ import { recorderProvenance } from './provenance.mjs';
 
 export const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 
-export function openSet(setName, recorderUrl) {
+// Date.now is held at this value for the whole run (a row's at, a stamped time): declared in golden.json as clock.
+export const FIXED_NOW = 1_800_000_000_000;
+
+export function openSet(setName, recorderUrl, { clock = true } = {}) {
+  if (clock) Date.now = () => FIXED_NOW;
+  const clockHeld = clock;
   const args = parseArgs();
   const tree = resolveTree(args);
   const finalDir = join(FIXTURES_ROOT, setName);
@@ -33,7 +38,7 @@ export function openSet(setName, recorderUrl) {
     file(name, text) { files.set(name, text); },
     async finish({ golden = {}, entry, replay, exclusions = {}, replaceInText = [], dataFiles = [] }) {
       const identity = exactProductIdentity(tree, COMMIT);
-      writeJson(join(stage, 'golden.json'), { ...golden, cases });
+      writeJson(join(stage, 'golden.json'), { ...(clockHeld ? { clock: { dateNow: FIXED_NOW, note: 'Date.now was held at this value for the whole recording' } } : {}), ...golden, cases });
       for (const [name, text] of files) writeText(join(stage, name), text);
       if (replaceInText.length) {
         const path = join(stage, 'golden.json');
