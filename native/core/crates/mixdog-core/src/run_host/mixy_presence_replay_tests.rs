@@ -514,8 +514,9 @@ impl Profile {
     }
 }
 
-/// The recorded observation with the manifest's declaration applied: `profileFilesAfter` (Node's
-/// per-check state file names) is not compared.
+/// The recorded observation with the manifest's declaration applied: `profileFilesAfter` (the
+/// recorder's per-check state file names and Node's session path) is not compared; the lead
+/// manifest it lists is compared byte for byte as `leadManifestAfter`.
 fn expected(observed: &Exact) -> Exact {
     Exact::Object(observed.entries().iter().filter(|(key, _)| key != "profileFilesAfter").cloned().collect())
 }
