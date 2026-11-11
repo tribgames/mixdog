@@ -14,15 +14,50 @@ use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use tokio_util::sync::CancellationToken;
 
-/// Creates (truncating) both logs of a job and their directory. Best effort.
+const STDOUT_SUFFIX: &str = ".stdout.log";
+const STDERR_SUFFIX: &str = ".stderr.log";
+/// The ownership record of a job's logs, `<task id>.owner.json` beside them: who wrote them and whether that job has
+/// ended. It is the only thing the sweep goes by, so it is readable by every process sharing the folder.
+const OWNER_SUFFIX: &str = ".owner.json";
+
+/// The ownership record of the logs whose stdout log is `out`.
+fn owner_path(out: &Path) -> Option<PathBuf> {
+    let name = out.file_name()?.to_str()?.strip_suffix(STDOUT_SUFFIX)?;
+    Some(out.with_file_name(format!("{name}{OWNER_SUFFIX}")))
+}
+
+fn owner_record(state: &str) -> Vec<u8> {
+    serde_json::json!({"pid": std::process::id(), "state": state}).to_string().into_bytes()
+}
+
+/// Creates (truncating) both logs of a job and their directory, after their ownership record (the job is running), so
+/// no sweep ever finds one of them without it. Best effort.
 pub async fn create_logs(lane: MaintenanceIo, cancel: &CancellationToken, out: &Path, err: &Path) {
     let (out, err): (PathBuf, PathBuf) = (out.to_owned(), err.to_owned());
     let Ok(handle) = lane.submit(cancel, move |_| {
         if let Some(dir) = out.parent() {
             std::fs::create_dir_all(dir)?;
         }
+        if let Some(owner) = owner_path(&out) {
+            std::fs::write(owner, owner_record("running"))?;
+        }
         std::fs::File::create(&out)?;
         std::fs::File::create(&err).map(drop)
+    }) else {
+        return;
+    };
+    let _ = handle.await;
+}
+
+/// Records that the job whose stdout log is `out` has ended: nothing writes its logs any more, so the sweep may take
+/// them once they have aged. A job whose logs were never created has no record and gets none.
+pub async fn mark_finished(lane: MaintenanceIo, cancel: &CancellationToken, out: &Path) {
+    let Some(owner) = owner_path(out) else { return };
+    let Ok(handle) = lane.submit(cancel, move |_| {
+        if std::fs::exists(&owner)? {
+            std::fs::write(&owner, owner_record("finished"))?;
+        }
+        Ok::<(), std::io::Error>(())
     }) else {
         return;
     };
@@ -33,37 +68,50 @@ pub async fn create_logs(lane: MaintenanceIo, cancel: &CancellationToken, out: &
 /// a session resumed days later may still read them.
 pub const RETENTION_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
-/// Whether `name` is one of the logs a job writes (`<task id>.stdout.log`, `<task id>.stderr.log`, the task id
-/// `task-<call id>`): nothing else in the directory is the sweep's.
-fn is_job_log(name: &std::ffi::OsStr) -> bool {
-    name.to_str()
-        .is_some_and(|name| name.starts_with("task-") && (name.ends_with(".stdout.log") || name.ends_with(".stderr.log")))
-}
-
-/// Removes the job logs of `dir` last modified more than `RETENTION_MS` ago, by the system clock the
-/// modification times are written with (`sweepExpiredShellOutput`). Best effort: a file that
-/// cannot be read or removed stays. It runs before any job of this runtime is older than the retention, so
-/// no log one of them writes is old enough; a job of another process whose log has had nothing written for
-/// the retention keeps spilling, into a log its next append recreates ([`append`]).
-pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir: &Path) {
+/// Removes the logs of the jobs of `dir` that their ownership record shows ended, when the record and both logs were
+/// last modified more than `RETENTION_MS` ago, by the system clock the modification times are written with
+/// (`sweepExpiredShellOutput`). A running job's logs, this process's or another's, are never taken, however long they
+/// have been silent; a file named like a log that has no ownership record (a user's, an older version's) stays, and
+/// is counted in a log line. Returns that count. Best effort: a file that cannot be read or removed stays.
+pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir: &Path) -> usize {
     #[cfg(test)]
     sweep_gate::pass(dir).await;
     let dir = dir.to_owned();
     let Ok(handle) = lane.submit(cancel, move |_| {
         let cutoff = std::time::SystemTime::now() - std::time::Duration::from_millis(RETENTION_MS);
-        for entry in std::fs::read_dir(&dir)?.flatten() {
-            if !is_job_log(&entry.file_name()) {
-                continue;
+        let aged = |path: &Path| match std::fs::metadata(path).and_then(|m| m.modified()) {
+            Ok(modified) => modified < cutoff,
+            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+        };
+        let names: Vec<String> = std::fs::read_dir(&dir)?.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
+        let mut unowned = 0;
+        for name in &names {
+            let id = [STDOUT_SUFFIX, STDERR_SUFFIX].iter().find_map(|suffix| name.strip_suffix(suffix));
+            if id.is_some_and(|id| !names.iter().any(|other| other.strip_suffix(OWNER_SUFFIX) == Some(id))) {
+                unowned += 1;
             }
-            if entry.metadata().and_then(|m| m.modified()).is_ok_and(|modified| modified < cutoff) {
-                let _ = std::fs::remove_file(entry.path());
+            let Some(id) = name.strip_suffix(OWNER_SUFFIX) else { continue };
+            let owner = dir.join(name);
+            let finished = std::fs::read(&owner)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|record| record["state"] == "finished");
+            let logs = [dir.join(format!("{id}{STDOUT_SUFFIX}")), dir.join(format!("{id}{STDERR_SUFFIX}"))];
+            if finished && aged(&owner) && logs.iter().all(|log| aged(log)) {
+                for log in &logs {
+                    let _ = std::fs::remove_file(log);
+                }
+                let _ = std::fs::remove_file(&owner);
             }
         }
-        Ok::<(), std::io::Error>(())
+        if unowned > 0 {
+            tracing::info!(dir = %dir.display(), unowned, "shell log sweep left files named like job logs that have no ownership record");
+        }
+        Ok::<usize, std::io::Error>(unowned)
     }) else {
-        return;
+        return 0;
     };
-    let _ = handle.await;
+    handle.await.ok().and_then(Result::ok).unwrap_or(0)
 }
 
 /// Holds the log sweep of one directory until released, so a test can show the command does not wait for it.
@@ -93,8 +141,8 @@ pub(crate) mod sweep_gate {
     }
 }
 
-/// Appends `bytes` to `path`, recreating a log another process's sweep removed. `false` when the log
-/// cannot be written, after which the caller stops spilling that stream.
+/// Appends `bytes` to `path`, recreating a log removed under it. `false` when the log cannot be written, after which
+/// the caller stops spilling that stream.
 pub async fn append(lane: MaintenanceIo, cancel: &CancellationToken, path: &Path, bytes: Vec<u8>) -> bool {
     let path = path.to_owned();
     let Ok(handle) = lane.submit(cancel, move |_| {

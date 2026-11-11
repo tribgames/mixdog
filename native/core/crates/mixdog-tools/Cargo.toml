@@ -53,6 +53,7 @@ shlex = { workspace = true }
 globset = { workspace = true }
 # policy (WP-SANDBOX)
 sha2 = { workspace = true }
+tracing = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
