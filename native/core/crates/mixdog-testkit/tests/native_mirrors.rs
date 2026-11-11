@@ -129,13 +129,48 @@ fn code(file: &Path) -> String {
     read_string(file).lines().filter(|l| !l.trim().starts_with("//")).collect::<Vec<_>>().join("\n")
 }
 
-/// The files a build script includes as modules (`#[path = "…"] mod …;`), resolved.
-fn included_modules(script: &Path) -> Vec<PathBuf> {
-    let text = read_string(script);
-    let dir = script.parent().unwrap();
-    text.lines()
-        .filter_map(|line| line.trim().strip_prefix("#[path = \"")?.split('"').next().map(|p| canonical(dir.join(p))))
-        .collect()
+/// Every file a build script compiles from, the script included: each `mod name;` (at `#[path = "…"]` when it has one,
+/// else `name.rs` or `name/mod.rs` where Rust looks for it) and each `include!`/`include_str!`/`include_bytes!`, followed
+/// through the files they bring in.
+fn script_files(script: &Path) -> Vec<PathBuf> {
+    let mut files = vec![canonical(script)];
+    let mut at = 0;
+    while at < files.len() {
+        let file = files[at].clone();
+        at += 1;
+        let dir = file.parent().unwrap().to_path_buf();
+        // A module of a file that is not a crate root or `mod.rs` lives in the directory named after the file.
+        let stem = file.file_stem().unwrap().to_string_lossy().into_owned();
+        let module_dir = if at == 1 || stem == "mod" { dir.clone() } else { dir.join(&stem) };
+        let mut path_attribute: Option<String> = None;
+        for line in code(&file).lines().map(str::trim) {
+            if let Some(path) = line.strip_prefix("#[path = \"").and_then(|p| p.split('"').next()) {
+                path_attribute = Some(path.to_owned());
+                continue;
+            }
+            for include in ["include!(\"", "include_str!(\"", "include_bytes!(\""] {
+                if let Some(path) = line.split(include).nth(1).and_then(|p| p.split('"').next()) {
+                    files.push(canonical(dir.join(path)));
+                }
+            }
+            let declaration = line.trim_start_matches("pub(crate) ").trim_start_matches("pub ");
+            if let Some(name) = declaration.strip_prefix("mod ").and_then(|d| d.strip_suffix(';')) {
+                let found = match path_attribute.take() {
+                    Some(path) => dir.join(path),
+                    None => [module_dir.join(format!("{name}.rs")), module_dir.join(name).join("mod.rs")]
+                        .into_iter()
+                        .find(|p| exists(p))
+                        .unwrap_or_else(|| panic!("{}: module `{name}` not found", file.display())),
+                };
+                files.push(canonical(found));
+            } else if !line.starts_with("#[") {
+                path_attribute = None;
+            }
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
 }
 
 #[test]
@@ -163,19 +198,20 @@ fn each_core_package_declares_what_its_tool_declares() {
         // script includes too. What the tool's script does beyond those modules reaches only its own executable: the
         // Windows version resource, the one thing the core's script leaves out, with its `winresource`.
         let tool_script = build_script(&tool, &tool_dir);
-        let tool_modules = tool_script.as_deref().map(included_modules).unwrap_or_default();
+        let tool_files = tool_script.as_deref().map(script_files).unwrap_or_default();
         let core_script = build_script(&core, &core_dir);
+        let core_files = core_script.as_deref().map(script_files).unwrap_or_default();
         if let Some(script) = &core_script {
             let own = code(script);
-            assert!(!own.contains("cargo:") && !own.contains("winresource"), "{name}: the core's build script prints by itself");
-            for module in included_modules(script) {
-                assert!(tool_modules.contains(&module), "{name}: native/{name}'s build script does not include {}", module.display());
+            assert!(!own.contains("cargo:") && !own.contains("rustc-") && !own.contains("winresource"), "{name}: the core's build script prints by itself");
+            for file in core_files.iter().filter(|f| *f != script) {
+                assert!(tool_files.contains(file), "{name}: native/{name}'s build script does not compile {}", file.display());
             }
         }
-        if let Some(script) = &tool_script {
-            let shared: Vec<_> = core_script.as_deref().map(included_modules).unwrap_or_default();
-            for file in std::iter::once(script.clone()).chain(tool_modules.iter().filter(|m| !shared.contains(m)).cloned()) {
-                let text = code(&file);
+        if tool_script.is_some() {
+            for file in tool_files.iter().filter(|f| !core_files.contains(f)) {
+                let text = code(file);
+                assert!(!text.contains("rustc-"), "{name}: {} prints a rustc directive, which the core's build does not", file.display());
                 for directive in REACHES_THE_LIBRARY {
                     assert!(!text.contains(directive), "{name}: {} uses {directive}, which the core's build does not", file.display());
                 }
