@@ -19,7 +19,7 @@
     {
       "bytes": 870588,
       "path": "cases.json",
-      "sha256": "0223a603f13b5d3dc334f24d9c81d53e423e99f4851c1ba8459c4f21ace7b20e"
+      "sha256": "6bf3d7e25a6d5050a8296ba74d78dba7b81181d02bf3392bcd61d7a85587223c"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-antigravity-request.mjs",
-  "recorderSha256": "3aedad4357cbcb05c535329e348073fe69dc8930b8354ada458b2b8b723085aa",
+  "recorderSha256": "2e51a991a6d9a383e11c60a751ec142b56f3f1775b38c9a3e4a422d0247efff0",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "set": "provider-antigravity-request",
   "totalBytes": 870588,
