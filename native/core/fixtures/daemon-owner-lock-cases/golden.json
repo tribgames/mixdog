@@ -1,0 +1,135 @@
+{
+  "note": "Node's daemon owner lock at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-daemon-owner-lock-cases.mjs",
+  "test": "src/standalone/daemon-owner-lock.test.mjs",
+  "platform": "win32",
+  "cases": [
+    {
+      "case": "a held lock refuses every other process, and a SIGKILLed holder frees it at once",
+      "observed": [
+        {
+          "what": "holder",
+          "value": {
+            "held": true
+          }
+        },
+        {
+          "what": "this process",
+          "value": false
+        },
+        {
+          "what": "second contender",
+          "value": {
+            "held": false
+          }
+        },
+        {
+          "what": "holder stderr has an ExperimentalWarning",
+          "value": false
+        },
+        {
+          "what": "this process after the kill",
+          "value": true
+        }
+      ]
+    },
+    {
+      "case": "the holder opening, reading and closing the lock file (as a hosted Read tool would) keeps the lock",
+      "observed": [
+        {
+          "what": "this process",
+          "value": true
+        },
+        {
+          "what": "read bytes",
+          "value": 0
+        },
+        {
+          "what": "contender",
+          "value": {
+            "held": false
+          }
+        },
+        {
+          "what": "intact",
+          "value": true
+        }
+      ]
+    },
+    {
+      "case": "simultaneous acquisitions leave exactly one holder",
+      "observed": [
+        {
+          "what": "holders of 4",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "case": "data dirs whose lock files hold equal bytes (empty, or copied) are locked independently",
+      "observed": [
+        {
+          "what": "empty: holder of the first",
+          "value": {
+            "held": true
+          }
+        },
+        {
+          "what": "empty: this process on the second",
+          "value": true
+        },
+        {
+          "what": "copied: holder of the first",
+          "value": {
+            "held": true
+          }
+        },
+        {
+          "what": "copied: this process on the second",
+          "value": true
+        }
+      ]
+    },
+    {
+      "case": "racing daemons on an existing lock file leave exactly one holder",
+      "observed": [
+        {
+          "what": "holders of 4",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "case": "one process holds it once; release frees it; intact() follows the locked file at its path",
+      "observed": [
+        {
+          "what": "this process",
+          "value": true
+        },
+        {
+          "what": "a second acquisition here",
+          "value": false
+        },
+        {
+          "what": "intact",
+          "value": true
+        },
+        {
+          "what": "deleted",
+          "value": false
+        },
+        {
+          "what": "exists",
+          "value": true
+        },
+        {
+          "what": "intact after the delete",
+          "value": true
+        },
+        {
+          "what": "this process after the release",
+          "value": true
+        }
+      ]
+    }
+  ]
+}
