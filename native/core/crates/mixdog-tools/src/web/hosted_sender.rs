@@ -29,8 +29,8 @@ use mixdog_ai::service::routes::capacity_fallback;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_ai::providers::hosted::web_search_from_node;
 use mixdog_core_api::domain::provider::HostedTool;
-use mixdog_core_api::domain::provider::HostedWebSearch;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -38,7 +38,6 @@ use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::Usage;
-use mixdog_core_api::domain::provider::UserLocation;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -121,37 +120,10 @@ fn plain(message: impl Into<String>) -> HostedSearchError {
     HostedSearchError { message: message.into(), capacity: false }
 }
 
-fn text_of(value: Option<&Value>) -> Option<String> {
-    value.and_then(Value::as_str).map(str::to_owned)
-}
-
 /// The hosted tool of a call in the provider crate's shape; each codec renders
 /// the one its wire hosts (`nativeTools`).
 fn hosted_tool(call: &HostedSearchCall) -> HostedTool {
-    let tool = &call.tool;
-    let domains = tool.get("allowed_domains").or_else(|| tool.pointer("/filters/allowed_domains"));
-    let location = tool.get("user_location").and_then(Value::as_object).map(|location| UserLocation {
-        country: text_of(location.get("country")),
-        region: text_of(location.get("region")),
-        city: text_of(location.get("city")),
-        timezone: text_of(location.get("timezone")),
-    });
-    // Anthropic's tool type is versioned and fixed by its codec.
-    let tool_type = match call.candidate.family {
-        SearchFamily::Anthropic => "web_search".to_owned(),
-        _ => text_of(tool.get("type")).unwrap_or_else(|| "web_search".to_owned()),
-    };
-    HostedTool::WebSearch(HostedWebSearch {
-        tool_type,
-        allowed_domains: domains
-            .and_then(Value::as_array)
-            .map(|list| list.iter().filter_map(|domain| domain.as_str().map(str::to_owned)).collect())
-            .unwrap_or_default(),
-        user_location: location,
-        max_uses: tool.get("max_uses").and_then(Value::as_u64).and_then(|uses| u32::try_from(uses).ok()),
-        context_size: text_of(tool.get("search_context_size")),
-        include_sources: call.include.iter().any(|field| field == "web_search_call.action.sources"),
-    })
+    web_search_from_node(&call.tool, call.candidate.family == SearchFamily::Anthropic, &call.include)
 }
 
 fn request_of(call: &HostedSearchCall, session_id: &str) -> ModelRequest {
@@ -201,9 +173,9 @@ pub fn usage_object(usage: &Usage, input_inclusive: bool) -> Value {
 }
 
 /// What the stream answered: the text, the last usage, and the sources the
-/// family's result carries (Node's Anthropic result has none; the others have
-/// citations and the search calls).
-fn fold(events: &[StreamEvent], family: SearchFamily) -> (String, Option<Usage>, Option<String>, Vec<Value>, Vec<Value>) {
+/// result carries (Node's Anthropic result has none: its decoder reports no
+/// citation or search call; the others report both).
+fn fold(events: &[StreamEvent]) -> (String, Option<Usage>, Option<String>, Vec<Value>, Vec<Value>) {
     let (mut content, mut usage, mut pricing) = (String::new(), None, None);
     let (mut citations, mut calls) = (Vec::new(), Vec::new());
     for event in events {
@@ -211,10 +183,8 @@ fn fold(events: &[StreamEvent], family: SearchFamily) -> (String, Option<Usage>,
             StreamEvent::TextDelta(text) => content.push_str(text),
             StreamEvent::Usage(reported) => usage = Some(reported.clone()),
             StreamEvent::Completed { pricing_model, .. } => pricing = pricing_model.clone(),
-            StreamEvent::Citation(citation) if family != SearchFamily::Anthropic => citations.push(citation.clone()),
-            StreamEvent::ServerToolBlock(block)
-                if family != SearchFamily::Anthropic && block.get("type").and_then(Value::as_str) == Some("web_search_call") =>
-            {
+            StreamEvent::Citation(citation) => citations.push(citation.clone()),
+            StreamEvent::ServerToolBlock(block) if block.get("type").and_then(Value::as_str) == Some("web_search_call") => {
                 calls.push(block.clone());
             }
             _ => {}
@@ -272,7 +242,7 @@ impl HostedSearchSender for ProviderSearchSender {
         let ended_at = (self.deps.now)();
         let last_usage = sink.last_usage().cloned();
         let events = sink.events().to_vec();
-        let (content, usage, pricing_model, citations, web_search_calls) = fold(&events, candidate.family);
+        let (content, usage, pricing_model, citations, web_search_calls) = fold(&events);
         let outcome_error = match &sent {
             Ok(_) => None,
             Err(SendError::Provider(error) | SendError::Exhausted(error)) => Some(error.clone()),

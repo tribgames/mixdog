@@ -135,6 +135,14 @@ fn truthy_or_null(value: &Value) -> Value {
     if falsy { Value::Null } else { value.clone() }
 }
 
+/// `resolveProviderCacheKey(opts, 'xai')` (`providerCacheKey || promptCacheKey || 'mixdog-xai'`) and the model (`model
+/// || null`).
+fn namespace_and_model(request: &ModelRequest) -> (String, Value) {
+    let namespace = request.options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()).unwrap_or(DEFAULT_NAMESPACE);
+    let model = if request.model.is_empty() { Value::Null } else { json!(request.model) };
+    (namespace.to_owned(), model)
+}
+
 pub(crate) struct Routing<'a> {
     pub environment: Option<&'a dyn Environment>,
     pub lanes: &'a Mutex<LaneBook>,
@@ -188,28 +196,11 @@ impl Routing<'_> {
         if matches!(scope.as_str(), "none" | "off" | "omit") || (scope == "session" && session.is_empty()) {
             return None;
         }
-        // `providerCacheKey || promptCacheKey || 'mixdog-xai'`
-        let namespace = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()).unwrap_or(DEFAULT_NAMESPACE);
-        let model = if request.model.is_empty() { Value::Null } else { json!(request.model) };
-
         if scope != "prefix" {
-            let seed = if shared {
-                json!({
-                    "scope": "xai-chat-prefix-v1",
-                    "providerKey": namespace,
-                    "model": model,
-                    "prefixHash": self.prefix_hash(request, namespace, &model),
-                })
-            } else {
-                json!({
-                    "scope": "xai-chat-session-v1",
-                    "providerKey": namespace,
-                    "model": model,
-                    "sessionId": if session.is_empty() { format!("ephemeral:{}", std::process::id()) } else { session.to_owned() },
-                })
-            };
-            return Some(uuid_from_seed(&stable_stringify(&seed)));
+            return Some(self.chat_key(request));
         }
+        let (namespace, model) = namespace_and_model(request);
+        let namespace = namespace.as_str();
 
         let prefix_hash = self.prefix_hash(request, namespace, &model);
         let (enabled, slot) = self.lane(options.session_id.as_deref(), session, namespace);

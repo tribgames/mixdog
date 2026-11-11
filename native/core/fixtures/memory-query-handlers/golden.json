@@ -1,0 +1,1375 @@
+{
+  "domain": "memory-query-handlers",
+  "source": "src/runtime/memory/lib/query-handlers.integration.test.mjs",
+  "clock": {
+    "dateNowMs": 1748736000000,
+    "reason": "row timestamps are Date.now() - i * 1000"
+  },
+  "cases": [
+    {
+      "name": "public recall preserves every supported page boundary, including the last offset",
+      "rows": 600,
+      "steps": [
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 3,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                3
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1\n[2025-05-31 23:59 +00:00] item-2 — MARKER_0002 needle #2\n[2025-05-31 23:59 +00:00] item-3 — MARKER_0003 needle #3\n[2025-05-31 23:59 +00:00] item-4 — MARKER_0004 needle #4\n[2025-05-31 23:59 +00:00] item-5 — MARKER_0005 needle #5\n[2025-05-31 23:59 +00:00] item-6 — MARKER_0006 needle #6\n[2025-05-31 23:59 +00:00] item-7 — MARKER_0007 needle #7\n[2025-05-31 23:59 +00:00] item-8 — MARKER_0008 needle #8\n[2025-05-31 23:59 +00:00] item-9 — MARKER_0009 needle #9\n[2025-05-31 23:59 +00:00] item-10 — MARKER_0010 needle #10"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 30,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1\n[2025-05-31 23:59 +00:00] item-2 — MARKER_0002 needle #2\n[2025-05-31 23:59 +00:00] item-3 — MARKER_0003 needle #3\n[2025-05-31 23:59 +00:00] item-4 — MARKER_0004 needle #4\n[2025-05-31 23:59 +00:00] item-5 — MARKER_0005 needle #5\n[2025-05-31 23:59 +00:00] item-6 — MARKER_0006 needle #6\n[2025-05-31 23:59 +00:00] item-7 — MARKER_0007 needle #7\n[2025-05-31 23:59 +00:00] item-8 — MARKER_0008 needle #8\n[2025-05-31 23:59 +00:00] item-9 — MARKER_0009 needle #9\n[2025-05-31 23:59 +00:00] item-10 — MARKER_0010 needle #10\n[2025-05-31 23:59 +00:00] item-11 — MARKER_0011 needle #11\n[2025-05-31 23:59 +00:00] item-12 — MARKER_0012 needle #12\n[2025-05-31 23:59 +00:00] item-13 — MARKER_0013 needle #13\n[2025-05-31 23:59 +00:00] item-14 — MARKER_0014 needle #14\n[2025-05-31 23:59 +00:00] item-15 — MARKER_0015 needle #15\n[2025-05-31 23:59 +00:00] item-16 — MARKER_0016 needle #16\n[2025-05-31 23:59 +00:00] item-17 — MARKER_0017 needle #17\n[2025-05-31 23:59 +00:00] item-18 — MARKER_0018 needle #18\n[2025-05-31 23:59 +00:00] item-19 — MARKER_0019 needle #19\n[2025-05-31 23:59 +00:00] item-20 — MARKER_0020 needle #20\n[2025-05-31 23:59 +00:00] item-21 — MARKER_0021 needle #21\n[2025-05-31 23:59 +00:00] item-22 — MARKER_0022 needle #22\n[2025-05-31 23:59 +00:00] item-23 — MARKER_0023 needle #23\n[2025-05-31 23:59 +00:00] item-24 — MARKER_0024 needle #24\n[2025-05-31 23:59 +00:00] item-25 — MARKER_0025 needle #25\n[2025-05-31 23:59 +00:00] item-26 — MARKER_0026 needle #26\n[2025-05-31 23:59 +00:00] item-27 — MARKER_0027 needle #27\n[2025-05-31 23:59 +00:00] item-28 — MARKER_0028 needle #28\n[2025-05-31 23:59 +00:00] item-29 — MARKER_0029 needle #29\n[2025-05-31 23:59 +00:00] item-30 — MARKER_0030 needle #30\n[2025-05-31 23:59 +00:00] item-31 — MARKER_0031 needle #31\n[2025-05-31 23:59 +00:00] item-32 — MARKER_0032 needle #32\n[2025-05-31 23:59 +00:00] item-33 — MARKER_0033 needle #33\n[2025-05-31 23:59 +00:00] item-34 — MARKER_0034 needle #34\n[2025-05-31 23:59 +00:00] item-35 — MARKER_0035 needle #35\n[2025-05-31 23:59 +00:00] item-36 — MARKER_0036 needle #36\n[2025-05-31 23:59 +00:00] item-37 — MARKER_0037 needle #37\n[2025-05-31 23:59 +00:00] item-38 — MARKER_0038 needle #38\n[2025-05-31 23:59 +00:00] item-39 — MARKER_0039 needle #39\n[2025-05-31 23:59 +00:00] item-40 — MARKER_0040 needle #40\n[2025-05-31 23:59 +00:00] item-41 — MARKER_0041 needle #41\n[2025-05-31 23:59 +00:00] item-42 — MARKER_0042 needle #42\n[2025-05-31 23:59 +00:00] item-43 — MARKER_0043 needle #43\n[2025-05-31 23:59 +00:00] item-44 — MARKER_0044 needle #44\n[2025-05-31 23:59 +00:00] item-45 — MARKER_0045 needle #45\n[2025-05-31 23:59 +00:00] item-46 — MARKER_0046 needle #46\n[2025-05-31 23:59 +00:00] item-47 — MARKER_0047 needle #47\n[2025-05-31 23:59 +00:00] item-48 — MARKER_0048 needle #48\n[2025-05-31 23:59 +00:00] item-49 — MARKER_0049 needle #49\n[2025-05-31 23:59 +00:00] item-50 — MARKER_0050 needle #50\n[2025-05-31 23:59 +00:00] item-51 — MARKER_0051 needle #51\n[2025-05-31 23:59 +00:00] item-52 — MARKER_0052 needle #52\n[2025-05-31 23:59 +00:00] item-53 — MARKER_0053 needle #53\n[2025-05-31 23:59 +00:00] item-54 — MARKER_0054 needle #54\n[2025-05-31 23:59 +00:00] item-55 — MARKER_0055 needle #55\n[2025-05-31 23:59 +00:00] item-56 — MARKER_0056 needle #56\n[2025-05-31 23:59 +00:00] item-57 — MARKER_0057 needle #57\n[2025-05-31 23:59 +00:00] item-58 — MARKER_0058 needle #58\n[2025-05-31 23:59 +00:00] item-59 — MARKER_0059 needle #59\n[2025-05-31 23:59 +00:00] item-60 — MARKER_0060 needle #60\n[2025-05-31 23:59 +00:00] item-61 — MARKER_0061 needle #61\n[2025-05-31 23:58 +00:00] item-62 — MARKER_0062 needle #62\n[2025-05-31 23:58 +00:00] item-63 — MARKER_0063 needle #63\n[2025-05-31 23:58 +00:00] item-64 — MARKER_0064 needle #64\n[2025-05-31 23:58 +00:00] item-65 — MARKER_0065 needle #65\n[2025-05-31 23:58 +00:00] item-66 — MARKER_0066 needle #66\n[2025-05-31 23:58 +00:00] item-67 — MARKER_0067 needle #67\n[2025-05-31 23:58 +00:00] item-68 — MARKER_0068 needle #68\n[2025-05-31 23:58 +00:00] item-69 — MARKER_0069 needle #69\n[2025-05-31 23:58 +00:00] item-70 — MARKER_0070 needle #70\n[2025-05-31 23:58 +00:00] item-71 — MARKER_0071 needle #71\n[2025-05-31 23:58 +00:00] item-72 — MARKER_0072 needle #72\n[2025-05-31 23:58 +00:00] item-73 — MARKER_0073 needle #73\n[2025-05-31 23:58 +00:00] item-74 — MARKER_0074 needle #74\n[2025-05-31 23:58 +00:00] item-75 — MARKER_0075 needle #75\n[2025-05-31 23:58 +00:00] item-76 — MARKER_0076 needle #76\n[2025-05-31 23:58 +00:00] item-77 — MARKER_0077 needle #77\n[2025-05-31 23:58 +00:00] item-78 — MARKER_0078 needle #78\n[2025-05-31 23:58 +00:00] item-79 — MARKER_0079 needle #79\n[2025-05-31 23:58 +00:00] item-80 — MARKER_0080 needle #80\n[2025-05-31 23:58 +00:00] item-81 — MARKER_0081 needle #81\n[2025-05-31 23:58 +00:00] item-82 — MARKER_0082 needle #82\n[2025-05-31 23:58 +00:00] item-83 — MARKER_0083 needle #83\n[2025-05-31 23:58 +00:00] item-84 — MARKER_0084 needle #84\n[2025-05-31 23:58 +00:00] item-85 — MARKER_0085 needle #85\n[2025-05-31 23:58 +00:00] item-86 — MARKER_0086 needle #86\n[2025-05-31 23:58 +00:00] item-87 — MARKER_0087 needle #87\n[2025-05-31 23:58 +00:00] item-88 — MARKER_0088 needle #88\n[2025-05-31 23:58 +00:00] item-89 — MARKER_0089 needle #89\n[2025-05-31 23:58 +00:00] item-90 — MARKER_0090 needle #90\n[2025-05-31 23:58 +00:00] item-91 — MARKER_0091 needle #91\n[2025-05-31 23:58 +00:00] item-92 — MARKER_0092 needle #92\n[2025-05-31 23:58 +00:00] item-93 — MARKER_0093 needle #93\n[2025-05-31 23:58 +00:00] item-94 — MARKER_0094 needle #94\n[2025-05-31 23:58 +00:00] item-95 — MARKER_0095 needle #95\n[2025-05-31 23:58 +00:00] item-96 — MARKER_0096 needle #96\n[2025-05-31 23:58 +00:00] item-97 — MARKER_0097 needle #97\n[2025-05-31 23:58 +00:00] item-98 — MARKER_0098 needle #98\n[2025-05-31 23:58 +00:00] item-99 — MARKER_0099 needle #99\n[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 100,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 99,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 100,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 99,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100\n[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 109,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 99,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100\n[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109\n[2025-05-31 23:58 +00:00] item-110 — MARKER_0110 needle #110\n[2025-05-31 23:58 +00:00] item-111 — MARKER_0111 needle #111\n[2025-05-31 23:58 +00:00] item-112 — MARKER_0112 needle #112\n[2025-05-31 23:58 +00:00] item-113 — MARKER_0113 needle #113\n[2025-05-31 23:58 +00:00] item-114 — MARKER_0114 needle #114\n[2025-05-31 23:58 +00:00] item-115 — MARKER_0115 needle #115\n[2025-05-31 23:58 +00:00] item-116 — MARKER_0116 needle #116\n[2025-05-31 23:58 +00:00] item-117 — MARKER_0117 needle #117\n[2025-05-31 23:58 +00:00] item-118 — MARKER_0118 needle #118\n[2025-05-31 23:58 +00:00] item-119 — MARKER_0119 needle #119\n[2025-05-31 23:58 +00:00] item-120 — MARKER_0120 needle #120\n[2025-05-31 23:58 +00:00] item-121 — MARKER_0121 needle #121\n[2025-05-31 23:57 +00:00] item-122 — MARKER_0122 needle #122\n[2025-05-31 23:57 +00:00] item-123 — MARKER_0123 needle #123\n[2025-05-31 23:57 +00:00] item-124 — MARKER_0124 needle #124\n[2025-05-31 23:57 +00:00] item-125 — MARKER_0125 needle #125\n[2025-05-31 23:57 +00:00] item-126 — MARKER_0126 needle #126\n[2025-05-31 23:57 +00:00] item-127 — MARKER_0127 needle #127\n[2025-05-31 23:57 +00:00] item-128 — MARKER_0128 needle #128\n[2025-05-31 23:57 +00:00] item-129 — MARKER_0129 needle #129\n[2025-05-31 23:57 +00:00] item-130 — MARKER_0130 needle #130\n[2025-05-31 23:57 +00:00] item-131 — MARKER_0131 needle #131\n[2025-05-31 23:57 +00:00] item-132 — MARKER_0132 needle #132\n[2025-05-31 23:57 +00:00] item-133 — MARKER_0133 needle #133\n[2025-05-31 23:57 +00:00] item-134 — MARKER_0134 needle #134\n[2025-05-31 23:57 +00:00] item-135 — MARKER_0135 needle #135\n[2025-05-31 23:57 +00:00] item-136 — MARKER_0136 needle #136\n[2025-05-31 23:57 +00:00] item-137 — MARKER_0137 needle #137\n[2025-05-31 23:57 +00:00] item-138 — MARKER_0138 needle #138\n[2025-05-31 23:57 +00:00] item-139 — MARKER_0139 needle #139\n[2025-05-31 23:57 +00:00] item-140 — MARKER_0140 needle #140\n[2025-05-31 23:57 +00:00] item-141 — MARKER_0141 needle #141\n[2025-05-31 23:57 +00:00] item-142 — MARKER_0142 needle #142\n[2025-05-31 23:57 +00:00] item-143 — MARKER_0143 needle #143\n[2025-05-31 23:57 +00:00] item-144 — MARKER_0144 needle #144\n[2025-05-31 23:57 +00:00] item-145 — MARKER_0145 needle #145\n[2025-05-31 23:57 +00:00] item-146 — MARKER_0146 needle #146\n[2025-05-31 23:57 +00:00] item-147 — MARKER_0147 needle #147\n[2025-05-31 23:57 +00:00] item-148 — MARKER_0148 needle #148\n[2025-05-31 23:57 +00:00] item-149 — MARKER_0149 needle #149\n[2025-05-31 23:57 +00:00] item-150 — MARKER_0150 needle #150\n[2025-05-31 23:57 +00:00] item-151 — MARKER_0151 needle #151\n[2025-05-31 23:57 +00:00] item-152 — MARKER_0152 needle #152\n[2025-05-31 23:57 +00:00] item-153 — MARKER_0153 needle #153\n[2025-05-31 23:57 +00:00] item-154 — MARKER_0154 needle #154\n[2025-05-31 23:57 +00:00] item-155 — MARKER_0155 needle #155\n[2025-05-31 23:57 +00:00] item-156 — MARKER_0156 needle #156\n[2025-05-31 23:57 +00:00] item-157 — MARKER_0157 needle #157\n[2025-05-31 23:57 +00:00] item-158 — MARKER_0158 needle #158\n[2025-05-31 23:57 +00:00] item-159 — MARKER_0159 needle #159\n[2025-05-31 23:57 +00:00] item-160 — MARKER_0160 needle #160\n[2025-05-31 23:57 +00:00] item-161 — MARKER_0161 needle #161\n[2025-05-31 23:57 +00:00] item-162 — MARKER_0162 needle #162\n[2025-05-31 23:57 +00:00] item-163 — MARKER_0163 needle #163\n[2025-05-31 23:57 +00:00] item-164 — MARKER_0164 needle #164\n[2025-05-31 23:57 +00:00] item-165 — MARKER_0165 needle #165\n[2025-05-31 23:57 +00:00] item-166 — MARKER_0166 needle #166\n[2025-05-31 23:57 +00:00] item-167 — MARKER_0167 needle #167\n[2025-05-31 23:57 +00:00] item-168 — MARKER_0168 needle #168\n[2025-05-31 23:57 +00:00] item-169 — MARKER_0169 needle #169\n[2025-05-31 23:57 +00:00] item-170 — MARKER_0170 needle #170\n[2025-05-31 23:57 +00:00] item-171 — MARKER_0171 needle #171\n[2025-05-31 23:57 +00:00] item-172 — MARKER_0172 needle #172\n[2025-05-31 23:57 +00:00] item-173 — MARKER_0173 needle #173\n[2025-05-31 23:57 +00:00] item-174 — MARKER_0174 needle #174\n[2025-05-31 23:57 +00:00] item-175 — MARKER_0175 needle #175\n[2025-05-31 23:57 +00:00] item-176 — MARKER_0176 needle #176\n[2025-05-31 23:57 +00:00] item-177 — MARKER_0177 needle #177\n[2025-05-31 23:57 +00:00] item-178 — MARKER_0178 needle #178\n[2025-05-31 23:57 +00:00] item-179 — MARKER_0179 needle #179\n[2025-05-31 23:57 +00:00] item-180 — MARKER_0180 needle #180\n[2025-05-31 23:57 +00:00] item-181 — MARKER_0181 needle #181\n[2025-05-31 23:56 +00:00] item-182 — MARKER_0182 needle #182\n[2025-05-31 23:56 +00:00] item-183 — MARKER_0183 needle #183\n[2025-05-31 23:56 +00:00] item-184 — MARKER_0184 needle #184\n[2025-05-31 23:56 +00:00] item-185 — MARKER_0185 needle #185\n[2025-05-31 23:56 +00:00] item-186 — MARKER_0186 needle #186\n[2025-05-31 23:56 +00:00] item-187 — MARKER_0187 needle #187\n[2025-05-31 23:56 +00:00] item-188 — MARKER_0188 needle #188\n[2025-05-31 23:56 +00:00] item-189 — MARKER_0189 needle #189\n[2025-05-31 23:56 +00:00] item-190 — MARKER_0190 needle #190\n[2025-05-31 23:56 +00:00] item-191 — MARKER_0191 needle #191\n[2025-05-31 23:56 +00:00] item-192 — MARKER_0192 needle #192\n[2025-05-31 23:56 +00:00] item-193 — MARKER_0193 needle #193\n[2025-05-31 23:56 +00:00] item-194 — MARKER_0194 needle #194\n[2025-05-31 23:56 +00:00] item-195 — MARKER_0195 needle #195\n[2025-05-31 23:56 +00:00] item-196 — MARKER_0196 needle #196\n[2025-05-31 23:56 +00:00] item-197 — MARKER_0197 needle #197\n[2025-05-31 23:56 +00:00] item-198 — MARKER_0198 needle #198\n[2025-05-31 23:56 +00:00] item-199 — MARKER_0199 needle #199"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 199,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 100,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 101,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 100,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109\n[2025-05-31 23:58 +00:00] item-110 — MARKER_0110 needle #110"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 110,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 100,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109\n[2025-05-31 23:58 +00:00] item-110 — MARKER_0110 needle #110\n[2025-05-31 23:58 +00:00] item-111 — MARKER_0111 needle #111\n[2025-05-31 23:58 +00:00] item-112 — MARKER_0112 needle #112\n[2025-05-31 23:58 +00:00] item-113 — MARKER_0113 needle #113\n[2025-05-31 23:58 +00:00] item-114 — MARKER_0114 needle #114\n[2025-05-31 23:58 +00:00] item-115 — MARKER_0115 needle #115\n[2025-05-31 23:58 +00:00] item-116 — MARKER_0116 needle #116\n[2025-05-31 23:58 +00:00] item-117 — MARKER_0117 needle #117\n[2025-05-31 23:58 +00:00] item-118 — MARKER_0118 needle #118\n[2025-05-31 23:58 +00:00] item-119 — MARKER_0119 needle #119\n[2025-05-31 23:58 +00:00] item-120 — MARKER_0120 needle #120\n[2025-05-31 23:58 +00:00] item-121 — MARKER_0121 needle #121\n[2025-05-31 23:57 +00:00] item-122 — MARKER_0122 needle #122\n[2025-05-31 23:57 +00:00] item-123 — MARKER_0123 needle #123\n[2025-05-31 23:57 +00:00] item-124 — MARKER_0124 needle #124\n[2025-05-31 23:57 +00:00] item-125 — MARKER_0125 needle #125\n[2025-05-31 23:57 +00:00] item-126 — MARKER_0126 needle #126\n[2025-05-31 23:57 +00:00] item-127 — MARKER_0127 needle #127\n[2025-05-31 23:57 +00:00] item-128 — MARKER_0128 needle #128\n[2025-05-31 23:57 +00:00] item-129 — MARKER_0129 needle #129\n[2025-05-31 23:57 +00:00] item-130 — MARKER_0130 needle #130\n[2025-05-31 23:57 +00:00] item-131 — MARKER_0131 needle #131\n[2025-05-31 23:57 +00:00] item-132 — MARKER_0132 needle #132\n[2025-05-31 23:57 +00:00] item-133 — MARKER_0133 needle #133\n[2025-05-31 23:57 +00:00] item-134 — MARKER_0134 needle #134\n[2025-05-31 23:57 +00:00] item-135 — MARKER_0135 needle #135\n[2025-05-31 23:57 +00:00] item-136 — MARKER_0136 needle #136\n[2025-05-31 23:57 +00:00] item-137 — MARKER_0137 needle #137\n[2025-05-31 23:57 +00:00] item-138 — MARKER_0138 needle #138\n[2025-05-31 23:57 +00:00] item-139 — MARKER_0139 needle #139\n[2025-05-31 23:57 +00:00] item-140 — MARKER_0140 needle #140\n[2025-05-31 23:57 +00:00] item-141 — MARKER_0141 needle #141\n[2025-05-31 23:57 +00:00] item-142 — MARKER_0142 needle #142\n[2025-05-31 23:57 +00:00] item-143 — MARKER_0143 needle #143\n[2025-05-31 23:57 +00:00] item-144 — MARKER_0144 needle #144\n[2025-05-31 23:57 +00:00] item-145 — MARKER_0145 needle #145\n[2025-05-31 23:57 +00:00] item-146 — MARKER_0146 needle #146\n[2025-05-31 23:57 +00:00] item-147 — MARKER_0147 needle #147\n[2025-05-31 23:57 +00:00] item-148 — MARKER_0148 needle #148\n[2025-05-31 23:57 +00:00] item-149 — MARKER_0149 needle #149\n[2025-05-31 23:57 +00:00] item-150 — MARKER_0150 needle #150\n[2025-05-31 23:57 +00:00] item-151 — MARKER_0151 needle #151\n[2025-05-31 23:57 +00:00] item-152 — MARKER_0152 needle #152\n[2025-05-31 23:57 +00:00] item-153 — MARKER_0153 needle #153\n[2025-05-31 23:57 +00:00] item-154 — MARKER_0154 needle #154\n[2025-05-31 23:57 +00:00] item-155 — MARKER_0155 needle #155\n[2025-05-31 23:57 +00:00] item-156 — MARKER_0156 needle #156\n[2025-05-31 23:57 +00:00] item-157 — MARKER_0157 needle #157\n[2025-05-31 23:57 +00:00] item-158 — MARKER_0158 needle #158\n[2025-05-31 23:57 +00:00] item-159 — MARKER_0159 needle #159\n[2025-05-31 23:57 +00:00] item-160 — MARKER_0160 needle #160\n[2025-05-31 23:57 +00:00] item-161 — MARKER_0161 needle #161\n[2025-05-31 23:57 +00:00] item-162 — MARKER_0162 needle #162\n[2025-05-31 23:57 +00:00] item-163 — MARKER_0163 needle #163\n[2025-05-31 23:57 +00:00] item-164 — MARKER_0164 needle #164\n[2025-05-31 23:57 +00:00] item-165 — MARKER_0165 needle #165\n[2025-05-31 23:57 +00:00] item-166 — MARKER_0166 needle #166\n[2025-05-31 23:57 +00:00] item-167 — MARKER_0167 needle #167\n[2025-05-31 23:57 +00:00] item-168 — MARKER_0168 needle #168\n[2025-05-31 23:57 +00:00] item-169 — MARKER_0169 needle #169\n[2025-05-31 23:57 +00:00] item-170 — MARKER_0170 needle #170\n[2025-05-31 23:57 +00:00] item-171 — MARKER_0171 needle #171\n[2025-05-31 23:57 +00:00] item-172 — MARKER_0172 needle #172\n[2025-05-31 23:57 +00:00] item-173 — MARKER_0173 needle #173\n[2025-05-31 23:57 +00:00] item-174 — MARKER_0174 needle #174\n[2025-05-31 23:57 +00:00] item-175 — MARKER_0175 needle #175\n[2025-05-31 23:57 +00:00] item-176 — MARKER_0176 needle #176\n[2025-05-31 23:57 +00:00] item-177 — MARKER_0177 needle #177\n[2025-05-31 23:57 +00:00] item-178 — MARKER_0178 needle #178\n[2025-05-31 23:57 +00:00] item-179 — MARKER_0179 needle #179\n[2025-05-31 23:57 +00:00] item-180 — MARKER_0180 needle #180\n[2025-05-31 23:57 +00:00] item-181 — MARKER_0181 needle #181\n[2025-05-31 23:56 +00:00] item-182 — MARKER_0182 needle #182\n[2025-05-31 23:56 +00:00] item-183 — MARKER_0183 needle #183\n[2025-05-31 23:56 +00:00] item-184 — MARKER_0184 needle #184\n[2025-05-31 23:56 +00:00] item-185 — MARKER_0185 needle #185\n[2025-05-31 23:56 +00:00] item-186 — MARKER_0186 needle #186\n[2025-05-31 23:56 +00:00] item-187 — MARKER_0187 needle #187\n[2025-05-31 23:56 +00:00] item-188 — MARKER_0188 needle #188\n[2025-05-31 23:56 +00:00] item-189 — MARKER_0189 needle #189\n[2025-05-31 23:56 +00:00] item-190 — MARKER_0190 needle #190\n[2025-05-31 23:56 +00:00] item-191 — MARKER_0191 needle #191\n[2025-05-31 23:56 +00:00] item-192 — MARKER_0192 needle #192\n[2025-05-31 23:56 +00:00] item-193 — MARKER_0193 needle #193\n[2025-05-31 23:56 +00:00] item-194 — MARKER_0194 needle #194\n[2025-05-31 23:56 +00:00] item-195 — MARKER_0195 needle #195\n[2025-05-31 23:56 +00:00] item-196 — MARKER_0196 needle #196\n[2025-05-31 23:56 +00:00] item-197 — MARKER_0197 needle #197\n[2025-05-31 23:56 +00:00] item-198 — MARKER_0198 needle #198\n[2025-05-31 23:56 +00:00] item-199 — MARKER_0199 needle #199\n[2025-05-31 23:56 +00:00] item-200 — MARKER_0200 needle #200"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 200,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 499,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-500 — MARKER_0500 needle #500"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 500,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 499,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-500 — MARKER_0500 needle #500\n[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 509,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 499,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-500 — MARKER_0500 needle #500\n[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510\n[2025-05-31 23:51 +00:00] item-511 — MARKER_0511 needle #511\n[2025-05-31 23:51 +00:00] item-512 — MARKER_0512 needle #512\n[2025-05-31 23:51 +00:00] item-513 — MARKER_0513 needle #513\n[2025-05-31 23:51 +00:00] item-514 — MARKER_0514 needle #514\n[2025-05-31 23:51 +00:00] item-515 — MARKER_0515 needle #515\n[2025-05-31 23:51 +00:00] item-516 — MARKER_0516 needle #516\n[2025-05-31 23:51 +00:00] item-517 — MARKER_0517 needle #517\n[2025-05-31 23:51 +00:00] item-518 — MARKER_0518 needle #518\n[2025-05-31 23:51 +00:00] item-519 — MARKER_0519 needle #519\n[2025-05-31 23:51 +00:00] item-520 — MARKER_0520 needle #520\n[2025-05-31 23:51 +00:00] item-521 — MARKER_0521 needle #521\n[2025-05-31 23:51 +00:00] item-522 — MARKER_0522 needle #522\n[2025-05-31 23:51 +00:00] item-523 — MARKER_0523 needle #523\n[2025-05-31 23:51 +00:00] item-524 — MARKER_0524 needle #524\n[2025-05-31 23:51 +00:00] item-525 — MARKER_0525 needle #525\n[2025-05-31 23:51 +00:00] item-526 — MARKER_0526 needle #526\n[2025-05-31 23:51 +00:00] item-527 — MARKER_0527 needle #527\n[2025-05-31 23:51 +00:00] item-528 — MARKER_0528 needle #528\n[2025-05-31 23:51 +00:00] item-529 — MARKER_0529 needle #529\n[2025-05-31 23:51 +00:00] item-530 — MARKER_0530 needle #530\n[2025-05-31 23:51 +00:00] item-531 — MARKER_0531 needle #531\n[2025-05-31 23:51 +00:00] item-532 — MARKER_0532 needle #532\n[2025-05-31 23:51 +00:00] item-533 — MARKER_0533 needle #533\n[2025-05-31 23:51 +00:00] item-534 — MARKER_0534 needle #534\n[2025-05-31 23:51 +00:00] item-535 — MARKER_0535 needle #535\n[2025-05-31 23:51 +00:00] item-536 — MARKER_0536 needle #536\n[2025-05-31 23:51 +00:00] item-537 — MARKER_0537 needle #537\n[2025-05-31 23:51 +00:00] item-538 — MARKER_0538 needle #538\n[2025-05-31 23:51 +00:00] item-539 — MARKER_0539 needle #539\n[2025-05-31 23:51 +00:00] item-540 — MARKER_0540 needle #540\n[2025-05-31 23:51 +00:00] item-541 — MARKER_0541 needle #541\n[2025-05-31 23:50 +00:00] item-542 — MARKER_0542 needle #542\n[2025-05-31 23:50 +00:00] item-543 — MARKER_0543 needle #543\n[2025-05-31 23:50 +00:00] item-544 — MARKER_0544 needle #544\n[2025-05-31 23:50 +00:00] item-545 — MARKER_0545 needle #545\n[2025-05-31 23:50 +00:00] item-546 — MARKER_0546 needle #546\n[2025-05-31 23:50 +00:00] item-547 — MARKER_0547 needle #547\n[2025-05-31 23:50 +00:00] item-548 — MARKER_0548 needle #548\n[2025-05-31 23:50 +00:00] item-549 — MARKER_0549 needle #549\n[2025-05-31 23:50 +00:00] item-550 — MARKER_0550 needle #550\n[2025-05-31 23:50 +00:00] item-551 — MARKER_0551 needle #551\n[2025-05-31 23:50 +00:00] item-552 — MARKER_0552 needle #552\n[2025-05-31 23:50 +00:00] item-553 — MARKER_0553 needle #553\n[2025-05-31 23:50 +00:00] item-554 — MARKER_0554 needle #554\n[2025-05-31 23:50 +00:00] item-555 — MARKER_0555 needle #555\n[2025-05-31 23:50 +00:00] item-556 — MARKER_0556 needle #556\n[2025-05-31 23:50 +00:00] item-557 — MARKER_0557 needle #557\n[2025-05-31 23:50 +00:00] item-558 — MARKER_0558 needle #558\n[2025-05-31 23:50 +00:00] item-559 — MARKER_0559 needle #559\n[2025-05-31 23:50 +00:00] item-560 — MARKER_0560 needle #560\n[2025-05-31 23:50 +00:00] item-561 — MARKER_0561 needle #561\n[2025-05-31 23:50 +00:00] item-562 — MARKER_0562 needle #562\n[2025-05-31 23:50 +00:00] item-563 — MARKER_0563 needle #563\n[2025-05-31 23:50 +00:00] item-564 — MARKER_0564 needle #564\n[2025-05-31 23:50 +00:00] item-565 — MARKER_0565 needle #565\n[2025-05-31 23:50 +00:00] item-566 — MARKER_0566 needle #566\n[2025-05-31 23:50 +00:00] item-567 — MARKER_0567 needle #567\n[2025-05-31 23:50 +00:00] item-568 — MARKER_0568 needle #568\n[2025-05-31 23:50 +00:00] item-569 — MARKER_0569 needle #569\n[2025-05-31 23:50 +00:00] item-570 — MARKER_0570 needle #570\n[2025-05-31 23:50 +00:00] item-571 — MARKER_0571 needle #571\n[2025-05-31 23:50 +00:00] item-572 — MARKER_0572 needle #572\n[2025-05-31 23:50 +00:00] item-573 — MARKER_0573 needle #573\n[2025-05-31 23:50 +00:00] item-574 — MARKER_0574 needle #574\n[2025-05-31 23:50 +00:00] item-575 — MARKER_0575 needle #575\n[2025-05-31 23:50 +00:00] item-576 — MARKER_0576 needle #576\n[2025-05-31 23:50 +00:00] item-577 — MARKER_0577 needle #577\n[2025-05-31 23:50 +00:00] item-578 — MARKER_0578 needle #578\n[2025-05-31 23:50 +00:00] item-579 — MARKER_0579 needle #579\n[2025-05-31 23:50 +00:00] item-580 — MARKER_0580 needle #580\n[2025-05-31 23:50 +00:00] item-581 — MARKER_0581 needle #581\n[2025-05-31 23:50 +00:00] item-582 — MARKER_0582 needle #582\n[2025-05-31 23:50 +00:00] item-583 — MARKER_0583 needle #583\n[2025-05-31 23:50 +00:00] item-584 — MARKER_0584 needle #584\n[2025-05-31 23:50 +00:00] item-585 — MARKER_0585 needle #585\n[2025-05-31 23:50 +00:00] item-586 — MARKER_0586 needle #586\n[2025-05-31 23:50 +00:00] item-587 — MARKER_0587 needle #587\n[2025-05-31 23:50 +00:00] item-588 — MARKER_0588 needle #588\n[2025-05-31 23:50 +00:00] item-589 — MARKER_0589 needle #589\n[2025-05-31 23:50 +00:00] item-590 — MARKER_0590 needle #590\n[2025-05-31 23:50 +00:00] item-591 — MARKER_0591 needle #591\n[2025-05-31 23:50 +00:00] item-592 — MARKER_0592 needle #592\n[2025-05-31 23:50 +00:00] item-593 — MARKER_0593 needle #593\n[2025-05-31 23:50 +00:00] item-594 — MARKER_0594 needle #594\n[2025-05-31 23:50 +00:00] item-595 — MARKER_0595 needle #595\n[2025-05-31 23:50 +00:00] item-596 — MARKER_0596 needle #596\n[2025-05-31 23:50 +00:00] item-597 — MARKER_0597 needle #597\n[2025-05-31 23:50 +00:00] item-598 — MARKER_0598 needle #598\n[2025-05-31 23:50 +00:00] item-599 — MARKER_0599 needle #599"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 599,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 500,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 501,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 500,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 510,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 500,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510\n[2025-05-31 23:51 +00:00] item-511 — MARKER_0511 needle #511\n[2025-05-31 23:51 +00:00] item-512 — MARKER_0512 needle #512\n[2025-05-31 23:51 +00:00] item-513 — MARKER_0513 needle #513\n[2025-05-31 23:51 +00:00] item-514 — MARKER_0514 needle #514\n[2025-05-31 23:51 +00:00] item-515 — MARKER_0515 needle #515\n[2025-05-31 23:51 +00:00] item-516 — MARKER_0516 needle #516\n[2025-05-31 23:51 +00:00] item-517 — MARKER_0517 needle #517\n[2025-05-31 23:51 +00:00] item-518 — MARKER_0518 needle #518\n[2025-05-31 23:51 +00:00] item-519 — MARKER_0519 needle #519\n[2025-05-31 23:51 +00:00] item-520 — MARKER_0520 needle #520\n[2025-05-31 23:51 +00:00] item-521 — MARKER_0521 needle #521\n[2025-05-31 23:51 +00:00] item-522 — MARKER_0522 needle #522\n[2025-05-31 23:51 +00:00] item-523 — MARKER_0523 needle #523\n[2025-05-31 23:51 +00:00] item-524 — MARKER_0524 needle #524\n[2025-05-31 23:51 +00:00] item-525 — MARKER_0525 needle #525\n[2025-05-31 23:51 +00:00] item-526 — MARKER_0526 needle #526\n[2025-05-31 23:51 +00:00] item-527 — MARKER_0527 needle #527\n[2025-05-31 23:51 +00:00] item-528 — MARKER_0528 needle #528\n[2025-05-31 23:51 +00:00] item-529 — MARKER_0529 needle #529\n[2025-05-31 23:51 +00:00] item-530 — MARKER_0530 needle #530\n[2025-05-31 23:51 +00:00] item-531 — MARKER_0531 needle #531\n[2025-05-31 23:51 +00:00] item-532 — MARKER_0532 needle #532\n[2025-05-31 23:51 +00:00] item-533 — MARKER_0533 needle #533\n[2025-05-31 23:51 +00:00] item-534 — MARKER_0534 needle #534\n[2025-05-31 23:51 +00:00] item-535 — MARKER_0535 needle #535\n[2025-05-31 23:51 +00:00] item-536 — MARKER_0536 needle #536\n[2025-05-31 23:51 +00:00] item-537 — MARKER_0537 needle #537\n[2025-05-31 23:51 +00:00] item-538 — MARKER_0538 needle #538\n[2025-05-31 23:51 +00:00] item-539 — MARKER_0539 needle #539\n[2025-05-31 23:51 +00:00] item-540 — MARKER_0540 needle #540\n[2025-05-31 23:51 +00:00] item-541 — MARKER_0541 needle #541\n[2025-05-31 23:50 +00:00] item-542 — MARKER_0542 needle #542\n[2025-05-31 23:50 +00:00] item-543 — MARKER_0543 needle #543\n[2025-05-31 23:50 +00:00] item-544 — MARKER_0544 needle #544\n[2025-05-31 23:50 +00:00] item-545 — MARKER_0545 needle #545\n[2025-05-31 23:50 +00:00] item-546 — MARKER_0546 needle #546\n[2025-05-31 23:50 +00:00] item-547 — MARKER_0547 needle #547\n[2025-05-31 23:50 +00:00] item-548 — MARKER_0548 needle #548\n[2025-05-31 23:50 +00:00] item-549 — MARKER_0549 needle #549\n[2025-05-31 23:50 +00:00] item-550 — MARKER_0550 needle #550\n[2025-05-31 23:50 +00:00] item-551 — MARKER_0551 needle #551\n[2025-05-31 23:50 +00:00] item-552 — MARKER_0552 needle #552\n[2025-05-31 23:50 +00:00] item-553 — MARKER_0553 needle #553\n[2025-05-31 23:50 +00:00] item-554 — MARKER_0554 needle #554\n[2025-05-31 23:50 +00:00] item-555 — MARKER_0555 needle #555\n[2025-05-31 23:50 +00:00] item-556 — MARKER_0556 needle #556\n[2025-05-31 23:50 +00:00] item-557 — MARKER_0557 needle #557\n[2025-05-31 23:50 +00:00] item-558 — MARKER_0558 needle #558\n[2025-05-31 23:50 +00:00] item-559 — MARKER_0559 needle #559\n[2025-05-31 23:50 +00:00] item-560 — MARKER_0560 needle #560\n[2025-05-31 23:50 +00:00] item-561 — MARKER_0561 needle #561\n[2025-05-31 23:50 +00:00] item-562 — MARKER_0562 needle #562\n[2025-05-31 23:50 +00:00] item-563 — MARKER_0563 needle #563\n[2025-05-31 23:50 +00:00] item-564 — MARKER_0564 needle #564\n[2025-05-31 23:50 +00:00] item-565 — MARKER_0565 needle #565\n[2025-05-31 23:50 +00:00] item-566 — MARKER_0566 needle #566\n[2025-05-31 23:50 +00:00] item-567 — MARKER_0567 needle #567\n[2025-05-31 23:50 +00:00] item-568 — MARKER_0568 needle #568\n[2025-05-31 23:50 +00:00] item-569 — MARKER_0569 needle #569\n[2025-05-31 23:50 +00:00] item-570 — MARKER_0570 needle #570\n[2025-05-31 23:50 +00:00] item-571 — MARKER_0571 needle #571\n[2025-05-31 23:50 +00:00] item-572 — MARKER_0572 needle #572\n[2025-05-31 23:50 +00:00] item-573 — MARKER_0573 needle #573\n[2025-05-31 23:50 +00:00] item-574 — MARKER_0574 needle #574\n[2025-05-31 23:50 +00:00] item-575 — MARKER_0575 needle #575\n[2025-05-31 23:50 +00:00] item-576 — MARKER_0576 needle #576\n[2025-05-31 23:50 +00:00] item-577 — MARKER_0577 needle #577\n[2025-05-31 23:50 +00:00] item-578 — MARKER_0578 needle #578\n[2025-05-31 23:50 +00:00] item-579 — MARKER_0579 needle #579\n[2025-05-31 23:50 +00:00] item-580 — MARKER_0580 needle #580\n[2025-05-31 23:50 +00:00] item-581 — MARKER_0581 needle #581\n[2025-05-31 23:50 +00:00] item-582 — MARKER_0582 needle #582\n[2025-05-31 23:50 +00:00] item-583 — MARKER_0583 needle #583\n[2025-05-31 23:50 +00:00] item-584 — MARKER_0584 needle #584\n[2025-05-31 23:50 +00:00] item-585 — MARKER_0585 needle #585\n[2025-05-31 23:50 +00:00] item-586 — MARKER_0586 needle #586\n[2025-05-31 23:50 +00:00] item-587 — MARKER_0587 needle #587\n[2025-05-31 23:50 +00:00] item-588 — MARKER_0588 needle #588\n[2025-05-31 23:50 +00:00] item-589 — MARKER_0589 needle #589\n[2025-05-31 23:50 +00:00] item-590 — MARKER_0590 needle #590\n[2025-05-31 23:50 +00:00] item-591 — MARKER_0591 needle #591\n[2025-05-31 23:50 +00:00] item-592 — MARKER_0592 needle #592\n[2025-05-31 23:50 +00:00] item-593 — MARKER_0593 needle #593\n[2025-05-31 23:50 +00:00] item-594 — MARKER_0594 needle #594\n[2025-05-31 23:50 +00:00] item-595 — MARKER_0595 needle #595\n[2025-05-31 23:50 +00:00] item-596 — MARKER_0596 needle #596\n[2025-05-31 23:50 +00:00] item-597 — MARKER_0597 needle #597\n[2025-05-31 23:50 +00:00] item-598 — MARKER_0598 needle #598\n[2025-05-31 23:50 +00:00] item-599 — MARKER_0599 needle #599\n[2025-05-31 23:50 +00:00] item-600 — MARKER_0600 needle #600"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 600,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                1,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1\n[2025-05-31 23:59 +00:00] item-2 — MARKER_0002 needle #2\n[2025-05-31 23:59 +00:00] item-3 — MARKER_0003 needle #3\n[2025-05-31 23:59 +00:00] item-4 — MARKER_0004 needle #4\n[2025-05-31 23:59 +00:00] item-5 — MARKER_0005 needle #5\n[2025-05-31 23:59 +00:00] item-6 — MARKER_0006 needle #6\n[2025-05-31 23:59 +00:00] item-7 — MARKER_0007 needle #7\n[2025-05-31 23:59 +00:00] item-8 — MARKER_0008 needle #8\n[2025-05-31 23:59 +00:00] item-9 — MARKER_0009 needle #9\n[2025-05-31 23:59 +00:00] item-10 — MARKER_0010 needle #10"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                10,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1\n[2025-05-31 23:59 +00:00] item-2 — MARKER_0002 needle #2\n[2025-05-31 23:59 +00:00] item-3 — MARKER_0003 needle #3\n[2025-05-31 23:59 +00:00] item-4 — MARKER_0004 needle #4\n[2025-05-31 23:59 +00:00] item-5 — MARKER_0005 needle #5\n[2025-05-31 23:59 +00:00] item-6 — MARKER_0006 needle #6\n[2025-05-31 23:59 +00:00] item-7 — MARKER_0007 needle #7\n[2025-05-31 23:59 +00:00] item-8 — MARKER_0008 needle #8\n[2025-05-31 23:59 +00:00] item-9 — MARKER_0009 needle #9\n[2025-05-31 23:59 +00:00] item-10 — MARKER_0010 needle #10\n[2025-05-31 23:59 +00:00] item-11 — MARKER_0011 needle #11\n[2025-05-31 23:59 +00:00] item-12 — MARKER_0012 needle #12\n[2025-05-31 23:59 +00:00] item-13 — MARKER_0013 needle #13\n[2025-05-31 23:59 +00:00] item-14 — MARKER_0014 needle #14\n[2025-05-31 23:59 +00:00] item-15 — MARKER_0015 needle #15\n[2025-05-31 23:59 +00:00] item-16 — MARKER_0016 needle #16\n[2025-05-31 23:59 +00:00] item-17 — MARKER_0017 needle #17\n[2025-05-31 23:59 +00:00] item-18 — MARKER_0018 needle #18\n[2025-05-31 23:59 +00:00] item-19 — MARKER_0019 needle #19\n[2025-05-31 23:59 +00:00] item-20 — MARKER_0020 needle #20\n[2025-05-31 23:59 +00:00] item-21 — MARKER_0021 needle #21\n[2025-05-31 23:59 +00:00] item-22 — MARKER_0022 needle #22\n[2025-05-31 23:59 +00:00] item-23 — MARKER_0023 needle #23\n[2025-05-31 23:59 +00:00] item-24 — MARKER_0024 needle #24\n[2025-05-31 23:59 +00:00] item-25 — MARKER_0025 needle #25\n[2025-05-31 23:59 +00:00] item-26 — MARKER_0026 needle #26\n[2025-05-31 23:59 +00:00] item-27 — MARKER_0027 needle #27\n[2025-05-31 23:59 +00:00] item-28 — MARKER_0028 needle #28\n[2025-05-31 23:59 +00:00] item-29 — MARKER_0029 needle #29\n[2025-05-31 23:59 +00:00] item-30 — MARKER_0030 needle #30\n[2025-05-31 23:59 +00:00] item-31 — MARKER_0031 needle #31\n[2025-05-31 23:59 +00:00] item-32 — MARKER_0032 needle #32\n[2025-05-31 23:59 +00:00] item-33 — MARKER_0033 needle #33\n[2025-05-31 23:59 +00:00] item-34 — MARKER_0034 needle #34\n[2025-05-31 23:59 +00:00] item-35 — MARKER_0035 needle #35\n[2025-05-31 23:59 +00:00] item-36 — MARKER_0036 needle #36\n[2025-05-31 23:59 +00:00] item-37 — MARKER_0037 needle #37\n[2025-05-31 23:59 +00:00] item-38 — MARKER_0038 needle #38\n[2025-05-31 23:59 +00:00] item-39 — MARKER_0039 needle #39\n[2025-05-31 23:59 +00:00] item-40 — MARKER_0040 needle #40\n[2025-05-31 23:59 +00:00] item-41 — MARKER_0041 needle #41\n[2025-05-31 23:59 +00:00] item-42 — MARKER_0042 needle #42\n[2025-05-31 23:59 +00:00] item-43 — MARKER_0043 needle #43\n[2025-05-31 23:59 +00:00] item-44 — MARKER_0044 needle #44\n[2025-05-31 23:59 +00:00] item-45 — MARKER_0045 needle #45\n[2025-05-31 23:59 +00:00] item-46 — MARKER_0046 needle #46\n[2025-05-31 23:59 +00:00] item-47 — MARKER_0047 needle #47\n[2025-05-31 23:59 +00:00] item-48 — MARKER_0048 needle #48\n[2025-05-31 23:59 +00:00] item-49 — MARKER_0049 needle #49\n[2025-05-31 23:59 +00:00] item-50 — MARKER_0050 needle #50\n[2025-05-31 23:59 +00:00] item-51 — MARKER_0051 needle #51\n[2025-05-31 23:59 +00:00] item-52 — MARKER_0052 needle #52\n[2025-05-31 23:59 +00:00] item-53 — MARKER_0053 needle #53\n[2025-05-31 23:59 +00:00] item-54 — MARKER_0054 needle #54\n[2025-05-31 23:59 +00:00] item-55 — MARKER_0055 needle #55\n[2025-05-31 23:59 +00:00] item-56 — MARKER_0056 needle #56\n[2025-05-31 23:59 +00:00] item-57 — MARKER_0057 needle #57\n[2025-05-31 23:59 +00:00] item-58 — MARKER_0058 needle #58\n[2025-05-31 23:59 +00:00] item-59 — MARKER_0059 needle #59\n[2025-05-31 23:59 +00:00] item-60 — MARKER_0060 needle #60\n[2025-05-31 23:59 +00:00] item-61 — MARKER_0061 needle #61\n[2025-05-31 23:58 +00:00] item-62 — MARKER_0062 needle #62\n[2025-05-31 23:58 +00:00] item-63 — MARKER_0063 needle #63\n[2025-05-31 23:58 +00:00] item-64 — MARKER_0064 needle #64\n[2025-05-31 23:58 +00:00] item-65 — MARKER_0065 needle #65\n[2025-05-31 23:58 +00:00] item-66 — MARKER_0066 needle #66\n[2025-05-31 23:58 +00:00] item-67 — MARKER_0067 needle #67\n[2025-05-31 23:58 +00:00] item-68 — MARKER_0068 needle #68\n[2025-05-31 23:58 +00:00] item-69 — MARKER_0069 needle #69\n[2025-05-31 23:58 +00:00] item-70 — MARKER_0070 needle #70\n[2025-05-31 23:58 +00:00] item-71 — MARKER_0071 needle #71\n[2025-05-31 23:58 +00:00] item-72 — MARKER_0072 needle #72\n[2025-05-31 23:58 +00:00] item-73 — MARKER_0073 needle #73\n[2025-05-31 23:58 +00:00] item-74 — MARKER_0074 needle #74\n[2025-05-31 23:58 +00:00] item-75 — MARKER_0075 needle #75\n[2025-05-31 23:58 +00:00] item-76 — MARKER_0076 needle #76\n[2025-05-31 23:58 +00:00] item-77 — MARKER_0077 needle #77\n[2025-05-31 23:58 +00:00] item-78 — MARKER_0078 needle #78\n[2025-05-31 23:58 +00:00] item-79 — MARKER_0079 needle #79\n[2025-05-31 23:58 +00:00] item-80 — MARKER_0080 needle #80\n[2025-05-31 23:58 +00:00] item-81 — MARKER_0081 needle #81\n[2025-05-31 23:58 +00:00] item-82 — MARKER_0082 needle #82\n[2025-05-31 23:58 +00:00] item-83 — MARKER_0083 needle #83\n[2025-05-31 23:58 +00:00] item-84 — MARKER_0084 needle #84\n[2025-05-31 23:58 +00:00] item-85 — MARKER_0085 needle #85\n[2025-05-31 23:58 +00:00] item-86 — MARKER_0086 needle #86\n[2025-05-31 23:58 +00:00] item-87 — MARKER_0087 needle #87\n[2025-05-31 23:58 +00:00] item-88 — MARKER_0088 needle #88\n[2025-05-31 23:58 +00:00] item-89 — MARKER_0089 needle #89\n[2025-05-31 23:58 +00:00] item-90 — MARKER_0090 needle #90\n[2025-05-31 23:58 +00:00] item-91 — MARKER_0091 needle #91\n[2025-05-31 23:58 +00:00] item-92 — MARKER_0092 needle #92\n[2025-05-31 23:58 +00:00] item-93 — MARKER_0093 needle #93\n[2025-05-31 23:58 +00:00] item-94 — MARKER_0094 needle #94\n[2025-05-31 23:58 +00:00] item-95 — MARKER_0095 needle #95\n[2025-05-31 23:58 +00:00] item-96 — MARKER_0096 needle #96\n[2025-05-31 23:58 +00:00] item-97 — MARKER_0097 needle #97\n[2025-05-31 23:58 +00:00] item-98 — MARKER_0098 needle #98\n[2025-05-31 23:58 +00:00] item-99 — MARKER_0099 needle #99\n[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                100,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 99,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                100,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 99,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100\n[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                109,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 99,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100\n[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109\n[2025-05-31 23:58 +00:00] item-110 — MARKER_0110 needle #110\n[2025-05-31 23:58 +00:00] item-111 — MARKER_0111 needle #111\n[2025-05-31 23:58 +00:00] item-112 — MARKER_0112 needle #112\n[2025-05-31 23:58 +00:00] item-113 — MARKER_0113 needle #113\n[2025-05-31 23:58 +00:00] item-114 — MARKER_0114 needle #114\n[2025-05-31 23:58 +00:00] item-115 — MARKER_0115 needle #115\n[2025-05-31 23:58 +00:00] item-116 — MARKER_0116 needle #116\n[2025-05-31 23:58 +00:00] item-117 — MARKER_0117 needle #117\n[2025-05-31 23:58 +00:00] item-118 — MARKER_0118 needle #118\n[2025-05-31 23:58 +00:00] item-119 — MARKER_0119 needle #119\n[2025-05-31 23:58 +00:00] item-120 — MARKER_0120 needle #120\n[2025-05-31 23:58 +00:00] item-121 — MARKER_0121 needle #121\n[2025-05-31 23:57 +00:00] item-122 — MARKER_0122 needle #122\n[2025-05-31 23:57 +00:00] item-123 — MARKER_0123 needle #123\n[2025-05-31 23:57 +00:00] item-124 — MARKER_0124 needle #124\n[2025-05-31 23:57 +00:00] item-125 — MARKER_0125 needle #125\n[2025-05-31 23:57 +00:00] item-126 — MARKER_0126 needle #126\n[2025-05-31 23:57 +00:00] item-127 — MARKER_0127 needle #127\n[2025-05-31 23:57 +00:00] item-128 — MARKER_0128 needle #128\n[2025-05-31 23:57 +00:00] item-129 — MARKER_0129 needle #129\n[2025-05-31 23:57 +00:00] item-130 — MARKER_0130 needle #130\n[2025-05-31 23:57 +00:00] item-131 — MARKER_0131 needle #131\n[2025-05-31 23:57 +00:00] item-132 — MARKER_0132 needle #132\n[2025-05-31 23:57 +00:00] item-133 — MARKER_0133 needle #133\n[2025-05-31 23:57 +00:00] item-134 — MARKER_0134 needle #134\n[2025-05-31 23:57 +00:00] item-135 — MARKER_0135 needle #135\n[2025-05-31 23:57 +00:00] item-136 — MARKER_0136 needle #136\n[2025-05-31 23:57 +00:00] item-137 — MARKER_0137 needle #137\n[2025-05-31 23:57 +00:00] item-138 — MARKER_0138 needle #138\n[2025-05-31 23:57 +00:00] item-139 — MARKER_0139 needle #139\n[2025-05-31 23:57 +00:00] item-140 — MARKER_0140 needle #140\n[2025-05-31 23:57 +00:00] item-141 — MARKER_0141 needle #141\n[2025-05-31 23:57 +00:00] item-142 — MARKER_0142 needle #142\n[2025-05-31 23:57 +00:00] item-143 — MARKER_0143 needle #143\n[2025-05-31 23:57 +00:00] item-144 — MARKER_0144 needle #144\n[2025-05-31 23:57 +00:00] item-145 — MARKER_0145 needle #145\n[2025-05-31 23:57 +00:00] item-146 — MARKER_0146 needle #146\n[2025-05-31 23:57 +00:00] item-147 — MARKER_0147 needle #147\n[2025-05-31 23:57 +00:00] item-148 — MARKER_0148 needle #148\n[2025-05-31 23:57 +00:00] item-149 — MARKER_0149 needle #149\n[2025-05-31 23:57 +00:00] item-150 — MARKER_0150 needle #150\n[2025-05-31 23:57 +00:00] item-151 — MARKER_0151 needle #151\n[2025-05-31 23:57 +00:00] item-152 — MARKER_0152 needle #152\n[2025-05-31 23:57 +00:00] item-153 — MARKER_0153 needle #153\n[2025-05-31 23:57 +00:00] item-154 — MARKER_0154 needle #154\n[2025-05-31 23:57 +00:00] item-155 — MARKER_0155 needle #155\n[2025-05-31 23:57 +00:00] item-156 — MARKER_0156 needle #156\n[2025-05-31 23:57 +00:00] item-157 — MARKER_0157 needle #157\n[2025-05-31 23:57 +00:00] item-158 — MARKER_0158 needle #158\n[2025-05-31 23:57 +00:00] item-159 — MARKER_0159 needle #159\n[2025-05-31 23:57 +00:00] item-160 — MARKER_0160 needle #160\n[2025-05-31 23:57 +00:00] item-161 — MARKER_0161 needle #161\n[2025-05-31 23:57 +00:00] item-162 — MARKER_0162 needle #162\n[2025-05-31 23:57 +00:00] item-163 — MARKER_0163 needle #163\n[2025-05-31 23:57 +00:00] item-164 — MARKER_0164 needle #164\n[2025-05-31 23:57 +00:00] item-165 — MARKER_0165 needle #165\n[2025-05-31 23:57 +00:00] item-166 — MARKER_0166 needle #166\n[2025-05-31 23:57 +00:00] item-167 — MARKER_0167 needle #167\n[2025-05-31 23:57 +00:00] item-168 — MARKER_0168 needle #168\n[2025-05-31 23:57 +00:00] item-169 — MARKER_0169 needle #169\n[2025-05-31 23:57 +00:00] item-170 — MARKER_0170 needle #170\n[2025-05-31 23:57 +00:00] item-171 — MARKER_0171 needle #171\n[2025-05-31 23:57 +00:00] item-172 — MARKER_0172 needle #172\n[2025-05-31 23:57 +00:00] item-173 — MARKER_0173 needle #173\n[2025-05-31 23:57 +00:00] item-174 — MARKER_0174 needle #174\n[2025-05-31 23:57 +00:00] item-175 — MARKER_0175 needle #175\n[2025-05-31 23:57 +00:00] item-176 — MARKER_0176 needle #176\n[2025-05-31 23:57 +00:00] item-177 — MARKER_0177 needle #177\n[2025-05-31 23:57 +00:00] item-178 — MARKER_0178 needle #178\n[2025-05-31 23:57 +00:00] item-179 — MARKER_0179 needle #179\n[2025-05-31 23:57 +00:00] item-180 — MARKER_0180 needle #180\n[2025-05-31 23:57 +00:00] item-181 — MARKER_0181 needle #181\n[2025-05-31 23:56 +00:00] item-182 — MARKER_0182 needle #182\n[2025-05-31 23:56 +00:00] item-183 — MARKER_0183 needle #183\n[2025-05-31 23:56 +00:00] item-184 — MARKER_0184 needle #184\n[2025-05-31 23:56 +00:00] item-185 — MARKER_0185 needle #185\n[2025-05-31 23:56 +00:00] item-186 — MARKER_0186 needle #186\n[2025-05-31 23:56 +00:00] item-187 — MARKER_0187 needle #187\n[2025-05-31 23:56 +00:00] item-188 — MARKER_0188 needle #188\n[2025-05-31 23:56 +00:00] item-189 — MARKER_0189 needle #189\n[2025-05-31 23:56 +00:00] item-190 — MARKER_0190 needle #190\n[2025-05-31 23:56 +00:00] item-191 — MARKER_0191 needle #191\n[2025-05-31 23:56 +00:00] item-192 — MARKER_0192 needle #192\n[2025-05-31 23:56 +00:00] item-193 — MARKER_0193 needle #193\n[2025-05-31 23:56 +00:00] item-194 — MARKER_0194 needle #194\n[2025-05-31 23:56 +00:00] item-195 — MARKER_0195 needle #195\n[2025-05-31 23:56 +00:00] item-196 — MARKER_0196 needle #196\n[2025-05-31 23:56 +00:00] item-197 — MARKER_0197 needle #197\n[2025-05-31 23:56 +00:00] item-198 — MARKER_0198 needle #198\n[2025-05-31 23:56 +00:00] item-199 — MARKER_0199 needle #199"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                199,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 100,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                101,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 100,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109\n[2025-05-31 23:58 +00:00] item-110 — MARKER_0110 needle #110"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                110,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 100,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:58 +00:00] item-101 — MARKER_0101 needle #101\n[2025-05-31 23:58 +00:00] item-102 — MARKER_0102 needle #102\n[2025-05-31 23:58 +00:00] item-103 — MARKER_0103 needle #103\n[2025-05-31 23:58 +00:00] item-104 — MARKER_0104 needle #104\n[2025-05-31 23:58 +00:00] item-105 — MARKER_0105 needle #105\n[2025-05-31 23:58 +00:00] item-106 — MARKER_0106 needle #106\n[2025-05-31 23:58 +00:00] item-107 — MARKER_0107 needle #107\n[2025-05-31 23:58 +00:00] item-108 — MARKER_0108 needle #108\n[2025-05-31 23:58 +00:00] item-109 — MARKER_0109 needle #109\n[2025-05-31 23:58 +00:00] item-110 — MARKER_0110 needle #110\n[2025-05-31 23:58 +00:00] item-111 — MARKER_0111 needle #111\n[2025-05-31 23:58 +00:00] item-112 — MARKER_0112 needle #112\n[2025-05-31 23:58 +00:00] item-113 — MARKER_0113 needle #113\n[2025-05-31 23:58 +00:00] item-114 — MARKER_0114 needle #114\n[2025-05-31 23:58 +00:00] item-115 — MARKER_0115 needle #115\n[2025-05-31 23:58 +00:00] item-116 — MARKER_0116 needle #116\n[2025-05-31 23:58 +00:00] item-117 — MARKER_0117 needle #117\n[2025-05-31 23:58 +00:00] item-118 — MARKER_0118 needle #118\n[2025-05-31 23:58 +00:00] item-119 — MARKER_0119 needle #119\n[2025-05-31 23:58 +00:00] item-120 — MARKER_0120 needle #120\n[2025-05-31 23:58 +00:00] item-121 — MARKER_0121 needle #121\n[2025-05-31 23:57 +00:00] item-122 — MARKER_0122 needle #122\n[2025-05-31 23:57 +00:00] item-123 — MARKER_0123 needle #123\n[2025-05-31 23:57 +00:00] item-124 — MARKER_0124 needle #124\n[2025-05-31 23:57 +00:00] item-125 — MARKER_0125 needle #125\n[2025-05-31 23:57 +00:00] item-126 — MARKER_0126 needle #126\n[2025-05-31 23:57 +00:00] item-127 — MARKER_0127 needle #127\n[2025-05-31 23:57 +00:00] item-128 — MARKER_0128 needle #128\n[2025-05-31 23:57 +00:00] item-129 — MARKER_0129 needle #129\n[2025-05-31 23:57 +00:00] item-130 — MARKER_0130 needle #130\n[2025-05-31 23:57 +00:00] item-131 — MARKER_0131 needle #131\n[2025-05-31 23:57 +00:00] item-132 — MARKER_0132 needle #132\n[2025-05-31 23:57 +00:00] item-133 — MARKER_0133 needle #133\n[2025-05-31 23:57 +00:00] item-134 — MARKER_0134 needle #134\n[2025-05-31 23:57 +00:00] item-135 — MARKER_0135 needle #135\n[2025-05-31 23:57 +00:00] item-136 — MARKER_0136 needle #136\n[2025-05-31 23:57 +00:00] item-137 — MARKER_0137 needle #137\n[2025-05-31 23:57 +00:00] item-138 — MARKER_0138 needle #138\n[2025-05-31 23:57 +00:00] item-139 — MARKER_0139 needle #139\n[2025-05-31 23:57 +00:00] item-140 — MARKER_0140 needle #140\n[2025-05-31 23:57 +00:00] item-141 — MARKER_0141 needle #141\n[2025-05-31 23:57 +00:00] item-142 — MARKER_0142 needle #142\n[2025-05-31 23:57 +00:00] item-143 — MARKER_0143 needle #143\n[2025-05-31 23:57 +00:00] item-144 — MARKER_0144 needle #144\n[2025-05-31 23:57 +00:00] item-145 — MARKER_0145 needle #145\n[2025-05-31 23:57 +00:00] item-146 — MARKER_0146 needle #146\n[2025-05-31 23:57 +00:00] item-147 — MARKER_0147 needle #147\n[2025-05-31 23:57 +00:00] item-148 — MARKER_0148 needle #148\n[2025-05-31 23:57 +00:00] item-149 — MARKER_0149 needle #149\n[2025-05-31 23:57 +00:00] item-150 — MARKER_0150 needle #150\n[2025-05-31 23:57 +00:00] item-151 — MARKER_0151 needle #151\n[2025-05-31 23:57 +00:00] item-152 — MARKER_0152 needle #152\n[2025-05-31 23:57 +00:00] item-153 — MARKER_0153 needle #153\n[2025-05-31 23:57 +00:00] item-154 — MARKER_0154 needle #154\n[2025-05-31 23:57 +00:00] item-155 — MARKER_0155 needle #155\n[2025-05-31 23:57 +00:00] item-156 — MARKER_0156 needle #156\n[2025-05-31 23:57 +00:00] item-157 — MARKER_0157 needle #157\n[2025-05-31 23:57 +00:00] item-158 — MARKER_0158 needle #158\n[2025-05-31 23:57 +00:00] item-159 — MARKER_0159 needle #159\n[2025-05-31 23:57 +00:00] item-160 — MARKER_0160 needle #160\n[2025-05-31 23:57 +00:00] item-161 — MARKER_0161 needle #161\n[2025-05-31 23:57 +00:00] item-162 — MARKER_0162 needle #162\n[2025-05-31 23:57 +00:00] item-163 — MARKER_0163 needle #163\n[2025-05-31 23:57 +00:00] item-164 — MARKER_0164 needle #164\n[2025-05-31 23:57 +00:00] item-165 — MARKER_0165 needle #165\n[2025-05-31 23:57 +00:00] item-166 — MARKER_0166 needle #166\n[2025-05-31 23:57 +00:00] item-167 — MARKER_0167 needle #167\n[2025-05-31 23:57 +00:00] item-168 — MARKER_0168 needle #168\n[2025-05-31 23:57 +00:00] item-169 — MARKER_0169 needle #169\n[2025-05-31 23:57 +00:00] item-170 — MARKER_0170 needle #170\n[2025-05-31 23:57 +00:00] item-171 — MARKER_0171 needle #171\n[2025-05-31 23:57 +00:00] item-172 — MARKER_0172 needle #172\n[2025-05-31 23:57 +00:00] item-173 — MARKER_0173 needle #173\n[2025-05-31 23:57 +00:00] item-174 — MARKER_0174 needle #174\n[2025-05-31 23:57 +00:00] item-175 — MARKER_0175 needle #175\n[2025-05-31 23:57 +00:00] item-176 — MARKER_0176 needle #176\n[2025-05-31 23:57 +00:00] item-177 — MARKER_0177 needle #177\n[2025-05-31 23:57 +00:00] item-178 — MARKER_0178 needle #178\n[2025-05-31 23:57 +00:00] item-179 — MARKER_0179 needle #179\n[2025-05-31 23:57 +00:00] item-180 — MARKER_0180 needle #180\n[2025-05-31 23:57 +00:00] item-181 — MARKER_0181 needle #181\n[2025-05-31 23:56 +00:00] item-182 — MARKER_0182 needle #182\n[2025-05-31 23:56 +00:00] item-183 — MARKER_0183 needle #183\n[2025-05-31 23:56 +00:00] item-184 — MARKER_0184 needle #184\n[2025-05-31 23:56 +00:00] item-185 — MARKER_0185 needle #185\n[2025-05-31 23:56 +00:00] item-186 — MARKER_0186 needle #186\n[2025-05-31 23:56 +00:00] item-187 — MARKER_0187 needle #187\n[2025-05-31 23:56 +00:00] item-188 — MARKER_0188 needle #188\n[2025-05-31 23:56 +00:00] item-189 — MARKER_0189 needle #189\n[2025-05-31 23:56 +00:00] item-190 — MARKER_0190 needle #190\n[2025-05-31 23:56 +00:00] item-191 — MARKER_0191 needle #191\n[2025-05-31 23:56 +00:00] item-192 — MARKER_0192 needle #192\n[2025-05-31 23:56 +00:00] item-193 — MARKER_0193 needle #193\n[2025-05-31 23:56 +00:00] item-194 — MARKER_0194 needle #194\n[2025-05-31 23:56 +00:00] item-195 — MARKER_0195 needle #195\n[2025-05-31 23:56 +00:00] item-196 — MARKER_0196 needle #196\n[2025-05-31 23:56 +00:00] item-197 — MARKER_0197 needle #197\n[2025-05-31 23:56 +00:00] item-198 — MARKER_0198 needle #198\n[2025-05-31 23:56 +00:00] item-199 — MARKER_0199 needle #199\n[2025-05-31 23:56 +00:00] item-200 — MARKER_0200 needle #200"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                200,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 499,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-500 — MARKER_0500 needle #500"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                500,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 499,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-500 — MARKER_0500 needle #500\n[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                509,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 499,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-500 — MARKER_0500 needle #500\n[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510\n[2025-05-31 23:51 +00:00] item-511 — MARKER_0511 needle #511\n[2025-05-31 23:51 +00:00] item-512 — MARKER_0512 needle #512\n[2025-05-31 23:51 +00:00] item-513 — MARKER_0513 needle #513\n[2025-05-31 23:51 +00:00] item-514 — MARKER_0514 needle #514\n[2025-05-31 23:51 +00:00] item-515 — MARKER_0515 needle #515\n[2025-05-31 23:51 +00:00] item-516 — MARKER_0516 needle #516\n[2025-05-31 23:51 +00:00] item-517 — MARKER_0517 needle #517\n[2025-05-31 23:51 +00:00] item-518 — MARKER_0518 needle #518\n[2025-05-31 23:51 +00:00] item-519 — MARKER_0519 needle #519\n[2025-05-31 23:51 +00:00] item-520 — MARKER_0520 needle #520\n[2025-05-31 23:51 +00:00] item-521 — MARKER_0521 needle #521\n[2025-05-31 23:51 +00:00] item-522 — MARKER_0522 needle #522\n[2025-05-31 23:51 +00:00] item-523 — MARKER_0523 needle #523\n[2025-05-31 23:51 +00:00] item-524 — MARKER_0524 needle #524\n[2025-05-31 23:51 +00:00] item-525 — MARKER_0525 needle #525\n[2025-05-31 23:51 +00:00] item-526 — MARKER_0526 needle #526\n[2025-05-31 23:51 +00:00] item-527 — MARKER_0527 needle #527\n[2025-05-31 23:51 +00:00] item-528 — MARKER_0528 needle #528\n[2025-05-31 23:51 +00:00] item-529 — MARKER_0529 needle #529\n[2025-05-31 23:51 +00:00] item-530 — MARKER_0530 needle #530\n[2025-05-31 23:51 +00:00] item-531 — MARKER_0531 needle #531\n[2025-05-31 23:51 +00:00] item-532 — MARKER_0532 needle #532\n[2025-05-31 23:51 +00:00] item-533 — MARKER_0533 needle #533\n[2025-05-31 23:51 +00:00] item-534 — MARKER_0534 needle #534\n[2025-05-31 23:51 +00:00] item-535 — MARKER_0535 needle #535\n[2025-05-31 23:51 +00:00] item-536 — MARKER_0536 needle #536\n[2025-05-31 23:51 +00:00] item-537 — MARKER_0537 needle #537\n[2025-05-31 23:51 +00:00] item-538 — MARKER_0538 needle #538\n[2025-05-31 23:51 +00:00] item-539 — MARKER_0539 needle #539\n[2025-05-31 23:51 +00:00] item-540 — MARKER_0540 needle #540\n[2025-05-31 23:51 +00:00] item-541 — MARKER_0541 needle #541\n[2025-05-31 23:50 +00:00] item-542 — MARKER_0542 needle #542\n[2025-05-31 23:50 +00:00] item-543 — MARKER_0543 needle #543\n[2025-05-31 23:50 +00:00] item-544 — MARKER_0544 needle #544\n[2025-05-31 23:50 +00:00] item-545 — MARKER_0545 needle #545\n[2025-05-31 23:50 +00:00] item-546 — MARKER_0546 needle #546\n[2025-05-31 23:50 +00:00] item-547 — MARKER_0547 needle #547\n[2025-05-31 23:50 +00:00] item-548 — MARKER_0548 needle #548\n[2025-05-31 23:50 +00:00] item-549 — MARKER_0549 needle #549\n[2025-05-31 23:50 +00:00] item-550 — MARKER_0550 needle #550\n[2025-05-31 23:50 +00:00] item-551 — MARKER_0551 needle #551\n[2025-05-31 23:50 +00:00] item-552 — MARKER_0552 needle #552\n[2025-05-31 23:50 +00:00] item-553 — MARKER_0553 needle #553\n[2025-05-31 23:50 +00:00] item-554 — MARKER_0554 needle #554\n[2025-05-31 23:50 +00:00] item-555 — MARKER_0555 needle #555\n[2025-05-31 23:50 +00:00] item-556 — MARKER_0556 needle #556\n[2025-05-31 23:50 +00:00] item-557 — MARKER_0557 needle #557\n[2025-05-31 23:50 +00:00] item-558 — MARKER_0558 needle #558\n[2025-05-31 23:50 +00:00] item-559 — MARKER_0559 needle #559\n[2025-05-31 23:50 +00:00] item-560 — MARKER_0560 needle #560\n[2025-05-31 23:50 +00:00] item-561 — MARKER_0561 needle #561\n[2025-05-31 23:50 +00:00] item-562 — MARKER_0562 needle #562\n[2025-05-31 23:50 +00:00] item-563 — MARKER_0563 needle #563\n[2025-05-31 23:50 +00:00] item-564 — MARKER_0564 needle #564\n[2025-05-31 23:50 +00:00] item-565 — MARKER_0565 needle #565\n[2025-05-31 23:50 +00:00] item-566 — MARKER_0566 needle #566\n[2025-05-31 23:50 +00:00] item-567 — MARKER_0567 needle #567\n[2025-05-31 23:50 +00:00] item-568 — MARKER_0568 needle #568\n[2025-05-31 23:50 +00:00] item-569 — MARKER_0569 needle #569\n[2025-05-31 23:50 +00:00] item-570 — MARKER_0570 needle #570\n[2025-05-31 23:50 +00:00] item-571 — MARKER_0571 needle #571\n[2025-05-31 23:50 +00:00] item-572 — MARKER_0572 needle #572\n[2025-05-31 23:50 +00:00] item-573 — MARKER_0573 needle #573\n[2025-05-31 23:50 +00:00] item-574 — MARKER_0574 needle #574\n[2025-05-31 23:50 +00:00] item-575 — MARKER_0575 needle #575\n[2025-05-31 23:50 +00:00] item-576 — MARKER_0576 needle #576\n[2025-05-31 23:50 +00:00] item-577 — MARKER_0577 needle #577\n[2025-05-31 23:50 +00:00] item-578 — MARKER_0578 needle #578\n[2025-05-31 23:50 +00:00] item-579 — MARKER_0579 needle #579\n[2025-05-31 23:50 +00:00] item-580 — MARKER_0580 needle #580\n[2025-05-31 23:50 +00:00] item-581 — MARKER_0581 needle #581\n[2025-05-31 23:50 +00:00] item-582 — MARKER_0582 needle #582\n[2025-05-31 23:50 +00:00] item-583 — MARKER_0583 needle #583\n[2025-05-31 23:50 +00:00] item-584 — MARKER_0584 needle #584\n[2025-05-31 23:50 +00:00] item-585 — MARKER_0585 needle #585\n[2025-05-31 23:50 +00:00] item-586 — MARKER_0586 needle #586\n[2025-05-31 23:50 +00:00] item-587 — MARKER_0587 needle #587\n[2025-05-31 23:50 +00:00] item-588 — MARKER_0588 needle #588\n[2025-05-31 23:50 +00:00] item-589 — MARKER_0589 needle #589\n[2025-05-31 23:50 +00:00] item-590 — MARKER_0590 needle #590\n[2025-05-31 23:50 +00:00] item-591 — MARKER_0591 needle #591\n[2025-05-31 23:50 +00:00] item-592 — MARKER_0592 needle #592\n[2025-05-31 23:50 +00:00] item-593 — MARKER_0593 needle #593\n[2025-05-31 23:50 +00:00] item-594 — MARKER_0594 needle #594\n[2025-05-31 23:50 +00:00] item-595 — MARKER_0595 needle #595\n[2025-05-31 23:50 +00:00] item-596 — MARKER_0596 needle #596\n[2025-05-31 23:50 +00:00] item-597 — MARKER_0597 needle #597\n[2025-05-31 23:50 +00:00] item-598 — MARKER_0598 needle #598\n[2025-05-31 23:50 +00:00] item-599 — MARKER_0599 needle #599"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                599,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 500,
+            "limit": 1
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                501,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 500,
+            "limit": 10
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                510,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 500,
+            "limit": 100
+          },
+          "result": {
+            "text": "[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510\n[2025-05-31 23:51 +00:00] item-511 — MARKER_0511 needle #511\n[2025-05-31 23:51 +00:00] item-512 — MARKER_0512 needle #512\n[2025-05-31 23:51 +00:00] item-513 — MARKER_0513 needle #513\n[2025-05-31 23:51 +00:00] item-514 — MARKER_0514 needle #514\n[2025-05-31 23:51 +00:00] item-515 — MARKER_0515 needle #515\n[2025-05-31 23:51 +00:00] item-516 — MARKER_0516 needle #516\n[2025-05-31 23:51 +00:00] item-517 — MARKER_0517 needle #517\n[2025-05-31 23:51 +00:00] item-518 — MARKER_0518 needle #518\n[2025-05-31 23:51 +00:00] item-519 — MARKER_0519 needle #519\n[2025-05-31 23:51 +00:00] item-520 — MARKER_0520 needle #520\n[2025-05-31 23:51 +00:00] item-521 — MARKER_0521 needle #521\n[2025-05-31 23:51 +00:00] item-522 — MARKER_0522 needle #522\n[2025-05-31 23:51 +00:00] item-523 — MARKER_0523 needle #523\n[2025-05-31 23:51 +00:00] item-524 — MARKER_0524 needle #524\n[2025-05-31 23:51 +00:00] item-525 — MARKER_0525 needle #525\n[2025-05-31 23:51 +00:00] item-526 — MARKER_0526 needle #526\n[2025-05-31 23:51 +00:00] item-527 — MARKER_0527 needle #527\n[2025-05-31 23:51 +00:00] item-528 — MARKER_0528 needle #528\n[2025-05-31 23:51 +00:00] item-529 — MARKER_0529 needle #529\n[2025-05-31 23:51 +00:00] item-530 — MARKER_0530 needle #530\n[2025-05-31 23:51 +00:00] item-531 — MARKER_0531 needle #531\n[2025-05-31 23:51 +00:00] item-532 — MARKER_0532 needle #532\n[2025-05-31 23:51 +00:00] item-533 — MARKER_0533 needle #533\n[2025-05-31 23:51 +00:00] item-534 — MARKER_0534 needle #534\n[2025-05-31 23:51 +00:00] item-535 — MARKER_0535 needle #535\n[2025-05-31 23:51 +00:00] item-536 — MARKER_0536 needle #536\n[2025-05-31 23:51 +00:00] item-537 — MARKER_0537 needle #537\n[2025-05-31 23:51 +00:00] item-538 — MARKER_0538 needle #538\n[2025-05-31 23:51 +00:00] item-539 — MARKER_0539 needle #539\n[2025-05-31 23:51 +00:00] item-540 — MARKER_0540 needle #540\n[2025-05-31 23:51 +00:00] item-541 — MARKER_0541 needle #541\n[2025-05-31 23:50 +00:00] item-542 — MARKER_0542 needle #542\n[2025-05-31 23:50 +00:00] item-543 — MARKER_0543 needle #543\n[2025-05-31 23:50 +00:00] item-544 — MARKER_0544 needle #544\n[2025-05-31 23:50 +00:00] item-545 — MARKER_0545 needle #545\n[2025-05-31 23:50 +00:00] item-546 — MARKER_0546 needle #546\n[2025-05-31 23:50 +00:00] item-547 — MARKER_0547 needle #547\n[2025-05-31 23:50 +00:00] item-548 — MARKER_0548 needle #548\n[2025-05-31 23:50 +00:00] item-549 — MARKER_0549 needle #549\n[2025-05-31 23:50 +00:00] item-550 — MARKER_0550 needle #550\n[2025-05-31 23:50 +00:00] item-551 — MARKER_0551 needle #551\n[2025-05-31 23:50 +00:00] item-552 — MARKER_0552 needle #552\n[2025-05-31 23:50 +00:00] item-553 — MARKER_0553 needle #553\n[2025-05-31 23:50 +00:00] item-554 — MARKER_0554 needle #554\n[2025-05-31 23:50 +00:00] item-555 — MARKER_0555 needle #555\n[2025-05-31 23:50 +00:00] item-556 — MARKER_0556 needle #556\n[2025-05-31 23:50 +00:00] item-557 — MARKER_0557 needle #557\n[2025-05-31 23:50 +00:00] item-558 — MARKER_0558 needle #558\n[2025-05-31 23:50 +00:00] item-559 — MARKER_0559 needle #559\n[2025-05-31 23:50 +00:00] item-560 — MARKER_0560 needle #560\n[2025-05-31 23:50 +00:00] item-561 — MARKER_0561 needle #561\n[2025-05-31 23:50 +00:00] item-562 — MARKER_0562 needle #562\n[2025-05-31 23:50 +00:00] item-563 — MARKER_0563 needle #563\n[2025-05-31 23:50 +00:00] item-564 — MARKER_0564 needle #564\n[2025-05-31 23:50 +00:00] item-565 — MARKER_0565 needle #565\n[2025-05-31 23:50 +00:00] item-566 — MARKER_0566 needle #566\n[2025-05-31 23:50 +00:00] item-567 — MARKER_0567 needle #567\n[2025-05-31 23:50 +00:00] item-568 — MARKER_0568 needle #568\n[2025-05-31 23:50 +00:00] item-569 — MARKER_0569 needle #569\n[2025-05-31 23:50 +00:00] item-570 — MARKER_0570 needle #570\n[2025-05-31 23:50 +00:00] item-571 — MARKER_0571 needle #571\n[2025-05-31 23:50 +00:00] item-572 — MARKER_0572 needle #572\n[2025-05-31 23:50 +00:00] item-573 — MARKER_0573 needle #573\n[2025-05-31 23:50 +00:00] item-574 — MARKER_0574 needle #574\n[2025-05-31 23:50 +00:00] item-575 — MARKER_0575 needle #575\n[2025-05-31 23:50 +00:00] item-576 — MARKER_0576 needle #576\n[2025-05-31 23:50 +00:00] item-577 — MARKER_0577 needle #577\n[2025-05-31 23:50 +00:00] item-578 — MARKER_0578 needle #578\n[2025-05-31 23:50 +00:00] item-579 — MARKER_0579 needle #579\n[2025-05-31 23:50 +00:00] item-580 — MARKER_0580 needle #580\n[2025-05-31 23:50 +00:00] item-581 — MARKER_0581 needle #581\n[2025-05-31 23:50 +00:00] item-582 — MARKER_0582 needle #582\n[2025-05-31 23:50 +00:00] item-583 — MARKER_0583 needle #583\n[2025-05-31 23:50 +00:00] item-584 — MARKER_0584 needle #584\n[2025-05-31 23:50 +00:00] item-585 — MARKER_0585 needle #585\n[2025-05-31 23:50 +00:00] item-586 — MARKER_0586 needle #586\n[2025-05-31 23:50 +00:00] item-587 — MARKER_0587 needle #587\n[2025-05-31 23:50 +00:00] item-588 — MARKER_0588 needle #588\n[2025-05-31 23:50 +00:00] item-589 — MARKER_0589 needle #589\n[2025-05-31 23:50 +00:00] item-590 — MARKER_0590 needle #590\n[2025-05-31 23:50 +00:00] item-591 — MARKER_0591 needle #591\n[2025-05-31 23:50 +00:00] item-592 — MARKER_0592 needle #592\n[2025-05-31 23:50 +00:00] item-593 — MARKER_0593 needle #593\n[2025-05-31 23:50 +00:00] item-594 — MARKER_0594 needle #594\n[2025-05-31 23:50 +00:00] item-595 — MARKER_0595 needle #595\n[2025-05-31 23:50 +00:00] item-596 — MARKER_0596 needle #596\n[2025-05-31 23:50 +00:00] item-597 — MARKER_0597 needle #597\n[2025-05-31 23:50 +00:00] item-598 — MARKER_0598 needle #598\n[2025-05-31 23:50 +00:00] item-599 — MARKER_0599 needle #599\n[2025-05-31 23:50 +00:00] item-600 — MARKER_0600 needle #600"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                600,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 600,
+            "limit": 10
+          },
+          "result": {
+            "text": "offset capped to 500 (requested 600)\n[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501\n[2025-05-31 23:51 +00:00] item-502 — MARKER_0502 needle #502\n[2025-05-31 23:51 +00:00] item-503 — MARKER_0503 needle #503\n[2025-05-31 23:51 +00:00] item-504 — MARKER_0504 needle #504\n[2025-05-31 23:51 +00:00] item-505 — MARKER_0505 needle #505\n[2025-05-31 23:51 +00:00] item-506 — MARKER_0506 needle #506\n[2025-05-31 23:51 +00:00] item-507 — MARKER_0507 needle #507\n[2025-05-31 23:51 +00:00] item-508 — MARKER_0508 needle #508\n[2025-05-31 23:51 +00:00] item-509 — MARKER_0509 needle #509\n[2025-05-31 23:51 +00:00] item-510 — MARKER_0510 needle #510"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 510,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "offset": 0,
+            "limit": 101
+          },
+          "result": {
+            "text": "limit capped to 100 (requested 101)\n[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1\n[2025-05-31 23:59 +00:00] item-2 — MARKER_0002 needle #2\n[2025-05-31 23:59 +00:00] item-3 — MARKER_0003 needle #3\n[2025-05-31 23:59 +00:00] item-4 — MARKER_0004 needle #4\n[2025-05-31 23:59 +00:00] item-5 — MARKER_0005 needle #5\n[2025-05-31 23:59 +00:00] item-6 — MARKER_0006 needle #6\n[2025-05-31 23:59 +00:00] item-7 — MARKER_0007 needle #7\n[2025-05-31 23:59 +00:00] item-8 — MARKER_0008 needle #8\n[2025-05-31 23:59 +00:00] item-9 — MARKER_0009 needle #9\n[2025-05-31 23:59 +00:00] item-10 — MARKER_0010 needle #10\n[2025-05-31 23:59 +00:00] item-11 — MARKER_0011 needle #11\n[2025-05-31 23:59 +00:00] item-12 — MARKER_0012 needle #12\n[2025-05-31 23:59 +00:00] item-13 — MARKER_0013 needle #13\n[2025-05-31 23:59 +00:00] item-14 — MARKER_0014 needle #14\n[2025-05-31 23:59 +00:00] item-15 — MARKER_0015 needle #15\n[2025-05-31 23:59 +00:00] item-16 — MARKER_0016 needle #16\n[2025-05-31 23:59 +00:00] item-17 — MARKER_0017 needle #17\n[2025-05-31 23:59 +00:00] item-18 — MARKER_0018 needle #18\n[2025-05-31 23:59 +00:00] item-19 — MARKER_0019 needle #19\n[2025-05-31 23:59 +00:00] item-20 — MARKER_0020 needle #20\n[2025-05-31 23:59 +00:00] item-21 — MARKER_0021 needle #21\n[2025-05-31 23:59 +00:00] item-22 — MARKER_0022 needle #22\n[2025-05-31 23:59 +00:00] item-23 — MARKER_0023 needle #23\n[2025-05-31 23:59 +00:00] item-24 — MARKER_0024 needle #24\n[2025-05-31 23:59 +00:00] item-25 — MARKER_0025 needle #25\n[2025-05-31 23:59 +00:00] item-26 — MARKER_0026 needle #26\n[2025-05-31 23:59 +00:00] item-27 — MARKER_0027 needle #27\n[2025-05-31 23:59 +00:00] item-28 — MARKER_0028 needle #28\n[2025-05-31 23:59 +00:00] item-29 — MARKER_0029 needle #29\n[2025-05-31 23:59 +00:00] item-30 — MARKER_0030 needle #30\n[2025-05-31 23:59 +00:00] item-31 — MARKER_0031 needle #31\n[2025-05-31 23:59 +00:00] item-32 — MARKER_0032 needle #32\n[2025-05-31 23:59 +00:00] item-33 — MARKER_0033 needle #33\n[2025-05-31 23:59 +00:00] item-34 — MARKER_0034 needle #34\n[2025-05-31 23:59 +00:00] item-35 — MARKER_0035 needle #35\n[2025-05-31 23:59 +00:00] item-36 — MARKER_0036 needle #36\n[2025-05-31 23:59 +00:00] item-37 — MARKER_0037 needle #37\n[2025-05-31 23:59 +00:00] item-38 — MARKER_0038 needle #38\n[2025-05-31 23:59 +00:00] item-39 — MARKER_0039 needle #39\n[2025-05-31 23:59 +00:00] item-40 — MARKER_0040 needle #40\n[2025-05-31 23:59 +00:00] item-41 — MARKER_0041 needle #41\n[2025-05-31 23:59 +00:00] item-42 — MARKER_0042 needle #42\n[2025-05-31 23:59 +00:00] item-43 — MARKER_0043 needle #43\n[2025-05-31 23:59 +00:00] item-44 — MARKER_0044 needle #44\n[2025-05-31 23:59 +00:00] item-45 — MARKER_0045 needle #45\n[2025-05-31 23:59 +00:00] item-46 — MARKER_0046 needle #46\n[2025-05-31 23:59 +00:00] item-47 — MARKER_0047 needle #47\n[2025-05-31 23:59 +00:00] item-48 — MARKER_0048 needle #48\n[2025-05-31 23:59 +00:00] item-49 — MARKER_0049 needle #49\n[2025-05-31 23:59 +00:00] item-50 — MARKER_0050 needle #50\n[2025-05-31 23:59 +00:00] item-51 — MARKER_0051 needle #51\n[2025-05-31 23:59 +00:00] item-52 — MARKER_0052 needle #52\n[2025-05-31 23:59 +00:00] item-53 — MARKER_0053 needle #53\n[2025-05-31 23:59 +00:00] item-54 — MARKER_0054 needle #54\n[2025-05-31 23:59 +00:00] item-55 — MARKER_0055 needle #55\n[2025-05-31 23:59 +00:00] item-56 — MARKER_0056 needle #56\n[2025-05-31 23:59 +00:00] item-57 — MARKER_0057 needle #57\n[2025-05-31 23:59 +00:00] item-58 — MARKER_0058 needle #58\n[2025-05-31 23:59 +00:00] item-59 — MARKER_0059 needle #59\n[2025-05-31 23:59 +00:00] item-60 — MARKER_0060 needle #60\n[2025-05-31 23:59 +00:00] item-61 — MARKER_0061 needle #61\n[2025-05-31 23:58 +00:00] item-62 — MARKER_0062 needle #62\n[2025-05-31 23:58 +00:00] item-63 — MARKER_0063 needle #63\n[2025-05-31 23:58 +00:00] item-64 — MARKER_0064 needle #64\n[2025-05-31 23:58 +00:00] item-65 — MARKER_0065 needle #65\n[2025-05-31 23:58 +00:00] item-66 — MARKER_0066 needle #66\n[2025-05-31 23:58 +00:00] item-67 — MARKER_0067 needle #67\n[2025-05-31 23:58 +00:00] item-68 — MARKER_0068 needle #68\n[2025-05-31 23:58 +00:00] item-69 — MARKER_0069 needle #69\n[2025-05-31 23:58 +00:00] item-70 — MARKER_0070 needle #70\n[2025-05-31 23:58 +00:00] item-71 — MARKER_0071 needle #71\n[2025-05-31 23:58 +00:00] item-72 — MARKER_0072 needle #72\n[2025-05-31 23:58 +00:00] item-73 — MARKER_0073 needle #73\n[2025-05-31 23:58 +00:00] item-74 — MARKER_0074 needle #74\n[2025-05-31 23:58 +00:00] item-75 — MARKER_0075 needle #75\n[2025-05-31 23:58 +00:00] item-76 — MARKER_0076 needle #76\n[2025-05-31 23:58 +00:00] item-77 — MARKER_0077 needle #77\n[2025-05-31 23:58 +00:00] item-78 — MARKER_0078 needle #78\n[2025-05-31 23:58 +00:00] item-79 — MARKER_0079 needle #79\n[2025-05-31 23:58 +00:00] item-80 — MARKER_0080 needle #80\n[2025-05-31 23:58 +00:00] item-81 — MARKER_0081 needle #81\n[2025-05-31 23:58 +00:00] item-82 — MARKER_0082 needle #82\n[2025-05-31 23:58 +00:00] item-83 — MARKER_0083 needle #83\n[2025-05-31 23:58 +00:00] item-84 — MARKER_0084 needle #84\n[2025-05-31 23:58 +00:00] item-85 — MARKER_0085 needle #85\n[2025-05-31 23:58 +00:00] item-86 — MARKER_0086 needle #86\n[2025-05-31 23:58 +00:00] item-87 — MARKER_0087 needle #87\n[2025-05-31 23:58 +00:00] item-88 — MARKER_0088 needle #88\n[2025-05-31 23:58 +00:00] item-89 — MARKER_0089 needle #89\n[2025-05-31 23:58 +00:00] item-90 — MARKER_0090 needle #90\n[2025-05-31 23:58 +00:00] item-91 — MARKER_0091 needle #91\n[2025-05-31 23:58 +00:00] item-92 — MARKER_0092 needle #92\n[2025-05-31 23:58 +00:00] item-93 — MARKER_0093 needle #93\n[2025-05-31 23:58 +00:00] item-94 — MARKER_0094 needle #94\n[2025-05-31 23:58 +00:00] item-95 — MARKER_0095 needle #95\n[2025-05-31 23:58 +00:00] item-96 — MARKER_0096 needle #96\n[2025-05-31 23:58 +00:00] item-97 — MARKER_0097 needle #97\n[2025-05-31 23:58 +00:00] item-98 — MARKER_0098 needle #98\n[2025-05-31 23:58 +00:00] item-99 — MARKER_0099 needle #99\n[2025-05-31 23:58 +00:00] item-100 — MARKER_0100 needle #100"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 100,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                10
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "",
+            "projectScope": "all",
+            "offset": 501,
+            "limit": 1
+          },
+          "result": {
+            "text": "offset capped to 500 (requested 501)\n[2025-05-31 23:51 +00:00] item-501 — MARKER_0501 needle #501"
+          },
+          "searches": [],
+          "statements": [
+            {
+              "sql": "SET LOCAL statement_timeout = '30s'",
+              "params": []
+            },
+            {
+              "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $2 OFFSET $3",
+              "params": [
+                1,
+                501,
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "args": {
+            "query": "needle",
+            "projectScope": "all",
+            "limit": 0
+          },
+          "result": {
+            "text": "[2025-06-01 00:00 +00:00] item-1 — MARKER_0001 needle #1"
+          },
+          "searches": [
+            {
+              "query": "needle",
+              "options": {
+                "limit": 3,
+                "queryVector": null,
+                "includeMembers": false,
+                "ts_from": 1746144000000,
+                "ts_to": 1748736000000,
+                "projectScope": "all",
+                "category": {
+                  "$exact": "undefined"
+                },
+                "excludeStatuses": [],
+                "latestByConcept": false
+              }
+            }
+          ],
+          "statements": [
+            {
+              "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+              "params": [
+                1746144000000,
+                1748736000000,
+                "%needle%",
+                3
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "public historical enrichment cannot reintroduce an alias beside its representative",
+      "rows": [
+        {
+          "id": 1,
+          "ts": 1705276800000,
+          "is_root": 1,
+          "chunk_root": 1,
+          "role": "user",
+          "project_id": null,
+          "session_id": "test-session",
+          "category": "fact",
+          "status": "pending",
+          "element": "item-1",
+          "summary": "LEGACY_ALIAS needle",
+          "content": "LEGACY_ALIAS needle",
+          "duplicate_of": 2,
+          "retrievalScore": 1,
+          "rrf": 1,
+          "_retrievalEvidence": "lexical"
+        },
+        {
+          "id": 2,
+          "ts": 1705276800001,
+          "is_root": 1,
+          "chunk_root": 2,
+          "role": "user",
+          "project_id": null,
+          "session_id": "test-session",
+          "category": "fact",
+          "status": "pending",
+          "element": "item-2",
+          "summary": "CANONICAL_RECORD needle",
+          "content": "CANONICAL_RECORD needle",
+          "duplicate_of": null,
+          "retrievalScore": 1,
+          "rrf": 1,
+          "_retrievalEvidence": "lexical"
+        }
+      ],
+      "step": {
+        "args": {
+          "query": "needle",
+          "period": "2024-01-01~2024-01-31",
+          "projectScope": "all",
+          "limit": 10
+        },
+        "result": {
+          "text": "[2024-01-15 00:00 +00:00] item-2 — CANONICAL_RECORD needle #2"
+        },
+        "searches": [
+          {
+            "query": "needle",
+            "options": {
+              "limit": 30,
+              "queryVector": null,
+              "includeMembers": false,
+              "ts_from": 1704067200000,
+              "ts_to": 1706745599999,
+              "projectScope": "all",
+              "category": {
+                "$exact": "undefined"
+              },
+              "excludeStatuses": [],
+              "latestByConcept": false
+            }
+          },
+          {
+            "query": "needle",
+            "options": {
+              "limit": 30,
+              "queryVector": null,
+              "includeMembers": false,
+              "ts_from": 1704067200000,
+              "ts_to": 1706745599999,
+              "projectScope": "all",
+              "category": {
+                "$exact": "undefined"
+              },
+              "excludeStatuses": [],
+              "latestByConcept": false,
+              "rootOnly": true
+            }
+          }
+        ],
+        "statements": [
+          {
+            "sql": "SET LOCAL statement_timeout = '30s'",
+            "params": []
+          },
+          {
+            "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND ts >= $2 AND ts <= $3\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $4 OFFSET $5",
+            "params": [
+              1,
+              1704067200000,
+              1706745599999,
+              50,
+              0
+            ]
+          },
+          {
+            "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+            "params": [
+              1704067200000,
+              1706745599999,
+              "%needle%",
+              10
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "public enrichment filters time before duplicate grouping",
+      "rows": [
+        {
+          "id": 1,
+          "ts": 1705276800000,
+          "is_root": 1,
+          "chunk_root": 1,
+          "role": "user",
+          "project_id": null,
+          "session_id": "test-session",
+          "category": "fact",
+          "status": "pending",
+          "element": "item-1",
+          "summary": "IN_WINDOW needle",
+          "content": "IN_WINDOW needle",
+          "duplicate_of": 2,
+          "retrievalScore": 1,
+          "rrf": 1,
+          "_retrievalEvidence": "lexical"
+        },
+        {
+          "id": 2,
+          "ts": 1736899200000,
+          "is_root": 1,
+          "chunk_root": 2,
+          "role": "user",
+          "project_id": null,
+          "session_id": "test-session",
+          "category": "fact",
+          "status": "pending",
+          "element": "item-2",
+          "summary": "OUT_OF_WINDOW needle",
+          "content": "OUT_OF_WINDOW needle",
+          "duplicate_of": null,
+          "retrievalScore": 1,
+          "rrf": 1,
+          "_retrievalEvidence": "lexical"
+        }
+      ],
+      "step": {
+        "args": {
+          "query": "needle",
+          "period": "2024-01-01~2024-01-31",
+          "projectScope": "all",
+          "limit": 10
+        },
+        "result": {
+          "text": "[2024-01-15 00:00 +00:00] item-1 — IN_WINDOW needle [event: item-1 — IN_WINDOW needle] #1"
+        },
+        "searches": [
+          {
+            "query": "needle",
+            "options": {
+              "limit": 30,
+              "queryVector": null,
+              "includeMembers": false,
+              "ts_from": 1704067200000,
+              "ts_to": 1706745599999,
+              "projectScope": "all",
+              "category": {
+                "$exact": "undefined"
+              },
+              "excludeStatuses": [],
+              "latestByConcept": false
+            }
+          },
+          {
+            "query": "needle",
+            "options": {
+              "limit": 30,
+              "queryVector": null,
+              "includeMembers": false,
+              "ts_from": 1704067200000,
+              "ts_to": 1706745599999,
+              "projectScope": "all",
+              "category": {
+                "$exact": "undefined"
+              },
+              "excludeStatuses": [],
+              "latestByConcept": false,
+              "rootOnly": true
+            }
+          }
+        ],
+        "statements": [
+          {
+            "sql": "SET LOCAL statement_timeout = '30s'",
+            "params": []
+          },
+          {
+            "sql": "WITH eligible AS NOT MATERIALIZED (\n                 SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source,\n                        chunk_root, is_root, element, category, summary, project_id,\n                        status, score, last_seen_at, duplicate_of\n                 FROM entries\n                 WHERE is_root = $1 AND ts >= $2 AND ts <= $3\n               )\n               SELECT candidate.* FROM eligible candidate\n               WHERE candidate.is_root <> 1 OR candidate.duplicate_of IS NULL\n                  OR NOT EXISTS (\n                    SELECT 1 FROM eligible representative\n                    WHERE representative.id = candidate.duplicate_of\n                      AND representative.is_root = 1\n                      AND representative.project_id IS NOT DISTINCT FROM candidate.project_id\n                  )\n               ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n               LIMIT $4 OFFSET $5",
+            "params": [
+              1,
+              1704067200000,
+              1706745599999,
+              50,
+              0
+            ]
+          },
+          {
+            "sql": "\n      SELECT id, element, summary, category, project_id, created_at, updated_at,\n             (CASE WHEN lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3 THEN 1 ELSE 0 END) AS hit_count\n      FROM core_entries\n      WHERE agent_id IS NULL AND COALESCE(updated_at, created_at) >= $1 AND COALESCE(updated_at, created_at) <= $2 AND (lower(coalesce(element, '') || ' ' || coalesce(summary, '')) LIKE $3)\n        AND (status IS NULL OR status = 'active')\n      ORDER BY hit_count DESC, updated_at DESC, id ASC\n      LIMIT $4\n    ",
+            "params": [
+              1704067200000,
+              1706745599999,
+              "%needle%",
+              10
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

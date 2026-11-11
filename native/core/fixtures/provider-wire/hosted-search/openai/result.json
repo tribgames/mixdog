@@ -1,0 +1,125 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "fixture",
+    "providerReplay": {
+      "version": 1,
+      "provider": "openai-responses",
+      "items": [
+        {
+          "type": "web_search_call",
+          "id": "ws_1",
+          "status": "completed",
+          "action": {
+            "type": "search",
+            "query": "find x",
+            "sources": [
+              {
+                "type": "url",
+                "url": "https://a.com/x"
+              },
+              {
+                "type": "url",
+                "url": "https://b.com/y"
+              }
+            ]
+          }
+        },
+        {
+          "type": "message",
+          "id": "m1",
+          "role": "assistant",
+          "status": "completed",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "The answer is 42.",
+              "annotations": [
+                {
+                  "type": "url_citation",
+                  "start_index": 0,
+                  "end_index": 17,
+                  "url": "https://a.com/x",
+                  "title": "A page"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "citations": [
+      {
+        "title": "A page",
+        "url": "https://a.com/x",
+        "snippet": "",
+        "source": "openai-oauth"
+      }
+    ],
+    "webSearchCalls": [
+      {
+        "id": "ws_1",
+        "status": "completed",
+        "action": {
+          "type": "search",
+          "query": "find x",
+          "sources": [
+            {
+              "type": "url",
+              "url": "https://a.com/x"
+            },
+            {
+              "type": "url",
+              "url": "https://b.com/y"
+            }
+          ]
+        }
+      }
+    ],
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "cacheWriteTokens": 0,
+      "promptTokens": 20,
+      "raw": {
+        "input_tokens": 20,
+        "output_tokens": 8,
+        "total_tokens": 28
+      }
+    },
+    "responseId": "resp_x",
+    "generationMs": 0
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "tool"
+    }
+  ]
+}
