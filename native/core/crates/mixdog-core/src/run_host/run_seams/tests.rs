@@ -27,7 +27,7 @@ impl AgentEvidence for NoEvidence {
     }
 }
 
-async fn seams(stored: Option<Value>, env: HashMap<String, String>) -> (tempfile::TempDir, ConfigRunSeams) {
+pub(super) async fn seams(stored: Option<Value>, env: HashMap<String, String>) -> (tempfile::TempDir, ConfigRunSeams) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixdog-config.json");
     if let Some(stored) = stored {
