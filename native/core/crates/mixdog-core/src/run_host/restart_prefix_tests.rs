@@ -78,6 +78,7 @@ impl ModelStream for Hanging {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 }
 
 /// The fixture's fake provider: records the body the Anthropic codec builds for every send and answers from the script.
