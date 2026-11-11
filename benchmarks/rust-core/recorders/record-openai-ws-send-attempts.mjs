@@ -22,7 +22,7 @@ const rec = await startRecording({
   pure: { '*': 'RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form' },
   set: 'provider-openai-ws-send-attempts',
   net: false,
-  exclusions: ['result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
+  exclusions: ['NOT HELD (not reproducible at the wire): stream-stored-xai-anchor-carried-into-next-attempt (:464) - tried: two sends on one pool key with auth xai and store:true over the real sender; the second send dials a new socket instead of reusing the first (recorded in the attempt, no anchored entry exists when the retry starts) and its retry frame carries no previous_response_id, so the Node test state (an entry holding resp_1) is only reachable on a hand-built entry', 'NOT HELD (observable nowhere outside Node objects): token-refresh-timeout-classifies-as-auth (:345) - the classification of a token-refresh timeout error is read from the error object of the auth refresh (an HTTP exchange with the auth server outside this socket); exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches', 'NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)', 'reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts', 'result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
   maskRow: (row) => {
     const walk = (value) => {
       if (!value || typeof value !== 'object') return;
@@ -69,82 +69,6 @@ const errorOf = (message, props) => ({ message, props });
 const make = ({ message, props }) => Object.assign(new Error(message), props);
 const LIMIT = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
 
-await rec.run('handshake-transient-connect-error-spends-budget-and-retries', `${SRC}:74`, { limit: LIMIT, error: errorOf('reset', { code: 'ECONNRESET' }), info: handshakeInfo(0) }, async () => {
-  const h = harness();
-  const err = make(errorOf('reset', { code: 'ECONNRESET' }));
-  const out = await settle(h.attempts.handshakeFailed(err, handshakeInfo(0)));
-  return { out, error: err, ...logs(h), firstAttemptErrorIsTheError: h.attempts.state.firstAttemptError === err, firstAttemptClassifier: h.attempts.state.firstAttemptClassifier };
-});
-const rateLimited = errorOf('rate limited', { responseFailed: { response: { error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 1.5s.' } } } });
-const longWait = errorOf('OpenAI OAuth WS error: Rate limit reached. Please try again in 210s.', { responseFailed: { type: 'error', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 210s.' } } });
-await rec.run('reconnect-stage-names-failure-and-counts-down-advised-wait', `${SRC}:181`, { create: { auth: { type: 'xai' }, useModel: 'gpt-6.1-sol', traceProvider: 'xai' }, progress: [{ attempt: 1, max: 5, classifier: 'http_429', error: errorOf('Rate limit reached. Please try again in 210s.', { code: 'rate_limit_exceeded' }), waitMs: 210000 }, { attempt: 2, max: 5, classifier: 'ws_1006' }] }, () => {
-  const stages = [];
-  const ctx = createWsSendContext({ auth: { type: 'xai' }, body: {}, sendOpts: {}, onStageChange: (stage, detail) => stages.push([stage, detail]), externalSignal: null, poolKey: 'send-context-test', cacheKey: null, iteration: 0, useModel: 'gpt-6.1-sol', traceProvider: 'xai', _sendSpanTraceFn: () => {} });
-  const before = Date.now();
-  ctx.emitReconnectProgress({ attempt: 1, max: 5, classifier: 'http_429', error: make(errorOf('Rate limit reached. Please try again in 210s.', { code: 'rate_limit_exceeded' })), waitMs: 210_000 });
-  ctx.emitReconnectProgress({ attempt: 2, max: 5, classifier: 'ws_1006' });
-  return { clockNowMs: before, stages };
-});
-const markers = ['PROMPT_MARKER_7f3a', 'sk-TOKEN_MARKER_9b2c', 'acct_ACCOUNT_MARKER_44d1'];
-const serverText = `Rate limit reached for "${markers[0]}" (key ${markers[1]}, account ${markers[2]}). Please try again in 3s.`;
-const redactionErrors = [
-  errorOf(`OpenAI OAuth WS error: ${serverText}`, { responseFailed: { type: 'error', status: 429, error: { code: 'rate_limit_exceeded', message: serverText } }, httpStatus: 429 }),
-  errorOf(serverText, { responseFailed: { response: { error: { code: `bad ${markers[0]}`, message: serverText } } } }),
-  errorOf(serverText, { responseFailed: { response: { error: { code: 'acct_private-123', message: serverText } } } }),
-];
-await rec.run('safe-retry-error-code-keeps-only-known-codes', `${SRC}:272`, { known: ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found'], unknown: ['acct_private-123', 'user_12345', 'sk-abc', 'prompt words'] }, () => {
-  const coded = (code) => Object.assign(new Error('x'), { responseFailed: { error: { code } } });
-  return Object.fromEntries(['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found', 'acct_private-123', 'user_12345', 'sk-abc', 'prompt words'].map((code) => [code, safeRetryErrorCode(coded(code))]));
-});
-await rec.run('retry-stage-takes-reason-class-never-caller-text', `${SRC}:297`, { calls: [{ attempt: 1, maxAttempts: 5, delayMs: 1000, reason: 'INJECTED_REASON_TEXT', reasonClass: 'INJECTED_CLASS text' }, { attempt: 1, maxAttempts: 5, delayMs: 1000, reasonClass: 'overloaded' }] }, () => {
-  const stages = [];
-  emitProviderRetryStage((_stage, detail) => stages.push(detail), { attempt: 1, maxAttempts: 5, lastErr: new Error('x'), delayMs: 1_000, reason: 'INJECTED_REASON_TEXT', reasonClass: 'INJECTED_CLASS text' });
-  emitProviderRetryStage((_stage, detail) => stages.push(detail), { attempt: 1, maxAttempts: 5, lastErr: new Error('x'), delayMs: 1_000, reasonClass: 'overloaded' });
-  return { stages };
-});
-const stageFor = (lastErr, extra = {}) => {
-  const stages = [];
-  emitProviderRetryStage((_stage, detail) => stages.push(detail), { attempt: 1, maxAttempts: 5, lastErr, delayMs: 1_000, ...extra });
-  return stages[0];
-};
-await rec.run('typed-timeouts-keep-their-own-wording', `${SRC}:325`, {}, () => ({
-  cursor: stageFor(providerTimeoutError('Cursor request', 5_000)),
-  anthropic: stageFor(Object.assign(new Error('Anthropic SSE stream produced no message_start within 45000ms'), { code: 'EEMPTYSTREAM', isEmptyStream: true, firstByteTimeout: true })),
-  ws: stageFor(Object.assign(new Error('WS stream: no first server event within 10000ms'), { firstByteTimeout: true })),
-  stall: stageFor(Object.assign(new Error('Responses WS timed out after 60000ms of inactivity'), { name: 'StreamStalledError' })),
-}));
-await rec.run('token-refresh-timeout-classifies-as-auth', `${SRC}:345`, {}, () => {
-  const refresh = Object.assign(new Error('OpenAI OAuth token refresh timed out after 30000ms'), { timeoutPhase: 'auth' });
-  return { reasonClass: retryReasonClass(refresh), stage: stageFor(refresh) };
-});
-await rec.run('injected-label-or-unknown-code-never-reaches-retry-stage', `${SRC}:362`, {}, () => {
-  const err = Object.assign(new Error('first byte timed out after 60000ms'), { timeoutPhase: 'headers', providerLabel: 'INJECTED_LABEL', code: 'acct_INJECTED_CODE' });
-  return { detail: stageFor(err), withLabel: stageFor(err, { providerLabel: 'Antigravity' }) };
-});
-await rec.run('stream-exhausted-budget-first-error-with-last-as-cause', `${SRC}:417`, { first: errorOf('first', { wsCloseCode: 1006 }), last: errorOf('last', { wsCloseCode: 1006 }), lastAttemptIndex: LIMIT }, async () => {
-  const h = harness();
-  const first = make(errorOf('first', { wsCloseCode: 1006 }));
-  const firstOut = await settle(h.attempts.streamFailed(first, { attemptIndex: 0, entry: fakeEntry(), midState: midState() }));
-  const last = make(errorOf('last', { wsCloseCode: 1006 }));
-  const lastOut = await settle(h.attempts.streamFailed(last, { attemptIndex: LIMIT, entry: fakeEntry(), midState: midState({ attemptIndex: LIMIT }) }));
-  return { firstOut, lastRejectedWithFirst: lastOut.error === first, causeIsTheLast: first.cause === last, first, last };
-});
-await rec.run('stream-stored-xai-anchor-carried-into-next-attempt', `${SRC}:464`, { stored: { auth: { type: 'xai' }, body: { store: true }, entry: { lastResponseId: 'resp_1', lastInputLen: 3, lastResponseItems: [{ id: 'msg_1' }] } }, notStored: { auth: { type: 'xai' }, body: { store: false }, entry: { lastResponseId: 'resp_2' } } }, async () => {
-  const h = harness({ auth: { type: 'xai' }, body: { store: true } });
-  const entry = fakeEntry({ lastResponseId: 'resp_1', lastInputLen: 3, lastResponseItems: [{ id: 'msg_1' }] });
-  const stored = { out: await settle(h.attempts.streamFailed(make(errorOf('gone', { wsCloseCode: 1006 })), { attemptIndex: 0, entry, midState: midState() })), carryForwardCache: h.attempts.state.carryForwardCache };
-  const h2 = harness({ auth: { type: 'xai' }, body: { store: false } });
-  const notStored = { out: await settle(h2.attempts.streamFailed(make(errorOf('gone', { wsCloseCode: 1006 })), { attemptIndex: 0, entry: fakeEntry({ lastResponseId: 'resp_2' }), midState: midState() })), carryForwardCache: h2.attempts.state.carryForwardCache };
-  return { stored, notStored };
-});
-await rec.run('exhausted-falls-back-to-first-error-or-unreachable-marker', `${SRC}:478`, { first: errorOf('first', { code: 'ECONNRESET' }) }, async () => {
-  const h = harness();
-  const unreachable = h.attempts.exhausted();
-  const first = make(errorOf('first', { code: 'ECONNRESET' }));
-  await h.attempts.handshakeFailed(first, handshakeInfo(0));
-  const afterFirst = h.attempts.exhausted();
-  return { unreachable, afterFirstIsTheFirstError: afterFirst === first, afterFirst, maxMidstreamRetries: h.attempts.maxMidstreamRetries, limit: LIMIT };
-});
 // ---- over a real loopback WebSocket ----
 const completed = (id) => [{ type: 'response.created', response: { id, model: 'gpt-fixture' } }, { type: 'response.completed', response: { id, model: 'gpt-fixture', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 1, output_tokens: 1 } } }];
 async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
@@ -182,4 +106,17 @@ await rec.run('ws-policy-veto-503-on-upgrade-tagged-for-http-fallback', `${SRC}:
 await rec.run('ws-long-advised-wait-announced-before-it-starts', `${SRC}:165`, { connections: ['response.failed rate_limit_exceeded "try again in 90s"', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_long', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 90s.' } } }] }, { frames: completed('resp_long_retry') }], { poolKey: 'sa-long' }));
 await rec.run('ws-server-error-text-never-reaches-retry-stage', `${SRC}:214`, { connections: ['response.failed server_error with echoed prompt, token and account in the message', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_echo', error: { code: 'server_error', message: 'upstream echoed prompt "hi", token sk-LEAK-fixture and account acct-LEAK-fixture' } } }] }, { frames: completed('resp_echo_retry') }], { poolKey: 'sa-echo' }));
 await rec.run('ws-duplicate-reasoning-rejection-strips-replay-once', `${SRC}:392`, { connections: ['response.failed: duplicate item rs_dup already exists', 'completed'], requestInput: 'a user message and a reasoning item rs_dup' }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_dup', error: { code: 'invalid_request_error', message: 'Duplicate item found with id rs_dup. Reasoning item already exists.' } } }] }, { frames: completed('resp_dup_retry') }], { poolKey: 'sa-dup', body: { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }, { type: 'reasoning', id: 'rs_dup', summary: [], encrypted_content: 'enc' }] } }));
+// ---- the former constructed-failure cases, observed where a caller can observe them ----
+// :74 a transient connect error spends the stream budget and retries: covered by ws-connection-reset-on-every-upgrade-spends-budget-then-surfaces-first-error (the upgrade is reset, the sender retries and surfaces the first error).
+// :417 the budget is spent: the first error surfaces and the last attempt's error is its cause - the send's rejection as the caller gets it.
+await rec.run('ws-stream-drops-on-every-connection-spend-budget-first-error-with-last-as-cause', `${SRC}:417`, { connections: 'every connection: created, then the server drops it (1006)', count: 12 }, () => overSocket(Array.from({ length: 12 }, () => ({ frames: [{ type: 'response.created', response: { id: 'resp_drop', model: 'gpt-fixture' } }], close: [1006, ''] })), { poolKey: 'sa-exhaust' }));
+// :272 / :297 / :362 the retry stage carries a reason class and a code from a known list, never the text of the failure: one send per code, the stage events of each are in its events.
+const failedWith = (code, message) => [{ type: 'response.failed', response: { id: 'resp_code', error: { code, message } } }];
+await rec.run('ws-retry-stage-carries-known-codes-never-failure-text', `${SRC}:272`, { codes: ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found', 'acct_private-123', 'user_12345', 'sk-abc', 'prompt words', 'INJECTED_CLASS text'], connections: 'response.failed with the code and a message that repeats it, then completed' }, async () => {
+  const sends = [];
+  for (const [i, code] of ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found', 'acct_private-123', 'user_12345', 'sk-abc', 'prompt words', 'INJECTED_CLASS text'].entries()) {
+    sends.push({ code, ...(await overSocket([{ frames: failedWith(code, `failure text ${code}`) }, { frames: completed(`resp_ok_${i}`) }], { poolKey: `sa-code-${i}` })) });
+  }
+  return { sends };
+});
 await rec.finish();
