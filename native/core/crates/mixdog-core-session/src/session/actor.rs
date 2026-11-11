@@ -5015,7 +5015,7 @@ impl SessionActor {
     fn read_context_display(&self) {
         let (jobs, gauge, thread) = (self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
         tokio::spawn(async move {
-            tokio::time::sleep(STATUS_SETTLE).await;
+            mixdog_rt::time::sleep(STATUS_SETTLE).await;
             let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
             let _ = jobs.send(JobDone::ContextStatus(status));
         });
@@ -5114,7 +5114,7 @@ impl SessionActor {
         self.route_moves += 1;
         let (seq, jobs, gauge, thread) = (self.route_moves, self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
         tokio::spawn(async move {
-            let status = match tokio::time::timeout(ROUTE_STATUS_DEADLINE, gauge.context_status_for(thread.clone(), header)).await {
+            let status = match mixdog_rt::time::timeout(ROUTE_STATUS_DEADLINE,gauge.context_status_for(thread.clone(), header)).await {
                 Ok(Ok(status)) if status.is_object() => Some(status),
                 Ok(Ok(_)) => None,
                 Ok(Err(error)) => {
