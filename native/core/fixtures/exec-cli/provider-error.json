@@ -37,7 +37,7 @@
   "output": [
     {
       "stream": "stderr",
-      "text": "mixdog: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the request was refused\"}}\n"
+      "text": "(node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n[anthropic] listModels fetch failed (list_models 404)\n[anthropic] listModels fetch failed (list_models 404)\n[ask-error] session=<session> name=Error status=400 code=invalid_request_error kind=permanent msg=\"400 {\\\"type\\\":\\\"error\\\",\\\"error\\\":{\\\"type\\\":\\\"invalid_request_error\\\",\\\"message\\\":\\\"the request was refused\\\"}}\"\n[mixdog] llm-title start id=<session> stage=first chars=2\nmixdog: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the request was refused\"}}\n[mixdog] llm-title generated id=<session> stage=first title=\"\"\n"
     }
   ],
   "requests": [

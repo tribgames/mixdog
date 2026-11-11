@@ -4061,6 +4061,7 @@ dependencies = [
  "mixdog-testkit",
  "mixdog-workspace",
  "mixdog-workspace-hack",
+ "notify",
  "rcgen",
  "regex",
  "rustls",

@@ -1,9 +1,11 @@
 //! The `mixdogd exec` binary, started as a process, replayed from Node's recording of its real CLI process
 //! (`fixtures/exec-cli`, `record-exec-cli.mjs`): the same argv, closed stdin and environment, against a stand-in
 //! provider serving the recorded answers. Compared per case: the output as ordered chunks with their stream (stdout and
-//! the exec's own `mixdog: ` stderr lines, normalized as the recorder normalizes them), the exit code, the provider
-//! requests (origin, path, model, tools, tool results), the working folder, and for a run
-//! interrupted by Ctrl+C or killed, what it left (pristine roots, live child processes).
+//! stderr, normalized as the recorder normalizes them), the exit code, the provider requests (origin, path, model, tools,
+//! tool results), the requests outside the turn, the working folder, for a run interrupted by Ctrl+C or killed, what it
+//! left (pristine roots, live child processes), and for the case recorded beside a running daemon, whether that daemon
+//! still answers. What is left out of the output and the requests outside the turn is named, with its side and reason, in
+//! the manifest (`stderrNotCompared`, `othersNotCompared`); everything else is compared whole.
 //!
 //! The binary reaches the stand-in through the `test-support` pin of its HTTP client (`REPLAY_PROVIDER_PIN`): every
 //! connect goes to the stand-in, which serves TLS under a throwaway certificate for the recorded hosts. Ctrl+C is a
@@ -32,7 +34,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::io::AsyncWriteExt;
 
-const CASES: [&str; 6] = ["text", "json", "provider-error", "failed-turn", "ctrl-c", "kill"];
+const CASES: [&str; 7] = ["text", "json", "provider-error", "failed-turn", "ctrl-c", "kill", "beside-daemon"];
 /// A run that has not ended in this long has hung.
 const RUN_DEADLINE: Duration = Duration::from_secs(180);
 /// The Ctrl+C helper attaches to a console and sends one event.
@@ -51,6 +53,7 @@ fn fixture(name: &str) -> &'static str {
         "failed-turn" => mixdog_testkit::fixture!("../../fixtures/exec-cli/failed-turn.json"),
         "ctrl-c" => mixdog_testkit::fixture!("../../fixtures/exec-cli/ctrl-c.json"),
         "kill" => mixdog_testkit::fixture!("../../fixtures/exec-cli/kill.json"),
+        "beside-daemon" => mixdog_testkit::fixture!("../../fixtures/exec-cli/beside-daemon.json"),
         other => panic!("no case {other}"),
     }
 }
@@ -75,6 +78,7 @@ fn normalize(text: &str, sandbox: &str) -> String {
         out = out.replace(form, "<sandbox>");
     }
     let rules = [
+        (r"\(node:\d+\)", "(node:<pid>)"),
         (r"sess_[A-Za-z0-9_]+", "<session>"),
         (r"exec_[0-9a-f]{32}", "<thread>"),
         (r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", "<time>"),
@@ -86,29 +90,59 @@ fn normalize(text: &str, sandbox: &str) -> String {
     out
 }
 
-/// The recorder's `ordered`, over what the two pipes delivered in arrival order: consecutive chunks of one stream joined
-/// (the manifest's `exclusions.chunking`), stderr kept to the exec's own `mixdog: ` lines (`exclusions.stderr`), then
-/// normalized.
+/// The recorder's `ordered`, over what the two pipes delivered in arrival order: every line, consecutive chunks of one stream
+/// joined (the manifest's `exclusions.chunking`), then normalized.
 fn ordered(chunks: &[(&'static str, Vec<u8>)], sandbox: &str) -> Value {
-    let mut raw: Vec<(&str, String)> = Vec::new();
-    for (stream, bytes) in chunks {
-        match raw.last_mut() {
-            Some((last, text)) if *last == *stream => text.push_str(&String::from_utf8_lossy(bytes)),
-            _ => raw.push((*stream, String::from_utf8_lossy(bytes).into_owned())),
-        }
-    }
     let mut joined: Vec<(&str, String)> = Vec::new();
-    for (stream, text) in raw {
-        let kept = if stream == "stdout" { text } else { text.split_inclusive('\n').filter(|line| line.starts_with("mixdog: ")).collect() };
-        if kept.is_empty() {
-            continue;
-        }
+    for (stream, bytes) in chunks {
         match joined.last_mut() {
-            Some((last, text)) if *last == stream => text.push_str(&kept),
-            _ => joined.push((stream, kept)),
+            Some((last, text)) if *last == *stream => text.push_str(&String::from_utf8_lossy(bytes)),
+            _ => joined.push((*stream, String::from_utf8_lossy(bytes).into_owned())),
         }
     }
     Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": normalize(&text, sandbox) })).collect())
+}
+
+/// The manifest's declared leave-outs: `stderrNotCompared` (patterns of Node's own diagnostic lines) and `othersNotCompared`
+/// (patterns of requests only one side makes, with the side).
+struct NotCompared {
+    stderr: Vec<(String, regex::Regex)>,
+    others: Vec<(String, regex::Regex)>,
+}
+
+impl NotCompared {
+    fn from_manifest() -> Self {
+        let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-cli/MANIFEST.json")).unwrap();
+        let declared = |key: &str| -> Vec<(String, regex::Regex)> {
+            manifest[key].as_array().unwrap().iter().map(|entry| (entry["side"].as_str().unwrap().to_owned(), regex::Regex::new(entry["pattern"].as_str().unwrap()).unwrap())).collect()
+        };
+        Self { stderr: declared("stderrNotCompared"), others: declared("othersNotCompared") }
+    }
+
+    /// `output` of `side` (`node` or `core`) without the stderr lines matching a pattern declared for that side; runs the
+    /// leave-out empties are joined again.
+    fn output(&self, output: &Value, side: &str) -> Value {
+        let mut joined: Vec<(String, String)> = Vec::new();
+        for chunk in output.as_array().unwrap() {
+            let stream = chunk["stream"].as_str().unwrap();
+            let text = chunk["text"].as_str().unwrap();
+            let left_out = |line: &str| self.stderr.iter().any(|(owner, pattern)| owner == side && pattern.is_match(line.trim_end_matches(['\r', '\n'])));
+            let kept: String = if stream == "stderr" { text.split_inclusive('\n').filter(|line| !left_out(line)).collect() } else { text.to_owned() };
+            if kept.is_empty() {
+                continue;
+            }
+            match joined.last_mut() {
+                Some((last, text)) if last == stream => text.push_str(&kept),
+                _ => joined.push((stream.to_owned(), kept)),
+            }
+        }
+        Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": text })).collect())
+    }
+
+    /// The requests outside the turn that `side` (`node` or `core`) makes, without those declared for that side only.
+    fn others(&self, others: &Value, side: &str) -> Value {
+        Value::Array(others.as_array().unwrap().iter().filter(|request| !self.others.iter().any(|(owner, pattern)| owner == side && pattern.is_match(request.as_str().unwrap()))).cloned().collect())
+    }
 }
 
 /// The stand-in provider's record of a run.
@@ -282,6 +316,66 @@ fn ctrl_c_helper() {
     }
 }
 
+/// The recorded environment of a case, `<sandbox>` replaced by `root`.
+fn apply_env(command: &mut Command, case: &Value, root: &str) {
+    for (name, value) in case["env"].as_object().unwrap() {
+        let value = value.as_str().unwrap();
+        let value = if value == "<host>" { std::env::var(name).unwrap() } else { value.replacen("<sandbox>", root, 1).replace('/', "\\") };
+        command.env(name, value);
+    }
+}
+
+/// The core running beside the exec (`mixdogd serve` on the case's own data and temp folders), ended with its children when
+/// this value goes, whatever the test does.
+struct Daemon {
+    child: std::process::Child,
+}
+
+impl Daemon {
+    /// Started and waited for until it published its discovery file (`<temp>/mixdog/daemon.json` naming its pid), by watching the
+    /// folder for the file to appear.
+    fn start(exe: &Path, case: &Value, sandbox: &Path, root: &str) -> Self {
+        use notify::Watcher;
+        let (changed, events) = std::sync::mpsc::channel();
+        let mut watcher = notify::recommended_watcher(move |_: notify::Result<notify::Event>| {
+            changed.send(()).ok();
+        })
+        .unwrap();
+        let temp = sandbox.join("tmp");
+        watcher.watch(&temp, notify::RecursiveMode::Recursive).unwrap();
+        let mut command = Command::new(exe);
+        command.arg("serve").current_dir(sandbox.join("work")).env_clear();
+        apply_env(&mut command, case, root);
+        let child = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_NO_WINDOW).spawn().unwrap();
+        let daemon = Self { child };
+        let discovery = temp.join("mixdog").join("daemon.json");
+        let published = || std::fs::read_to_string(&discovery).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()).is_some_and(|doc| doc["pid"] == daemon.child.id());
+        while !published() {
+            events.recv_timeout(RUN_DEADLINE).unwrap_or_else(|_| panic!("the core beside the exec did not publish {} in {RUN_DEADLINE:?}", discovery.display()));
+        }
+        daemon
+    }
+
+    /// Whether the core still runs and answers a client of its control listener (`ctl status`).
+    fn answers(&mut self, exe: &Path, case: &Value, root: &str, work: &Path) -> bool {
+        if self.child.try_wait().unwrap().is_some() {
+            return false;
+        }
+        let mut command = Command::new(exe);
+        command.args(["ctl", "status", "--json"]).current_dir(work).env_clear();
+        apply_env(&mut command, case, root);
+        let status = command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_NO_WINDOW).status().unwrap();
+        status.success()
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        end_tree(self.child.id());
+        self.child.wait().ok();
+    }
+}
+
 /// One case: the binary run as Node's CLI was, and what it did, in the recording's shape.
 fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Value {
     let label = case["case"].as_str().unwrap();
@@ -310,13 +404,11 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     let addr = listener.local_addr().unwrap();
     let server = runtime.spawn(serve(listener, Arc::new(config), names, Arc::new(case.clone()), heard.clone(), held.clone()));
 
+    // A case recorded beside a running daemon starts the core's own on the same folders first.
+    let mut daemon = case.get("daemon").map(|_| Daemon::start(exe, case, sandbox.path(), &root));
     let mut command = Command::new(exe);
     command.args(case["argv"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap())).current_dir(sandbox.path().join("work")).env_clear();
-    for (name, value) in case["env"].as_object().unwrap() {
-        let value = value.as_str().unwrap();
-        let value = if value == "<host>" { std::env::var(name).unwrap() } else { value.replacen("<sandbox>", &root, 1).replace('/', "\\") };
-        command.env(name, value);
-    }
+    apply_env(&mut command, case, &root);
     command.env("REPLAY_PROVIDER_PIN", addr.to_string()).env("REPLAY_PROVIDER_PIN_CERT", &cert_path);
     let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).creation_flags(CREATE_NO_WINDOW).spawn().unwrap();
     drop(child.stdin.take());
@@ -359,6 +451,7 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
         panic!("{label}: the run did not end in {RUN_DEADLINE:?}")
     });
     waiter.join().unwrap();
+    let beside = daemon.as_mut().map(|daemon| json!({ "aliveAfterExec": daemon.answers(exe, case, &root, &sandbox.path().join("work")) }));
     let left = interrupt.map(|_| {
         let children = children_of(pid);
         let roots = std::fs::read_dir(sandbox.path().join("tmp")).unwrap().filter(|entry| entry.as_ref().unwrap().file_name().to_string_lossy().starts_with("mixdog-headless-pristine-")).count();
@@ -389,6 +482,9 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     if let Some(left) = left {
         got["left"] = left;
     }
+    if let Some(beside) = beside {
+        got["daemon"] = beside;
+    }
     got
 }
 
@@ -397,18 +493,28 @@ fn the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case() {
     let exe = install();
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let mut differences = Vec::new();
+    let declared = NotCompared::from_manifest();
     for name in CASES {
         let case: Value = serde_json::from_str(fixture(name)).unwrap();
         let got = run_case(&exe, &runtime, &case);
-        // `others` (the background requests outside the turn) is the manifest's `exclusions.others`: Node's runtime fetches its
-        // tool binaries there and this core does not need them, while it lists models.dev and the provider's cost report.
-        for field in ["code", "output", "requests", "files", "left"] {
+        for field in ["code", "requests", "files", "left", "daemon"] {
             if got.get(field) != case.get(field) {
                 differences.push(format!(
                     "{name}: {field}\n  Node: {}\n  core: {}",
                     serde_json::to_string(&case.get(field)).unwrap(),
                     serde_json::to_string(&got.get(field)).unwrap()
                 ));
+            }
+        }
+        // The output and the requests outside the turn, but for what the manifest declares (`stderrNotCompared`,
+        // `othersNotCompared`): the rest of each is compared whole.
+        let sides = [
+            ("output", declared.output(&case["output"], "node"), declared.output(&got["output"], "core")),
+            ("others", declared.others(&case["others"], "node"), declared.others(&got["others"], "core")),
+        ];
+        for (field, node, core) in sides {
+            if node != core {
+                differences.push(format!("{name}: {field}\n  Node: {node}\n  core: {core}"));
             }
         }
     }
