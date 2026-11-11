@@ -131,7 +131,7 @@ await scenarios('native-thinking-same-model-demoted-otherwise', 478, [
   { label: 'trailing demoted block trimmed', messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: '', providerReplay: devinReplay('gpt-y', { thinking: 'trailing  \n' }) }, { role: 'user', content: 'q2' }], options: { model: 'claude-x' } },
 ]);
 const classes = ['claude-sonnet-4-5', 'anthropic/claude-opus-4', 'gemini-3-pro-high', 'gemma-3-27b', 'gpt-5-codex', 'o3', 'o3-high', 'gpt-oss-120b', 'kimi-k2-thinking', 'k3', 'glm-4.6', 'qwen3-coder', 'deepseek-r1-distill-qwen-32b', 'deepseek-v3', 'minimax-m2', 'grok-4', 'swe-1-6', 'MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW'];
-await rec.run('model-classes-and-demotion-wrappers', `${SRC}:566`, { classes }, () => ({
+await rec.run('model-classes-and-demotion-wrappers', `${SRC}:524`, { classes }, () => ({
   classes: classes.map((id) => [id, devinModelClass(id)]),
   gemini: [['adaptive', 'MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW'], ['gemini-2.5-flash', 'x'], ['claude-x', 'claude-x']].map(([a, b]) => [a, b, isDevinGeminiModel(a, b)]),
   demoted: [['minimax-m2', '<thinking>\nr\n</thinking>'], ['kimi-k2', 'r'], ['claude-x', 'r '], ['claude-x', '']].map(([model, text]) => [model, text, devinDemotedThinking(model, text)]),
@@ -141,13 +141,13 @@ const imageMessages = [
   { role: 'assistant', content: '', toolCalls: [{ id: 's1', name: 'shot', arguments: {} }] },
   { role: 'tool', toolCallId: 's1', content: [{ type: 'image', data: PNG, mimeType: 'image/jpeg' }] },
 ];
-await scenarios('images-only-for-vision-models', 606, [
+await scenarios('images-only-for-vision-models', 555, [
   { label: 'vision model', messages: imageMessages, options: { model: 'm-vision', modelRow: 'vision' } },
   { label: 'text model', messages: imageMessages },
 ]);
 const schema = { type: 'object', properties: { path: { type: 'string' }, limit: { type: ['number', 'null'] } }, required: ['path'] };
 const tools = [{ name: 'read', description: 'Read a file', inputSchema: schema }];
-await scenarios('tool-schemas-json-strings', 628, [
+await scenarios('tool-schemas-json-strings', 579, [
   { label: 'plain', messages: [{ role: 'user', content: 'x' }], options: { tools } },
   { label: 'strict', messages: [{ role: 'user', content: 'x' }], options: { tools: [{ ...tools[0], strict: true }] } },
   { label: 'gemini model', messages: [{ role: 'user', content: 'x' }], options: { tools, model: 'gemini-3-pro' } },

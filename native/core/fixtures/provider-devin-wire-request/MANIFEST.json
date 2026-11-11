@@ -19,7 +19,7 @@
     {
       "bytes": 4418974,
       "path": "cases.json",
-      "sha256": "91ce699a05a3ef55db4ba1772a9a2fc4e73b9c58525d9edcc6ec66261189c61d"
+      "sha256": "9b587e4675dbf4982c08b9c8854aeba4daa87e73d07aa586dcf5b4dbfd8dc0c7"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-devin-wire-request.mjs",
-  "recorderSha256": "02a81a9b367d2eb56ccbf2315ac8a367df6f9f1a6a956a1ae3a5afca7fd4140e",
+  "recorderSha256": "d7c0424fa584982e5dddcf52953826ec37e68f7045ff9c97edea3aef707a706f",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "set": "provider-devin-wire-request",
   "totalBytes": 4418974,
