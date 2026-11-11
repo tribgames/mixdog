@@ -1,0 +1,92 @@
+{
+  "cases": 7,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-reentry-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test: the daemon client is the real session service called in process (handleCall).",
+    "notRun": "no real runtime or store; the daemon client is the service called in-process",
+    "runs": "apps/desktop/src/main/session-host.ts SessionHost (setVisibleSessions, submitToSession, prefetchSession, subscribeSessionStates) over the real createSessionService (idle eviction sweep, handleCall session.*) with a scripted stored session and runtime, node:test mock timers, the read-diagnostics sink"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 60980,
+      "path": "golden.json",
+      "sha256": "ed071f6923ad5aea158114928b65c1a88606b6c164e2e21d9fb9c1c8dc8786be"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-reentry-cases.mjs",
+  "recorderSha256": "acfd1dbb5919a587489f6baaf0bba8b9c4858c942a8e1a7a281c88d9285bf418",
+  "replay": {
+    "compare": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
+    "entry": "NO RUST ENTRY ON o1: the unload of an idle session and its re-entry from the stored view, the replayed submission id join and the read tracing diagnostics: no counterpart found.",
+    "existsButNotPublicOnO1": [
+      "idle eviction: mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict` / :1240 `on_idle_evict` (private) re-arm the deadline and check has_active(\"agent\" / \"shell\") (:1248); that is the only part of the recording they show"
+    ],
+    "missingOnO1": [
+      "the unload of an idle session and its re-entry from the stored view, the replayed submission id join and the read tracing diagnostics: no counterpart found"
+    ],
+    "normalised": {
+      "clock": "mock timers, not the shared fixed Date.now; performance.now reads the same mock clock (ms since the fixture started), except where a case scripts it (read tracing: 0, then 321)",
+      "dataDir": "temp user-data dir not in the recording"
+    },
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "session-reentry-cases",
+  "totalBytes": 60980,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

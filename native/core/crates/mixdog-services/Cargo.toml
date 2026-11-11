@@ -67,6 +67,7 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 # The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }

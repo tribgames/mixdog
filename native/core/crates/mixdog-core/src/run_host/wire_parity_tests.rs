@@ -40,7 +40,11 @@ use mixdog_ai::transport::loopback::{Loopback, Script, RANDOM};
 
 const SESSION: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/session.json");
 const SCENARIOS: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/scenarios.json");
-const NODE: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-recording.json");
+// Read at run time: an `include_str!` put the 4 MB recording into every test build of the crate.
+#[allow(clippy::disallowed_methods)] // test fixture loading
+static NODE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-recording.json")).unwrap()
+});
 const CAPTURE: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-wire-capture.mjs");
 const SERVER: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/wire-server.mjs");
 
@@ -650,7 +654,7 @@ fn verify_manifest(node: &Value, only: Option<&str>) {
     assert_eq!(manifest["replaced"][0]["value"], RANDOM);
     // The recorded payload itself: the text of `scenarios` as the recorder wrote it, hashed before it was written.
     if only.is_none() {
-        assert_eq!(manifest["scenariosRecordedSha256"], sha256(recorded_scenarios_text(NODE).as_bytes()), "node-recording.json's scenarios changed since the recording (re-record, never hand-edit)");
+        assert_eq!(manifest["scenariosRecordedSha256"], sha256(recorded_scenarios_text(&NODE).as_bytes()), "node-recording.json's scenarios changed since the recording (re-record, never hand-edit)");
     }
 }
 
@@ -672,7 +676,7 @@ const CLAIMS: [(&str, &str); 4] = [
 
 #[test]
 fn every_recorded_scenario_is_claimed_by_exactly_one_test() {
-    let node: Value = serde_json::from_str(NODE).unwrap();
+    let node: Value = serde_json::from_str(&NODE).unwrap();
     let unclaimed: Vec<String> = node["scenarios"]
         .as_array()
         .unwrap()
@@ -699,7 +703,7 @@ async fn differences(provider: &str) -> Vec<String> {
             let file = std::env::var("MIXDOG_WIRE_NODE").expect("MIXDOG_WIRE_NODE names the recording of the one scenario");
             serde_json::from_str(&std::fs::read_to_string(file).expect("the recording of the one scenario")).unwrap()
         }
-        None => serde_json::from_str(NODE).unwrap(),
+        None => serde_json::from_str(&NODE).unwrap(),
     };
     verify_manifest(&node, only.as_deref());
     let rust = record_all(only.as_deref(), node["scenarios"].as_array().unwrap()).await;
@@ -739,7 +743,7 @@ fn upgrade_headers(list: &mut [Value]) -> &mut Vec<Value> {
 /// header order, an extra scenario, a changed provider.
 #[test]
 fn the_comparator_reports_what_a_looser_one_hides() {
-    let node: Value = serde_json::from_str(NODE).unwrap();
+    let node: Value = serde_json::from_str(&NODE).unwrap();
     let scenarios = node["scenarios"].as_array().unwrap().clone();
     assert!(compare(&scenarios, &scenarios, "openai-oauth").is_empty());
     let mutate = |change: &dyn Fn(&mut Vec<Value>)| {

@@ -40,6 +40,47 @@ const CLAUDE_4_5_TO_4_6: [&str; 5] = [
     "claude-sonnet-4-6",
 ];
 
+/// Claude models that gain nothing from the interleaved-thinking beta (`NO_INTERLEAVED_BETA_CLAUDE`,
+/// vertex-ai-models.mjs:53-72).
+const NO_INTERLEAVED_BETA_CLAUDE: [&str; 18] = [
+    "claude-3-sonnet",
+    "claude-3-opus",
+    "claude-3-haiku",
+    "claude-3-5-sonnet",
+    "claude-3-5-sonnet-v2",
+    "claude-3-5-haiku",
+    "claude-3-7-sonnet",
+    "claude-haiku-4-5",
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-opus-5-5",
+    "claude-fable-5",
+    "claude-fable-5-1",
+    "claude-sonnet-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+];
+
+/// The pricing SKU suffix of a request to a regional or multi-region endpoint (`VERTEX_REGIONAL_PRICING_SUFFIX`).
+const REGIONAL_PRICING_SUFFIX: &str = "@regional";
+
+/// `claudeNeedsInterleavedBeta`: whether a manual-thinking request with tools needs the interleaved-thinking beta.
+pub fn claude_needs_interleaved_beta(id: &str) -> bool {
+    !NO_INTERLEAVED_BETA_CLAUDE.contains(&claude_base(id))
+}
+
+/// `vertexPricingModel` of a Claude model (vertex-ai-models.mjs:347-356): the requested publisher model, with the
+/// regional SKU suffix off the global endpoint for every model from 4.5 on (`claudeRegionalPremium`).
+pub fn claude_pricing_model(id: &str, location: &str) -> String {
+    if location != "global" && !EARLIER_CLAUDE.contains(&claude_base(id)) {
+        format!("{id}{REGIONAL_PRICING_SUFFIX}")
+    } else {
+        id.to_owned()
+    }
+}
+
 /// The environment's region when no location is configured, in precedence order.
 const LOCATION_ENV: [&str; 5] = [
     "GOOGLE_VERTEX_LOCATION",

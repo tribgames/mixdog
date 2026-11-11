@@ -407,6 +407,8 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
         E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
         E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
+        E::ProviderMetadata(value) => w::ProxyEvent::ProviderMetadata { value: value.clone() },
+        E::ResponseId(id) => w::ProxyEvent::ResponseId { id: id.clone() },
         E::AccountRouting(r) => w::ProxyEvent::AccountRouting {
             provider: r.provider.clone(),
             account_id: r.account_id.clone(),
@@ -417,6 +419,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
             w::ProxyEvent::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
         }
         E::WireRerouted(route) => w::ProxyEvent::WireRerouted { route: route.clone() },
+        E::OutputStarted => w::ProxyEvent::OutputStarted,
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -475,12 +478,15 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
         w::ProxyEvent::Notice { message, warn } => E::Notice { message, warn },
         w::ProxyEvent::ServedModel { model } => E::ServedModel(model),
+        w::ProxyEvent::ProviderMetadata { value } => E::ProviderMetadata(value),
+        w::ProxyEvent::ResponseId { id } => E::ResponseId(id),
         w::ProxyEvent::AccountRouting { provider, account_id, session_account_id } => {
             E::AccountRouting(p::AccountRouting { provider, account_id, session_account_id })
         }
         w::ProxyEvent::AccountSwitching { message } => E::AccountStage(p::AccountStage::Switching { message }),
         w::ProxyEvent::AccountChanged { provider, account_id, at } => E::AccountStage(p::AccountStage::Changed { provider, account_id, at }),
         w::ProxyEvent::WireRerouted { route } => E::WireRerouted(route),
+        w::ProxyEvent::OutputStarted => E::OutputStarted,
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,
