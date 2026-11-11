@@ -359,3 +359,130 @@ test('a header scan of a log that grew reads what was appended, not the log agai
   fs.truncateSync(logPath, size() - 10);
   assert.ok(scan().cost >= size() - 4096);
 });
+
+// A process that has just started has no place of its own in a log, and its
+// first scan of each log read all of it. A scan leaves its place in the
+// checkpoint directory its caller names, and the next process goes on from
+// there — under the proof a place in memory is held to — while a log that is
+// not the file the checkpoint describes is read whole.
+test('a header scan in a new process goes on from the checkpoint; a log that is not the one it describes is read whole', async (t) => {
+  const { _setScanCheckpointStrideForTest, scanCheckpointPath } = await import('./session-scan-checkpoint.mjs');
+  // A checkpoint after every scan that read anything new.
+  _setScanCheckpointStrideForTest(1);
+  let read = 0;
+  const syncRead = fs.readSync;
+  const FileHandle = Object.getPrototypeOf(await fs.promises.open(root));
+  const handleRead = FileHandle.read;
+  fs.readSync = function (...args) {
+    const got = syncRead.apply(this, args);
+    read += got;
+    return got;
+  };
+  FileHandle.read = async function (...args) {
+    const got = await handleRead.apply(this, args);
+    read += got.bytesRead;
+    return got;
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.readSync = syncRead;
+    FileHandle.read = handleRead;
+    syncBuiltinESMExports();
+    _setScanCheckpointStrideForTest(null);
+  });
+
+  const checkpoints = join(root, 'checkpoints');
+  const logPath = join(root, 'sess_cp.log.jsonl');
+  const filler = 'y'.repeat(32 * 1024);
+  let processes = 0;
+  // One scan by a process that has just started: its own copy of the reader.
+  const scan = async (sync = false) => {
+    const reader = await import(`./session-log-reader.mjs?process=${(processes += 1)}`);
+    const options = { messages: false, checkpoints };
+    read = 0;
+    const log = sync ? reader.readSessionLogSync(logPath, options) : await reader.readSessionLog(logPath, options);
+    const cost = read;
+    assert.deepEqual(log, parseSessionLog(fs.readFileSync(logPath), { messages: false }));
+    return { log, cost };
+  };
+  const size = () => statSync(logPath).size;
+  let seq = 2;
+  let count = 1;
+  const grow = (title) => {
+    count += 1;
+    appendFileSync(logPath, encodePatch(seq, [['title', JSON.stringify(title)]], []) + encodeAppend(seq + 1, count, j([msg(filler)])));
+    seq += 2;
+  };
+  writeFileSync(logPath, baseLines({ id: 'sess_cp', messages: [msg(filler)] }));
+  // The publication of the checkpoint reads the log's first and last 1 KB again, to prove it is still the one scanned.
+  const first = (await scan()).cost;
+  assert.ok(first >= size() && first <= size() + 2048, 'with no checkpoint the log is read whole');
+  grow('one');
+  grow('two');
+  assert.ok(fs.existsSync(scanCheckpointPath(checkpoints, logPath)), 'a scan that went past the stride left a checkpoint');
+  await scan();
+
+  let before = size();
+  grow('three');
+  const resumed = await scan();
+  assert.ok(resumed.cost <= size() - before + 4096, `a new process read ${resumed.cost} of ${size()} bytes`);
+  assert.equal(resumed.log.header.title, 'three');
+  before = size();
+  grow('four');
+  const resumedSync = await scan(true);
+  assert.ok(resumedSync.cost <= size() - before + 4096, `the sync scan read ${resumedSync.cost} of ${size()} bytes`);
+  assert.equal(resumedSync.log.header.title, 'four');
+
+  // A torn last line is not gone over: it is read again once it is whole.
+  const line = encodeAppend(seq, count + 1, j([msg('torn')]));
+  appendFileSync(logPath, line.slice(0, 20));
+  assert.equal((await scan()).log.tornTail.length, 20);
+  appendFileSync(logPath, line.slice(20));
+  count += 1;
+  seq += 1;
+  const whole = await scan();
+  assert.equal(whole.log.tornTail, null);
+  assert.equal(whole.log.messageCount, count);
+
+  // Bytes changed in place where the checkpoint ends: read whole.
+  grow('five');
+  await scan();
+  const bytes = fs.readFileSync(logPath);
+  bytes[bytes.length - 100] = 'z'.charCodeAt(0);
+  writeFileSync(logPath, bytes);
+  grow('six');
+  const inPlace = await scan();
+  assert.equal(inPlace.log.header.title, 'six');
+  assert.ok(inPlace.cost >= size(), 'a log rewritten in place is read whole');
+
+  // A new file under the name (another log, another inode): read whole.
+  await scan();
+  grow('seven');
+  await scan();
+  const next = join(root, 'sess_cp.next');
+  writeFileSync(next, baseLines({ id: 'sess_cp', header: { title: 'rebased' }, messages: [msg(filler), msg(filler)] }));
+  fs.renameSync(next, logPath);
+  seq = 2;
+  count = 2;
+  const rebased = await scan();
+  assert.ok(rebased.cost >= size(), 'a replaced log is read whole');
+  assert.equal(rebased.log.header.title, 'rebased');
+
+  // Shorter than where the checkpoint ends: read whole.
+  grow('eight');
+  grow('nine');
+  await scan();
+  fs.truncateSync(logPath, size() - 10);
+  assert.ok((await scan()).cost >= size() - 4096, 'a shortened log is read whole');
+
+  // A checkpoint that is not one: read whole.
+  writeFileSync(scanCheckpointPath(checkpoints, logPath), '{"v":1,');
+  assert.ok((await scan()).cost >= size() - 4096, 'a torn checkpoint is no checkpoint');
+
+  // The log gone: the place kept in it goes too.
+  await scan();
+  rmSync(logPath);
+  const reader = await import(`./session-log-reader.mjs?process=${(processes += 1)}`);
+  assert.equal(await reader.readSessionLog(logPath, { messages: false, checkpoints }), null);
+  assert.equal(fs.existsSync(scanCheckpointPath(checkpoints, logPath)), false);
+});

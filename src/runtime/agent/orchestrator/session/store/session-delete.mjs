@@ -11,7 +11,8 @@ import { listStoredSessionSummaries } from './listing.mjs';
 import { STORED_SESSION_UNREADABLE } from './serialize.mjs';
 import { loadLegacySession } from './legacy-session.mjs';
 import { storedSessionSync } from './stored-session.mjs';
-import { getStoreDir, sessionLogPath, sessionPath } from './session-paths.mjs';
+import { getStoreDir, sessionLogPath, sessionPath, sessionScanCheckpointDir } from './session-paths.mjs';
+import { withScanCheckpointsRetired } from './session-scan-checkpoint.mjs';
 import { resolveSessionRecordSync } from './session-log-reader.mjs';
 import { sha1Hex } from './session-log-format.mjs';
 import { holdsNoData, quarantinePath, renameWithRetry } from '../../../../shared/atomic-file.mjs';
@@ -214,17 +215,23 @@ async function _deleteSession(id, options) {
   // gone (v1.4.5 order): a delete that fails leaves the recorder, its
   // position, the live copy and the debounced copy exactly as they were.
   await settleRecorder(id);
-  try {
-    // The copies kept aside first, then the json: a delete cut short leaves
-    // at most the log, which reads as the session (orphan), never an older
-    // legacy copy of it.
-    for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
-    if (plan.json === 'damaged') await renameWithRetry(plan.jsonPath, quarantinePath(plan.jsonPath));
-    else if (plan.json === 'ours') _unlinkIfThere(plan.jsonPath);
-    if (plan.logPresent) _unlinkIfThere(plan.logPath);
-  } catch {
-    return false;
-  }
+  // What the scans of the log kept of it goes BEFORE the log does, and none
+  // can be published until the files are gone (session-scan-checkpoint.mjs).
+  const unlinked = await withScanCheckpointsRetired(sessionScanCheckpointDir(), plan.logPath, async () => {
+    try {
+      // The copies kept aside first, then the json: a delete cut short leaves
+      // at most the log, which reads as the session (orphan), never an older
+      // legacy copy of it.
+      for (const path of _asideCopies(plan.logPath)) _unlinkIfThere(path);
+      if (plan.json === 'damaged') await renameWithRetry(plan.jsonPath, quarantinePath(plan.jsonPath));
+      else if (plan.json === 'ours') _unlinkIfThere(plan.jsonPath);
+      if (plan.logPresent) _unlinkIfThere(plan.logPath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!unlinked) return false;
   // Removed: only now does what this process holds of it go — the debounced
   // copy is cancelled and the recorder's queue discarded.
   takePendingWrite(id);

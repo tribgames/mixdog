@@ -80,6 +80,11 @@ export function sessionRecordPath(id) {
   _assertSessionId(id);
   return _memoFilePath(_storeDirPath(), id, '.json');
 }
+/** Where header scans leave their place in a session log for the next process
+ *  (session-scan-checkpoint.mjs); beside the store, never in it. */
+export function sessionScanCheckpointDir() {
+  return join(getPluginData(), 'session-scan-checkpoints');
+}
 /** The session's log `<id>.log.jsonl` (session-log-format.mjs). */
 export function sessionLogPath(id) {
   return _sessionFilePath(id, '.log.jsonl');

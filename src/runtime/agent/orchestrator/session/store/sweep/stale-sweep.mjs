@@ -4,7 +4,8 @@
 // sidecars. It pauses between records so cooperative hosts never hold the
 // event loop for a whole directory scan; a close or delete it makes waits
 // (asynchronously) for a commit of the same session still landing.
-import { getStoreDir } from '../session-paths.mjs';
+import { getStoreDir, sessionScanCheckpointDir } from '../session-paths.mjs';
+import { sweepOrphanScanCheckpoints } from '../session-scan-checkpoint.mjs';
 import { probePath, PROBE_PRESENT } from '../fs-probe.mjs';
 import { persistSweepRecordCache, pruneSweepRecordCache } from './sweep-record.mjs';
 import { collectSweepRows, createSweepTally, resolveSweepPlan } from './sweep-plan.mjs';
@@ -40,6 +41,7 @@ async function sweepStaleSessionSteps(ttlMs, options, pause) {
   }
   await pruneOpenCandidates(ctx);
   for (const _sidecar of reapOrphanSidecars(ctx)) await pause();
+  await sweepOrphanScanCheckpoints(sessionScanCheckpointDir());
   queueDeletedSummaryPrune(ctx.tally);
   persistSweepRecordCache();
   const { openCandidates: _candidates, subAgents, ...result } = ctx.tally;

@@ -10,6 +10,8 @@ import {
 } from '../store.mjs';
 import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
 import { sweepOrphanTurnJournals } from './turn-checkpoint-recovery.mjs';
+import { sessionScanCheckpointDir } from '../store/session-paths.mjs';
+import { sweepOrphanScanCheckpoints } from '../store/session-scan-checkpoint.mjs';
 import { applySessionSidebarChange, readSessionSidebarState } from '../../../../shared/session-sidebar-host.mjs';
 import {
   IN_FLIGHT_STAGES,
@@ -218,6 +220,8 @@ export function startIdleCleanup() {
   // previous run could not delete (their sessions may never be reopened).
   // Only the daemon owner sweeps (it checks); the daemon runs in worker mode.
   void sweepOrphanTurnJournals().catch(() => {});
+  // And the places header scans kept in logs that are gone.
+  void sweepOrphanScanCheckpoints(sessionScanCheckpointDir()).catch(() => {});
   if (CLEANUP_INITIAL_DELAY_MS <= 0) {
     void _runCleanupCycle();
     _startCleanupInterval();

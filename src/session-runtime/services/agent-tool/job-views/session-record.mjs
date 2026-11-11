@@ -30,7 +30,10 @@ import {
   resolveSessionCopy,
   sessionMemoryCopies,
 } from '../../../../runtime/agent/orchestrator/session/store/load-session.mjs';
-import { sessionRecordPath } from '../../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
+import {
+  sessionRecordPath,
+  sessionScanCheckpointDir,
+} from '../../../../runtime/agent/orchestrator/session/store/session-paths.mjs';
 import {
   isLogRecord,
   recordSession,
@@ -101,7 +104,14 @@ function loadLegacyView(text, id) {
 async function readRecord(id, files) {
   let outcome;
   try {
-    outcome = await resolveSessionRecord({ ...files, loadLegacy: loadLegacyView, messages: false });
+    outcome = await resolveSessionRecord({
+      ...files,
+      loadLegacy: loadLegacyView,
+      messages: false,
+      // The first scan of a log in this process goes on from where the last
+      // process left off instead of reading all of it.
+      checkpoints: sessionScanCheckpointDir(),
+    });
   } catch (error) {
     if (ABSENT_CODES.has(error?.code)) return { value: ABSENT };
     throw error;
