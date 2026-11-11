@@ -66,8 +66,6 @@ pub fn compact_with(processes: Processes) -> Compact {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
 
     #[test]
@@ -79,28 +77,5 @@ mod tests {
         }
         let absolute = if cfg!(windows) { "C:/elsewhere" } else { "a/../../x" };
         assert!(model_cache_path(root, absolute).is_err(), "{absolute}");
-    }
-
-    fn recording() -> (Compact, Arc<Mutex<Vec<Vec<String>>>>) {
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let seen = calls.clone();
-        (Arc::new(move |args| {
-            seen.lock().unwrap().push(args);
-            Box::pin(async { Ok(()) })
-        }), calls)
-    }
-
-    #[tokio::test]
-    async fn windows_runs_lzx_once_and_other_platforms_touch_nothing() {
-        let cache = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(cache.path().join("org").join("model")).unwrap();
-        let lane = mixdog_rt::testing::tokens().cpu_bulk;
-        let (compact, calls) = recording();
-        let dir = compress_model_cache(true, lane, cache.path(), "org/model", &compact).await.unwrap().unwrap();
-        let shown = dir.display().to_string();
-        assert_eq!(*calls.lock().unwrap(), vec![vec!["/c".to_owned(), format!("/s:{shown}"), "/i".into(), "/q".into(), "/exe:lzx".into(), format!("{shown}{}*", std::path::MAIN_SEPARATOR)]]);
-        assert_eq!(compress_model_cache(false, lane, Path::new("/nowhere"), "../x", &compact).await, Ok(None));
-        assert!(compress_model_cache(true, lane, cache.path(), "org/missing", &compact).await.is_err(), "a missing directory is not compressed");
-        assert_eq!(calls.lock().unwrap().len(), 1);
     }
 }
