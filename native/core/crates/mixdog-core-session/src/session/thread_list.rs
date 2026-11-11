@@ -1105,6 +1105,225 @@ mod tests {
         }
     }
 
+    use crate::session::seams::AppendPosition;
+    use crate::session::seams::BarrierError;
+    use crate::session::seams::CommitRecord;
+    use crate::session::seams::SessionLog;
+    use crate::session::seams::ThreadStore;
+    use mixdog_rt::DurabilityIo;
+    use mixdog_rt::InLane;
+    use mixdog_rt::InteractiveIo;
+
+    /// The gate between a room post's two writes: a commit that stores a message row without the post's stamp (`updatedAt`
+    /// 5000) says so once it is stored, and returns once the test lets it go, so whatever its projection publishes is seen
+    /// before the stamp can be stored.
+    type Split = std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
+
+    fn stamped(record: &mixdog_store::schema::record::Record) -> bool {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::MetaRecord;
+        use mixdog_store::schema::record::Record;
+        matches!(record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get("updatedAt") == Some(&json!(5000)))
+    }
+
+    struct GatedLog {
+        inner: Box<dyn SessionLog>,
+        split: Arc<Split>,
+    }
+    impl SessionLog for GatedLog {
+        fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
+            let ordinals = self.inner.commit(lane, batch)?;
+            let row = batch.iter().any(|c| matches!(&*c.record, mixdog_store::schema::record::Record::Item(_)));
+            if row && !batch.iter().any(|c| stamped(&c.record)) {
+                let stop = self.split.lock().unwrap().take();
+                if let Some((reached, held)) = stop {
+                    let _ = reached.send(());
+                    let _ = held.recv();
+                }
+            }
+            Ok(ordinals)
+        }
+        fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+            self.inner.retry(lane)
+        }
+    }
+
+    /// The store, its logs behind [`GatedLog`].
+    struct GatedStore {
+        inner: Arc<dyn ThreadStore>,
+        split: Arc<Split>,
+    }
+    impl ThreadStore for GatedStore {
+        fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<crate::session::seams::HeadRead, CoreError> {
+            self.inner.read_head(lane, id)
+        }
+        fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<mixdog_store::schema::record::Header, CoreError> {
+            self.inner.read_header(lane, id)
+        }
+        fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
+            self.inner.read_log_id(lane, id)
+        }
+        fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &crate::session::seams::HeadRead) -> Result<crate::session::seams::WindowRead, CoreError> {
+            self.inner.read_window(lane, id, head)
+        }
+        fn decode(&self, lane: &InLane<mixdog_rt::CpuInteractive>, id: &ThreadId, head: crate::session::seams::HeadRead, window: crate::session::seams::WindowRead) -> Result<crate::session::seams::OpenedLog, CoreError> {
+            self.inner.decode(lane, id, head, window)
+        }
+        fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<mixdog_store::schema::record::ItemRecord>, CoreError> {
+            self.inner.user_rows(lane, id)
+        }
+        fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<mixdog_store::schema::record::ItemRecord>), CoreError> {
+            self.inner.history_rows(lane, id)
+        }
+        fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<crate::session::seams::StoredOp>, CoreError> {
+            self.inner.thread_op(lane, id, op)
+        }
+        fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
+            self.inner.fenced_ops(lane, id)
+        }
+        fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
+            self.inner.history_row(lane, id, iid)
+        }
+        fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+            self.inner.compaction_entry(lane, id, iid)
+        }
+        fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<crate::session::seams::ContextRead>) -> Result<crate::session::seams::ContextRead, CoreError> {
+            self.inner.context_io(lane, id, read)
+        }
+        fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<crate::session::seams::SessionMeta>, CoreError>> {
+            self.inner.session_meta(id)
+        }
+        fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+            self.inner.purge_deleted()
+        }
+        fn context_cpu(&self, lane: &InLane<mixdog_rt::CpuInteractive>, read: crate::session::seams::ContextRead) -> Result<crate::session::seams::ContextStep, CoreError> {
+            self.inner.context_cpu(lane, read)
+        }
+        fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
+            let inner = self.inner.open_log(lane, id, at)?;
+            Ok(Box::new(GatedLog { inner, split: self.split.clone() }))
+        }
+        fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+            let (inner, ordinal) = self.inner.create_log(lane, id, session)?;
+            Ok((Box::new(GatedLog { inner, split: self.split.clone() }), ordinal))
+        }
+    }
+
+    /// A room post's rows and the `updatedAt` it stamps (`thread/roomRows/commit`) change the room's row in one step, as Node's
+    /// one save of the log does: a client of the app feed is never handed the room log with a message newer than its
+    /// `updatedAt` (its `messageCount` up, its `updatedAt` not). A commit that stores the rows without the stamp is held, once
+    /// stored, until what its projection publishes is seen: the point where the rows alone reach the client.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_room_post_changes_the_rooms_row_and_its_updated_at_in_one_step() {
+        use mixdog_core_api::FeedSource;
+        use mixdog_core_api::mock::MockConnection;
+        use mixdog_core_api::mock::MockFeed;
+        use mixdog_core_api::mock::MockLimits;
+        use mixdog_store::schema::record::Header;
+        use std::sync::atomic::Ordering::SeqCst;
+
+        use crate::session::room_log::RoomLog;
+
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+        let data = crate::session::testing::DataDir::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let index = data.index(index);
+        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
+        let threads = Arc::new(
+            crate::session::StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("the thread store"),
+        );
+        list.fence(threads.clone());
+        let rig = crate::session::testing::Rig::new();
+        let split = Arc::new(Split::default());
+        let deps = rig.deps_parts(Arc::new(GatedStore { inner: threads, split: split.clone() }));
+        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(deps)));
+
+        let limits = MockLimits::default();
+        let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
+        let app = MockConnection::new(ConnectionId(1), limits);
+        let source: Arc<dyn FeedSource> = feed.clone();
+        let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+        let section = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
+        let deletions = super::super::thread_edges::ThreadDeletions::new(section.clone());
+        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
+            list.clone(),
+            section,
+            deletions,
+            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
+        ));
+        list.store.observe_rows(edges.clone()).expect("the row sink");
+
+        let thread = ThreadId::from("sess_room_post01".to_owned());
+        let mut header = Header::new();
+        header.insert("title".into(), json!("Room"));
+        header.insert("cwd".into(), json!("/tasks"));
+        header.insert("createdAt".into(), json!(1000));
+        header.insert("updatedAt".into(), json!(1000));
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("room log");
+        value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("the log is projected");
+        tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the log's row was never published");
+
+        rig.clock.0.store(5000, SeqCst);
+        let (reached, mut stored_alone) = tokio::sync::oneshot::channel();
+        let (open, held) = std::sync::mpsc::channel();
+        *split.lock().unwrap() = Some((reached, held));
+        let mut posting = {
+            let room_log = crate::session::room_log::SessionRoomLog::new(directory.clone());
+            let id = thread.as_str().to_owned();
+            tokio::spawn(async move {
+                room_log.append_rows(&id, vec![json!({ "role": "assistant", "content": "posted", "meta": { "transcript": { "messageId": "m1" } } })]).await
+            })
+        };
+        // Either the post answers (its rows and stamp stored together), or its rows were stored alone: then what they publish
+        // is taken before the stamp may follow.
+        let answered = tokio::time::timeout(DEADLINE, async {
+            tokio::select! {
+                answer = &mut posting => Some(answer),
+                Ok(()) = &mut stored_alone => None,
+            }
+        })
+        .await
+        .expect("the post neither answered nor stored its rows");
+        let answered = match answered {
+            Some(answer) => answer,
+            None => {
+                value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("the rows are projected");
+                tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the rows' row was never published");
+                open.send(()).expect("the commit waits at its stop");
+                tokio::time::timeout(DEADLINE, posting).await.expect("the post never answered")
+            }
+        };
+        drop(open);
+        assert_eq!(answered.expect("the post's task").expect("the post"), 1);
+        value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("the post is projected");
+        tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the post's row was never published");
+
+        let rows: Vec<Value> = app
+            .drain_text()
+            .into_iter()
+            // A control release carries no JSON body.
+            .filter_map(|text| text.find('{').map(|at| serde_json::from_str::<Value>(&text[at..]).expect("frame")))
+            .filter(|frame| frame["params"]["thread"]["id"] == thread.as_str())
+            .map(|frame| frame["params"]["thread"].clone())
+            .collect();
+        let posted: Vec<&Value> = rows.iter().filter(|row| row["messageCount"] == 1).collect();
+        assert!(!posted.is_empty(), "the post's row was never published: {rows:?}");
+        for row in &posted {
+            assert_eq!(row["updatedAt"], 5000, "a row with the posted message and an older updatedAt was published: {row}");
+        }
+    }
+
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another
     /// ordering is not served by this listing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
