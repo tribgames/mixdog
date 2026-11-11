@@ -1276,7 +1276,7 @@ impl DirInner {
             turn_listeners: Default::default(),
             agent_start: Default::default(),
             routine_starts: Default::default(),
-            grants: Default::default(),
+            grants: Arc::new(mixdog_tools::policy::SessionGrants::of(deps.session_grants.clone(), id.as_str())),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),

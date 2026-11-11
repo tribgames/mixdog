@@ -18,6 +18,7 @@ mod regex_error;
 mod text;
 pub mod time;
 pub mod token_estimate;
+pub mod uv_error;
 
 pub use array_sort::js_sort_by;
 pub use json::ordered_keys as js_object_keys;
@@ -31,7 +32,9 @@ pub use json::stringify_sorted_outside_arrays as json_stringify_sorted_outside_a
 pub use json_error::v8_json_parse_error;
 pub use json_parse::JsonSyntaxError;
 pub use json_parse::parse as json_parse;
+pub use json_parse::parsed_from_utf16 as json_parsed_from_utf16;
 pub use json_parse::parsed_text as json_parsed_text;
+pub use json_parse::parsed_utf16 as json_parsed_utf16;
 pub use locale_compare::default_locale_tag;
 pub use locale_compare::locale_compare;
 pub use locale_compare::locale_compare_en;

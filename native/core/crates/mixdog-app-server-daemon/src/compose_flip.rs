@@ -1594,7 +1594,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         live: { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
         sessions: late_workspaces.clone(), // bound right after `SessionWorkspaces` is built; in `verify_bound`
     }))));
-    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new()));
+    // The agent's `github` is the desktop's GitHub client (one write queue per repository), its raw results kept in the data directory.
+    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new(scm.github.clone(), Some(b.data_dir.clone()))));
     tool_pool.push(Arc::new(mixdog_tools::exec::TaskTool::new(b.exec.clone())));
     tool_pool.push(Arc::new(mixdog_tools::fs::GrepTool::new()));
     tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));
@@ -2043,6 +2044,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
+                session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
                 staged_originals: Arc::new(mixdog_core_session::session::staged_originals::StagedOriginals::new(&data_dir)),
                 feeds: Arc::new(mixdog_core_session::session::CoreThreadFeeds::new(&Default::default(), tokens.cpu_interactive)),
                 server_requests: features.0,

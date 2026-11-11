@@ -124,6 +124,30 @@ impl Exact {
             other => panic!("recording: expected an object, found {other:?}"),
         }
     }
+
+    /// The first place `self` differs from `expected` (a JSON path from `$`), with both values there; `None` when equal.
+    pub fn difference(&self, expected: &Exact) -> Option<String> {
+        (self != expected).then(|| first_difference(self, expected, "$"))
+    }
+}
+
+fn first_difference(actual: &Exact, expected: &Exact, path: &str) -> String {
+    match (actual, expected) {
+        (Exact::Object(a), Exact::Object(b)) if a.iter().map(|(k, _)| k).eq(b.iter().map(|(k, _)| k)) => a
+            .iter()
+            .zip(b)
+            .find(|((_, x), (_, y))| x != y)
+            .map(|((key, x), (_, y))| first_difference(x, y, &format!("{path}.{key}")))
+            .unwrap_or_default(),
+        (Exact::Array(a), Exact::Array(b)) if a.len() == b.len() => a
+            .iter()
+            .zip(b)
+            .enumerate()
+            .find(|(_, (x, y))| x != y)
+            .map(|(index, (x, y))| first_difference(x, y, &format!("{path}[{index}]")))
+            .unwrap_or_default(),
+        _ => format!("{path}:\n  core: {actual:?}\n  node: {expected:?}"),
+    }
 }
 
 /// A finite JSON number: -0 keeps its own variant so it never equals 0.
