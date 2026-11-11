@@ -1,16 +1,16 @@
 {
   "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
-    "notRun": "PostgreSQL: db.query is the test file's SQLite stand-in (it translates ANY($n::bigint[]) and casts, and answers the hybrid candidate CTE with every root row); candidate retrieval SQL is replayed by the recall goldens",
-    "runs": "retrieveEntries (memory-retrievers.mjs), searchRelevantHybrid and preferLatestConceptRows (memory-recall-store.mjs), collapseHistoryDuplicates, buildRecallScopeFilter, makeChunkQuality/assessChunkQuality"
+    "notRun": "PostgreSQL for the other statements: db.query is the test file's SQLite stand-in (it translates ANY($n::bigint[]) and casts); the test file's answer to the hybrid candidate statement (every root row), replaced by the cluster's",
+    "runs": "retrieveEntries (memory-retrievers.mjs), searchRelevantHybrid and preferLatestConceptRows (memory-recall-store.mjs), collapseHistoryDuplicates, buildRecallScopeFilter, makeChunkQuality/assessChunkQuality; the hybrid candidate statement on Node's opened memory database (a private bundled PostgreSQL cluster holding the fixture's rows at that moment)"
   },
-  "exclusions": "the statements are those of Node's SQL; the golden records them for the replay author but the SQLite translation is the test's own",
+  "exclusions": "none",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 76069,
+      "bytes": 74796,
       "path": "golden.json",
-      "sha256": "2f186e0cbc197aaae15a45d37577fca260a10df76f17bccac040744ed724e154"
+      "sha256": "bd62afff8e5ceb12aba9915492ec2de3b24d12dcb13a39990b11ded04a4ddeb3"
     }
   ],
   "inputs": [
@@ -24,7 +24,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+      "sha256": "bc25924a6685124b8c05b4c16b36b467930974bbe35da5defd889a6ce277c1c8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -53,11 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs",
-  "recorderSha256": "b3e957394a79f7fb552d3300d7339488ebbb0a28a035c999305f617f3d921a02",
-  "replay": "mixdog-services memory/recall/ranking.rs: pub fn collapse_history_duplicates (:414); memory/recall/browse.rs: pub async fn recall_session_rows (:696) and recall_core_rows (:860); all reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay runs the same entries table through those calls and compares the returned rows whole, in order, with the statements sent",
+  "recorderSha256": "9c0a96810992f96ef67527dc933b8a17f3d81839b60099c512393b43097f8798",
+  "replay": "mixdog-services memory/recall/browse.rs retrieve_entries, memory/recall/hybrid.rs search_relevant_hybrid, memory/recall/ranking.rs collapse_history_duplicates (the `memory/recall` request, Recall::recall) on a private cluster holding the fixture rows: every statement the core sends runs on PostgreSQL. Compared per step: the returned rows whole and in order, and the statements sent in order with their params",
   "set": "memory-history-duplicates",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 76069,
+  "totalBytes": 74796,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
