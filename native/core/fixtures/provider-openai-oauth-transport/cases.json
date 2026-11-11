@@ -1,6 +1,7 @@
 {
   "set": "provider-openai-oauth-transport",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "suppressed-reasoning-permits-fresh-ws-retry:response.reasoning_text.delta",
@@ -44,7 +45,59 @@
         ],
         "text": [],
         "streams": 2
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "access_token": "fixture-token"
+              },
+              "body": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "useModel": "gpt-5.6-sol",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sendFrameFn": {
+                "callback": "_sendFrameFn"
+              },
+              "_streamFn": {
+                "callback": "_streamFn"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "suppressed-reasoning-permits-fresh-ws-retry:response.reasoning_summary_text.delta",
@@ -88,7 +141,59 @@
         ],
         "text": [],
         "streams": 2
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "access_token": "fixture-token"
+              },
+              "body": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "useModel": "gpt-5.6-sol",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sendFrameFn": {
+                "callback": "_sendFrameFn"
+              },
+              "_streamFn": {
+                "callback": "_streamFn"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "suppressed-reasoning-permits-fresh-ws-retry:response.reasoning.summary.delta",
@@ -132,7 +237,59 @@
         ],
         "text": [],
         "streams": 2
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "access_token": "fixture-token"
+              },
+              "body": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "useModel": "gpt-5.6-sol",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sendFrameFn": {
+                "callback": "_sendFrameFn"
+              },
+              "_streamFn": {
+                "callback": "_streamFn"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "reasoning-only-closes-exhaust-ws-budget-switch-to-http",
@@ -175,7 +332,178 @@
           1600,
           3200
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-reasoning-close-fallback",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "access_token": "fixture-token"
+              },
+              "body": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "sendOpts": {
+                "sessionId": "oauth-reasoning-close-fallback",
+                "_prebuiltBody": {
+                  "model": "gpt-5.6-sol",
+                  "instructions": "fixture",
+                  "input": [],
+                  "tools": [],
+                  "stream": true
+                },
+                "_sendViaWebSocketFn": {
+                  "callback": "_sendViaWebSocketFn"
+                },
+                "_sendViaHttpSseFn": {
+                  "callback": "_sendViaHttpSseFn"
+                }
+              },
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStageChange": null,
+              "externalSignal": null,
+              "poolKey": "oauth-reasoning-close-fallback",
+              "cacheKey": "mixdog-codex",
+              "iteration": null,
+              "useModel": "gpt-5.6-sol",
+              "displayModel": {
+                "callback": "_displayCodexModel"
+              },
+              "forceFresh": false,
+              "handshakeErrorPolicy": {
+                "callback": "openAiOAuthHandshakeErrorPolicy"
+              },
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sendFrameFn": {
+                "callback": "_sendFrameFn"
+              },
+              "_streamFn": {
+                "callback": "_streamFn"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-reasoning-close-fallback",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-401-stays-current-failure-after-ws-fallback",
@@ -189,20 +517,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 401,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 401,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -223,7 +559,93 @@
           "wsCalls": 1,
           "httpCalls": 3
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-401",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-401",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 401,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-403-stays-current-failure-after-ws-fallback",
@@ -237,20 +659,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 403,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 403,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -271,7 +701,93 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-403",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-403",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 403,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-429-stays-current-failure-after-ws-fallback",
@@ -286,21 +802,29 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 429,
-          "retryAfterMs": 15000,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 429,
+            "retryAfterMs": 15000,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -321,7 +845,94 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-429",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-429",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 429,
+                "retryAfterMs": 15000,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-503-stays-current-failure-after-ws-fallback",
@@ -335,20 +946,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 503,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 503,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -369,7 +988,93 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-503",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-503",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 503,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-unknown-stays-current-failure-after-ws-fallback",
@@ -381,19 +1086,27 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -414,7 +1127,92 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-unknown",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-unknown",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-cancelled-stays-current-failure-after-ws-fallback",
@@ -428,19 +1226,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "AbortError",
           "message": "current HTTP failure",
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "name": "AbortError",
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -461,7 +1268,93 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-cancelled",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-cancelled",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "name": "AbortError",
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-visible text-stays-current-failure-after-ws-fallback",
@@ -476,21 +1369,29 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "liveTextEmitted": true,
-          "unsafeToRetry": true,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -511,7 +1412,94 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-visible text",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-visible text",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-dispatched tool-stays-current-failure-after-ws-fallback",
@@ -526,21 +1514,29 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "emittedToolCall": true,
-          "unsafeToRetry": true,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "emittedToolCall": true,
+            "unsafeToRetry": true,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -561,7 +1557,94 @@
           "wsCalls": 1,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-dispatched tool",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-false-dispatched tool",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "emittedToolCall": true,
+                "unsafeToRetry": true,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-401-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -575,20 +1658,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 401,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 401,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -609,7 +1700,93 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-401",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-401",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 401,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-403-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -623,20 +1800,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 403,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 403,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -657,7 +1842,93 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-403",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-403",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 403,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-429-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -672,21 +1943,29 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 429,
-          "retryAfterMs": 15000,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 429,
+            "retryAfterMs": 15000,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -707,7 +1986,94 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-429",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-429",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 429,
+                "retryAfterMs": 15000,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-503-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -721,20 +2087,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "httpStatus": 503,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "httpStatus": 503,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -755,7 +2129,93 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-503",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-503",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "httpStatus": 503,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-unknown-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -767,19 +2227,27 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -800,7 +2268,92 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-unknown",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-unknown",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-cancelled-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -814,19 +2367,28 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "AbortError",
           "message": "current HTTP failure",
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "name": "AbortError",
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -847,7 +2409,93 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-cancelled",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-cancelled",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "name": "AbortError",
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-visible text-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -862,21 +2510,29 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "liveTextEmitted": true,
-          "unsafeToRetry": true,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -897,7 +2553,94 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-visible text",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-visible text",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "http-dispatched tool-stays-current-failure-after-auth-recovery-and-ws-fallback",
@@ -912,21 +2655,29 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "current HTTP failure",
-          "emittedToolCall": true,
-          "unsafeToRetry": true,
-          "previousTransportError": {
-            "name": "Error",
-            "message": "WS disconnected",
-            "wsCloseCode": 1006,
-            "code": "ECONNRESET",
-            "retryClassifier": "ws_1006",
-            "wsRetriesExhausted": true
-          },
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "current HTTP cause"
+            "message": "current HTTP cause",
+            "props": {}
+          },
+          "props": {
+            "emittedToolCall": true,
+            "unsafeToRetry": true,
+            "previousTransportError": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "WS disconnected",
+              "code": "ECONNRESET",
+              "props": {
+                "wsCloseCode": 1006,
+                "retryClassifier": "ws_1006",
+                "wsRetriesExhausted": true
+              }
+            }
           }
         },
         "isTheHttpError": true,
@@ -947,7 +2698,94 @@
           "wsCalls": 2,
           "httpCalls": 2
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-dispatched tool",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-current-http-true-dispatched tool",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "current HTTP failure",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "current HTTP cause",
+                "props": {}
+              },
+              "props": {
+                "emittedToolCall": true,
+                "unsafeToRetry": true,
+                "previousTransportError": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "WS disconnected",
+                  "code": "ECONNRESET",
+                  "props": {
+                    "wsCloseCode": 1006,
+                    "retryClassifier": "ws_1006",
+                    "wsRetriesExhausted": true
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "handshake-404-falls-back-to-http-once",
@@ -963,7 +2801,100 @@
         "acquires": 1,
         "httpCalls": 1,
         "catalogRefreshes": 0
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-handshake-404",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "access_token": "fixture-token"
+              },
+              "body": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "sendOpts": {
+                "sessionId": "oauth-handshake-404",
+                "_prebuiltBody": {
+                  "model": "gpt-5.6-sol",
+                  "instructions": "fixture",
+                  "input": [],
+                  "tools": [],
+                  "stream": true
+                },
+                "_sendViaWebSocketFn": {
+                  "callback": "_sendViaWebSocketFn"
+                },
+                "_sendViaHttpSseFn": {
+                  "callback": "_sendViaHttpSseFn"
+                }
+              },
+              "onStreamDelta": null,
+              "onToolCall": null,
+              "onTextDelta": null,
+              "onStageChange": null,
+              "externalSignal": null,
+              "poolKey": "oauth-handshake-404",
+              "cacheKey": "mixdog-codex",
+              "iteration": null,
+              "useModel": "gpt-5.6-sol",
+              "displayModel": {
+                "callback": "_displayCodexModel"
+              },
+              "forceFresh": false,
+              "handshakeErrorPolicy": {
+                "callback": "openAiOAuthHandshakeErrorPolicy"
+              },
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "application-404-stays-model-error",
@@ -976,14 +2907,49 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "model_not_found",
-          "httpStatus": 404
+          "props": {
+            "httpStatus": 404
+          }
         },
         "wsCalls": 2,
         "httpCalls": 0,
         "catalogRefreshes": 1
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.OpenAIOAuthProvider#send",
+          "args": [
+            [],
+            "gpt-5.6-sol",
+            [],
+            {
+              "sessionId": "oauth-application-404",
+              "_prebuiltBody": {
+                "model": "gpt-5.6-sol",
+                "instructions": "fixture",
+                "input": [],
+                "tools": [],
+                "stream": true
+              },
+              "_sendViaWebSocketFn": {
+                "callback": "_sendViaWebSocketFn"
+              },
+              "_sendViaHttpSseFn": {
+                "callback": "_sendViaHttpSseFn"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

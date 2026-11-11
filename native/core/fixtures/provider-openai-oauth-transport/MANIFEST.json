@@ -1,17 +1,20 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-oauth-transport.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-agent send.rs:573-640 (retractable replay on suppressed reasoning), mixdog-ai providers::openai adapter.rs:476-523,700-703, openai_ws_pool.rs:271,341 and retry decider: feed each row's scripted steps (`input`) and compare `result`/`error` fields, `fresh` (forceFresh per acquire), `progress`/`text` callbacks, acquire/WS/HTTP call counts, `delaysMs` and classification. NOTE: Node surfaces the HTTP failure as the current error (same object, previousTransportError kept) and sticks to HTTP for the session after fallback; K1 gaps-providers rows 5/44 describe where Rust differs.",
   "entry": "scripts/provider-toolcall/_shared.mjs re-exports: openai-oauth-ws.mjs sendViaWebSocket, openai-oauth.mjs OpenAIOAuthProvider.send (with ensureAuth stubbed to a fixture token and the _sendViaWebSocketFn/_sendViaHttpSseFn seams), openai-ws-stream.mjs _streamResponse (real), retry-classifier.mjs classifyError, MIXDOG_OAI_TRANSPORT=auto and the HTTP-fallback switches set as the test sets them. Not run: a real socket or HTTP request.",
   "exclusions": [
     "result.transportTiming.*Ms: performance.now() durations of the real clock, written <ms, real clock> (the keys and the counts stay)",
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 27530,
+      "bytes": 87796,
       "path": "cases.json",
-      "sha256": "63f38eb5534e7c0cfd31856cfbc6168e4bf21096b1e34bdcd538dc0f9ddc1aca"
+      "sha256": "868c1b4a95f5bb606564f3206b09f1184d0fa91544def86509196501da15c5ea"
     }
   ],
   "inputs": [
@@ -24,12 +27,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -51,8 +58,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-oauth-transport.mjs",
-  "recorderSha256": "1963912fae5d7c91defa73debac578ae9701c75d63c2321ef720ff79e5cd6aa4",
-  "replay": "mixdog-agent send.rs:573-640 (retractable replay on suppressed reasoning), mixdog-ai providers::openai adapter.rs:476-523,700-703, openai_ws_pool.rs:271,341 and retry decider: feed each row's scripted steps (`input`) and compare `result`/`error` fields, `fresh` (forceFresh per acquire), `progress`/`text` callbacks, acquire/WS/HTTP call counts, `delaysMs` and classification. NOTE: Node surfaces the HTTP failure as the current error (same object, previousTransportError kept) and sticks to HTTP for the session after fallback; K1 gaps-providers rows 5/44 describe where Rust differs.",
+  "recorderSha256": "616efa43766f084b12dc02b1c116ab210c035d71c55f2a230fb2fe9791ce1831",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:494), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "set": "provider-openai-oauth-transport",
-  "totalBytes": 27530
+  "totalBytes": 87796,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }
