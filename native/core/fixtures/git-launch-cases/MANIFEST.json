@@ -14,9 +14,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 22119,
+      "bytes": 22351,
       "path": "golden.json",
-      "sha256": "98506be51d1ac4e37bc9ffc8a83f5ff1f3ea0c4d0f60cb965af377a56fe3d000"
+      "sha256": "e26477a408f8c6f57e97dbfc5d1af8ca4ede2d432269ccb72fc6a925537328f2"
     }
   ],
   "inputs": [
@@ -34,7 +34,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.cs",
-      "sha256": "0b8ad1474f05231dceee16b182c58876ff45ec07697685a9e418d02ec05cb182"
+      "sha256": "2a952504d319dd9a8a9fa67fa00292a9677f8d9eba252029c1a0aa398f8e0455"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.mjs",
@@ -131,7 +131,7 @@
       "$.cases[8].observed.standinStarts.real[1].cwd",
       "$.cases[8].observed.standinStarts.real[1].env[5]"
     ],
-    "reason": "every temp root is written <root>; the process id of a spawned child (spawnSync result.pid) is a measurement of the run, written <pid>; the spawn timings of runChildTimed are written <ms>. Nothing else is normalised: every environment is recorded whole and compared raw."
+    "reason": "every temp root is written <root-N>, N its position in the order the recorder created the roots (each root has its own marker, so the stale and the fallback root stay apart); the process id of a spawned child (spawnSync result.pid) is a measurement of the run, written <pid>; the spawn timings of runChildTimed are written <ms>. Nothing else is normalised: every environment is recorded whole and compared raw."
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -151,7 +151,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-git-launch-cases.mjs",
-  "recorderSha256": "7d4347c9b926e892ab205d6cba36e821f3b471237584be478ecdd085fd76808b",
+  "recorderSha256": "2682ecdabc99995edc394b7e35da6f0c3310c97cc6bd8ca5d7cc1fc4306526d0",
   "replay": {
     "compare": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole",
     "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:267 launch_for; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git_launch.rs:295 forget_missing; mixdog-scm/src/git.rs:90 start_git.",
@@ -160,7 +160,7 @@
       "startGitSync (the synchronous start with the same retry): no function"
     ],
     "normalised": {
-      "tempRoots": "every temp root is written <root> wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)"
+      "tempRoots": "every temp root is written <root-N> (N: creation order, one marker per root) wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)"
     },
     "platform": "recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere",
     "protocolMethods": [],
@@ -199,6 +199,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "git-launch-cases",
-  "totalBytes": 22119,
+  "totalBytes": 22351,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
