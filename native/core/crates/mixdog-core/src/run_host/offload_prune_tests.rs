@@ -149,3 +149,48 @@ async fn a_committed_compaction_prunes_the_sidecars_nothing_the_session_holds_re
         .collect();
     assert_eq!(got, want);
 }
+
+/// The GitHub tool's raw output (`persistToolResultArtifactSync` on its `github-raw` channel) is a sidecar of the
+/// session's tool-result directory (`<data>/tool-results/<session>/<sha256>.txt`, the layout `ToolResultArtifacts`
+/// writes), so it is pruned as Node's `pruneCompactedOffloads` prunes it: one a compaction's save stopped naming
+/// goes at the next open when the process stopped before the prune, and one goes once a manual compaction that
+/// drops it is stored.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_github_raw_output_the_stored_transcript_no_longer_names_goes_at_the_open_and_after_the_compactions_save() {
+    let data = tempfile::tempdir().expect("data dir");
+    let id = ThreadId::from("sess_github");
+    let store = ToolResultArtifacts::new(io(), data.path(), id.as_str());
+    let shown = persist(&store, r#"{"data":{"repository":{"pullRequests":{"nodes":[{"number":7}]}}}}"#).await;
+    let orphan = persist(&store, r#"{"data":{"repository":{"issues":{"nodes":[{"number":3}]}}}}"#).await;
+    for path in [&shown, &orphan] {
+        age(path);
+    }
+
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    let listings = tokio::sync::watch::channel(0).0;
+    let (prunes, mut pruned) = tokio::sync::watch::channel(0);
+    deps.compaction = Arc::new(Pruning { rig: rig.compaction.clone(), data: data.path().to_path_buf(), listings, prunes });
+    let creator = SessionDirectory::new(rig.deps());
+    creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
+    // What a compaction's save stored before the process stopped: the transcript names one raw output, not the other.
+    rig.store.seed(
+        &id,
+        vec![
+            item("u1".to_owned(), &json!({ "role": "user", "content": "list the open pull requests" })),
+            item("a1".to_owned(), &json!({ "role": "assistant", "content": format!("[github output offloaded: {shown}]") })),
+        ],
+    );
+    let directory = SessionDirectory::new(Arc::new(deps));
+    directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    within("the open's reconcile prunes", pruned.wait_for(|count| *count >= 1)).await.expect("pruned");
+    assert_eq!((exists(&shown), exists(&orphan)), (true, false), "the open removes only what the stored transcript no longer names");
+
+    let summary = (ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "[summary] the pull requests were listed" }));
+    let compaction = Compaction { replacement: vec![summary], at: 5, dropped_count: 2, dropped: None };
+    // The compaction replaces the whole context it was planned on.
+    let snapshot = within("the context is read", directory.model_context(&id).read()).await.expect("context").into_iter().map(|(iid, _)| iid).collect();
+    assert_eq!(directory.commit_compaction(&id, snapshot, compaction, None).await.expect("answered"), CompactionCommit::Applied);
+    within("the compaction's prune ends", pruned.wait_for(|count| *count >= 2)).await.expect("pruned");
+    assert!(!exists(&shown), "the raw output the stored compaction no longer names is removed");
+}
