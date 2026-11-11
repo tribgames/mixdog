@@ -211,7 +211,7 @@ mod tests {
     use super::*;
 
     fn golden() -> Value {
-        serde_json::from_str(include_str!("golden/session_context_meta.json")).expect("fixture")
+        serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/session_context_meta.json")).expect("fixture")
     }
 
     fn fields(meta: &ContextMeta) -> Value {

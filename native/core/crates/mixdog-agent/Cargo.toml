@@ -35,6 +35,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 test-support = []
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
@@ -57,3 +58,4 @@ mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

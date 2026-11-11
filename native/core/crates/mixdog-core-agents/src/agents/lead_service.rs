@@ -224,7 +224,7 @@ mod tests {
     /// The decisions Node's `resolveMixyCreated` made (`agent-lifecycle-twin.json` `statusRuns`).
     #[test]
     fn the_created_decision_is_what_node_decided() {
-        let twin: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop/settings/agent-lifecycle-twin.json")).unwrap();
+        let twin: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop/settings/agent-lifecycle-twin.json")).unwrap();
         let runs = twin["statusRuns"].as_array().unwrap();
         assert!(runs.len() > 30);
         for run in runs {
