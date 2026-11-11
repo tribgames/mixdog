@@ -15,7 +15,12 @@ import { gateway as startGateway, json } from './lib/scripted-gateway.mjs';
 // A gateway this recorder starts is reached directly (its port is registered); every other address goes to the scripted endpoint.
 let registerPort = () => {};
 const gateway = async (respond) => {
-  const gw = await startGateway(respond);
+  // The same declared header rule as every other request copy: the SDK headers that carry the recording host are written as markers in the gateway\'s own request records.
+  let gw;
+  gw = await startGateway((req, body, res, n) => {
+    for (const pair of gw.requests[n - 1].headers) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
+    return respond(req, body, res, n);
+  });
   registerPort(new URL(gw.baseUrl).port);
   return gw;
 };
