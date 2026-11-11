@@ -4789,6 +4789,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-rt-feature-off"
+version = "1.4.5"
+dependencies = [
+ "arc-swap",
+ "chrono",
+ "crossbeam-channel",
+ "libc",
+ "mixdog-rt-feature-off",
+ "mixdog-workspace-hack",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "mixdog-sandboxing"
 version = "1.4.5"
 dependencies = [
