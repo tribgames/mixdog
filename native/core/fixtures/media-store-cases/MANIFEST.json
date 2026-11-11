@@ -40,7 +40,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
@@ -82,6 +82,7 @@
   "replay": {
     "compare": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock",
     "entry": "Drive these public items on o1: mixdog-services/src/media/store.rs:317 list_assets; mixdog-services/src/media/store.rs:436 delete_assets; mixdog-services/src/media/store.rs:472 list_boards; mixdog-services/src/media/store.rs:498 create_board; mixdog-services/src/media/store.rs:523 delete_board; media/listMediaAssets; media/deleteMediaAssets; media/listMediaBoards; media/createMediaBoard.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [],
     "normalised": {
       "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)",
