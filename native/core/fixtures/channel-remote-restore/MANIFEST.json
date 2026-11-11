@@ -1,15 +1,18 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-channel-remote-restore.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-channel-remote-restore.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-restore-deleted-session.patch",
   "exclusions": [
     "logs keeps only the lines starting \"remote intent \" or \"channel remote intent \", as channel-remote-intent does",
-    "calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)"
+    "calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)",
+    "inbound: the router is wired as daemon.mjs wires it (getSessionId always null: channel-remote session pinning is retired), so the session service it is handed is never reached; `submitted` shows that",
+    "send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead",
+    "list: the session ids and remoteSession of session.list; remoteSession keeps enabled, sessionId and cwd (daemonPid and updatedAt are the process and the clock)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2839,
+      "bytes": 4432,
       "path": "golden.json",
-      "sha256": "d2b985a603fa77f6a72d5c82fc5268231127922faeef14808e3bdd376dbdeb82"
+      "sha256": "bf9dc0afa8bd3e1f84efe9d45a45343d082917ea229df8df28ba1ff9593a1550"
     }
   ],
   "inputs": [
@@ -25,23 +28,34 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-restore-deleted-session.patch",
+      "paths": [
+        "src/standalone/channel-transport.mjs",
+        "src/standalone/channel-transport/remote-binding-restore.test.mjs",
+        "src/standalone/channel-transport/remote-binding.mjs",
+        "src/standalone/daemon.mjs"
+      ],
+      "sha256": "f908c5193352228a5d56c9889b85da1f95ab97f2d20bc97c575c4ca4744b29c0"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 4
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "6086affcaa4c2250b501c871bc4e410382d8ee397e36ccc1e7cd3d3c14717438",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channel-remote-restore.mjs",
-  "recorderSha256": "85ce2d62922f58602f18dcb9aa8c48eeb445de4bfef438eeb70a8f7c742b92df",
+  "recorderSha256": "2722448de335aaa3eb4b0baa3398e0efcca54c01f993ac31db5a8e41e45d0dbd",
   "set": "channel-remote-restore",
-  "totalBytes": 2839
+  "totalBytes": 4432
 }

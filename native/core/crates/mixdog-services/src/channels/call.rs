@@ -146,7 +146,12 @@ pub struct CallDispatch {
     cancel: CancellationToken,
     /// Where a manual Remote ON is persisted for the next start ([`Self::load_intent`]).
     intent_file: std::sync::OnceLock<IntentFile>,
+    /// Whether a stored session still exists ([`Self::bind_session_exists`]); the restore drops a pin to a deleted one.
+    session_exists: std::sync::OnceLock<SessionExists>,
 }
+
+/// Answers whether the stored session with this id still exists.
+pub type SessionExists = Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, bool> + Send + Sync>;
 
 fn is_soft_error(result: &Value) -> bool {
     result["isError"] == Value::Bool(true)
@@ -168,7 +173,13 @@ impl CallDispatch {
             binding_turn: mixdog_rt::Gate::new(),
             cancel: CancellationToken::new(),
             intent_file: std::sync::OnceLock::new(),
+            session_exists: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Binds the stored-session lookup the restore asks before it activates a pin.
+    pub fn bind_session_exists(&self, exists: SessionExists) {
+        let _ = self.session_exists.set(exists);
     }
 
     /// Binds the intent file and pins the session it holds (`createChannelTransport`'s boot read).
@@ -213,6 +224,23 @@ impl CallDispatch {
             binding.intent.as_ref().is_some_and(|i| Arc::ptr_eq(i, &intent)) && binding.pinned_session_id.as_deref() == Some(&intent.session_id)
         };
         if !current(&self.binding.lock().unwrap()) {
+            return false;
+        }
+        // A pin outlives the session it names: binding Remote to a deleted session would announce Remote enabled
+        // for a session no list shows, so such a pin is dropped and the log says so.
+        if let Some(exists) = self.session_exists.get()
+            && !exists(intent.session_id.clone()).await
+        {
+            {
+                let mut binding = self.binding.lock().unwrap();
+                if !current(&binding) {
+                    return false;
+                }
+                *binding = Binding::default();
+            }
+            file.log(&format!("remote intent restore skipped session={}: the session no longer exists", intent.session_id));
+            file.clear("pinned session deleted").await;
+            self.binding_changed();
             return false;
         }
         let args = json!({"active": true, "sessionId": intent.session_id, "transcriptPath": intent.transcript_path, "restore": true});

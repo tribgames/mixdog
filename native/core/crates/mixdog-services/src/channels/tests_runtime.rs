@@ -659,9 +659,10 @@ impl super::call::ChannelCallHandler for Observed {
     }
 }
 
-/// record-channel-remote-restore.mjs: the boot restore of a pinned session through the daemon's real dispatch
-/// (`BridgeCalls` over `ToolDispatch` over the runtime, as compose wires `channel/call`), for a session that exists
-/// and one that was deleted — Node's `activate_channel_bridge` does not look the session up, so both are bound.
+/// record-channel-remote-restore.mjs (b6f10295a with node-fix-restore-deleted-session.patch): the boot restore of a
+/// pinned session through the daemon's real dispatch (`BridgeCalls` over `ToolDispatch` over the runtime, as compose
+/// wires `channel/call`), for a stored session that exists and one that was deleted; then the bot's send and the
+/// Remote state a client is shown. The stored sessions are the ones the recording's session list returned.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores_it() {
     let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-remote-restore/golden.json")).unwrap();
@@ -672,11 +673,16 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(super::intent::INTENT_FILE);
         std::fs::write(&path, case["checkpoints"][0]["file"]["text"].as_str().unwrap()).unwrap();
-        if case["transcriptExists"] == json!(true) {
-            std::fs::write(dir.path().join(format!("{}.jsonl", case["sessionId"].as_str().unwrap())), "").unwrap();
-        }
         let handler = Arc::new(Observed { inner: BridgeCalls::new(ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false))), calls: Mutex::new(Vec::new()) });
         let calls = CallDispatch::new(handler.clone(), e.work.clone());
+        let stored: Vec<String> = case["list"]["sessions"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
+        calls.bind_session_exists(Arc::new(move |id: String| {
+            let exists = stored.contains(&id);
+            Box::pin(async move { exists })
+        }));
+        let shown = Arc::new(Mutex::new((false, None::<String>)));
+        let sink = shown.clone();
+        calls.observe_binding(Arc::new(move |enabled, session| *sink.lock().unwrap() = (enabled, session.map(str::to_owned))));
         let logs = Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = logs.clone();
         let file = super::intent::IntentFile::with_clock(dir.path(), tokens().maintenance_io, Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())), Arc::new(move || frozen));
@@ -692,6 +698,14 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
         assert_eq!(Value::Array(handler.calls.lock().unwrap().clone()), case["calls"], "{name}: calls");
         assert_eq!(json!(logs.lock().unwrap().clone()), case["logs"], "{name}: logs");
         assert_eq!(json!([boot, after]), case["checkpoints"], "{name}: checkpoints");
+        // The Remote state a client is shown (Node's session.list `remoteSession`; the core's hostState.remoteSession).
+        let (enabled, session) = shown.lock().unwrap().clone();
+        let remote = &case["list"]["remoteSession"];
+        assert_eq!((json!(enabled), json!(session)), (remote["enabled"].clone(), remote["sessionId"].clone()), "{name}: remote session shown");
+        // The bot's send through the same dispatch.
+        let client = super::call::ChannelClient { token: "connection:1".into(), lead_pid: None };
+        let sent = calls.dispatch(client, super::call::CallRequest { name: case["send"]["calls"][0]["name"].as_str().unwrap().into(), args: case["send"]["calls"][0]["args"].clone(), call_id: None }).await;
+        assert_eq!(sent.unwrap(), case["send"]["body"]["result"], "{name}: send");
         e.runtime.stop_owned_runtime("test").await.unwrap();
     }
 }
