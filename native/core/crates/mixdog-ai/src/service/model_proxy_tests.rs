@@ -4,7 +4,7 @@ use super::*;
 use serde_json::json;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/ai-admin/model-proxy-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-proxy-twin.json")).unwrap()
 }
 
 #[test]

@@ -53,6 +53,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 count-work = ["mixdog-ai/count-work"]
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-core-domains = { path = ".", features = ["count-work"] }
 bytes = { workspace = true }
 tempfile = { workspace = true }

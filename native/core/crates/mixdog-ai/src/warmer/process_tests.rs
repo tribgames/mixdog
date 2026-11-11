@@ -22,7 +22,7 @@ use crate::registry::accounting::{UsageRow, UsageSink};
 use crate::transport::http::{HttpResponse, HttpSend};
 
 const DEPS_GOLDEN: &str = include_str!("../../../../fixtures/cache-warm-deps/golden.json");
-const WARM_GOLDEN: &str = include_str!("../../../../fixtures/cache-warm/golden.json");
+const WARM_GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/cache-warm/golden.json");
 
 struct Req {
     provider: String,
@@ -246,7 +246,7 @@ async fn no_open_ledger_records_nothing() {
 
 #[tokio::test]
 async fn the_setting_is_read_from_the_config_as_node_reads_it() {
-    let golden: Value = serde_json::from_str(WARM_GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&WARM_GOLDEN).unwrap();
     let deps_golden: Value = serde_json::from_str(DEPS_GOLDEN).unwrap();
     let pricing = pricing(&deps_golden).await;
     for row in golden["pure"]["enabled"].as_array().unwrap() {

@@ -13,8 +13,8 @@ use super::*;
 /// (symbolic links through the native copy), with Node v22.20.0 on Alpine (musl) and a tmpfs as the second mount.
 fn twin(set: &str) -> Value {
     let text = match set {
-        "linux" => include_str!("../../../../../fixtures/shipped-retirement-linux/twin.json"),
-        _ => include_str!("../../../../../fixtures/shipped-retirement/twin.json"),
+        "linux" => mixdog_testkit::fixture!("../../fixtures/shipped-retirement-linux/twin.json"),
+        _ => mixdog_testkit::fixture!("../../fixtures/shipped-retirement/twin.json"),
     };
     serde_json::from_str(text).expect("twin.json")
 }

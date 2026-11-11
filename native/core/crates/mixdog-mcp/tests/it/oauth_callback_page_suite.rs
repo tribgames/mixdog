@@ -81,7 +81,7 @@ async fn closed_after(before: usize) {
     }
 }
 
-const GOLDEN: &str = include_str!("../../../../fixtures/oauth-callback-mcp/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-callback-mcp/golden.json");
 
 /// The MCP server that is also its authorization server, as the recorder's: the token endpoint answers by `token`.
 struct Auth {
@@ -206,7 +206,7 @@ impl Callback {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_mcp_callback_answers_as_nodes() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let title = case["title"].as_str().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

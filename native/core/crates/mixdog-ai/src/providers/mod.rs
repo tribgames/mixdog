@@ -46,6 +46,6 @@ pub(crate) mod progress_golden {
     }
 
     pub(crate) fn golden() -> serde_json::Value {
-        serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/stream_progress.json")).expect("golden")
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/stream_progress.json")).expect("golden")
     }
 }

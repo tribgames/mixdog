@@ -17,7 +17,7 @@ use serde_json::Value;
 use super::*;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/desktop-separation/twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-separation/twin.json")).unwrap()
 }
 
 /// `Date.UTC(2026, 0, 2, 3, 4, 5, 678)`, the clock the recorded line was written with.
