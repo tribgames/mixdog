@@ -10,6 +10,10 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. The state-machine cases feed a scripted Error (own properties are the inputs) and read `attempts.state` and the error objects after each call; the `ws-*` cases run sendViaWebSocket over a real loopback WebSocket.",
   "exclusions": [
+    "NOT HELD (not reproducible at the wire): stream-stored-xai-anchor-carried-into-next-attempt (:464) - tried: two sends on one pool key with auth xai and store:true over the real sender; the second send dials a new socket instead of reusing the first (recorded in the attempt, no anchored entry exists when the retry starts) and its retry frame carries no previous_response_id, so the Node test state (an entry holding resp_1) is only reachable on a hand-built entry",
+    "NOT HELD (observable nowhere outside Node objects): token-refresh-timeout-classifies-as-auth (:345) - the classification of a token-refresh timeout error is read from the error object of the auth refresh (an HTTP exchange with the auth server outside this socket); exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches",
+    "NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)",
+    "reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts",
     "result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -18,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 130100,
+      "bytes": 205161,
       "path": "cases.json",
-      "sha256": "a37351d1a6cb6f11e80ce77d602011fe21173bfcd828bd0cc602be81a7c4f2fc"
+      "sha256": "30a66360a420e8bec5f0d159ec0b29f58b19c347247bc6e7541e6392ccab9fc3"
     }
   ],
   "inputs": [
@@ -42,64 +46,14 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
+      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "636c8a2a61f1766d1a8700f7e40ce3f90c1e93d5e551e31aaa4b47044768509b"
+      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
     }
   ],
   "levels": [
-    {
-      "id": "handshake-transient-connect-error-spends-budget-and-retries",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "reconnect-stage-names-failure-and-counts-down-advised-wait",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "safe-retry-error-code-keeps-only-known-codes",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "retry-stage-takes-reason-class-never-caller-text",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "typed-timeouts-keep-their-own-wording",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "token-refresh-timeout-classifies-as-auth",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "injected-label-or-unknown-code-never-reaches-retry-stage",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "stream-exhausted-budget-first-error-with-last-as-cause",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "stream-stored-xai-anchor-carried-into-next-attempt",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
-    {
-      "id": "exhausted-falls-back-to-first-error-or-unreachable-marker",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form"
-    },
     {
       "id": "ws-http-401-on-upgrade-surfaces-immediately",
       "level": "wire"
@@ -143,6 +97,14 @@
     {
       "id": "ws-duplicate-reasoning-rejection-strips-replay-once",
       "level": "wire"
+    },
+    {
+      "id": "ws-stream-drops-on-every-connection-spend-budget-first-error-with-last-as-cause",
+      "level": "wire"
+    },
+    {
+      "id": "ws-retry-stage-carries-known-codes-never-failure-text",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -164,9 +126,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs",
-  "recorderSha256": "b5933fef2bfe54a7d286fcf9fe5a4d0dd54130f49143ea3867e0fa61ebfb0e87",
+  "recorderSha256": "184c577fc7282e036cf84f26dd468845014bf5c0a79b88e48a1646beb8c99878",
   "replay": "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
   "set": "provider-openai-ws-send-attempts",
-  "totalBytes": 130100,
+  "totalBytes": 205161,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
