@@ -123,8 +123,13 @@ impl PromptState {
         let decision = decide(&facts, restore_prompt, canceller, steering, unreadable);
         #[cfg(test)]
         self.between.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).replace(self.facts.try_lock().is_ok());
+        // Node hands back at once and empties what it handed (`restorable = false`, `requeueEntries = []`, `abort.mjs:200-201`), so a
+        // second Stop before the turn ended finds nothing; the core hands back at the turn's end, so the first's record stays.
         facts.restorable = false;
-        facts.reclaim = decision.reclaim.clone();
+        facts.requeue = None;
+        if decision.reclaim.is_some() {
+            facts.reclaim = decision.reclaim.clone();
+        }
         decision
     }
 
@@ -299,5 +304,20 @@ mod tests {
             }
         }
         assert!(both >= 8, "stop-first replayed only {both} cases");
+    }
+
+    /// Two Stops before the turn ended (`abort.mjs:113` twice while busy): the first hands the prompt back, or puts a runtime's
+    /// prompt back in the queue, and the second finds nothing left to hand back and takes nothing from the first.
+    #[test]
+    fn a_second_stop_before_the_turn_ended_keeps_the_first_stops_hand_back() {
+        let user = PromptState::new(Facts { text: "p".into(), ids: vec!["s".into()], device: "A".into(), restorable: true, entry: json!({ "options": {} }), ..Facts::default() });
+        let runtime = PromptState::new(Facts { text: "k".into(), ids: vec!["r".into()], requeue: Some(json!({ "message": "k" })), entry: json!({ "options": {} }), ..Facts::default() });
+        for state in [&user, &runtime] {
+            let first = state.decide_and_record(None, "A", false, false);
+            assert!(first.reclaim.is_some());
+            let second = state.decide_and_record(None, "A", false, false);
+            assert_eq!((second.restore_text.as_str(), second.reclaim.as_ref()), ("", None));
+            assert_eq!(state.snapshot().reclaim, first.reclaim);
+        }
     }
 }
