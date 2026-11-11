@@ -43,20 +43,12 @@ const legacyTexts = [
   ['whitespace-around-colon', '{ "id" : "sess_dup" , "title" : "a" , "messages" : [] , "title" : "b" }'],
 ];
 
-const wellFormed = (v) => {
-  if (typeof v === 'string') return v.toWellFormed();
-  if (Array.isArray(v)) return v.map(wellFormed);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k.toWellFormed(), wellFormed(x)]));
-  return v;
-};
-
 async function legacyJsonKeys() {
   const { loadLegacySession } = await load('src/runtime/agent/orchestrator/session/store/legacy-session.mjs');
   return {
     sessionId: LEGACY_ID,
-    // The whole document 1.4.5 read, each key and string well-formed (a lone surrogate as U+FFFD: declared in the
-    // manifest, since no JSON a Rust reader takes holds one).
-    cases: legacyTexts.map(([name, text]) => ({ name, text, document: exact(wellFormed(loadLegacySession(text, LEGACY_ID))) })),
+    // The whole document 1.4.5 read, as it read it (a lone surrogate kept: exact's utf16 tag).
+    cases: legacyTexts.map(([name, text]) => ({ name, text, document: exact(loadLegacySession(text, LEGACY_ID)) })),
   };
 }
 
@@ -360,7 +352,6 @@ writeSetManifest(outDir, {
     scenarios: Object.keys(scenarios),
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
-      'legacy-json-keys: each key and string of the document is recorded well-formed (String.prototype.toWellFormed: a lone surrogate as U+FFFD, and two keys that differ only there as one, last wins); no JSON a Rust reader accepts holds a lone surrogate, and the core reads one as U+FFFD (mixdog-migrate json::replace_lone_surrogates)',
       'attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>',
     ],
     ...recorderProvenance(import.meta.url),

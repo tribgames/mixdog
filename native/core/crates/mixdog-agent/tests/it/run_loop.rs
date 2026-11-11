@@ -2356,25 +2356,45 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
     };
     // A recorded value whole (`lib/exact.mjs`): plain JSON, an object's keys compared as a set.
     let whole = |v: &JsonValue| mixdog_testkit::exact::Exact::decode(v).and_then(|e| e.to_plain()).expect("a plain recorded value");
-    // The error the turn ended with as Node's loop throws it (the provider's own error): name, message, status, code.
-    // Its `streamOutcome` is the loop's record of the stream for its own retry decision, held by the core as the
-    // error's delivery state; it reaches no user or model.
-    let error_row = |error: &mixdog_agent::AgentError| match error {
+    // The error the turn ended with as Node's loop throws it (the provider's own error): name, message, status, code,
+    // and its `streamOutcome` (`providers/lib/stream-outcome.mjs`). The core holds a stream's outcome as the error's
+    // `Exposure`: Node's `textEmitted`, `sideEffectDispatched` and `pendingToolInput` are its three facts and are
+    // compared from it. Every other field of Node's record is either informational (`provider`, `transport`,
+    // `version`, the counts) or derived from those facts and stream signals the core's adapter consumes before the
+    // error exists (`_finalize`); the core keeps no counterpart, so those are carried over from the recording,
+    // named in `DERIVED`.
+    const DERIVED: [&str; 19] = [
+        "version", "provider", "transport", "terminalObserved", "continuation", "declaredContinuation", "textObservedChars",
+        "reasoningEmitted", "toolCallsStarted", "toolCallsComplete", "toolCallsDispatched", "dispatchAmbiguous", "userAbort",
+        "stallObserved", "truncatedStream", "visibleOutput", "observedOutput", "replayUnsafe", "replaySafe",
+    ];
+    let error_row = |error: &mixdog_agent::AgentError, recorded: &JsonValue| match error {
         mixdog_agent::AgentError::Provider(e) => {
             let mut props = json!({ "httpStatus": e.status });
             if let Some(code) = &e.code {
                 props["code"] = json!(code);
             }
+            let mut outcome = json!({
+                "textEmitted": e.exposure.text_emitted,
+                "sideEffectDispatched": e.exposure.tool_dispatched,
+                "pendingToolInput": e.exposure.tool_input_cut,
+            });
+            let node = &recorded["props"]["streamOutcome"];
+            for key in DERIVED.iter().chain(&["successEligible"]) {
+                outcome[*key] = node[*key].clone();
+            }
+            props["streamOutcome"] = outcome;
             json!({ "name": "Error", "message": e.message, "props": props })
         }
         other => panic!("{other:?}"),
     };
     let node_error = |v: &JsonValue| {
         let mut props = v["props"].clone();
-        props.as_object_mut().expect("props").remove("streamOutcome");
         if let Some(code) = v.get("code") {
             props["code"] = code.clone();
         }
+        let outcome = props["streamOutcome"].as_object().expect("Node's stream outcome");
+        assert_eq!(outcome.len(), DERIVED.len() + 4, "every field of Node's record is compared or named");
         json!({ "name": v["name"], "message": v["message"], "props": props })
     };
     let attempt_of = |step: &JsonValue| match (&step["error"], &step["reply"]) {
@@ -2397,7 +2417,7 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         let h = Harness::new(case["script"].as_array().expect("script").iter().map(attempt_of).collect());
         let (result, error, mut transcript) = match h.run(config(), vec![], messages).run().await {
             Ok(output) => (Some(output.response.content), JsonValue::Null, output.transcript),
-            Err(failure) => (None, error_row(&failure.error), failure.transcript),
+            Err(failure) => (None, error_row(&failure.error, &first["error"]), failure.transcript),
         };
         let recorded_sends: Vec<JsonValue> = first["sends"].as_array().expect("sends").iter().map(whole).collect();
         assert_eq!(sent(&h), recorded_sends, "{name}: what the provider was sent");
@@ -2752,20 +2772,8 @@ async fn the_turn_effort_published_is_the_one_node_answered_at_each_request_and_
         let current = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
         let node: Vec<_> = sends.iter().map(|send| json!({ "turnEffort": send["turnEffort"], "requestEffort": send["requestEffort"] })).collect();
         assert_eq!(*adapter.at_sends.lock().unwrap(), node, "{name}: at each request");
-        // What a client saw (the recording's TUI store, a status pass while each request was in flight and after the turn):
-        // the run's publications as the session actor forwards them, each one that differs from the value in force
-        // (`actor.rs` `on_producer`, from the thread's initial `null`).
-        let client = recorded["client"].clone();
-        assert_eq!((&client["initial"], &client["status"]), (&json!(null), &json!("done")), "{name}");
-        let mut in_force: Option<String> = None;
-        let mut forwarded = Vec::new();
-        for effort in h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }) {
-            if effort != in_force {
-                forwarded.push(json!(effort));
-                in_force = effort;
-            }
-        }
-        assert_eq!(json!(forwarded), client["published"], "{name}: what the client saw");
+        // What a client saw is compared through the session actor (`mixdog-core` `run_host::factory` tests,
+        // `the_actor_publishes_the_turn_effort_sequence_node_published`).
         assert_eq!(json!(current), recorded["settled"]["turnEffort"], "{name}: after the turn settled");
     }
 }

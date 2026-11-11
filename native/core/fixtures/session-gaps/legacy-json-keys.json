@@ -58,10 +58,39 @@
       "name": "two-distinct-lone-surrogates",
       "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"\\ud800\":1,\"\\ud801\":2}",
       "document": {
-        "id": "sess_dup",
-        "title": "a",
-        "messages": [],
-        "�": 2
+        "$exact": "object",
+        "entries": [
+          [
+            "id",
+            "sess_dup"
+          ],
+          [
+            "title",
+            "a"
+          ],
+          [
+            "messages",
+            []
+          ],
+          [
+            {
+              "$exact": "utf16",
+              "units": [
+                55296
+              ]
+            },
+            1
+          ],
+          [
+            {
+              "$exact": "utf16",
+              "units": [
+                55297
+              ]
+            },
+            2
+          ]
+        ]
       }
     },
     {

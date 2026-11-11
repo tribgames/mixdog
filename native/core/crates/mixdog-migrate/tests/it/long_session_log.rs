@@ -177,7 +177,22 @@ fn every_legacy_session_json_migrates_as_1_4_5_read_it() {
         std::fs::write(roots.data.join(format!("sessions/{id}.json")), case["text"].as_str().expect("text")).expect("write");
         let complete = run(&roots);
         let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
-        let document = mixdog_testkit::exact::Exact::decode(&case["document"]).and_then(|e| e.to_plain()).expect("document");
+        let document = mixdog_testkit::exact::Exact::decode(&case["document"]).expect("document");
+        // A key holding a lone surrogate: 1.4.5 keeps each as read (two distinct lone surrogates are two keys); the
+        // core's store holds UTF-8 text, so its reader reads each lone surrogate as U+FFFD
+        // (`mixdog-migrate json::replace_lone_surrogates`) and keys equal after it are one, the last value at the
+        // first's place. That is the one difference, compared as such: Node's document with the same replacement.
+        let document = match document {
+            mixdog_testkit::exact::Exact::Utf16Keyed(entries) => {
+                assert_eq!(name, "two-distinct-lone-surrogates", "the only recorded document with a lone surrogate");
+                let mut map = serde_json::Map::new();
+                for (key, value) in entries {
+                    map.insert(String::from_utf16_lossy(&key), value.to_plain().expect("plain value"));
+                }
+                Value::Object(map)
+            }
+            other => other.to_plain().expect("document"),
+        };
         if document.is_null() {
             assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (1, 0), "{name}: 1.4.5 could not read it");
             continue;
