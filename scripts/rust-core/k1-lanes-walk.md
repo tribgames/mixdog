@@ -16,6 +16,11 @@ when a test or fixture covers the behaviour with other literals, the row says wh
 for in the Rust tree by behaviour, not by the Node name; where untested Rust code exists, the row names it as the owner.
 "outside lane" marks a Rust test that proves the row but that the lane does not select.
 
+How far to trust it: the rows come from the author's row-by-row pass. An independent sample of 21 rows by three
+reviewers found 3 wrong; those are corrected, but roughly one row in seven may still be misclassified. Rule for its use:
+whoever takes a row opens both sides first (the Node file:line, and the Rust test's body and fixture) and corrects the
+row in the same commit as the work.
+
 No lane is equal to its Node step.
 
 | Lane | Verdict | none | partial |
@@ -23,7 +28,7 @@ No lane is equal to its Node step.
 | shell-direct-exe | weaker by two partial assertions | 0 | 2 |
 | advisory-lock | weaker | 1 | 1 |
 | patch-bytes | weaker | 7 | 0 |
-| provider-contract | weaker | 83 | 85 |
+| provider-contract | weaker | 82 | 86 |
 | daemon-bootstrap | weaker: the inline-host test file | 9 | 1 |
 | native-assets | weaker: npm staging | 1 | 3 |
 | compact | weaker by one partial assertion | 0 | 1 |
@@ -111,7 +116,7 @@ If the tool is ported it belongs to `mixdog-tools` (`fs/patch.rs`); none of the 
 | --- | --- | --- | --- | --- |
 | `native-edit-wire-test.mjs:24` | an exact match reports tier `exact` | none: no test reads the tier an edit matched at | `mixdog-tools` `fs/edit_plan.rs` (`Tier::Exact`) | — (`fs/golden/cases.json` and `tools/apply_patch/*.json` record text, `isError` and the tree, not the tier) |
 | `native-edit-wire-test.mjs:25` | the edit returns `contentHash`, 64 lowercase hex digits of the written file | none: no test asserts the hash an edit records | `mixdog-tools` `fs/patch_review.rs:165`, `fs/read.rs` `content_hash_of` | — |
-| `patch-replay.mjs:45-46` | a snapshot path that is absolute, has a drive, is UNC, has a `..` segment or a NUL is refused ("unsafe snapshot path") | none | no Rust counterpart (`mixdog-tools` if ported) | — |
+| `patch-replay.mjs:44-46` | a snapshot path is refused ("unsafe snapshot path") when it is empty, holds a NUL, is absolute for the platform (`path.isAbsolute`), is drive-absolute (`C:\…` or `C:/…`) or UNC (`//`, `\\`) whatever the platform, or has a `..` segment between `\` or `/`. A drive-relative path (`C:relative`, `C:..\x`) passes this guard; the next one (`:50-51`) refuses it if it resolves outside the root | none | no Rust counterpart (`mixdog-tools` if ported) | — |
 | `patch-replay.mjs:50-51` | a snapshot path that escapes the replay root after resolution is refused | none | no Rust counterpart | — |
 | `patch-replay.mjs:56-63` | a legacy partial capture (no `snapshot_phase: 'pre'`) is skipped with its reason, not replayed | none | no Rust counterpart | — |
 | `patch-replay.mjs:38-39,100` | a replayed result is ok only if it does not start with `Error` followed by whitespace, `:` or `[` | none | no Rust counterpart | — |
@@ -236,7 +241,7 @@ Anthropic tests cited below are in `providers/anthropic/tests.rs`.
 | `:1694` | only typed transient statuses or codes may switch transports | none | no Rust counterpart (no transport switch) | — |
 | `:1719` | a signature-only thinking block is not exposed reasoning | partial: `thinking_blocks_replay_with_their_signature_and_never_fuse_runs` (the replay); left: the exposure verdict | `providers/anthropic/decoder.rs` | — |
 | `:1753` | Gemini REST: text with no live sink is buffered, not visible, so replay stays safe | partial: `providers/google/conformance.rs` `truncated_recordings_end_as_transient_truncation`; left: buffered-not-visible | `providers/google/` | — |
-| `:1795` | HTTP/SSE: an untyped pre-response failure throws at once; a typed one retries | partial: `retry/classify.rs` `codeless_wire_error_is_transient`; left: the pre-response loop | `retry/decider.rs` | — |
+| `:1795` | HTTP/SSE: an untyped pre-response failure (no errno) is surfaced after one fetch; a typed one (`ECONNRESET`) re-issues the POST, and the second fetch's answer is the result | partial: `retry/classify.rs:315` `transport_evidence_is_transient` classifies a `TransportFault::Reset` as transient (the typed half's verdict only). Left, and wider than the loop: the typed-versus-untyped distinction itself. Rust has no untyped transport fault: `transport_is_transient` (`retry/classify.rs:142`) makes every fault but a WS close transient, so nothing shows a failure surfaced after one attempt, and no test runs the pre-response loop (one fetch, then two). `codeless_wire_error_is_transient` (`:337`) is about an in-stream error event without a code, not this | `retry/classify.rs`, `retry/decider.rs` | — |
 | `:1840` | midstream WS: `response.failed` picks buckets from typed codes and default-retries the rest | none | `retry/classify.rs` | — |
 | `:1905` | Anthropic SSE error events take their status from the typed error type only | partial: `an_error_event_is_a_typed_provider_error`; left: the status derived from the type, and no status for an unmapped type | `providers/anthropic/errors.rs` | — |
 | `:1947` | Cloudflare origin-TLS 525 and 526 are permanent | partial: `tests/it/retry.rs` `terminal_and_edge_statuses_surface_even_when_transient` (they surface); left: the permanent class (`retry/classify.rs` `status_table` expects them unknown) | `retry/classify.rs` | — |
@@ -254,7 +259,7 @@ Anthropic tests cited below are in `providers/anthropic/tests.rs`.
 | `:2194` | context codes overflow; a bare 413 or a typed `request_too_large` is a size refusal | partial: `status_table` (413); left: the context codes | `retry/classify.rs` | — |
 | `:2212` | backend-specific overflow wordings, never a rate limit | none (no overflow-wording matcher in Rust) | `retry/classify.rs` | `mixdog-ai/fixtures/error-text/cases.json` (other texts only) |
 
-### `scripts/cursor-provider-test.mjs` (45 tests: 0 proven, 24 partial, 21 none)
+### `scripts/cursor-provider-test.mjs` (45 tests: 0 proven, 25 partial, 20 none)
 
 Paths are under `providers/cursor/`, except for `tests/it/`, `catalog/` and `service/`.
 
@@ -303,7 +308,7 @@ Paths are under `providers/cursor/`, except for `tests/it/`, `catalog/` and `ser
 | `:2043` | throttle recovery never replays visible output, with or without a checkpoint | none | `mod.rs` | — |
 | `:2128` | an end-stream error after `turnEnded` completes the turn without a retry | none (`decoder.rs` gates on `saw_turn_ended`; no test) | `decoder.rs` | — |
 | `:2140` | an error close after `turnEnded` never drops a pending tool call | none (same) | `decoder.rs` | — |
-| `:2286` | wire guards bound schemas, tool payloads, blobs and frames | none | `request.rs` | — |
+| `:2286` | wire guards bound schemas, tool payloads, blobs and frames | partial: `request.rs:525` `blob_store_evicts_oldest_first` proves the blob store's 512-entry cap and that the oldest blob goes (`:2266-2271`). Left: schema prose kept (`:2161`; `slim_schema_drops_annotations_and_trivia` asserts what is dropped, not descriptions, enums and `required` kept), a top-level `oneOf` flattened without mutating the input (`:2187`), tool text capped with a truncation note (`:2259`), a heartbeat counted as liveness (`:2272`), and a frame over 64 MiB refused (`:2273-2276`; the check is `request.rs:504`, untested) | `request.rs`, `schema.rs` | — |
 | `:2293` | suffixed effort ids are recognised; the first alias claimant is kept | partial: `listing_tests.rs` recordings; left: the first-claimant rule | `listing.rs` | `providers/cursor-models/cases.json` |
 
 ### `openai-codex-identity.test.mjs` and `openai-ws-delta-parity.test.mjs` (11 tests: 4 proven, 6 partial, 1 none)
