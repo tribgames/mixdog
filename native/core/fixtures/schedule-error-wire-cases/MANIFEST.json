@@ -2,16 +2,20 @@
   "cases": 1,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-schedule-error-wire-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "The daemon /call exchange is the real createCallRoute + createAttachmentCalls: the request body and the response head and text of every call are recorded under each result's `wire`; the IPC envelope and the contextBridge clone are the real coded-error.ts and the Node test's message+stack Error.",
     "notRun": "no real daemon or Electron: the daemon call is the real route with a throwing handler, the preload clone is the Node test's message+stack Error",
-    "runs": "channels/lib/schedule-errors.mjs -> session-transport/call-route.mjs createCallRoute -> session-client/attachment-calls.mjs -> apps/desktop SessionTransport + DesktopServiceClient -> coded-error.ts envelope -> a contextBridge-shaped Error -> renderer schedule-error-text.ts with the Korean locale"
+    "runs": "channels/lib/schedule-errors.mjs -> session-transport/call-route.mjs createCallRoute -> session-client/attachment-calls.mjs -> apps/desktop SessionTransport + DesktopServiceClient -> coded-error.ts envelope -> a contextBridge-shaped Error -> renderer schedule-error-text.ts with the Korean locale",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    }
   },
   "exclusions": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4751,
+      "bytes": 11325,
       "path": "golden.json",
-      "sha256": "b35b42d9232b4c3b74f312cb7bdc611ee1aff9b2cca00ef7c3d43bca2cdaa454"
+      "sha256": "4badc5225c38ec013fa16486b7a1a3895984ca1394996988c353f9bafef4f9ae"
     }
   ],
   "inputs": [
@@ -38,12 +42,21 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
     }
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "paths": [],
-    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+    "paths": [
+      "$.cases[0].observed.results[0].wire[0].body.callId",
+      "$.cases[0].observed.results[1].wire[0].body.callId",
+      "$.cases[0].observed.results[2].wire[0].body.callId",
+      "$.cases[0].observed.results[3].wire[0].body.callId"
+    ],
+    "reason": "the desktop id inside callId is desktop_<process id>_<scripted uuid>: the process id of the recording run is written <pid>"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -63,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-schedule-error-wire-cases.mjs",
-  "recorderSha256": "66b73ccd41e7927da6934587597c0d003453349b0843bccad2b826cb4ad3159d",
+  "recorderSha256": "d185b63bfc6cdd39dbac1f6d02a6491fd3f09f479a7bf8184652fefaa15841db",
   "replay": {
     "compare": "mixdog-services scheduler rename errors + the desktop wire: each refusal keeps its code and name param through the envelope and renders the Korean text",
     "entry": "Drive these public items on o1: mixdog-services/src/scheduler/model.rs:129 SCHEDULE_NAME_TAKEN; mixdog-services/src/scheduler/model.rs:130 SCHEDULE_RENAME_RUNNING; mixdog-services/src/scheduler/model.rs:131 SCHEDULE_RENAME_RELOAD_FAILED; mixdog-services/src/scheduler/model.rs:132 SCHEDULE_RENAME_UNCERTAIN.",
@@ -97,6 +110,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "schedule-error-wire-cases",
-  "totalBytes": 4751,
+  "totalBytes": 11325,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

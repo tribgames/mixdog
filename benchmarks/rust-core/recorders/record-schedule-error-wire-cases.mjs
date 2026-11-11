@@ -10,8 +10,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
+import { scriptUuids } from './lib/scripted-uuid.mjs';
 import { parseArgs, resolveTree } from './lib/common.mjs';
 
+const scriptedUuids = scriptUuids();
 const set = openSet('schedule-error-wire-cases', import.meta.url);
 const tree = resolveTree(parseArgs());
 const { createAttachmentCalls } = await set.load('src/standalone/session-client/attachment-calls.mjs');
@@ -24,10 +26,12 @@ const { scheduleErrorCode } = await set.load('apps/desktop/src/shared/schedule-e
 const { DesktopServiceClient } = await set.load('apps/desktop/src/main/desktop-service-client.ts');
 const { SessionTransport } = await set.load('apps/desktop/src/main/session-transport.ts');
 
+/** The /call exchange as it crossed the daemon wire: the request body the session client sent and the head and text the daemon route answered. */
+let wireLog = [];
 const options = { userDataPath: 'C:/tmp/mixdog', packaged: true, resourcesPath: 'C:/tmp/resources', appPath: 'C:/tmp/resources/app.asar' };
 function daemonCall(failure) {
   const route = createCallRoute({ handleCall: async () => { throw failure; }, clients: new Map([['client', { leadPid: null, cwd: null, revision: 1, lastSeen: 0 }]]), lanes: { dispatch: (_owner, run) => run() }, callCache: { get: () => null, track() {} }, nowMs: () => 0, onCallStarted() {}, onCallSettled() {} });
-  return createAttachmentCalls({ request: ({ body }) => new Promise((resolve) => { const res = { writeHead() {}, end: (text) => resolve(JSON.parse(text)) }; void route(body, res); }), port: 1, serverToken: 'server', clientToken: 'client', stopStream() {}, log() {} }).call;
+  return createAttachmentCalls({ request: ({ body }) => new Promise((resolve) => { const head = []; const res = { writeHead(...args) { head.push(args); }, end: (text) => { wireLog.push({ direction: 'client->daemon /call', body }, { direction: 'daemon->client', writeHead: head, text }); resolve(JSON.parse(text)); } }; void route(body, res); }), port: 1, serverToken: 'server', clientToken: 'client', stopStream() {}, log() {} }).call;
 }
 // contextBridge hands the page an Error with only message and stack (checked against Electron 41 in the Node test).
 const acrossContextBridge = (error) => { const page = new Error(error.message); page.stack = error.stack; return page; };
@@ -59,14 +63,16 @@ await set.run('every schedule rename refusal reaches the Schedules view translat
     ];
     const results = [];
     for (const [failure, key, name] of cases) {
+      wireLog = [];
       const received = await savedWith(failure);
       if (received === null) { results.push({ code: failure.code, refused: false }); continue; }
       const text = scheduleErrorText(received);
       results.push({
-        engineError: { code: failure.code, message: failure.message, name: failure.name ?? null },
-        sentToPage: { ownPropertyNames: Object.getOwnPropertyNames(received).sort(), message: received.message },
-        code: scheduleErrorCode(received), codeEqualsEngine: scheduleErrorCode(received) === failure.code, nameParam: errorParams(received)?.name ?? null, expectedNameParam: name ?? null,
-        translationKey: key, text, textEqualsTranslation: text === t(key, name ? { name } : {}), textIsNotTheEnglishMessage: text !== failure.message,
+        wire: wireLog,
+        engineError: failure,
+        sentToPage: received, sentToPageOwnPropertyNames: Object.getOwnPropertyNames(received),
+        code: scheduleErrorCode(received), nameParam: errorParams(received)?.name,
+        translationKey: key, expectedText: t(key, name ? { name } : {}), text,
       });
     }
     return { language: 'ko', results };
@@ -74,7 +80,10 @@ await set.run('every schedule rename refusal reaches the Schedules view translat
 });
 
 await set.finish({
-  entry: { runs: 'channels/lib/schedule-errors.mjs -> session-transport/call-route.mjs createCallRoute -> session-client/attachment-calls.mjs -> apps/desktop SessionTransport + DesktopServiceClient -> coded-error.ts envelope -> a contextBridge-shaped Error -> renderer schedule-error-text.ts with the Korean locale', notRun: 'no real daemon or Electron: the daemon call is the real route with a throwing handler, the preload clone is the Node test\'s message+stack Error' },
+  entry: { hops: "The daemon /call exchange is the real createCallRoute + createAttachmentCalls: the request body and the response head and text of every call are recorded under each result's `wire`; the IPC envelope and the contextBridge clone are the real coded-error.ts and the Node test's message+stack Error.", runs: 'channels/lib/schedule-errors.mjs -> session-transport/call-route.mjs createCallRoute -> session-client/attachment-calls.mjs -> apps/desktop SessionTransport + DesktopServiceClient -> coded-error.ts envelope -> a contextBridge-shaped Error -> renderer schedule-error-text.ts with the Korean locale', scripted: { source: scriptedUuids.source },
+  notRun: 'no real daemon or Electron: the daemon call is the real route with a throwing handler, the preload clone is the Node test\'s message+stack Error' },
+  replaceRegex: [[/desktop_\d+_/g, 'desktop_<pid>_']],
+  normaliseReason: 'the desktop id inside callId is desktop_<process id>_<scripted uuid>: the process id of the recording run is written <pid>',
   replay: { entry: 'mixdog-services scheduler rename errors + the desktop wire: each refusal keeps its code and name param through the envelope and renders the Korean text', normalised: {} },
 });
 process.exit(0);
