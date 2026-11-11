@@ -878,8 +878,16 @@ async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back()
                 assert!(format!("{blocked:?}").contains("is still inheriting"), "{point:?}: {blocked:?}");
             }
         }
-        // The process stopped: its mark names a boot that no longer owns the data dir.
+        // The source is cleared and opened again: only the heir's rows (if any were written) name `named` now. While the
+        // mark stands, the prune deletes nothing.
+        let source_id = source.as_str().to_owned();
+        within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": source_id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
         within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+        let (directory, _handle) = world.reopened(1).await;
+        let named_on_disk = || std::path::Path::new(world.path("named")).exists();
+        assert_eq!(named_on_disk(), !matches!(point, CarryFails::Refused), "{point:?}: kept while the mark stands; with nothing copied nothing names it");
+        within("the directory shuts down", directory.shutdown_for("test close")).await;
+        // The process stopped: its mark names a boot that no longer owns the data dir.
         let next = SessionDirectory::new(world.rig.deps());
         let handle = within("the heir opens", next.open_handle(&heir, &CallContext::internal("test"))).await.expect("open");
         let params = json!({ "threadId": heir, "set": { sets::INHERITING_BOOT: "an-earlier-boot" }, "unset": [] });
@@ -888,6 +896,14 @@ async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back()
         let found = world.rig.store.copies_of(&source).await.expect("an earlier boot's mark stops nothing");
         assert_eq!(found.copies, [heir.as_str()], "{point:?}: the heir is read under its set");
         within("the directory shuts down", next.shutdown_for("test close")).await;
+        if matches!(point, CarryFails::Refused) {
+            continue;
+        }
+        // The source opened by the next process: the heir is read, and what its stored rows name stays on disk.
+        let (directory, _handle) = world.reopened(2).await;
+        let rows_written = matches!(point, CarryFails::AppendWritten | CarryFails::HeaderPatch);
+        assert_eq!(named_on_disk(), rows_written, "{point:?}: the sidecar the heir's stored rows name is kept, and only that");
+        within("the directory shuts down", directory.shutdown_for("test close")).await;
     }
 }
 
