@@ -112,6 +112,14 @@ pub async fn read(lane: DurabilityIo, data_dir: &Path) -> Option<Snapshot> {
     })
 }
 
+/// The curated rows a refresh writes into the snapshot.
+pub(crate) const CURATED_SQL: &str = "
+      SELECT id, summary, project_id, agent_id, updated_at
+      FROM core_entries
+      WHERE status IS NULL OR status = 'active'
+      ORDER BY project_id NULLS FIRST, id ASC
+    ";
+
 /// Rebuilds the snapshot from Postgres and writes it unless a newer revision
 /// is already on disk. Returns the revision now on disk and whether this
 /// refresh wrote it.
@@ -119,12 +127,6 @@ pub async fn refresh(lane: DurabilityIo, db: &Db, data_dir: &Path, reserved: &st
     let on_disk = read(lane, data_dir).await.map_or(0, |snapshot| snapshot.revision);
     let revision = reserve(reserved, on_disk);
     let directory = index::sync(db).await?;
-    const CURATED_SQL: &str = "
-      SELECT id, summary, project_id, agent_id, updated_at
-      FROM core_entries
-      WHERE status IS NULL OR status = 'active'
-      ORDER BY project_id NULLS FIRST, id ASC
-    ";
     #[cfg(test)]
     index::observe(CURATED_SQL, None, false);
     let rows = db.query(CURATED_SQL, &[]).await?;
