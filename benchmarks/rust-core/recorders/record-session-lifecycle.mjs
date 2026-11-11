@@ -4,10 +4,9 @@
 // (the tombstone, `:209-256`) and the save fence `_dropsAgainst` (`store.mjs:149-153`), over the real
 // `createSession` / `saveSessionAsync` of the session store.
 //
-// `barriers`: a session's lifecycle header before and after a sequence of barriers (`before`/`after` are the nine lifecycle
-// keys the Rust consumer reads, `beforeFull`/`afterFull` the whole stored session). `fence`: for a record at a recorded
-// generation (open after a detach, or closed), a late copy that names an expected generation is saved: the outcome (the
-// whole late copy and the whole stored record are recorded next to the `recorded` header the Rust consumer reads).
+// `barriers`: a session's whole stored record before and after each barrier of a sequence. `fence`: for a record at a recorded
+// generation (open after a detach, or closed), a late copy that names an expected generation is saved: the whole stored record,
+// the whole late copy, the outcome and the whole record after.
 //
 // Time is a virtual wall clock: `Date.now()` is 1000 * (step + 1) for the session's creation (step 0) and for its nth barrier
 // (step n); every timestamp the barriers write is recorded as that number. The barriers of the fence land in a second process
@@ -70,13 +69,6 @@ const providerName = 'session-lifecycle-twin';
 const provider = { name: providerName, contextWindow: 128000, async send() { throw new Error('no turn runs'); } };
 const options = { provider: providerName, model: 'fake-model', owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main', skipSkills: true };
 
-const KEYS = ['generation', 'updatedAt', 'detachedReason', 'ownerClosedAt', 'closed', 'closedReason', 'status', 'cancelStatus', 'cancelledAt'];
-// The nine lifecycle keys the Rust consumer reads (a view of the whole record, not a replacement of it).
-const lifecycle = (session) => {
-  const out = {};
-  for (const key of KEYS) if (session[key] !== undefined) out[key] = session[key];
-  return exact(out);
-};
 let step = 0;
 const tick = (n) => { step = n; clock.now = 1000 * (n + 1); };
 const fresh = async () => {
@@ -104,16 +96,13 @@ await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const record = [];
     let n = 0;
     for (const s of c.steps) {
-      const beforeSession = store.loadSession(id);
-      const before = lifecycle(beforeSession);
-      const beforeFull = exact(beforeSession);
+      const before = exact(store.loadSession(id));
       n += 1;
       tick(n);
       const generation = s.op === 'detach'
         ? await store.bumpSessionGenerationAttempt(id, s.reason, { outcome: {}, ownerClose: s.ownerClose === true })
         : await store.markSessionClosedAttempt(id, s.reason, { outcome: {} });
-      const afterSession = store.loadSession(id);
-      record.push({ ...s, clock: clock.now, before, beforeFull, generation: exact(generation), after: lifecycle(afterSession), afterFull: exact(afterSession) });
+      record.push({ ...s, clock: clock.now, before, generation: exact(generation), after: exact(store.loadSession(id)) });
     }
     barriers.push({ name: c.name, steps: record });
   }
@@ -134,15 +123,13 @@ await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
       for (const op of state.ops) {
         execFileSync(process.execPath, [...OTHER_PROCESS, '--child', `${op.op}:${op.reason}`, '--id', id], { stdio: 'inherit', timeout: CHILD_DEADLINE_MS, killSignal: 'SIGKILL' });
       }
-      const recordedSession = store.loadSession(id);
-      const recorded = lifecycle(recordedSession);
+      const recorded = exact(store.loadSession(id));
       late.messages.push({ role: 'user', content: `late write ${state.name} ${expected}` });
       const lateFull = exact(late);
       const outcome = await store.saveSessionAsync(late, expected === null ? {} : { expectedGeneration: expected });
       fence.push({
         state: state.name,
-        recorded: { generation: recorded.generation ?? 0, closed: recorded.closed === true },
-        recordedFull: exact(recordedSession),
+        recorded,
         expected,
         late: lateFull,
         outcome: exact(outcome),
@@ -166,7 +153,7 @@ writeSetManifest(stage, {
     ...recorderProvenance(import.meta.url, PRELOADS),
     testFile: 'src/runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs (no test file: a golden twin of the barriers)',
     entry: 'Ran the real session store (store.mjs loadSession, saveSessionAsync, drainSessionStore; store/lifecycle-barriers.mjs bumpSessionGenerationAttempt and markSessionClosedAttempt) and manager/session-lifecycle.mjs createSession on a temp MIXDOG_DATA_DIR. The fence barriers run in a second Node process (this recorder with --child, node --import lib/determinism-preload-other-process.mjs, 120 s deadline). Did not run a turn (the provider throws if asked).',
-    replay: 'mixdog-core-session close.rs `the_barriers_leave_what_node_recorded` and `a_stale_save_is_refused_as_node_refuses_it` (tests in native/core/crates/mixdog-core-session/src/session/close.rs, which include this twin.json): detach_fields / tombstone / drops_against over the recorded steps. barriers[].steps[].before/after and fence[].recorded are the nine lifecycle keys those tests read; beforeFull/afterFull, late, recordedFull and storedAfter are the whole stored sessions for a replay that drives the store (thread/delete and the close barriers of the Rust SessionDirectory) and compares whole records.',
+    replay: 'A replay drives the Rust core through the public app-server protocol (native/core/crates/mixdog-app-protocol methods.rs) and compares WHOLE stored records (thread/read of the thread, before and after each step; every recorded before/after/recorded/late/storedAfter is a whole Node session record): detach (cli-exit, no live session clients) <- thread/unsubscribe of the last subscriber; close with tombstone (manual, desktop-session-delete) <- thread/delete; agent-task-cancel <- thread/agentControl; a late save carrying an expected generation <- turn/start and thread/name/set issued with a stale generation, whose refusal/acceptance is the recorded outcome. The daemon-internal reasons (idle-sweep, SIGTERM, cli-agent-close, owner close) have no protocol method: Rust-side work, to be driven through the thread directory\'s own close/detach calls. Node-only fields (updatedAt, ownerClosedAt, cancelledAt) are the virtual clock 1000 * (step + 1). The existing close.rs unit tests read the old nine-key before/after/recorded projections of this file: they must read the whole records now.',
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
       'no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process',
