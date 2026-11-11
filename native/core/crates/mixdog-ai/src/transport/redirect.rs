@@ -8,6 +8,10 @@
 //! there (the head of a plain-HTTP target, `host` the loopback address); the endpoint drops the header and writes `host`
 //! as the origin's host, as the recorder did.
 //!
+//! A connection fault the recorder made instead of reaching the endpoint (its `fetch` sent the attempt to a closed loopback
+//! port, or to a listener that resets the TLS handshake) is [`Redirected::fault_origin`]: while set, requests go to that
+//! origin (`http://127.0.0.1:<closed port>`, `https://127.0.0.1:<port>`) and each send that fails is reported to `failed`.
+//!
 //! The product's handling of each response body ([`BodyEvent`]: a read begun, the end reached, the body dropped) goes to
 //! the endpoint's `tap`, so a replay on a paused clock moves the clock once the product waits where the recording waited.
 //!
@@ -61,6 +65,10 @@ pub struct Redirected<L> {
     pub tap: BodyTap,
     /// The responses returned so far (a `HEAD` not counted).
     pub returned: Arc<AtomicUsize>,
+    /// The origin requests go to instead of `addr` while set (a connection fault of the case).
+    pub fault_origin: Arc<std::sync::Mutex<Option<String>>>,
+    /// Called after each send that failed.
+    pub failed: Arc<dyn Fn() + Send + Sync>,
 }
 
 /// A response body reporting to the tap.
@@ -95,7 +103,8 @@ impl Drop for Tapped {
 impl<L> Redirected<L> {
     fn redirect(&self, mut request: WireRequest) -> WireRequest {
         let url = url::Url::parse(&request.url).unwrap_or_else(|e| panic!("redirect: {}: {e}", request.url));
-        let mut target = format!("http://{}{}", self.addr, url.path());
+        let origin = self.fault_origin.lock().unwrap().clone().unwrap_or_else(|| format!("http://{}", self.addr));
+        let mut target = format!("{origin}{}", url.path());
         if let Some(query) = url.query() {
             target.push('?');
             target.push_str(query);
@@ -110,7 +119,13 @@ impl<L> Redirected<L> {
 impl<L: HttpSend> HttpSend for Redirected<L> {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
         let head = request.method.eq_ignore_ascii_case("HEAD");
-        let mut response = self.inner.send(self.redirect(request), exchange).await?;
+        let mut response = match self.inner.send(self.redirect(request), exchange).await {
+            Ok(response) => response,
+            Err(error) => {
+                (self.failed)();
+                return Err(error);
+            }
+        };
         if !head {
             let index = self.returned.fetch_add(1, Ordering::SeqCst);
             let body = std::mem::replace(&mut response.body, Box::new(Empty));

@@ -21,7 +21,6 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
-use crate::provider_case::assert_exact;
 use crate::provider_case::within;
 use crate::replay_errors::Left;
 use crate::replay_errors::compare_error;
@@ -43,8 +42,8 @@ fn caller_headers(upgrade: &Exact) -> Vec<(String, String)> {
 async fn replay(id: &str) {
     let set = CaseSet::load(SET);
     let case = set.only(id, "each case has its own test function in this file");
-    let recorded = case.result();
-    let events = recorded.get("events").as_array();
+    let recorded = case.recorded();
+    let events = recorded.get("events").raw().as_array();
     let endpoint = Endpoint::start().await;
     endpoint.ws_script(events);
     let upgrade = events.iter().find(|e| e.get("event").as_str() == "upgrade-request").expect("an upgrade request");
@@ -64,7 +63,7 @@ async fn replay(id: &str) {
         Ok(_) => panic!("{SET} {id}: the upgrade was accepted"),
     };
     endpoint.until("the refusal in the trace", |e| e.trace().len() >= events.len()).await;
-    assert_exact(&format!("{SET} {id} events"), &Exact::Array(events.to_vec()), &Exact::Array(endpoint.trace()));
+    recorded.get("events").assert_eq(&format!("{SET} {id} events"), &Exact::Array(endpoint.trace()));
 
     drop(refused);
 
@@ -89,8 +88,13 @@ async fn replay(id: &str) {
     };
     let cancel = CancellationToken::new();
     let (sent, got) = within("the send", crate::replay_world::send_with(&*adapter, request, &cancel, Events::default())).await;
-    compare_error(&format!("{SET} {id} error"), recorded.get("outcome").get("error"), &Left::of(&sent, &got));
+    recorded.get("outcome").get("error").checked(|error| compare_error(&format!("{SET} {id} error"), error, &Left::of(&sent, &got)));
 }
+
+pub const REPLAYS: &[crate::provider_case::Replay] = &[
+    crate::provider_case::Replay { set: SET, run: unexpected_response_preserves_status_headers_body },
+    crate::provider_case::Replay { set: SET, run: non_json_body_keeps_status_and_headers },
+];
 
 #[tokio::test(start_paused = true)]
 async fn unexpected_response_preserves_status_headers_body() {

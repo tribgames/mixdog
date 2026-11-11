@@ -76,7 +76,7 @@ async fn replay_requests(id: &str, entry: &str, end: End) {
             .await;
     }
     set.assert_requests(case, &endpoint.arrivals(), None);
-    compare_result(&format!("{SET} {id}"), case.result(), &Left::of(&sent, &events), &sent);
+    case.recorded().checked(|result| compare_result(&format!("{SET} {id}"), result, &Left::of(&sent, &events), &sent));
 }
 
 /// The case's `{ error, outcome, classification, ... }` against what left the provider layer.
@@ -105,6 +105,13 @@ fn compare_result(what: &str, result: &Exact, left: &Left<'_>, sent: &Result<u32
         }
     }
 }
+
+pub const REPLAYS: &[crate::provider_case::Replay] = &[
+    crate::provider_case::Replay { set: SET, run: chat_in_band_fatal_error_stays_terminal },
+    crate::provider_case::Replay { set: SET, run: responses_in_band_fatal_error_stays_terminal },
+    crate::provider_case::Replay { set: SET, run: chat_cancel_releases_pending_read_and_signal_listener },
+    crate::provider_case::Replay { set: SET, run: responses_cancel_releases_pending_read_and_signal_listener },
+];
 
 #[tokio::test(start_paused = true)]
 async fn chat_in_band_fatal_error_stays_terminal() {

@@ -9,6 +9,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-anthropic-server-fallback',
   exclusions: [
+    "`sends[].model` is not compared: the recorder's label of the send's input (the `model` argument of the recorded call), not an output of the product; the model the product sent is compared in its request body",
+    "`sends[].serverFallback` is not compared: the recorder's label of the send's input (the `serverFallback` option of the recorded call), not an output of the product; what the product sent for it is compared in the request's anthropic-beta header",
     "`stopDetails` is not compared: the send copies the turn's stop_details into its result (anthropic-sse-turn/turn-outcome.mjs:141, anthropic-turn-result.mjs:60) and nothing reads it after (`[.?]stopDetails\\b` over src/ without tests finds only those copies and the write at turn-events/message-events.mjs:27)",
   ],
   entry: 'anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; anthropic-oauth.mjs AnthropicOAuthProvider({}).send over a credentials file of the recording (the OAuth request body, WIRE), and a stream carrying the fallback block (the parser, WIRE). Not run: a live endpoint.',

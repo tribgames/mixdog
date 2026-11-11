@@ -40,6 +40,8 @@ fn run(entry: &str, args: &[Exact]) -> (Exact, Option<Exact>) {
     (blocks(&out), observed)
 }
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "anthropic-replay-blocks", run: every_case_reduces_as_nodes }];
+
 #[test]
 fn every_case_reduces_as_nodes() {
     let set = CaseSet::load("anthropic-replay-blocks");

@@ -12,7 +12,7 @@ use mixdog_testkit::Exact;
 use serde_json::Value;
 
 use crate::provider_case::CaseSet;
-use crate::provider_case::assert_exact;
+use crate::provider_case::Recorded;
 use crate::provider_case::plain;
 
 fn stop_text(stop: &StopReason) -> String {
@@ -183,16 +183,16 @@ pub fn derived(key: &str, result: &Exact, tool_calls: &Exact) -> Exact {
     }
 }
 
-/// The recorded `{result, toolCalls, streamDeltas, ...derived}` of `id` against the core's send, whole.
+/// The recorded `{result, toolCalls, streamDeltas, ...derived}` of `id` against the core's send, each property whole.
 #[track_caller]
-pub fn assert_send(set: &CaseSet, id: &str, recorded: &Exact, got: &Send) {
+pub fn assert_send(set: &CaseSet, id: &str, recorded: &Recorded<'_>, got: &Send) {
     for (key, want) in recorded.entries() {
         let what = format!("{id}: {key}");
-        match key.as_str() {
-            "result" => assert_exact(&what, &comparable(set, want), &got.result),
-            "toolCalls" => assert_exact(&what, want, &got.tool_calls),
-            "streamDeltas" => assert_exact(&what, &semantic_deltas(set, want), &got.stream_deltas),
-            other => assert_exact(&what, want, &derived(other, &got.result, &got.tool_calls)),
+        match key {
+            "result" => want.assert_as(&what, |w| comparable(set, w), &got.result),
+            "toolCalls" => want.assert_eq(&what, &got.tool_calls),
+            "streamDeltas" => want.assert_as(&what, |w| semantic_deltas(set, w), &got.stream_deltas),
+            other => want.assert_eq(&what, &derived(other, &got.result, &got.tool_calls)),
         }
     }
 }

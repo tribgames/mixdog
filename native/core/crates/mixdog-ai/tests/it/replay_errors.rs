@@ -296,6 +296,16 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             compare_field(&format!("{what}.error"), "error", value.get("error"), left, user);
         }
         "providerRecoveryExhausted" | "providerRecoveryTerminal" => assert_eq!(left.exhausted, opt_bool(value), "{what}: {mapping}"),
+        // The socket error under a network failure (`fetch failed`, `terminated`): its code is the core's transport fault.
+        "cause" => {
+            let Exact::Error { code, .. } = value else { panic!("{what}: a recorded socket error: {value:?}") };
+            let socket_code = match left.error(field).transport {
+                Some(TransportFault::Connect { os_code: Some(111 | 10061) }) => Some("ECONNREFUSED"),
+                Some(TransportFault::Reset) => Some("ECONNRESET"),
+                _ => None,
+            };
+            assert_eq!(socket_code, code.as_deref().map(Exact::as_str), "{what}: {mapping}: {:?}", left.error(field).transport);
+        }
         other => panic!("{what}: no comparison for {other} ({mapping})"),
     }
 }

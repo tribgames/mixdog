@@ -2464,6 +2464,350 @@
           }
         }
       ]
+    },
+    {
+      "id": "idle-window-rearmed-by-each-payload",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs:591",
+      "input": {
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"one\"}]}}]}\n\n"
+          ],
+          "hold": true,
+          "later": [
+            {
+              "afterStep": 0,
+              "chunk": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"two\"}]}}]}\n\n"
+            }
+          ]
+        },
+        "options": {
+          "label": "fixture"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "GeminiTimeoutError",
+          "message": "fixture SSE idle timed out after 300000ms",
+          "code": "EGEMINITIMEOUT",
+          "props": {
+            "name": "GeminiTimeoutError",
+            "timeoutPhase": "idle",
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamStalled": true,
+            "partialContent": "onetwo",
+            "pendingToolUse": false
+          }
+        },
+        "progress": [
+          "text",
+          "text"
+        ],
+        "text": [
+          "one",
+          "two"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 200000,
+          "fromMs": 300025,
+          "fired": [
+            {
+              "dueMs": 303025
+            }
+          ],
+          "toMs": 500025
+        },
+        {
+          "advanceMs": 300000,
+          "fromMs": 500025,
+          "fired": [
+            {
+              "dueMs": 800025
+            }
+          ],
+          "toMs": 800025
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"one\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "later": [
+              {
+                "afterStep": 0,
+                "chunk": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"two\"}]}}]}\n\n"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "idle-window-not-rearmed-by-a-keepalive",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs:591",
+      "input": {
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"one\"}]}}]}\n\n"
+          ],
+          "hold": true,
+          "later": [
+            {
+              "afterStep": 0,
+              "chunk": ": keepalive\n\n"
+            }
+          ]
+        },
+        "options": {
+          "label": "fixture"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "GeminiTimeoutError",
+          "message": "fixture SSE idle timed out after 300000ms",
+          "code": "EGEMINITIMEOUT",
+          "props": {
+            "name": "GeminiTimeoutError",
+            "timeoutPhase": "idle",
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamStalled": true,
+            "partialContent": "one",
+            "pendingToolUse": false
+          }
+        },
+        "progress": [
+          "text"
+        ],
+        "text": [
+          "one"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "args": [
+            {
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 200000,
+          "fromMs": 800025,
+          "fired": [
+            {
+              "dueMs": 803025
+            }
+          ],
+          "toMs": 1000025
+        },
+        {
+          "advanceMs": 100000,
+          "fromMs": 1000025,
+          "fired": [
+            {
+              "dueMs": 1100025
+            }
+          ],
+          "toMs": 1100025
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"one\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "later": [
+              {
+                "afterStep": 0,
+                "chunk": ": keepalive\n\n"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
+use crate::provider_case::Replay;
 use crate::provider_case::within;
 use crate::replay_anthropic;
 use crate::replay_world;
@@ -43,12 +44,7 @@ fn result_of(sent: &replay_anthropic::Send) -> Exact {
     sent.result.clone()
 }
 
-#[track_caller]
-fn known_keys(what: &str, node: &Exact, keys: &[&str]) {
-    for (key, _) in node.entries() {
-        assert!(keys.contains(&key.as_str()), "{what}: a recorded property this replay does not read: {key}");
-    }
-}
+pub const REPLAYS: &[Replay] = &[Replay { set: "anthropic-server-fallback", run: every_api_key_case_replays_as_nodes }];
 
 #[tokio::test(start_paused = true)]
 async fn every_api_key_case_replays_as_nodes() {
@@ -84,34 +80,29 @@ async fn every_api_key_case_replays_as_nodes() {
         for n in 0..sends {
             results.push(send(&endpoint, case, n).await);
         }
-        let recorded = case.result();
+        let recorded = case.recorded();
         let what = format!("{id}: result");
         let comparable = |r: &Exact| replay_anthropic::comparable(&set, r);
         match id {
             "eligible-families-default-fallback" => {
-                known_keys(&what, recorded, &["sends"]);
-                let want = recorded.get("sends").as_array();
+                let want = recorded.get("sends").items();
                 assert_eq!(want.len(), results.len(), "{what}: one per send");
                 for (k, (want, got)) in want.iter().zip(&results).enumerate() {
-                    known_keys(&what, want, &["model", "serverFallback", "result"]);
-                    let model = case.args_of("AnthropicProvider#send", k)[1].clone();
-                    assert_eq!(want.get("model"), &model, "{what}: send {k} model");
-                    let opts = &case.args_of("AnthropicProvider#send", k)[3];
+                    // The recorded labels of the send's input (declared not compared) are the recorded call's.
+                    assert_eq!(want.get("model").raw(), &case.args_of("AnthropicProvider#send", k)[1], "{what}: send {k} model");
                     if let Some(off) = want.try_get("serverFallback") {
-                        assert_eq!(opts.try_get("serverFallback"), Some(off), "{what}: send {k} option");
+                        assert_eq!(case.args_of("AnthropicProvider#send", k)[3].try_get("serverFallback"), Some(off.raw()), "{what}: send {k} option");
                     }
-                    crate::provider_case::assert_exact(&format!("{what} {k}"), &comparable(want.get("result")), &result_of(got));
+                    want.get("result").assert_as(&format!("{what} {k}"), comparable, &result_of(got));
                 }
             }
             "beta-header-gated-and-deduplicated" => {
-                known_keys(&what, recorded, &["on", "off"]);
-                crate::provider_case::assert_exact(&format!("{what}: on"), &comparable(recorded.get("on")), &result_of(&results[0]));
-                crate::provider_case::assert_exact(&format!("{what}: off"), &comparable(recorded.get("off")), &result_of(&results[1]));
+                recorded.get("on").assert_as(&format!("{what}: on"), comparable, &result_of(&results[0]));
+                recorded.get("off").assert_as(&format!("{what}: off"), comparable, &result_of(&results[1]));
             }
             _ => {
-                known_keys(&what, recorded, &["result"]);
                 assert_eq!(results.len(), 1, "{what}: one send");
-                crate::provider_case::assert_exact(&what, &comparable(recorded.get("result")), &result_of(&results[0]));
+                recorded.get("result").assert_as(&what, comparable, &result_of(&results[0]));
             }
         }
         set.assert_requests(case, &endpoint.arrivals(), None);

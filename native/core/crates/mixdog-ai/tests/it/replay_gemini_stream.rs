@@ -39,7 +39,7 @@ use mixdog_testkit::provider_fields::result_field;
 
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
-use crate::provider_case::assert_exact;
+use crate::provider_case::Recorded;
 use crate::provider_case::plain;
 use crate::provider_case::within;
 use crate::replay_errors::Left;
@@ -110,8 +110,15 @@ async fn consume(set: &CaseSet, id: &str) -> (Vec<StreamEvent>, Option<ProviderE
         }
         (events, None)
     };
+    // Each recorded step is taken once the consumer waits past every chunk written before it (the reply's chunks, and each
+    // `later` chunk of an earlier step): its next read of the body is pending.
+    let reply = recorded.get("reply");
+    let initial = reply.try_get("chunks").map_or(0, |chunks| chunks.as_array().len());
+    let later: Vec<usize> = reply.try_get("later").map_or_else(Vec::new, |later| later.as_array().iter().map(|l| l.get("afterStep").as_f64() as usize).collect());
     let clock = async {
-        for step in &case.clock {
+        for (i, step) in case.clock.iter().enumerate() {
+            let delivered = initial + later.iter().filter(|after| **after < i).count();
+            endpoint.until(&format!("{id}: step {i}: the consumer reading past {delivered} chunk(s)"), |e| e.body(0).reads as usize > delivered).await;
             endpoint.advance(step).await;
         }
     };
@@ -125,29 +132,30 @@ fn call_of(call: &mixdog_core_api::domain::provider::ToolCall) -> Exact {
     plain(&serde_json::json!({ "id": call.id, "name": call.name, "arguments": call.arguments }))
 }
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: every_case_consumes_as_nodes }];
+
 #[tokio::test(start_paused = true)]
 async fn every_case_consumes_as_nodes() {
     let set = CaseSet::load(SET);
-    assert_eq!(set.cases.len(), 18, "the recorded cases");
+    assert_eq!(set.cases.len(), 20, "the recorded cases");
     for case in &set.cases {
         let id = case.id.as_str();
         let (events, error, recovered) = consume(&set, id).await;
         let what = format!("{SET} {id}");
-        for (key, recorded) in case.result().entries() {
+        for (key, recorded) in case.recorded().entries() {
             let what = format!("{what}: {key}");
-            match key.as_str() {
+            match key {
                 "response" => {
                     assert!(error.is_none(), "{what}: the core failed: {error:?}");
-                    assert_response(&set, &what, recorded, &events);
+                    assert_response(&what, &recorded, &events);
                 }
                 "error" => {
                     let left = Left { error: error.as_ref(), cancelled: false, exhausted: false, events: &events };
                     assert!(error.is_some(), "{what}: the core ended cleanly: {events:?}");
-                    compare_error(&what, recorded, &left);
+                    recorded.checked(|error| compare_error(&what, error, &left));
                 }
-                "progress" => assert_exact(
+                "progress" => recorded.assert_eq(
                     &what,
-                    recorded,
                     &Exact::Array(
                         events
                             .iter()
@@ -155,20 +163,18 @@ async fn every_case_consumes_as_nodes() {
                             .collect(),
                     ),
                 ),
-                "text" => assert_exact(
+                "text" => recorded.assert_eq(
                     &what,
-                    recorded,
                     &Exact::Array(events.iter().filter_map(|e| if let StreamEvent::TextDelta(t) = e { Some(Exact::String(t.clone())) } else { None }).collect()),
                 ),
-                "dispatched" => assert_exact(
+                "dispatched" => recorded.assert_eq(
                     &what,
-                    recorded,
                     &Exact::Array(events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(call) = e { Some(call_of(call)) } else { None }).collect()),
                 ),
                 // `getLeakedToolCalls()`: every call the guard recovered, whether or not the turn released it.
                 "leakedToolCalls" => {
                     let _ = result_field(key);
-                    assert_exact(&what, recorded, &Exact::Array(recovered.iter().map(call_of).collect()));
+                    recorded.assert_eq(&what, &Exact::Array(recovered.iter().map(call_of).collect()));
                 }
                 other => panic!("{what}: a recorded property this replay does not read: {other}"),
             }
@@ -176,39 +182,32 @@ async fn every_case_consumes_as_nodes() {
     }
 }
 
-/// The aggregated response against the core's events: `candidates` (one candidate), each field as `RESULT_FIELDS` maps it
-/// or declared not compared by the manifest; any other recorded field fails.
-fn assert_response(set: &CaseSet, what: &str, recorded: &Exact, events: &[StreamEvent]) {
-    for (key, _) in recorded.entries() {
-        assert_eq!(key, "candidates", "{what}: a recorded property this replay does not read: {key}");
-    }
-    let candidates = recorded.get("candidates").as_array();
+/// The aggregated response against the core's events: `candidates` (one candidate), each field as `RESULT_FIELDS` maps it;
+/// the fields the manifest declares not compared are left to it, and any other recorded field fails the set's drop.
+fn assert_response(what: &str, recorded: &Recorded<'_>, events: &[StreamEvent]) {
+    let candidates = recorded.get("candidates").items();
     assert_eq!(candidates.len(), 1, "{what}: one candidate");
     let stops: Vec<_> = events.iter().filter_map(|e| if let StreamEvent::Completed { stop, .. } = e { Some(stop.clone()) } else { None }).collect();
     let parts = events
         .iter()
         .find_map(|e| if let StreamEvent::ReasoningReplay(replay) = e { Some(plain(&replay.items["parts"])) } else { None })
         .unwrap_or_else(|| panic!("{what}: the turn's parts: {events:?}"));
-    let candidate = &candidates[0];
-    for (key, value) in candidate.entries() {
+    for (key, value) in candidates[0].entries() {
         let path = format!("response.candidates[].{key}");
-        match key.as_str() {
+        match key {
             "content" => {
-                for (field, value) in value.entries() {
-                    let path = format!("{path}.{field}");
-                    if set.excludes(&path) {
-                        continue;
-                    }
-                    assert_eq!(field, "parts", "{what}: {path}: a recorded property this replay does not read");
-                    let _ = result_field(&path);
-                    assert_exact(&format!("{what}: {path}"), value, &parts);
+                if let Some(recorded_parts) = value.try_get("parts") {
+                    let _ = result_field(&format!("{path}.parts"));
+                    recorded_parts.assert_eq(&format!("{what}: {path}.parts"), &parts);
                 }
             }
-            "finishReason" => {
+            // STOP and no finish are both a delivered turn (`Completed { stop: None }`, see `RESULT_FIELDS`).
+            "finishReason" => value.checked(|finish| {
                 let _ = result_field(&path);
-                assert_eq!(value.as_str(), "STOP", "{what}: {path}: a finish this set's responses do not carry");
-            }
-            _ => assert!(set.excludes(&path), "{what}: {path}: a recorded property this replay does not read"),
+                assert_eq!(finish.as_str(), "STOP", "{what}: {path}: a finish this set's responses do not carry");
+                assert_eq!(stops, [None], "{what}: {path}");
+            }),
+            _ => {}
         }
     }
     // STOP and no finish are both a delivered turn (`Completed { stop: None }`, see `RESULT_FIELDS`).

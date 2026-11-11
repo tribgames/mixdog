@@ -16,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
-use crate::provider_case::assert_exact;
 use crate::provider_case::plain;
 use crate::provider_case::within;
 use crate::replay_anthropic;
@@ -249,10 +248,7 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
     let builder = replay_world::builder(&endpoint, home.path(), Vec::new()).await;
     let (name, config) = provider(case);
     let adapter = replay_world::adapter(&builder, &name, &config).await;
-    let recorded = case.result();
-    for (key, _) in recorded.entries() {
-        assert!(matches!(key.as_str(), "events" | "first" | "transcript" | "second"), "{}: a recorded property this replay does not read: {key}", case.id);
-    }
+    let recorded = case.recorded();
     let mut results = Vec::new();
     let mut firsts = Vec::new();
     let mut messages = case.args_of("#send", 0)[0].as_array().to_vec();
@@ -260,7 +256,7 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
     for n in 0..2 {
         if n == 1 {
             messages = transcript(&history, &results[0]);
-            assert_exact(&format!("{}: transcript", case.id), recorded.get("transcript"), &Exact::Array(messages.clone()));
+            recorded.get("transcript").assert_eq(&format!("{}: transcript", case.id), &Exact::Array(messages.clone()));
         }
         let request = send_request(case, n, &messages);
         let model = request.model.clone();
@@ -278,11 +274,13 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
             _ => route_result(route, &events.events, &model),
         });
     }
-    assert_exact(&format!("{}: events", case.id), recorded.get("events"), &observed(&firsts));
-    assert_exact(&format!("{}: first", case.id), &replay_anthropic::comparable(set, recorded.get("first")), &results[0]);
-    assert_exact(&format!("{}: second", case.id), &replay_anthropic::comparable(set, recorded.get("second")), &results[1]);
+    recorded.get("events").assert_eq(&format!("{}: events", case.id), &observed(&firsts));
+    recorded.get("first").assert_as(&format!("{}: first", case.id), |w| replay_anthropic::comparable(set, w), &results[0]);
+    recorded.get("second").assert_as(&format!("{}: second", case.id), |w| replay_anthropic::comparable(set, w), &results[1]);
     set.assert_requests(case, &endpoint.arrivals(), None);
 }
+
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "leak-guards", run: every_case_replays_as_nodes }];
 
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {

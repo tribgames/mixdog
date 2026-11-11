@@ -6,7 +6,6 @@ use serde_json::Value;
 
 use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
-use crate::provider_case::assert_exact;
 
 /// The arguments of every recorded call to `entry` (matched by its suffix), in order.
 pub fn args_of(case: &Case, entry: &str) -> Vec<Vec<Exact>> {
@@ -26,7 +25,7 @@ pub fn plain(value: &Exact) -> Value {
 /// The Rust result in the recorded shape against the recorded result, whole.
 #[track_caller]
 pub fn assert_result(set: &CaseSet, case: &Case, actual: &Exact) {
-    assert_exact(&format!("provider-{} {}: result", set.set, case.id), case.result(), actual);
+    case.recorded().assert_eq(&format!("provider-{} {}: result", set.set, case.id), actual);
 }
 
 /// An object in recorded key order.

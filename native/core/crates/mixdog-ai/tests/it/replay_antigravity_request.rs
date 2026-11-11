@@ -38,7 +38,6 @@ use serde_json::json;
 use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
 use crate::provider_case::RecorderDraws;
-use crate::provider_case::assert_exact;
 use crate::provider_case::plain;
 use crate::provider_cases;
 use crate::replay_world;
@@ -338,7 +337,7 @@ fn build_args(case: &Case, i: usize) -> &[Exact] {
 
 /// The case's `value`, built from the core's answers as the recorder builds it from Node's (`record-antigravity-request.mjs`).
 fn value(case: &Case, a: &mut Answers) -> Exact {
-    let recorded = case.result().get("value");
+    let recorded = case.recorded().raw().get("value");
     let b = &a.builds;
     let contents = |i: usize| b[i].field("contents");
     let args = |i: usize| build_args(case, i);
@@ -509,6 +508,8 @@ fn value(case: &Case, a: &mut Answers) -> Exact {
     }
 }
 
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "antigravity-request", run: every_case_builds_as_nodes }];
+
 #[test]
 fn every_case_builds_as_nodes() {
     let set = CaseSet::load("antigravity-request");
@@ -530,7 +531,7 @@ fn every_case_builds_as_nodes() {
             let built = Exact::Array(answers.builds.iter().map(|b| b.sent.clone()).collect());
             let got = obj(vec![("value", value(case, &mut answers)), ("built", built)]);
             assert!(answers.unions.is_empty(), "every actionInputUnionFor answer is shown");
-            assert_exact(&format!("{}: result", case.id), &json_form(case.result()), &json_form(&got));
+            case.recorded().assert_as(&format!("{}: result", case.id), json_form, &json_form(&got));
         });
         if let Err(panic) = checked {
             failures.push(format!("{}: {}", case.id, panic_text(&panic)));

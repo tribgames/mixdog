@@ -20,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 69403,
+      "bytes": 78318,
       "path": "cases.json",
-      "sha256": "0a7c75f8fae30847f25dc9d46dc8f65e6f09affb5a03baf705d4f8649ed162ed"
+      "sha256": "3601155ef807f504dd13042dfae470b1e685c710e3d554ab5ac901dfc539dab1"
     }
   ],
   "inputs": [
@@ -127,6 +127,14 @@
     {
       "id": "idle-window-after-a-payload-names-phase",
       "level": "wire"
+    },
+    {
+      "id": "idle-window-rearmed-by-each-payload",
+      "level": "wire"
+    },
+    {
+      "id": "idle-window-not-rearmed-by-a-keepalive",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -148,12 +156,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-stream.mjs",
-  "recorderSha256": "624600ebeba8b4ac457596605d8ff891ca93b80938a1c224c151a720bf64dcc1",
+  "recorderSha256": "45296057ee8bb8e22682c871b617bea5ab4b93afacefc1d399a2d1aa25bbfb81",
   "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-gemini-stream",
-  "totalBytes": 69403,
+  "totalBytes": 78318,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
