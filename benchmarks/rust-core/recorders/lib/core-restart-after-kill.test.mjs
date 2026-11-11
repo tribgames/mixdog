@@ -4,16 +4,56 @@
 //   MIXDOGD_EXE=<built mixdogd.exe> node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //     --test benchmarks/rust-core/recorders/lib/core-restart-after-kill.test.mjs
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, watch } from 'node:fs';
 import { basename, join } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { REPO_ROOT } from './common.mjs';
-import { endCore } from './core-stop.mjs';
+import { endCore, spawnCore } from './core-stop.mjs';
 import { answered, killTree, startCore } from './phone-files-replay.mjs';
 
 const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-core-restart-after-kill`);
+const START_DEADLINE_MS = 120_000;
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
+
+/** Starts `exe serve` with `env` on folders left exactly as they are (startCore removes the discovery file first; this removes
+ *  nothing): up once `runtime/daemon.json` holds anything but what the killed core left there. */
+async function restartUntouched(exe, root, env) {
+  const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
+  const dir = join(root, 'runtime');
+  const file = join(dir, 'daemon.json');
+  const stale = readFileSync(file, 'utf8');
+  const { child, job } = await spawnCore(exe, ['serve'], { env });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => (stderr += chunk));
+  const core = { exe, child, job, env };
+  let watcher = null;
+  let timer = null;
+  try {
+    const endpoint = await new Promise((resolve, reject) => {
+      const look = () => {
+        if (child.exitCode !== null) return reject(new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`));
+        try {
+          const text = readFileSync(file, 'utf8');
+          if (text !== stale) resolve(parseDiscovery(text));
+        } catch {
+          // Being rewritten: the next change looks again.
+        }
+      };
+      watcher = watch(dir, look);
+      child.once('exit', look);
+      timer = setTimeout(() => reject(new Error(`mixdogd did not rewrite ${file} within ${START_DEADLINE_MS / 1000} s:\n${stderr}`)), START_DEADLINE_MS);
+      look();
+    });
+    return { ...core, endpoint };
+  } catch (error) {
+    await endCore(core).catch((ending) => (error.message += `\nand ending it: ${ending.message}`));
+    throw error;
+  } finally {
+    watcher?.close();
+    clearTimeout(timer);
+  }
+}
 
 /** Connects to `core` as the desktop does and asks it for its MCP servers: the answer, or the failure. */
 async function serves(core) {
@@ -45,8 +85,10 @@ test('a core started on the folders of a killed core comes up and serves', { tim
     assert.ok(await serves(first), 'the first core serves');
     // Killed the way a crash ends it: no stop request, its tree ended at once.
     await killTree(first.child);
+    assert.ok(existsSync(join(root, 'runtime', 'daemon.json')), 'the killed core left its discovery file');
     const started = Date.now();
-    second = await startCore(exe, root, null, false);
+    // Nothing of the folders is removed: the killed core's discovery file, locks and database stay as the crash left them.
+    second = await restartUntouched(exe, root, first.env);
     const status = await serves(second);
     console.log(`the second core served ${Date.now() - started} ms after its start on the killed core's folders`);
     assert.ok(status?.servers, `the second core's answer: ${JSON.stringify(status)}`);
