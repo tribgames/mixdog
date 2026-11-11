@@ -597,7 +597,10 @@ fn a_gateway_failure_in_the_stream_is_typed() {
             "data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
         );
         let mut decoder = codec.decoder(&base_request("m"));
-        let err = decoder.feed(sse.as_bytes()).expect_err(reason);
+        // The text decoded before the failure in the same chunk is delivered first; the failure ends the stream.
+        let first = decoder.feed(sse.as_bytes()).expect(reason);
+        assert!(first.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "{reason}");
+        let err = decoder.finish().expect_err(reason);
         assert_eq!(err.kind, ErrorKind::Transient, "{reason}");
         assert_eq!(err.status, status, "{reason}");
         assert!(err.exposure.text_emitted);

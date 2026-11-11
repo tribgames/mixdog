@@ -302,7 +302,10 @@ impl CompatResponsesCodec {
         let mut headers: Vec<(String, String)> = Vec::new();
         if !self.is_socket() {
             headers.push(("content-type".into(), "application/json".into()));
-            headers.push(("accept".into(), "text/event-stream".into()));
+            // The OpenAI SDK's `accept` (`application/json`); Muse Code asks for the stream by name
+            // (`muse-code-oauth.mjs` `send`: `Accept: text/event-stream`).
+            let accept = if self.profile.responses == ResponsesShape::Muse { "text/event-stream" } else { "application/json" };
+            headers.push(("accept".into(), accept.into()));
         }
         headers.extend(
             self.profile

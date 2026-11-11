@@ -20,21 +20,6 @@ use super::wire_fixtures::node_result;
 use super::wire_fixtures::request_of;
 use super::wire_fixtures::scenarios;
 
-/// Muse Code's Responses engine over the hub, with the recorded key (`muse-code-oauth.json` `apiKey`).
-fn muse_responses(hub: Arc<Hub>) -> Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter> {
-    use super::compat::CompatConfig;
-    use super::compat::CompatProfile;
-    use super::compat::responses::CompatResponsesCodec;
-    use super::connect::rewrite::HttpAdapter;
-    use super::connect::rewrite::StaticCredential;
-    let profile = CompatProfile::muse_code_oauth();
-    let policy = profile.retry_policy();
-    let config = CompatConfig::for_profile(&profile);
-    let codec = Arc::new(CompatResponsesCodec::new(profile, config, mixdog_core_api::domain::keepalive::TransportKind::Http1));
-    let credential = Arc::new(StaticCredential(Some(("authorization".to_owned(), "Bearer fixture-key".to_owned()))));
-    Arc::new(HttpAdapter::new("muse-code-oauth".into(), codec, hub, credential, policy))
-}
-
 #[tokio::test]
 async fn every_compatible_provider_reports_the_model_that_answered() {
     let names = scenarios("served-model");
@@ -42,13 +27,7 @@ async fn every_compatible_provider_reports_the_model_that_answered() {
     for name in names {
         let recorded = load("served-model", &name);
         let hub = Hub::new(&recorded);
-        let (mut adapter, _dir) = built(&recorded, hub.clone(), Inputs::default()).await;
-        if name == "muse-code-oauth" {
-            // Node sends Muse Code over Responses only; this branch's builder still routes it to Chat, a route the
-            // gateway registry owns (branch `provider-gateways`, whose builder sends it through this Responses
-            // engine). Declared in the manifest.
-            adapter = muse_responses(hub.clone());
-        }
+        let (adapter, _dir) = built(&recorded, hub.clone(), Inputs::default()).await;
         let request = Arc::new(request_of(&recorded));
         let events = attempt(adapter.as_ref(), request.clone()).await.unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_same_requests(&hub.sent(), &recorded, &[], &name);

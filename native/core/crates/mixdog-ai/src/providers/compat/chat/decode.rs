@@ -585,7 +585,9 @@ impl WireDecoder for ChatDecoder {
             };
             if let Err(err) = step {
                 self.failure = Some(err.clone());
-                return Err(err);
+                // The events decoded before the error in this unit reach the caller first (Node relays each chunk
+                // before it parses the next); the stored failure ends the stream on the next call.
+                return if out.is_empty() { Err(err) } else { Ok(out) };
             }
         }
         Ok(out)

@@ -1,6 +1,7 @@
 //! One provider response folded from a stream, stop-reason vocabulary, the
 //! assistant messages committed from it, and the termination classification.
 
+use mixdog_core_api::domain::provider::AccountRouting;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::ProviderState;
 use mixdog_core_api::domain::provider::StopReason;
@@ -48,6 +49,8 @@ pub struct ModelResponse {
     /// `result.response.usageDurationMs`), from `Completed.request_ms`; `None`
     /// when the send was not accounted, and the loop's own clock stands in.
     pub request_ms: Option<u64>,
+    /// The roster account that served the answer (Node `providerMetadata.accountRouting`).
+    pub account_routing: Option<AccountRouting>,
 }
 
 impl ModelResponse {
@@ -115,6 +118,7 @@ impl ResponseBuilder {
             StreamEvent::ProviderState(state) => response.provider_state = Some(state),
             StreamEvent::ServedModel(model) => response.model = model,
             StreamEvent::ProviderMetadata(metadata) => response.provider_metadata = Some(metadata),
+            StreamEvent::AccountRouting(routing) => response.account_routing = Some(routing),
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
             StreamEvent::Completed { stop, request_ms, .. } => {
                 response.stop = stop;
@@ -129,6 +133,8 @@ impl ResponseBuilder {
             | StreamEvent::ProviderKeepalive
             | StreamEvent::Notice { .. }
             | StreamEvent::ResponseId(_)
+            | StreamEvent::AccountStage(_)
+            | StreamEvent::WireRerouted(_)
             | StreamEvent::Progress(_)
             | StreamEvent::ChunkProgress(_) => {}
         }
@@ -250,6 +256,21 @@ fn echo(message: &mut AgentMessage, response: &ModelResponse, keep_blocks: bool)
         message.reasoning = Some(response.reasoning.clone());
     }
     message.provider_metadata = response.provider_metadata.clone().filter(JsonValue::is_object);
+    // `recordServingAccount`: the message stores which account served it (`providerMetadata.accountRouting`).
+    if let Some(routing) = &response.account_routing {
+        let mut metadata = match message.provider_metadata.take() {
+            Some(JsonValue::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        let mut row = serde_json::Map::new();
+        row.insert("provider".into(), routing.provider.clone().into());
+        row.insert("accountId".into(), routing.account_id.clone().into());
+        if let Some(session) = &routing.session_account_id {
+            row.insert("sessionAccountId".into(), session.clone().into());
+        }
+        metadata.insert("accountRouting".into(), JsonValue::Object(row));
+        message.provider_metadata = Some(JsonValue::Object(metadata));
+    }
 }
 
 /// The intermediate (no client tool call) assistant turn: max-output partials,
@@ -380,6 +401,27 @@ mod tests {
             assert_eq!(message.stop_reason.as_ref().map(stop_text).as_deref(), committed["stopReason"].as_str());
             assert_eq!(message.message.provider_replay()[0].items, committed["providerReplay"]["items"]);
         }
+    }
+
+    #[test]
+    fn the_serving_key_is_stored_on_the_message_and_read_back_for_the_next_send() {
+        // Node's answer from the second key (`fixtures/provider-gateways/custom-keys-switch.json`): its
+        // `providerMetadata` is what the session stores on the assistant message.
+        let scenario: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/provider-gateways/custom-keys-switch.json")).unwrap();
+        let node = &scenario["sends"][0]["result"];
+        let routing = &node["providerMetadata"]["accountRouting"];
+        let served = AccountRouting {
+            provider: routing["provider"].as_str().unwrap().into(),
+            account_id: routing["accountId"].as_str().unwrap().into(),
+            session_account_id: routing["sessionAccountId"].as_str().map(str::to_owned),
+        };
+        let mut builder = ResponseBuilder::new("m1", ToolCallIds::new(&[]));
+        builder.push(StreamEvent::TextDelta(node["content"].as_str().unwrap().into()));
+        builder.push(StreamEvent::AccountRouting(served.clone()));
+        let message = intermediate_message(&builder.finish()).unwrap();
+        assert_eq!(message.provider_metadata.as_ref(), Some(&node["providerMetadata"]));
+        assert_eq!(message.wire().account_routing, Some(served));
     }
 
     #[test]

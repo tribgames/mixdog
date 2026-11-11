@@ -5,7 +5,7 @@
 mod decode;
 mod encode;
 mod options;
-mod reasoning;
+pub(crate) mod reasoning;
 
 use std::sync::Arc;
 
@@ -43,6 +43,19 @@ pub struct CompatConfig {
     /// The process environment the cache-routing knobs
     /// (`MIXDOG_XAI_RESPONSES_CACHE_*`) are read from; none reads nothing.
     pub environment: Option<EnvSource>,
+    /// A custom provider's per-request replay eligibility (`resolveCustomReasoning(...).replay`): when set it
+    /// alone decides whether reasoning is captured and sent back, with tool-call turns padded.
+    pub custom_replay: Option<CustomReplay>,
+}
+
+/// Whether a request's model replays its reasoning (a custom provider's model row and the turn's effort).
+#[derive(Clone)]
+pub struct CustomReplay(pub Arc<dyn Fn(&ModelRequest) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for CustomReplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CustomReplay")
+    }
 }
 
 /// The injectable process environment (`registry::keys::Environment`).
@@ -59,6 +72,7 @@ impl Default for CompatConfig {
     fn default() -> Self {
         Self {
             environment: None,
+            custom_replay: None,
             server_tool_search: false,
             base_url: None,
             client_version: String::new(),
@@ -98,6 +112,18 @@ impl CompatChatCodec {
 
     pub fn profile(&self) -> &CompatProfile {
         &self.profile
+    }
+
+    /// The profile one request is lowered and read with: a custom provider's replay decision sets the dialect's
+    /// capture, replay and padding for this request's model.
+    fn request_profile(&self, request: &ModelRequest) -> std::borrow::Cow<'_, CompatProfile> {
+        let Some(decide) = &self.config.custom_replay else { return std::borrow::Cow::Borrowed(&self.profile) };
+        let replay = (decide.0)(request);
+        let mut profile = self.profile.clone();
+        profile.chat.replay_reasoning = replay;
+        profile.chat.capture_reasoning = replay;
+        profile.chat.pad_tool_call_reasoning = replay;
+        std::borrow::Cow::Owned(profile)
     }
 
     /// The rows the last listing returned (and the profile's seed facts).
@@ -146,11 +172,15 @@ impl CompatChatCodec {
             }
         }
         if dialect.conversation_header {
-            // Pins the conversation to the server holding its cached prefix: the routing key derived from the
-            // session (or the shared prefix), not the caller's cache key, which only names its namespace.
-            let system = system_texts(dialect, &request.messages)?;
+            // Pins the conversation to the server holding its cached prefix: the routed key of the session, the
+            // shared prefix, or this process (`xaiCacheRouting`), never the caller's namespace itself.
+            let system = encode::system_texts(dialect, &request.messages).unwrap_or_default();
             let lanes = std::sync::Mutex::default();
-            let routing = super::xai_cache::Routing { environment: None, lanes: &lanes, system: &system };
+            let routing = super::xai_cache::Routing {
+                environment: self.config.environment.as_ref().map(|env| &*env.0),
+                lanes: &lanes,
+                system: &system,
+            };
             headers.push(("x-grok-conv-id".into(), routing.chat_key(request)));
         }
         headers.extend(self.config.extra_headers.iter().cloned());
@@ -178,7 +208,7 @@ impl WireCodec for CompatChatCodec {
                 report_exclusion(&request.options, e)
             })
         };
-        let body = encode::build_body(&self.profile, &self.provider, request, info.as_deref(), &tools)?;
+        let body = encode::build_body(&self.request_profile(request), &self.provider, request, info.as_deref(), &tools)?;
         Ok(WireRequest {
             transport: TransportKind::Http1,
             method: "POST".into(),
@@ -191,7 +221,7 @@ impl WireCodec for CompatChatCodec {
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
         let known = body_tool_names(self, request, ToolNames::Chat);
-        Box::new(ChatDecoder::new(self.profile.clone(), self.provider.clone()).with_known_tools(known))
+        Box::new(ChatDecoder::new(self.request_profile(request).into_owned(), self.provider.clone()).with_known_tools(known))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {

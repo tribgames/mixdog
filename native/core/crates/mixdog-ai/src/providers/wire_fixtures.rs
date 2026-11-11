@@ -248,7 +248,11 @@ pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
                     ok.insert("pricingModel".into(), json!(pricing));
                 }
             }
-            StreamEvent::Refusal(_) => panic!("no recording has {event:?}"),
+            // Account pools and gateway reroutes are outside the provider-wire sends (registry::gateway_replay).
+            StreamEvent::Refusal(_)
+            | StreamEvent::AccountRouting(_)
+            | StreamEvent::AccountStage(_)
+            | StreamEvent::WireRerouted(_) => panic!("no recording has {event:?}"),
             StreamEvent::Notice { .. }
             | StreamEvent::ItemStart { .. }
             | StreamEvent::ToolCallStart { .. }
