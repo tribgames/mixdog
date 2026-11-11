@@ -6,9 +6,13 @@
 // DELETEs, a DELETE that removes nothing, a failing query.
 //
 //   node benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs --tree <dir>
-import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { NODE_COMMIT, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { nodeTreeIdentity, parseArgs, resolveTree } from './lib/common.mjs';
 
-const ctx = begin();
+// Exactly NODE_COMMIT, or with `--patch <file>` NODE_COMMIT plus that Node fix.
+const args = parseArgs();
+const tree = resolveTree(args);
+const ctx = { tree, identity: nodeTreeIdentity(args, tree, NODE_COMMIT) };
 const { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows, DEFAULT_EMBED_CACHE_MAX_ROWS } = await importFrom(ctx.tree, 'src/runtime/memory/lib/embedding-cache-retention.mjs');
 
 const resolve = [];

@@ -27,7 +27,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:1",
-          "scoredAtMs": 1794395045885
+          "scoredAtMs": 1794399510731
         },
         {
           "label": "ko element",
@@ -37,7 +37,7 @@
           "element": "Claude코드 정리",
           "summary": null,
           "source_ref": "exact:2",
-          "scoredAtMs": 1794395045889
+          "scoredAtMs": 1794399510739
         },
         {
           "label": "ko summary",
@@ -47,7 +47,7 @@
           "element": null,
           "summary": "요약: claude코드 비교",
           "source_ref": "exact:3",
-          "scoredAtMs": 1794395045890
+          "scoredAtMs": 1794399510739
         },
         {
           "label": "ko spaced (not a match)",
@@ -57,7 +57,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:4",
-          "scoredAtMs": 1794395045890
+          "scoredAtMs": 1794399510740
         },
         {
           "label": "umlaut upper",
@@ -67,7 +67,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:5",
-          "scoredAtMs": 1794395045903
+          "scoredAtMs": 1794399510753
         },
         {
           "label": "umlaut lower",
@@ -77,7 +77,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:6",
-          "scoredAtMs": 1794395045903
+          "scoredAtMs": 1794399510754
         },
         {
           "label": "umlaut other",
@@ -87,7 +87,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:7",
-          "scoredAtMs": 1794395045904
+          "scoredAtMs": 1794399510754
         },
         {
           "label": "null only",
@@ -97,7 +97,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:8",
-          "scoredAtMs": 1794395045909
+          "scoredAtMs": 1794399510759
         },
         {
           "label": "null with summary",
@@ -107,7 +107,7 @@
           "element": null,
           "summary": "the nullterm lives in the summary",
           "source_ref": "exact:9",
-          "scoredAtMs": 1794395045910
+          "scoredAtMs": 1794399510759
         },
         {
           "label": "underscore",
@@ -117,7 +117,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:10",
-          "scoredAtMs": 1794395045913
+          "scoredAtMs": 1794399510762
         },
         {
           "label": "underscore wildcard look-alike",
@@ -127,7 +127,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:11",
-          "scoredAtMs": 1794395045914
+          "scoredAtMs": 1794399510762
         },
         {
           "label": "percent",
@@ -137,7 +137,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:12",
-          "scoredAtMs": 1794395045917
+          "scoredAtMs": 1794399510765
         },
         {
           "label": "percent wildcard look-alike",
@@ -147,7 +147,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:13",
-          "scoredAtMs": 1794395045918
+          "scoredAtMs": 1794399510765
         },
         {
           "label": "backslash",
@@ -157,7 +157,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:14",
-          "scoredAtMs": 1794395045922
+          "scoredAtMs": 1794399510769
         },
         {
           "label": "backslash other",
@@ -167,7 +167,7 @@
           "element": null,
           "summary": null,
           "source_ref": "exact:15",
-          "scoredAtMs": 1794395045923
+          "scoredAtMs": 1794399510770
         }
       ],
       "queries": [
@@ -195,7 +195,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "1000",
               "ts": "1000",
               "project_id": "p",
@@ -225,7 +225,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "2000",
               "ts": "2000",
               "project_id": "p",
@@ -255,7 +255,7 @@
               "summary": "요약: claude코드 비교",
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "3000",
               "ts": "3000",
               "project_id": "p",
@@ -305,7 +305,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "5000",
               "ts": "5000",
               "project_id": "p",
@@ -335,7 +335,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "6000",
               "ts": "6000",
               "project_id": "p",
@@ -385,7 +385,7 @@
               "summary": "the nullterm lives in the summary",
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "9000",
               "ts": "9000",
               "project_id": "p",
@@ -435,7 +435,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "10000",
               "ts": "10000",
               "project_id": "p",
@@ -465,7 +465,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "11000",
               "ts": "11000",
               "project_id": "p",
@@ -515,7 +515,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "12000",
               "ts": "12000",
               "project_id": "p",
@@ -545,7 +545,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "13000",
               "ts": "13000",
               "project_id": "p",
@@ -595,7 +595,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "13000",
               "ts": "13000",
               "project_id": "p",
@@ -625,7 +625,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "14000",
               "ts": "14000",
               "project_id": "p",
@@ -655,7 +655,7 @@
               "summary": null,
               "category": "fact",
               "status": "active",
-              "score": 0.34033173,
+              "score": 0.34033147,
               "last_seen_at": "15000",
               "ts": "15000",
               "project_id": "p",
