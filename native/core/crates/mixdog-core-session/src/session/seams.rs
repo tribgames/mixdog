@@ -118,12 +118,14 @@ pub trait TurnIngest: Send + Sync + 'static {
 }
 
 /// A session's stored metadata as today's `readStoredSessionMetadata` gives it
-/// [`ThreadStore::copies_of`]: the sessions whose set names the session, and the sessions whose set is unknown with the
-/// ordinal each is projected to.
+/// [`ThreadStore::copies_of`]: the sessions whose set names the session, the sessions whose set is unknown with the
+/// ordinal each is projected to, and the first session the catalog holds as not readable (whether it names the
+/// session is not known).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OffloadCopies {
     pub copies: Vec<String>,
     pub unknown: Vec<(String, i64)>,
+    pub unreadable: Option<String>,
 }
 
 /// (`store-summary-reader.mjs:386`): each field is `x || null`.
@@ -348,9 +350,9 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// (`mixdog_store::offload_sources`: an inheritance's heir, a clear's fork, the copies of those, a session
     /// migrated naming `id`'s sidecars), once the catalog holds every acked projection, without opening any session;
     /// and every other session whose set is unknown (its header holds none: an older build's), with the ordinal it is
-    /// projected to, for the caller to scan. An error when the catalog cannot answer, holds a session it could not
-    /// read (whether that one names `id` is not known), or a copy naming `id` is still being made (`offloadInheriting`
-    /// by this boot).
+    /// projected to, for the caller to scan; and the first session it could not read (whether that one names `id` is
+    /// not known). An error when the catalog cannot answer, or a copy naming `id` is still being made
+    /// (`offloadInheriting` by this boot).
     fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<OffloadCopies, CoreError>>;
 
     /// Stores what a scan of `session`'s transcript at `ordinal` names (the sessions whose sidecars it may name), for a

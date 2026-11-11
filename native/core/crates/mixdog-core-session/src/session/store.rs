@@ -947,13 +947,10 @@ impl ThreadStore for StoreThreads {
         Box::pin(async move {
             projector.caught_up().await?;
             let found = index.offload_referencers(&id, mixdog_store::offload_sources::boot()).await.map_err(|e| internal("copies", &e))?;
-            if let Some(unreadable) = found.unreadable {
-                return Err(internal("copies", &format!("the session {unreadable} cannot be read")));
-            }
             if let Some((heir, source)) = found.copying {
                 return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation of {source}")));
             }
-            Ok(super::seams::OffloadCopies { copies: found.sessions, unknown: found.unknown })
+            Ok(super::seams::OffloadCopies { copies: found.sessions, unknown: found.unknown, unreadable: found.unreadable })
         })
     }
 

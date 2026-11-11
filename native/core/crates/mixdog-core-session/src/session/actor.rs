@@ -147,6 +147,8 @@ use mixdog_core_base::approvals::resolved_frame;
 
 mod compaction_reminder;
 mod offload_prune;
+#[cfg(test)]
+pub(crate) use offload_prune::OFFLOAD_SCAN_BATCH;
 mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
