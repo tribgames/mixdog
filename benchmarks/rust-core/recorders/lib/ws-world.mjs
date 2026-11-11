@@ -73,10 +73,19 @@ export async function startWsWorld({ tree }) {
     const refusal = world.script.refuse?.(req, world.count((e) => e.event === 'upgrade-request'));
     if (refusal) {
       const headerLines = (refusal.headers ?? []).map(([n, v]) => `${n}: ${v}`);
-      const body = refusal.body ?? '';
+      const bodyChunks = refusal.bodyChunks ?? [refusal.body ?? ''];
+      const body = bodyChunks.join('');
       const head1 = `HTTP/1.1 ${refusal.status} ${refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? ''}`;
-      note({ event: 'upgrade-refused', status: refusal.status, statusText: refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? '', headers: refusal.headers ?? [], body });
-      socket.end(`${[head1, ...headerLines, `content-length: ${Buffer.byteLength(body)}`, 'connection: close'].join('\r\n')}\r\n\r\n${body}`);
+      note({ event: 'upgrade-refused', status: refusal.status, statusText: refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? '', headers: refusal.headers ?? [], bodyChunks });
+      socket.write(`${[head1, ...headerLines, `content-length: ${Buffer.byteLength(body)}`, 'connection: close'].join('\r\n')}\r\n\r\n`);
+      // Each chunk is its own write, one event-loop turn apart, so the client reads them as separate data events.
+      (async () => {
+        for (const chunk of bodyChunks) {
+          socket.write(chunk);
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+        socket.end();
+      })();
       return;
     }
     if (refusal === null) {
