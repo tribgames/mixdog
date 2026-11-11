@@ -48,7 +48,7 @@ mixdog-fsio = { workspace = true, optional = true }
 mixdog-mcp = { workspace = true, optional = true }
 mixdog-scm = { workspace = true, optional = true }
 mixdog-secrets = { workspace = true, optional = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", optional = true }
+mixdog-spawn = { workspace = true, optional = true }
 mixdog-tools = { workspace = true, optional = true }
 mixdog-workspace = { workspace = true, optional = true }
 mixdog-app-server-daemon = { workspace = true }
@@ -86,7 +86,7 @@ mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
