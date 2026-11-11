@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11898,
+      "bytes": 18394,
       "path": "golden.json",
-      "sha256": "0a8420813d77679fcb8f15c238266ba859dfea199d23ca8a0150766f89e7cdad"
+      "sha256": "3b14848416bc23439e796339a584a370399655c20f7a65635c14198227a0cdf7"
     }
   ],
   "inputs": [
@@ -24,7 +24,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+      "sha256": "bc25924a6685124b8c05b4c16b36b467930974bbe35da5defd889a6ce277c1c8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -54,12 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs",
-  "recorderSha256": "d85aefcb4856f79a1bde93a2c2a4adf227f957b6a905ad9dc03c1e99ed5e747d",
-  "replay": "mixdog-services memory/embed/install.rs (pub): HUB (:16), required_files (:26), model_path (:30), missing (:65), installed (:81), install (:131; the hub download goes through Fetch::file :111). A replay serves the recorded hub requests from a scripted server and compares the requests sent (url, init) in order and the files left in the cache",
-  "rustWork": "The Rust install (mixdog-services memory/embed/install.rs:131 install, :140 body) cannot be pointed at the arbitrary config.json / vocab.txt downloads these recordings hold, and its request order differs from Node's. Rust: tokenizer.json, tokenizer_config.json (each only when unusable), then the graph's `_data` weights, then the graph. Node, as recorded: only the files its readiness check found missing or damaged, in this order per session: the external weights `onnx/model.onnx_data`, then the graph `onnx/model.onnx` (cold cache); `tokenizer_config.json` and `config.json` / `vocab.txt` as the sessions that start from those file sets request them (see each session's steps[].requests, in order). Work for the Rust side: decide whether config.json / vocab.txt belong in the install (Rust has no counterpart today) and the tokenizer-first order; a replay compares requests in the recorded order only for the sessions whose files Rust also downloads",
+  "recorderSha256": "e382172aad35882b90e048450d8248a55ce6f5504b5bd4d0e6422d7ad1b1afcc",
+  "replay": "mixdog-services memory/embed/install.rs (pub): ensure_model_file / ensure_model_graph for the test file's steps, and install (what EmbeddingProvider::install runs) for the worker's sequence of case 4. A replay (memory/replays/model_files.rs) serves the recorded hub answers from a local server and compares every request as it arrives (url, method, headers, body) in order, the result or error, and the files left in the cache",
   "set": "memory-embedding-model-files",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 11898,
+  "totalBytes": 18394,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
