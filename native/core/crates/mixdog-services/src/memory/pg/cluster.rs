@@ -352,6 +352,18 @@ async fn rotate_log_if_needed(lane: DurabilityIo, log: &Path) {
     .await;
 }
 
+/// A replay's core (feature `assigned-pg-port`, never in an ordinary build): the port the replay chose outside the scanned range
+/// (`MIXDOG_ASSIGNED_PG_PORT`), so no core beside it, scanning from [`DEFAULT_PORT`], can take it between the probe and the bind.
+#[cfg(feature = "assigned-pg-port")]
+fn assigned_port() -> Option<u16> {
+    std::env::var("MIXDOG_ASSIGNED_PG_PORT").ok()?.parse().ok()
+}
+
+#[cfg(not(feature = "assigned-pg-port"))]
+fn assigned_port() -> Option<u16> {
+    None
+}
+
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
@@ -579,7 +591,10 @@ impl PgCluster {
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
             Self::init(lane, &processes, &runtime, &data_dir, cancel).await?;
         }
-        let port = free_port(preferred_port).await?;
+        let port = match assigned_port() {
+            Some(port) => port,
+            None => free_port(preferred_port).await?,
+        };
         // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
         // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
         if cancel.is_cancelled() || !admit() {

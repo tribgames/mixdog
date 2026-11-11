@@ -13,8 +13,9 @@ terminal-lease-clock = ["mixdog-spawn/lease-clock"]
 # Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
 replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
 crash-gates = ["mixdog-core-session/crash-gates"]
-# A replay's core: RT-C, RT-W and the session wall clock on a clock the replay freezes and advances (mixdog-rt virtual_clock.rs).
-virtual-clock = ["mixdog-core-session/virtual-clock"]
+# A replay's core: RT-C, RT-W and the session wall clock on a clock the replay freezes and advances (mixdog-rt virtual_clock.rs), and
+# the memory store on the port the replay assigned (mixdog-services pg/cluster.rs `assigned_port`).
+virtual-clock = ["mixdog-core-session/virtual-clock", "mixdog-services/assigned-pg-port"]
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
