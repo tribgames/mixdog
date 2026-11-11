@@ -1,0 +1,4585 @@
+{
+  "note": "Node's config snapshot at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs",
+  "test": "src/runtime/agent/orchestrator/config-snapshot.test.mjs",
+  "now": 1772359200000,
+  "base": {
+    "providers": {
+      "openai": {
+        "enabled": false
+      },
+      "anthropic": {
+        "enabled": false
+      },
+      "gemini": {
+        "enabled": false
+      },
+      "deepseek": {
+        "enabled": false
+      },
+      "xai": {
+        "enabled": false
+      },
+      "openrouter": {
+        "enabled": false
+      },
+      "vertex-ai": {
+        "enabled": false,
+        "authMode": "service-account"
+      },
+      "openai-oauth": {
+        "enabled": false,
+        "websocket": true
+      },
+      "anthropic-oauth": {
+        "enabled": false
+      },
+      "grok-oauth": {
+        "enabled": false
+      },
+      "muse-code-oauth": {
+        "enabled": false
+      },
+      "command-code-oauth": {
+        "enabled": false
+      },
+      "opencode-go-oauth": {
+        "enabled": false
+      },
+      "mixdog-local": {
+        "enabled": false
+      }
+    },
+    "disabledAgents": [
+      "worker",
+      "heavy-worker",
+      "reviewer",
+      "advisor",
+      "security",
+      "front-worker",
+      "writer",
+      "maintainer",
+      "explore"
+    ],
+    "workflow": {
+      "active": "default"
+    },
+    "orchestrationMode": "balanced",
+    "mcpServers": {},
+    "pluginMcp": {},
+    "presets": [
+      {
+        "id": "haiku",
+        "name": "HAIKU",
+        "type": "agent",
+        "provider": "anthropic-oauth",
+        "model": "claude-haiku-4-5-20251001",
+        "tools": "full"
+      },
+      {
+        "id": "sonnet-mid",
+        "name": "SONNET MID",
+        "type": "agent",
+        "provider": "anthropic-oauth",
+        "model": "claude-sonnet-4-6",
+        "effort": "medium",
+        "tools": "full"
+      },
+      {
+        "id": "sonnet-high",
+        "name": "SONNET HIGH",
+        "type": "agent",
+        "provider": "anthropic-oauth",
+        "model": "claude-sonnet-4-6",
+        "effort": "high",
+        "tools": "full"
+      },
+      {
+        "id": "opus-mid",
+        "name": "OPUS MID",
+        "type": "agent",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "medium",
+        "tools": "full"
+      },
+      {
+        "id": "opus-high",
+        "name": "OPUS HIGH",
+        "type": "agent",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "high",
+        "tools": "full"
+      }
+    ],
+    "default": null,
+    "maintenance": {
+      "webhook": {
+        "provider": "anthropic-oauth",
+        "model": "claude-haiku-4-5-20251001"
+      }
+    },
+    "webSearchRoute": null,
+    "modelSettings": {},
+    "onboarding": {},
+    "agents": {},
+    "profile": {
+      "title": "",
+      "language": "system",
+      "experienceLevel": ""
+    },
+    "skills": {
+      "disabled": []
+    },
+    "extensionScopes": {
+      "skills": {},
+      "mcp": {},
+      "plugins": {}
+    },
+    "autoClear": {
+      "enabled": true
+    },
+    "compaction": {},
+    "shell": {},
+    "update": {},
+    "recap": {
+      "enabled": true
+    },
+    "promptCacheWarming": false,
+    "worktree": {
+      "newTaskDefault": "branch",
+      "branchPrefix": "",
+      "sizeWarnBytes": 2147483648,
+      "autoCleanup": true,
+      "maxWorktrees": 15,
+      "unusedDays": 30,
+      "cleanupArchived": true,
+      "deleteBranch": false
+    },
+    "developer": {},
+    "modules": {},
+    "builtins": {}
+  },
+  "cases": [
+    {
+      "case": "this process’s own config write and logout are visible to the very next read",
+      "steps": [
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":false}}"
+        },
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\":\"access\",\"refresh_token\":\"refresh\"}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": false,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "updateAgent",
+          "set": {
+            "heartbeat": true
+          }
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            },
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "forgetProviderAuth",
+          "provider": "openai-oauth"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "another process’s config write is read fresh by every config-change listener",
+      "steps": [
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":false}}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": false,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": []
+        },
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":true}}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "another process’s config write reaches the snapshot through the config watch",
+      "steps": [
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":false}}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": false,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": []
+        },
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":true}}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "another process’s OAuth login and logout reach the snapshot through the credential file watch",
+      "steps": [
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": []
+        },
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\":\"access\",\"refresh_token\":\"refresh\"}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "removeCredential"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": []
+        }
+      ]
+    },
+    {
+      "case": "a credential file whose directory does not exist yet is seen once another process creates both",
+      "steps": [
+        {
+          "op": "credentialPath",
+          "at": "later/creds/openai-oauth.json"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": []
+        },
+        {
+          "op": "mkdir",
+          "at": "later/creds"
+        },
+        {
+          "op": "writeCredential",
+          "at": "nested",
+          "text": "{\"access_token\":\"access\",\"refresh_token\":\"refresh\"}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "a config caught mid-write keeps the last good config until the write completes, with no retry",
+      "steps": [
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":true}}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "writeConfigInPlace",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\""
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "appendConfig",
+          "text": ":false}}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": false,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": []
+        }
+      ]
+    },
+    {
+      "case": "an OAuth credential file caught mid-write is probed again when the write completes",
+      "steps": [
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\": \"acc"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "credentialProbeUnavailable": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "remove": true
+            }
+          ]
+        },
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\":\"access\",\"refresh_token\":\"refresh\"}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "case": "an access token with no refresh token stops counting at its expiry, with no file changing",
+      "steps": [
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\":\"access\",\"expires_at\":1772359260000}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "ms": 59999
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "ms": 1
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": []
+        }
+      ]
+    },
+    {
+      "case": "one timer at the exact expiry tells the epoch’s listeners, with no read",
+      "steps": [
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\":\"access\",\"expires_at\":1772359350000}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "ms": 89999
+        },
+        {
+          "op": "tick",
+          "ms": 1
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "disabledAgents": [
+              "worker",
+              "heavy-worker",
+              "reviewer",
+              "advisor",
+              "security",
+              "front-worker",
+              "writer",
+              "maintainer",
+              "explore"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "promptCacheWarming": false,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {},
+            "builtins": {}
+          },
+          "stored": []
+        }
+      ]
+    },
+    {
+      "case": "a last good config kept over a torn file never extends a credential past its expiry",
+      "steps": [
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":true}}"
+        },
+        {
+          "op": "writeCredential",
+          "at": "data",
+          "text": "{\"access_token\":\"access\",\"expires_at\":1772359410000}"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            },
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "writeConfig",
+          "text": "{\"defaultsVersion\": 2, \"agent\": {\"heartbeat\": fal"
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": true,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "providers",
+                "openai-oauth",
+                "enabled"
+              ],
+              "value": true
+            },
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        },
+        {
+          "op": "tick",
+          "ms": 60000
+        },
+        {
+          "op": "observe",
+          "loaded": {
+            "providers": {
+              "openai": {
+                "enabled": false
+              },
+              "anthropic": {
+                "enabled": false
+              },
+              "gemini": {
+                "enabled": false
+              },
+              "deepseek": {
+                "enabled": false
+              },
+              "xai": {
+                "enabled": false
+              },
+              "openrouter": {
+                "enabled": false
+              },
+              "vertex-ai": {
+                "enabled": false,
+                "authMode": "service-account"
+              },
+              "openai-oauth": {
+                "enabled": false,
+                "websocket": true
+              },
+              "anthropic-oauth": {
+                "enabled": false
+              },
+              "grok-oauth": {
+                "enabled": false
+              },
+              "muse-code-oauth": {
+                "enabled": false
+              },
+              "command-code-oauth": {
+                "enabled": false
+              },
+              "opencode-go-oauth": {
+                "enabled": false
+              },
+              "mixdog-local": {
+                "enabled": false
+              }
+            },
+            "mcpServers": {},
+            "pluginMcp": {},
+            "presets": [
+              {
+                "id": "haiku",
+                "name": "HAIKU",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-mid",
+                "name": "SONNET MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "sonnet-high",
+                "name": "SONNET HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-sonnet-4-6",
+                "effort": "high",
+                "tools": "full"
+              },
+              {
+                "id": "opus-mid",
+                "name": "OPUS MID",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "medium",
+                "tools": "full"
+              },
+              {
+                "id": "opus-high",
+                "name": "OPUS HIGH",
+                "type": "agent",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "high",
+                "tools": "full"
+              }
+            ],
+            "default": null,
+            "maintenance": {
+              "webhook": {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5-20251001"
+              }
+            },
+            "webSearchRoute": null,
+            "modelSettings": {},
+            "onboarding": {},
+            "agents": {},
+            "disabledAgents": [
+              "advisor",
+              "explore",
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "workflow": {
+              "active": "default"
+            },
+            "orchestrationMode": "balanced",
+            "profile": {
+              "title": "",
+              "language": "system",
+              "experienceLevel": ""
+            },
+            "skills": {
+              "disabled": []
+            },
+            "extensionScopes": {
+              "skills": {},
+              "mcp": {},
+              "plugins": {}
+            },
+            "autoClear": {
+              "enabled": true
+            },
+            "compaction": {},
+            "shell": {},
+            "update": {},
+            "recap": {
+              "enabled": true
+            },
+            "aiSessionTitles": true,
+            "heartbeat": true,
+            "heartbeatIntervalMinutes": 60,
+            "promptCacheWarming": false,
+            "reactions": true,
+            "worktree": {
+              "newTaskDefault": "branch",
+              "branchPrefix": "",
+              "sizeWarnBytes": 2147483648,
+              "autoCleanup": true,
+              "maxWorktrees": 15,
+              "unusedDays": 30,
+              "cleanupArchived": true,
+              "deleteBranch": false
+            },
+            "developer": {},
+            "modules": {}
+          },
+          "stored": [
+            {
+              "path": [
+                "heartbeat"
+              ],
+              "value": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
