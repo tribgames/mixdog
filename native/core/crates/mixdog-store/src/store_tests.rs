@@ -1075,6 +1075,49 @@ async fn repairing_a_damaged_group_file_moves_it_whole() {
     assert_eq!((ordinals, list_logs(&g.env.dir("s1")).unwrap()), (vec![g.ordinal], vec![0]));
 }
 
+/// A place damaged again after its repair is repaired into a folder of its own (FORMAT.md §3.4): the next group file takes
+/// the number the moved one had, so its damage is reported at the same place; the first repair's file and reason stay
+/// byte for byte what they were.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_repair_of_the_same_place_keeps_the_first_repairs_evidence() {
+    let reason = crate::schema::migration::REASON_FILE;
+    let g = group_file_session(11).await;
+    let at = (g.head_len + g.bytes.len()) / 2;
+    let mut first = g.bytes.clone();
+    first[at] ^= 0x01;
+    std::fs::write(&g.path, &first).unwrap();
+    let opened = g.env.reopen("s1").await;
+    let LogStatus::Damaged(damage) = opened.status else { panic!("{:?}", opened.status) };
+    let place = (damage.file_no, damage.offset);
+    let data = g.env.data.clone();
+    let first_dir = on_lane(move |l| repair_damage(l, &data, "s1", damage).unwrap()).await;
+    let first_reason = std::fs::read(first_dir.join(reason)).unwrap();
+
+    let opened = g.env.reopen("s1").await;
+    let deps = g.env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
+    let batch: Vec<Encoded> = (0..11).map(|i| big_item(&format!("i{i}"))).collect();
+    let (w, ack) = g.env.append(w, batch).await;
+    g.env.store.project(ack.unwrap().projection).await.unwrap();
+    drop(w);
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0, 2], "the next group file takes the moved file's number");
+    let mut second = std::fs::read(&g.path).unwrap();
+    second[at] ^= 0x02;
+    assert_ne!(second, first, "the two damaged files differ");
+    std::fs::write(&g.path, &second).unwrap();
+    let opened = g.env.reopen("s1").await;
+    let LogStatus::Damaged(damage) = opened.status else { panic!("{:?}", opened.status) };
+    assert_eq!((damage.file_no, damage.offset), place, "the same place is damaged again");
+    let data = g.env.data.clone();
+    let second_dir = on_lane(move |l| repair_damage(l, &data, "s1", damage).unwrap()).await;
+
+    assert_ne!(second_dir, first_dir, "a folder of its own");
+    assert_eq!(std::fs::read(first_dir.join(log_name(2))).unwrap(), first, "the first repair's file, as it was");
+    assert_eq!(std::fs::read(first_dir.join(reason)).unwrap(), first_reason, "the first repair's reason, as it was");
+    assert_eq!(std::fs::read(second_dir.join(log_name(2))).unwrap(), second, "the second repair's file");
+    assert_eq!(list_logs(&g.env.dir("s1")).unwrap(), [0]);
+}
+
 /// Open cost (FORMAT.md §6.3): a log ending in a group file reads it once (in chunks); the next write starts a new
 /// segment, also after the writer was reopened, so the open after a small tail reads the window and lookback only; a long
 /// file of small writes reads the window only.
