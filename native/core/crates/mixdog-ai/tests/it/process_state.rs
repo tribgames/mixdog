@@ -53,6 +53,8 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("oauth/single_flight.rs", "FLIGHTS", Reset("single_flight::reset()")),
     ("claude_floors.rs", "UNSUPPORTED", Reset("claude_floors::reset_process()")),
     ("accounts/binding.rs", "SCOPED", NotState("task-local: the account a task runs under, gone with the task")),
+    ("registry/gateway.rs", "SEND_HEADERS", NotState("task-local: the headers of one gateway send, gone with the send")),
+    ("registry/gateway.rs", "REFUSAL", NotState("task-local: the refusal one routed attempt received, gone with the attempt")),
     ("work.rs", "CREDENTIAL_READS", NotState("a `count-work` measurement counter no send reads")),
     ("work.rs", "PROVIDERS_BUILT", NotState("a `count-work` measurement counter no send reads")),
     ("work.rs", "PROVIDER_LOADS", NotState("a `count-work` measurement counter no send reads")),
