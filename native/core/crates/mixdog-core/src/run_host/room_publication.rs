@@ -648,11 +648,19 @@ mod tests {
         let creating = world.create().await;
         mixdog_rt::time::timeout(DEADLINE, arrived).await.expect("the room create never published the catalog").expect("gate");
         assert!(!creating.is_finished(), "the room create answered while its publish was held");
-        drop(world.sent("thread/summary/updated"));
         open.send(()).expect("the publish waits at the gate");
         let created = mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
         let room = log_of(&created);
-        assert!(world.sent("thread/summary/updated").contains(&room), "the publish sent the room's row before the reply");
+        // The row reached the feed once, by the log's write or by the publish: a catalog the feed already holds is not handed again.
+        let sent: Vec<String> = world
+            .app
+            .drain_text()
+            .into_iter()
+            .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).expect("frame"))
+            .filter(|frame| frame["method"] == "thread/started" || frame["method"] == "thread/summary/updated")
+            .filter_map(|frame| frame["params"]["thread"]["id"].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(sent.iter().filter(|id| **id == room).count(), 1, "the room's row was sent once before the reply: {sent:?}");
         let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
         let ids: Vec<&str> = listed["data"].as_array().expect("data").iter().filter_map(|row| row["id"].as_str()).collect();
         assert!(ids.contains(&room.as_str()), "thread/list at the reply lists the room {room}: {ids:?}");
@@ -725,7 +733,12 @@ mod tests {
         })
         .await
         .expect("the update never deleted the removed member's session");
-        assert!(world.sent("thread/summary/updated").contains(&log_of(&created)), "the listing had not sent the room's row when the deletion began");
+        // The room's row went to the feed when the room was made, and the listing's copy of it is the one Node's catalog channel
+        // does not hand again (`session-host-publication.ts:141`): what shows the listing published is that it has ended.
+        mixdog_rt::time::timeout(DEADLINE, world.summaries.background_ended())
+            .await
+            .expect("the listing had not ended when the deletion began");
+        assert!(world.list.catalog_loaded(), "the listing had not been answered when the deletion began");
         assert!(!updating.is_finished(), "the update answered before its deletion went on");
 
         open.send(()).expect("the deletion waits at the stop");
@@ -830,16 +843,20 @@ mod tests {
         }
     }
 
-    /// The one known difference, named and checked rather than passed over (reported for `decisions.md`, owner: Lead): Node's
-    /// daemon lists a session it still holds live from the session object (`listLeadSessions` over a session, no summary:
-    /// `store-summary-real-turns.test.mjs:115-118`), a row with neither `compactCount` nor `incomingTail`; a stored row always
-    /// carries `compactCount` (`store-summary-index.mjs:350`), and the core's row is always the stored summary's. Where Node's row
-    /// is that live form, exactly those two fields are taken off the core's row; any other difference stays.
+    /// The row fields the manifest declares (`coreDifferences.rowFields`, each with its reason and Node's path:line): Node's daemon
+    /// lists a session it still holds live from the session object (`listLeadSessions` over a session, no summary:
+    /// `store-summary-real-turns.test.mjs:115-118`), a row without them, while the core's row is always the stored summary's.
+    /// A declared field is taken off the core's row only where Node's row lacks that field; any other difference stays.
     fn live_form(mut core: Value, node: &Value) -> Value {
-        if node.get("compactCount").is_none() && node.get("incomingTail").is_none() {
-            let row = core.as_object_mut().expect("row");
-            row.shift_remove("compactCount");
-            row.shift_remove("incomingTail");
+        let manifest: Value = serde_json::from_slice(
+            &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog-states/MANIFEST.json")).expect("manifest"),
+        )
+        .expect("manifest json");
+        for declared in manifest["coreDifferences"]["rowFields"].as_array().expect("the manifest's declared row fields") {
+            let field = declared["field"].as_str().expect("the declared field's name");
+            if node.get(field).is_none() {
+                core.as_object_mut().expect("row").shift_remove(field);
+            }
         }
         core
     }

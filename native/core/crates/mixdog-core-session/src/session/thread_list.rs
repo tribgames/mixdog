@@ -45,6 +45,7 @@ use super::thread_edges::on_roster;
 use super::transcript::summary_of_list_row;
 
 pub const LIST: &str = "thread/list";
+const STARTED: &str = "thread/started";
 const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DOMAIN: &str = "thread list";
 
@@ -181,6 +182,9 @@ pub struct ThreadListService {
     fence: OnceLock<Arc<dyn ListFence>>,
     /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
     loaded: std::sync::atomic::AtomicBool,
+    /// The row last sent on the app feed per thread: Node hands a catalog only when it differs from the one its listener holds
+    /// (`CatalogChannel.publish`, `session-host-publication.ts:141`), so a row that did not change is not sent again.
+    announced: std::sync::Mutex<std::collections::HashMap<String, ThreadSummary>>,
 }
 
 /// The longest a list waits for the projections queued before it: the interactive lane's job lease (`mixdog-rt` `lane_lease`,
@@ -198,7 +202,27 @@ pub trait ListFence: Send + Sync {
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into() }
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into(), announced: Default::default() }
+    }
+
+    /// Sends `thread` on the app feed, as `thread/started` when `started`, else as `thread/summary/updated`, unless it is the row
+    /// last sent for that thread. Every send of a thread row goes through here, so the baseline is what the feed's listeners hold.
+    pub fn announce(&self, app: &mixdog_core_base::state::SectionFeedState, thread: ThreadSummary, started: bool) {
+        let mut announced = self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if announced.get(thread.id.as_str()) == Some(&thread) {
+            return;
+        }
+        announced.insert(thread.id.as_str().to_owned(), thread.clone());
+        if started {
+            app.notify(STARTED, &mixdog_app_protocol::v2::thread::ThreadStartedParams { thread });
+        } else {
+            app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+        }
+    }
+
+    /// A thread left the catalog: its next row is news again.
+    pub fn forget(&self, thread: &ThreadId) {
+        self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(thread.as_str());
     }
 
     /// Whether a listing has been answered (Node's `sessionCatalogLoaded`), which decides how a room call publishes the catalog.
@@ -501,7 +525,7 @@ impl RoomSummaries {
         self.written().await;
         publish.await;
         for thread in rows {
-            self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+            self.list.announce(&self.app, thread, false);
         }
         Ok(())
     }
@@ -563,7 +587,7 @@ impl RoomSummaries {
         let row = self.list.room_row(room_thread).await;
         self.written().await;
         match row {
-            Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+            Ok(Some(thread)) => self.list.announce(&self.app, thread, false),
             Ok(None) => {}
             Err(error) => tracing::warn!(?error, thread = room_thread.as_str(), "room summaries: the row could not be read"),
         }
@@ -596,7 +620,7 @@ impl RoomSummaries {
         }
         self.written().await;
         for thread in rows {
-            self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+            self.list.announce(&self.app, thread, false);
         }
         first.map_or(Ok(()), Err)
     }
@@ -933,7 +957,8 @@ mod tests {
             .filter(|frame| frame["params"]["thread"]["id"] == id)
             .map(|frame| frame["method"].as_str().expect("method").to_owned())
             .collect();
-        assert_eq!(frames, ["thread/started", SUMMARY_UPDATED], "the late row's frames");
+        // The listing's copy of the row is the one the `thread/started` carried: Node hands a catalog its listener already holds once.
+        assert_eq!(frames, ["thread/started"], "the late row's frames");
     }
 
     /// The index holds the log of `room01` and not that of `gone01`.
@@ -968,6 +993,21 @@ mod tests {
         assert!(sent[1].contains(r#""id":"sess_room_gone01""#) && sent[1].contains(r#""agentRoom":{"id":"gone01"}"#), "{}", sent[1]);
     }
 
+    /// Node's catalog channel hands a listener only a catalog that differs from the one it holds
+    /// (`session-host-publication.ts:141`): a second pass over unchanged rooms sends nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pass_over_unchanged_rows_sends_nothing() {
+        let data = crate::session::testing::DataDir::default();
+        let list = room_list(&data).await;
+        let (summaries, app) = room_rig(list);
+        summaries.publish().await;
+        let first = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
+        assert_eq!(first, 2, "the first pass sends both room rows");
+        summaries.publish().await;
+        let again: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
+        assert!(again.is_empty(), "an unchanged row was sent again: {again:?}");
+    }
+
     /// Tells a waiter when a listing is published.
     struct Listed(std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>);
     impl mixdog_core_api::state::CatalogObserver for Listed {
@@ -996,11 +1036,11 @@ mod tests {
         mixdog_rt::time::timeout(std::time::Duration::from_secs(10), ended).await.expect("the background listing never ended");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
         assert!(summaries.republish_catalog(publish).await.expect("the second call publishes inside the call").is_none(), "the second call is loaded");
-        // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one
-        // pass chain: the second call's pass starts after the background pass has sent its rows).
+        // Every row of the background listing went out once; the second call's pass (inside the call, as its `None` shows) sent
+        // the two room rows the listing had sent already, which Node's catalog channel does not hand again.
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
         let whole = list.whole_listing().await.expect("the whole listing").len();
-        assert_eq!(sent, whole + 2, "the second call's publication was not inside the call");
+        assert_eq!(sent, whole, "a row that did not change was sent again");
     }
 
     /// A room's republish sets its log thread's `roomView` (opening the log for it), so the
@@ -1195,6 +1235,12 @@ mod tests {
         }
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
             self.inner.purge_deleted()
+        }
+        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<crate::session::seams::OffloadCopies, CoreError>> {
+            self.inner.copies_of(id)
+        }
+        fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+            self.inner.record_offload_scan(session, ordinal, sources)
         }
         fn context_cpu(&self, lane: &InLane<mixdog_rt::CpuInteractive>, read: crate::session::seams::ContextRead) -> Result<crate::session::seams::ContextStep, CoreError> {
             self.inner.context_cpu(lane, read)
