@@ -2,7 +2,9 @@
 //! the two steps the public embedding install (`install::install`, through `EmbeddingProvider::install`) is made of,
 //! in the order Node's embedding worker calls them (`embedding-worker.mjs:286-307`: tokenizer.json,
 //! tokenizer_config.json, then the graph after its weights). Each session runs over a real temp cache directory; the
-//! hub is a local HTTP server that records every request.
+//! hub is a local HTTP server that records every request. Case 4 is the worker's whole sequence, replayed by the
+//! product's `install::install` (what `EmbeddingProvider::install` runs), every request compared as it arrived, in order,
+//! with all its headers.
 //!
 //! Mappings:
 //! - The hub's answers are those of the recorder's script, read back from the recording: a URL whose download the
@@ -25,7 +27,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
 use super::{assert_case_count, case, golden, object, same, string};
-use crate::memory::embed::install::{HUB, Hub, ensure_model_file, ensure_model_graph};
+use crate::memory::embed::engine::EmbedConfig;
+use crate::memory::embed::install::{HUB, Hub, ensure_model_file, ensure_model_graph, install, model_path, required_files};
 
 const SET: &str = "memory-embedding-model-files";
 const STEP_DEADLINE: Duration = Duration::from_secs(30);
@@ -184,20 +187,43 @@ async fn replay_session(name: &str, session: &Exact) {
             write(&dir, entry);
         }
         let before = server.seen.lock().expect("requests").len();
-        let (model, file) = (step.get("model").as_str(), step.get("file").as_str());
+        let model = step.get("model").as_str();
+        let relative = |path: &Path| string(path.strip_prefix(&dir).expect("under the cache").to_string_lossy().replace('\\', "/"));
         let call = async {
             match step.get("call").as_str() {
-                "graph" => ensure_model_graph(&hub, &dir, model, file).await,
-                "file" => ensure_model_file(&hub, &dir, model, file).await,
+                "graph" => ensure_model_graph(&hub, &dir, model, step.get("file").as_str()).await.map(|p| relative(&p)),
+                "file" => ensure_model_file(&hub, &dir, model, step.get("file").as_str()).await.map(|p| relative(&p)),
+                // The product's install, as the embedding provider starts it; its files are where the provider then
+                // loads them from (`model_path`, `required_files`).
+                "worker" => {
+                    let dtype = match step.get("dtype") {
+                        Exact::String(d) => Some(d.clone()),
+                        _ => None,
+                    };
+                    let config = EmbedConfig {
+                        model_id: model.to_owned(),
+                        cache_dir: dir.clone(),
+                        ort_library: std::path::PathBuf::from("<no runtime>"),
+                        dtype,
+                        sessions: 1,
+                        lane: mixdog_rt::testing::tokens().cpu_bulk,
+                    };
+                    install(&config, &server.origin, None, &cancel).await.map(|()| {
+                        let graph = required_files(&config).graph;
+                        Exact::Array(
+                            ["tokenizer.json", "tokenizer_config.json", graph.as_str()]
+                                .iter()
+                                .map(|file| relative(&model_path(&dir, model, file)))
+                                .collect(),
+                        )
+                    })
+                }
                 other => panic!("{what}: call {other}"),
             }
         };
         let outcome = tokio::time::timeout(STEP_DEADLINE, call).await.unwrap_or_else(|_| panic!("{what}: did not settle within 30 s"));
         match (outcome, step.try_get("error")) {
-            (Ok(path), None) => {
-                let relative = path.strip_prefix(&dir).expect("under the cache").to_string_lossy().replace('\\', "/");
-                same(&format!("{what}: result"), step.get("result"), &string(relative));
-            }
+            (Ok(result), None) => same(&format!("{what}: result"), step.get("result"), &result),
             (Err(error), Some(Exact::Error { name, message, code, cause, props })) => {
                 assert_eq!(name, "Error", "{what}: error name");
                 assert_eq!(&error.to_string(), message, "{what}: error message");
@@ -227,8 +253,8 @@ async fn replay_session(name: &str, session: &Exact) {
 }
 
 #[test]
-fn the_recording_has_three_cases() {
-    assert_case_count(&golden(SET), 3);
+fn the_recording_has_four_cases() {
+    assert_case_count(&golden(SET), 4);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -250,6 +276,15 @@ async fn further_shapes_cold_graph_404_weights_404_graph_503_exact_text_file_hea
     let g = golden(SET);
     let name = "further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, exact-text file, healthy cache";
     for (at, session) in case(&g, 2, name).get("sessions").as_array().iter().enumerate() {
+        replay_session(&format!("{name}: session {at}"), session).await;
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn the_embedding_workers_install_cold_damaged_healthy_failing_hub() {
+    let g = golden(SET);
+    let name = "the embedding worker's install (beyond the test file): cold, damaged, healthy, failing hub";
+    for (at, session) in case(&g, 3, name).get("sessions").as_array().iter().enumerate() {
         replay_session(&format!("{name}: session {at}"), session).await;
     }
 }
