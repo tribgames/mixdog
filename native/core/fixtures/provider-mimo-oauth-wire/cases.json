@@ -6483,8 +6483,7 @@
         "keyInStderr": false,
         "clockSteps": [
           499,
-          1892,
-          2609
+          1892
         ],
         "err": {
           "$exact": "error",
@@ -6852,6 +6851,74 @@
             "mimo-v2.6-pro",
             [],
             {}
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 499,
+          "fromMs": 0,
+          "fired": [
+            {
+              "id": 3,
+              "dueMs": 499
+            }
+          ],
+          "toMs": 499,
+          "armed": [
+            {
+              "id": 232,
+              "dueMs": 2391
+            },
+            {
+              "id": 64,
+              "dueMs": 5000
+            },
+            {
+              "id": 59,
+              "dueMs": 60000
+            },
+            {
+              "id": 62,
+              "dueMs": 60000
+            }
+          ]
+        },
+        {
+          "advanceMs": 1892,
+          "fromMs": 499,
+          "fired": [
+            {
+              "id": 232,
+              "dueMs": 2391
+            }
+          ],
+          "toMs": 2391,
+          "armed": [
+            {
+              "id": 233,
+              "dueMs": 3499
+            },
+            {
+              "id": 64,
+              "dueMs": 5000
+            },
+            {
+              "id": 59,
+              "dueMs": 60000
+            },
+            {
+              "id": 62,
+              "dueMs": 60000
+            },
+            {
+              "id": 234,
+              "dueMs": 287391
+            },
+            {
+              "id": 235,
+              "dueMs": 602391
+            }
           ]
         }
       ]
@@ -7319,6 +7386,33 @@
             "deepseek-chat",
             [],
             {}
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 30,
+          "fromMs": 2391,
+          "fired": [
+            {
+              "id": 251,
+              "dueMs": 2421
+            }
+          ],
+          "toMs": 2421,
+          "armed": [
+            {
+              "id": 64,
+              "dueMs": 5000
+            },
+            {
+              "id": 59,
+              "dueMs": 60000
+            },
+            {
+              "id": 62,
+              "dueMs": 60000
+            }
           ]
         }
       ]
