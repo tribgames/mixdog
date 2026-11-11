@@ -143,15 +143,38 @@ async fn fence(index: usize) {
         None | Some(Exact::Undefined | Exact::Null) => None,
         Some(value) => Some(value.as_f64()),
     };
+    let before = stored(&real, &id).await;
+    let snapshot = saver_snapshot(&before, &change, &unset);
     let outcome = save_fenced(&real, &id, expected, change, unset).await;
     let state = case.get("state").as_str();
     assert_eq!(Exact::String(outcome.into()), *case.get("outcome"), "{state} expected {expected:?}: the outcome");
     let after = stored(&real, &id).await;
-    // storedAfter is the saving process's live snapshot, which holds a dropped copy too (manifest): compared for a save that landed.
+    // storedAfter is the saving process's live snapshot: the record it saved, held whether the write landed or was dropped
+    // (manifest). A save that landed leaves that record in the store; a dropped one leaves the store as it was.
+    let what = format!("{state} expected {expected:?}: the saving process's record (storedAfter)");
+    same(&snapshot, case.get("storedAfter"), &what);
     if outcome == "saved" {
-        same(&after, case.get("storedAfter"), &format!("{state} expected {expected:?}: the record after (storedAfter)"));
+        same(&after, case.get("storedAfter"), &what);
+    } else {
+        same(&after, &before, &format!("{state} expected {expected:?}: a dropped save leaves the stored record"));
     }
     same(&after, case.get("durableAfter"), &format!("{state} expected {expected:?}: the record another process reads (durableAfter)"));
+}
+
+/// The record the saving process holds after its save: the record it read with the change applied and the unset fields gone.
+fn saver_snapshot(before: &Exact, change: &Map<String, Value>, unset: &[String]) -> Exact {
+    let mut fields: Vec<(String, Exact)> = before
+        .entries()
+        .iter()
+        .filter(|(key, _)| !unset.contains(key))
+        .map(|(key, value)| (key.clone(), change.get(key).map_or_else(|| value.clone(), Exact::plain)))
+        .collect();
+    for (key, value) in change {
+        if !before.entries().iter().any(|(held, _)| held == key) {
+            fields.push((key.clone(), Exact::plain(value)));
+        }
+    }
+    Exact::Object(fields)
 }
 
 /// A save issued for `expected` generation: the core's fenced save as the delegation rebind sends it
