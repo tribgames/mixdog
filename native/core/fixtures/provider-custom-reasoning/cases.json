@@ -13985,7 +13985,7 @@
     },
     {
       "id": "wire-values-after-snapping",
-      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:112",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:97",
       "input": {},
       "result": {
         "max": {
@@ -15968,7 +15968,7 @@
     },
     {
       "id": "sendCompatChat-custom-row-and-padding",
-      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:329",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:307",
       "input": {
         "history": [
           {
@@ -16336,7 +16336,7 @@
     },
     {
       "id": "sendCompatResponses-snaps-without-promotion",
-      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:354",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:328",
       "input": {},
       "result": {
         "info": {

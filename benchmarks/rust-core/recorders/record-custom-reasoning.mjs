@@ -63,7 +63,7 @@ await rec.run('levels-and-unknown', `${SRC}:96`, {}, () => ({
   noRow: resolve({ protocol: 'openai-chat', model: row(undefined), effort: 'high' }),
   unset: resolve({ protocol: 'openai-chat', model: row(['low', 'high']), effort: undefined }),
 }));
-await rec.run('wire-values-after-snapping', `${SRC}:112`, {}, () => {
+await rec.run('wire-values-after-snapping', `${SRC}:97`, {}, () => {
   const model = row(['low', 'high'], { wireValues: { high: 'HIGH_WIRE', max: 'MAX_WIRE' } });
   return { max: resolve({ protocol: 'openai-chat', model, effort: 'max' }), medium: resolve({ protocol: 'openai-chat', model, effort: 'medium' }) };
 });
@@ -158,7 +158,7 @@ const responsesReply = () => ({
 });
 const toolHistory = [{ role: 'user', content: 'go' }, { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 't', arguments: {} }] }, { role: 'tool', toolCallId: 'c1', content: 'ok' }];
 
-await rec.run('sendCompatChat-custom-row-and-padding', `${SRC}:329`, { history: toolHistory }, async ({ net }) => {
+await rec.run('sendCompatChat-custom-row-and-padding', `${SRC}:307`, { history: toolHistory }, async ({ net }) => {
   const info = row(['none', 'high'], { wireFormat: 'deepseek', replay: true });
   net.reply = chatReply;
   const on = await sendCompatChat(compatProvider('custom-x', info), toolHistory, 'm1', [], { effort: 'max' });
@@ -166,7 +166,7 @@ await rec.run('sendCompatChat-custom-row-and-padding', `${SRC}:329`, { history: 
   const off = await sendCompatChat(compatProvider('custom-x', info), toolHistory, 'm1', [], { effort: 'none' });
   return { info, on, onRequests, off };
 });
-await rec.run('sendCompatResponses-snaps-without-promotion', `${SRC}:354`, {}, async ({ net }) => {
+await rec.run('sendCompatResponses-snaps-without-promotion', `${SRC}:328`, {}, async ({ net }) => {
   const info = row(['high', 'max'], { wireValues: { max: 'ultra-wire' } });
   net.reply = responsesReply;
   const ultra = await sendCompatResponses(compatProvider('custom-r', info), [{ role: 'user', content: 'hi' }], 'm1', [], { effort: 'ultra' });
