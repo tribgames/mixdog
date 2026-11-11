@@ -59,7 +59,7 @@ await set.run('closed Lead and agent records apply the same checkpoint-marker po
       recorder.record({ currentUserContent: 'checkpoint prompt', turnOutgoing: [{ role: 'user', content: 'checkpoint prompt' }] });
       await settleTurnCheckpointWrites(id);
       const projected = await projectStoredTranscript(id, doc, { includeMessages: true, itemLimit: 100 });
-      results.push({ marked, owner, doc, messages: projected.messages, checkpointPromptKept: projected.messages.some((m) => m.content === 'checkpoint prompt') });
+      results.push({ marked, owner, doc, messages: projected.messages });
       recorder.stop();
     }
   }
@@ -88,7 +88,7 @@ await set.run('catalogs expose agent sessions while preserving their presentatio
   writeFileSync(join(root, 'session-summaries.json'), JSON.stringify(indexFile));
   const workersFile = { workers: { review: { tag: 'review', sessionId: 'legacy-child', parentSessionId: 'root-lead', ownerSessionId: 'root-lead', agent: 'reviewer', status: 'idle', stage: 'idle', finishedAt: new Date(Date.now()).toISOString() } } };
   writeFileSync(join(root, 'agent-workers.json'), JSON.stringify(workersFile));
-  const ids = (rows) => rows.map((row) => row.id);
+  const ids = (rows) => rows;
   const internal = await listInternalSummaries({ refreshFromStorage: true });
   const durableIndex = JSON.parse(readFileSync(join(root, 'session-summaries.json'), 'utf8'));
   const metadata = await readStoredSessionTranscript('legacy-child', { metadataOnly: true });
@@ -99,7 +99,7 @@ await set.run('catalogs expose agent sessions while preserving their presentatio
     storedSessions: ids(listStoredSessions()), storedSessionsIncludingAgentOnly: ids(listStoredSessions({ includeAgentOnly: true })),
     internalSummaries: ids(internal), internalVisibility: { declaredChild: internal.find((r) => r.id === 'declared-child'), legacyChild: internal.find((r) => r.id === 'legacy-child') },
     durableLegacyChild: durableIndex.rows.find((r) => r.id === 'legacy-child'),
-    storedWorkersHaveLegacyChild: listStoredAgentWorkers().some((row) => row.sessionId === 'legacy-child'), workerLinks: listStoredAgentWorkerLinks(), storedSessionExists: storedSessionExists('legacy-child'),
+    storedWorkers: listStoredAgentWorkers(), workerLinks: listStoredAgentWorkerLinks(), storedSessionExists: storedSessionExists('legacy-child'),
     metadata,
     exact,
     normalised: 'finishedAt is the fixed clock as an ISO string',
