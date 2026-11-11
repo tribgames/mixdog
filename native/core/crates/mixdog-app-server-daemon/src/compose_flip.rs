@@ -2021,6 +2021,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
+            let mixdog_home = mixdog_home.clone();
             let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
             move |runs| mixdog_core_session::session::SessionDeps {
                 store: store_threads,
@@ -2040,7 +2041,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 )),
                 search: session_search,
                 memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()), sensitive.clone())),
-                live_memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()), sensitive.clone())),
+                transcripts: Some(mixdog_core_session::session::transcript_writer::TranscriptFiles::new(&mixdog_home, tokens.durability_io, clock.clone(), sensitive.clone())),
                 sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
