@@ -23,8 +23,8 @@ const rpc = async (client: Client, method: string, params: unknown): Promise<any
 };
 
 const TERMINAL_LANE = 'terminal';
-/** A tab's relay feed: `process:relay:<tabId>`. */
-const RELAY_FEED = 'process:relay:';
+/** The terminal lane's feed: every tab's output as Node's relay pushed it, each frame naming its tab (`processHandle`). */
+const LANE_FEED = 'process:relay';
 const FILES_LANE = 'files';
 /** How many request ids are remembered; the core re-delivers app-feed events after a reconnect. */
 const REMEMBERED_RUNS = 256;
@@ -110,10 +110,9 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
         if (checked) ctx.fanOut(ctx.termActivityListeners, checked);
       }
     };
-    const feedsOpen = new Set<string>();
-    // The relay feed of each tab: its output framed as Node's relay lane sent it (first output at once, then 16 ms), so the phone gets
-    // Node's frames and their place among the activity events.
-    const declareFeeds = (): void => host.declareLane(TERMINAL_LANE, [...feedsOpen].map((id) => `${RELAY_FEED}${id}`));
+    // The lane carries every tab's output framed as Node's relay lane sent it (first output at once, then 16 ms), the tabs the desktop or
+    // another phone opens included, from their first output (remote-relay-push-lanes.ts:85-100).
+    host.declareLane(TERMINAL_LANE, [LANE_FEED]);
     const readTabs = (): void => {
       const tabs = Array.isArray(sectionValue(client, 'terminalTabs')) ? (sectionValue(client, 'terminalTabs') as Record<string, any>[]) : [];
       const next = new Map<string, { cols: number; rows: number; owner: string }>();
@@ -131,10 +130,6 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
         ...[...owners.keys()].filter((id) => !next.has(id) && listed.has(id)).map((id) => ({ id, cols: 0, rows: 0, own: false })),
       ];
       owners = next;
-      // The output of every running terminal rides the terminal lane (Node pushed `termData` for all of them), and a disposed one's goes on
-      // until its process has exited: its shell still writes while it is killed (Node's pty delivers that after `dispose`).
-      for (const tab of tabs) if (tab.running !== false) feedsOpen.add(String(tab.id));
-      declareFeeds();
       if (!laneInUse()) return;
       for (const event of events) ctx.fanOut(ctx.termSizeOwnerListeners, event);
     };
@@ -153,8 +148,8 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
     const offEvents = client.on((event) => {
       if (event.type !== 'notification') return;
       const { method, params, feed } = event.notification as { method: string; params?: any; feed?: { id: string } };
-      if (method === 'process/outputDelta' && feed?.id.startsWith(RELAY_FEED)) {
-        const id = feed.id.slice(RELAY_FEED.length);
+      if (method === 'process/outputDelta' && feed?.id === LANE_FEED) {
+        const id = String(params?.processHandle ?? '');
         let decoder = decoders.get(id);
         if (!decoder) decoders.set(id, (decoder = new TextDecoder()));
         // A frame Node cut inside a surrogate pair carries the lone units at its edges (the core's bytes cannot hold half a character).
@@ -164,9 +159,8 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
           decoder.decode(Uint8Array.from(atob(String(params?.bytesB64 ?? '')), (c) => c.charCodeAt(0)), { stream: true }) +
           unit(params?.tailUnit);
         if (data && laneInUse()) ctx.fanOut(ctx.termListeners, { id, data });
-      } else if (method === 'process/exited' && feed?.id.startsWith(RELAY_FEED)) {
-        decoders.delete(feed.id.slice(RELAY_FEED.length));
-        if (feedsOpen.delete(feed.id.slice(RELAY_FEED.length))) declareFeeds();
+      } else if (method === 'process/exited' && feed?.id === LANE_FEED) {
+        decoders.delete(String(params?.processHandle ?? ''));
       } else if (method === 'fs/changed' && feed?.id.startsWith('fs:')) {
         const dir = watchDirs().get(feed.id.slice('fs:'.length));
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);

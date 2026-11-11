@@ -1,0 +1,119 @@
+{
+  "cases": 4,
+  "command": "node benchmarks/rust-core/recorders/record-agent-home-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no session is created: pure functions on the recorded inputs",
+    "runs": "session/agent-home.mjs, runtime-core/session-id.mjs SESSION_ID_PATTERN, manager/session-prompt-composition.mjs sessionRolePromptFields, session-runtime/lifecycle/shared.mjs isScratchSession"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 5057,
+      "path": "golden.json",
+      "sha256": "74f8a36bb12484b9371c4c3fd69ffc64de3cc76bb9de0fdb22a22191e6e255dc"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-home-cases.mjs",
+  "recorderSha256": "122a77e71f4025414cde7499c678cc77860444866f468cc887f788bf63ca41d4",
+  "replay": {
+    "compare": "mixdog-core-agents home_agent: compare agentHomeSessionId / agentIdOfHomeSession / isAgentHomeSessionId for each recorded input; the session id pattern; the role prompt fields and the scratch decision in mixdog-core-session",
+    "entry": "Drive these public items on o1: mixdog-core-base/src/rooms/ids.rs:27 agent_home_session_id; mixdog-core-base/src/rooms/ids.rs:33 agent_id_of_home_session; mixdog-store/src/agent_mode.rs:28 agent_id_of_home_session; mixdog-core-agents/src/agents/home_agent.rs:88 home_agent; mixdog-core/src/run_host/prompt_session.rs:197 workspace_prompt_context; mixdog-core/src/run_host/prompt_session.rs:264 compose_session_prompt (builds the role fields (role rules, lead mode rules, identity context, agent mode rules, mixy rules, skip role catalog / persona) through role_fields :217, private).",
+    "existsButNotPublicOnO1": [
+      "the scratch decision (isScratchSession) exists: mixdog-core-session/src/session/thread_switches.rs:999 `is_scratch`, pub(crate): a replay reaches it through the thread switch, not by a call",
+      "home_agent.rs:52 `decide` is private (the role prompt decision is reached through home_agent)"
+    ],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 27,
+        "name": "agent_home_session_id",
+        "path": "native/core/crates/mixdog-core-base/src/rooms/ids.rs"
+      },
+      {
+        "line": 33,
+        "name": "agent_id_of_home_session",
+        "path": "native/core/crates/mixdog-core-base/src/rooms/ids.rs"
+      },
+      {
+        "line": 28,
+        "name": "agent_id_of_home_session",
+        "path": "native/core/crates/mixdog-store/src/agent_mode.rs"
+      },
+      {
+        "line": 88,
+        "name": "home_agent",
+        "path": "native/core/crates/mixdog-core-agents/src/agents/home_agent.rs"
+      },
+      {
+        "line": 197,
+        "name": "workspace_prompt_context",
+        "path": "native/core/crates/mixdog-core/src/run_host/prompt_session.rs"
+      },
+      {
+        "line": 264,
+        "methods": "builds the role fields (role rules, lead mode rules, identity context, agent mode rules, mixy rules, skip role catalog / persona) through role_fields :217, private",
+        "name": "compose_session_prompt",
+        "path": "native/core/crates/mixdog-core/src/run_host/prompt_session.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "agent-home-cases",
+  "totalBytes": 5057,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

@@ -20,17 +20,19 @@ const { localContextSettings, saveLocalContext } = await rec.P('local-provider/c
 const { LOCAL_PROVIDER_MANIFEST, localProviderCatalogStatus } = await rec.P('local-provider/catalog.mjs');
 const { runLocalProviderRequest, setLocalProviderContext } = await rec.P('local-provider/server.mjs');
 const entry = LOCAL_PROVIDER_MANIFEST.models[0];
-const caseDir = (name) => {
+// The recorder's own file steps (case directories, reading back the files written, writing the corrupt file a case feeds) run through `rec.own`: a
+// failure of them stops the recording, it is never a case's answer.
+const caseDir = (name) => rec.own(`creating the case directory ${name}`, () => {
   const dir = join(rec.dataDir, name);
   mkdirSync(dir, { recursive: true });
   return dir;
-};
-const filesOf = (dir) => {
+});
+const filesOf = (dir) => rec.own(`reading the files under ${dir}`, () => {
   const out = {};
   const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else out[relative(dir, p).split('\\').join('/')] = readFileSync(p, 'utf8'); } };
   walk(dir);
   return out;
-};
+});
 const attempt = (fn) => {
   try {
     return { result: fn() };
@@ -59,10 +61,10 @@ await rec.run('corrupt-or-out-of-range-file-falls-back', `${SRC}:33`, {}, () => 
   const dataDir = caseDir('ctx-corrupt');
   saveLocalContext(entry, 16384, dataDir);
   const ctxDir = join(dataDir, 'local-provider', 'context');
-  const file = join(ctxDir, readdirSync(ctxDir)[0]);
+  const file = rec.own('finding the context file', () => join(ctxDir, readdirSync(ctxDir)[0]));
   const rows = [];
   for (const contents of ['{not json', 'null', JSON.stringify({ tokens: entry.maxContextWindow + 1 }), JSON.stringify({ tokens: 8192 })]) {
-    writeFileSync(file, contents);
+    rec.own('writing the context file', () => writeFileSync(file, contents));
     const settings = localContextSettings(entry, dataDir);
     rows.push({ contents, settings, defaultContextWindow: entry.contextWindow });
   }

@@ -1,0 +1,63 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-embedding-model-config.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the model load and the worker that uses these answers",
+    "runs": "every export of embedding-model-config.mjs, with MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE set per probe (restored after)"
+  },
+  "exclusions": "the final case holds probes the test file does not run; no environment-driven answer is left out of the recording (list for the Rust side: see replay)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 63160,
+      "path": "golden.json",
+      "sha256": "2ed8f667b07244faeb03843e77324c4500e18fe9fed3f6645ef7a24464ebd45d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "values": "every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-config.mjs",
+  "recorderSha256": "3c59c2a784528b2543b12079aa15c5e2c6c7c9fb00d077c748825fe8b5c28868",
+  "replay": "mixdog-services memory/embed/config.rs (all pub): DEFAULT_MODEL_ID (:6), profile (:85), known_dims (:89), normalize_dtype (:106), graph_file (:119), pooling (:130), prepare_input (:136); the daemon takes the model from compose.rs:241 / tool_modules/host.rs. Every answer is compared exactly, none is skipped. The `defaults` list (case 1: the six env settings of MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE) has NO Rust counterpart: Rust reads neither variable (grep of native/core/crates finds only DEFAULT_MODEL_ID). Five of the six env settings are work for the Rust side (an env override, or a decision that the core ignores it); only the unset row (default model) maps today",
+  "set": "memory-embedding-model-config",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 63160,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

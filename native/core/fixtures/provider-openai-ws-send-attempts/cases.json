@@ -1062,17 +1062,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -2953,17 +2953,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -3225,9 +3225,6 @@
               "dueMs": 8572
             },
             {
-              "dueMs": 38322
-            },
-            {
               "dueMs": 218322
             }
           ],
@@ -3449,17 +3446,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -3582,17 +3579,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -3715,17 +3712,17 @@
             }
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
             "event": "stage",
             "stage": "requesting",
             "detail": {
               "$exact": "undefined"
             }
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           },
           {
             "event": "dial",
@@ -5782,17 +5779,17 @@
                 }
               },
               {
+                "event": "closed",
+                "serverInitiated": false,
+                "code": 1000,
+                "reason": "release_no_keep"
+              },
+              {
                 "event": "stage",
                 "stage": "requesting",
                 "detail": {
                   "$exact": "undefined"
                 }
-              },
-              {
-                "event": "closed",
-                "serverInitiated": false,
-                "code": 1000,
-                "reason": "release_no_keep"
               },
               {
                 "event": "dial",
@@ -6670,17 +6667,17 @@
                 }
               },
               {
+                "event": "closed",
+                "serverInitiated": false,
+                "code": 1000,
+                "reason": "release_no_keep"
+              },
+              {
                 "event": "stage",
                 "stage": "requesting",
                 "detail": {
                   "$exact": "undefined"
                 }
-              },
-              {
-                "event": "closed",
-                "serverInitiated": false,
-                "code": 1000,
-                "reason": "release_no_keep"
               },
               {
                 "event": "dial",
@@ -7091,17 +7088,17 @@
                 }
               },
               {
+                "event": "closed",
+                "serverInitiated": false,
+                "code": 1000,
+                "reason": "release_no_keep"
+              },
+              {
                 "event": "stage",
                 "stage": "requesting",
                 "detail": {
                   "$exact": "undefined"
                 }
-              },
-              {
-                "event": "closed",
-                "serverInitiated": false,
-                "code": 1000,
-                "reason": "release_no_keep"
               },
               {
                 "event": "dial",
@@ -7512,17 +7509,17 @@
                 }
               },
               {
+                "event": "closed",
+                "serverInitiated": false,
+                "code": 1000,
+                "reason": "release_no_keep"
+              },
+              {
                 "event": "stage",
                 "stage": "requesting",
                 "detail": {
                   "$exact": "undefined"
                 }
-              },
-              {
-                "event": "closed",
-                "serverInitiated": false,
-                "code": 1000,
-                "reason": "release_no_keep"
               },
               {
                 "event": "dial",
@@ -7933,17 +7930,17 @@
                 }
               },
               {
+                "event": "closed",
+                "serverInitiated": false,
+                "code": 1000,
+                "reason": "release_no_keep"
+              },
+              {
                 "event": "stage",
                 "stage": "requesting",
                 "detail": {
                   "$exact": "undefined"
                 }
-              },
-              {
-                "event": "closed",
-                "serverInitiated": false,
-                "code": 1000,
-                "reason": "release_no_keep"
               },
               {
                 "event": "dial",
@@ -8354,17 +8351,17 @@
                 }
               },
               {
+                "event": "closed",
+                "serverInitiated": false,
+                "code": 1000,
+                "reason": "release_no_keep"
+              },
+              {
                 "event": "stage",
                 "stage": "requesting",
                 "detail": {
                   "$exact": "undefined"
                 }
-              },
-              {
-                "event": "closed",
-                "serverInitiated": false,
-                "code": 1000,
-                "reason": "release_no_keep"
               },
               {
                 "event": "dial",

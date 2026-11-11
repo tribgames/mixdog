@@ -3,7 +3,7 @@
 //!
 //! `cleanup` differs from 1.4.5 in one place only: the core is retired through the one
 //! wind-down procedure, so a core that still runs work is listed and waits for the user's
-//! confirmation; nothing is ever signalled.
+//! confirmation. A core that accepts the stop and stays silent is signalled, as Node's `stopDaemon` does.
 
 use std::fs;
 
@@ -12,6 +12,7 @@ use super::args::ProgramArgs;
 use super::error::EnsureError;
 use super::flow::is_installed;
 use super::flow::lock_options;
+use super::flow::retire;
 use super::host::CoreAccess;
 use super::host::EnsureHost;
 use super::install::InstallSpec;
@@ -52,18 +53,15 @@ pub fn cleanup(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAcces
 
     let mut stopped = None;
     if let Some(core) = access.discovery()? {
-        let drain = access.stop_when_idle(&core, StopReason::UserStop, None)?;
-        let retired = match &args.confirm_token {
-            Some(token) => {
-                access.stop_confirmed(&core, StopReason::UserStop, token, None)?;
-                true
-            }
-            None => drain.running.is_empty(),
+        let answered = match access.stop_when_idle(&core, StopReason::UserStop, None)? {
+            Some(drain) => match &args.confirm_token {
+                Some(token) => access.stop_confirmed(&core, StopReason::UserStop, token, None)?,
+                None if drain.running.is_empty() => true,
+                None => return Err(EnsureError::Busy { server_version: core.version, drain }),
+            },
+            None => false,
         };
-        if !retired {
-            return Err(EnsureError::Busy { server_version: core.version, drain });
-        }
-        access.wait_exit(&core)?;
+        retire(access, &core, answered)?;
         stopped = Some(Stopped { pid: core.pid, stopped: true });
     }
 

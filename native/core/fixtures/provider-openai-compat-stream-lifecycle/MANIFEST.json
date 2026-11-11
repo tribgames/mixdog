@@ -42,11 +42,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "943f721e9658f8eed8cacc854a53a0444e43d9d39e1dde978ebfcb4260689ebd"
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "ca2aba4fd278a0a7c9bce57b40c5470d7811acb5f895cba2524dc21c960f1ddc"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -152,7 +152,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-compat-stream-lifecycle.mjs",
-  "recorderSha256": "4bd8d5f4e541afffca13512e4eafb7f79fdf406ccd411b465f04ab9ef2672e6c",
+  "recorderSha256": "eceaeed57d7bb849b9203e2541fc669ed0c62b41e4ff753fe55a3d4537a71213",
   "replay": "WIRE: mixdog_ai provider send (ModelBroker::send, mixdog-ai/src/broker/send.rs:75, with the compat adapter providers/compat/adapter.rs:63) against a loopback endpoint; PURE: the public decoders named per case in `levels`: mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub, re-exported at compat/chat/mod.rs:18; feed :578, finish :601, with_known_tools :224); mixdog-ai/src/providers/openai/decoder.rs:140 ResponsesDecoder (pub mod decoder; new :408, with_label :724, compat_events :734, feed/finish in `impl WireDecoder` :1362). The non-streaming normalizer case is Rust work: compat/chat/decode.rs exposes only the streaming ChatDecoder (+ `usage_from` :99), no public function turns an already assembled non-streaming chat response into a typed result.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"

@@ -51,11 +51,11 @@ process.env.STANDIN_LIFELINE = LIFELINE;
 process.env.PATH = `${binDir}${delimiter}${process.env.PATH}`;
 const logPath = join(standinDir, 'standin.log.jsonl');
 const answerPath = join(standinDir, 'nvidia-smi.answer.json');
-const takeLog = () => {
+const takeLog = () => rec.own('reading the stand-ins\' log', () => {
   const text = readFileSync(logPath, 'utf8');
   writeFileSync(logPath, '');
   return text.split('\n').filter(Boolean).map((line) => JSON.parse(line));
-};
+});
 writeFileSync(logPath, '');
 
 const { MixdogLocalProvider } = await rec.P('agent/orchestrator/providers/mixdog-local.mjs');
@@ -119,24 +119,27 @@ const SMI = {
   'empty-listing': { stdout: '', stderr: '', exitCode: 0 },
   'query-fails': { stdout: '', stderr: 'NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver.\n', exitCode: 9 },
 };
-// A turn through the real provider: the product starts (or reuses) the server itself. `fn` returns what the case observed; an error it throws is what the send rejected with.
+// A turn through the real provider: the product starts (or reuses) the server itself. `send` returns what the case observed; an error it throws is what the send
+// rejected with (`sendError`). Everything after the send - stopping the server, reading the stand-ins' log, building the rows - is the recorder's own (`rec.own`).
 const caseOn = (id, line, smiKind, send) => rec.run(id, `${SRC}:${line}`, { nvidiaSmi: smiKind === null ? null : SMI[smiKind], messages, tools }, async ({ net }) => {
-  if (smiKind !== null) writeFileSync(answerPath, JSON.stringify(SMI[smiKind]));
+  if (smiKind !== null) rec.own('writing the nvidia-smi stand-in\'s answer', () => writeFileSync(answerPath, JSON.stringify(SMI[smiKind])));
   const observed = {};
   try {
     Object.assign(observed, await send(new MixdogLocalProvider({})));
   } catch (error) {
     observed.sendError = error;
   } finally {
-    await stopLocalProviderServer();
+    await rec.own('stopping the local provider server', () => stopLocalProviderServer());
   }
   const entries = takeLog();
   // The exchanges with the stand-ins in the order they happened: the GPU query (a process run: its argv and the stand-in's fixed answer) and the HTTP requests of the stand-in server.
-  for (const entry of entries) {
-    if (entry.tool === 'nvidia-smi') net.records.push({ method: 'EXEC', origin: 'process', path: 'nvidia-smi', argv: entry.argv, headers: [], body: '', reply: entry.reply });
-    else if (entry.request) net.records.push(requestRow(entry));
-  }
-  return { ...observed, launches: entries.filter((e) => e.tool === 'llama-server' && e.argv).map(launchRow) };
+  return rec.own('building the stand-in rows', () => {
+    for (const entry of entries) {
+      if (entry.tool === 'nvidia-smi') net.records.push({ method: 'EXEC', origin: 'process', path: 'nvidia-smi', argv: entry.argv, headers: [], body: '', reply: entry.reply });
+      else if (entry.request) net.records.push(requestRow(entry));
+    }
+    return { ...observed, launches: entries.filter((e) => e.tool === 'llama-server' && e.argv).map(launchRow) };
+  });
 });
 const twoTurns = async (provider) => {
   const sent = structuredClone(messages);

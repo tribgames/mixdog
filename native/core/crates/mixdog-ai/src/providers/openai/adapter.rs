@@ -1016,6 +1016,9 @@ impl ModelStream for ResponsesStream {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event (`park` is synchronous).
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }
 
 #[cfg(test)]

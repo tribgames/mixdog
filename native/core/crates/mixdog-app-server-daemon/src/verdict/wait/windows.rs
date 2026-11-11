@@ -15,8 +15,11 @@ use windows_sys::Win32::Storage::FileSystem::FindCloseChangeNotification;
 use windows_sys::Win32::Storage::FileSystem::FindFirstChangeNotificationW;
 use windows_sys::Win32::System::Threading::CreateEventW;
 use windows_sys::Win32::System::Threading::INFINITE;
+use windows_sys::Win32::System::Threading::PROCESS_ACCESS_RIGHTS;
 use windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE;
+use windows_sys::Win32::System::Threading::PROCESS_TERMINATE;
 use windows_sys::Win32::System::Threading::SetEvent;
+use windows_sys::Win32::System::Threading::TerminateProcess;
 use windows_sys::Win32::System::Threading::WaitForMultipleObjects;
 
 use super::Wake;
@@ -88,7 +91,27 @@ pub(super) struct ExitWatch(OwnedHandle);
 
 impl ExitWatch {
     pub(super) fn open(identity: ProcessIdentity) -> io::Result<Option<Self>> {
-        Ok(match open(identity.pid, PROCESS_SYNCHRONIZE)? {
+        Self::open_with(identity, PROCESS_SYNCHRONIZE)
+    }
+
+    /// A watch that may also end the process.
+    pub(super) fn open_to_end(identity: ProcessIdentity) -> io::Result<Option<Self>> {
+        Self::open_with(identity, PROCESS_SYNCHRONIZE | PROCESS_TERMINATE)
+    }
+
+    /// Windows has no SIGTERM: Node's `process.kill` (libuv `uv_kill`) ends the process with exit code 1 for either
+    /// signal, and so does this.
+    pub(super) fn signal(&self, _kill: bool) -> io::Result<()> {
+        // SAFETY: a valid process handle opened with PROCESS_TERMINATE.
+        if unsafe { TerminateProcess(raw(&self.0), 1) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn open_with(identity: ProcessIdentity, access: PROCESS_ACCESS_RIGHTS) -> io::Result<Option<Self>> {
+        Ok(match open(identity.pid, access)? {
             Opened::Gone => None,
             Opened::Denied => {
                 return Err(io::Error::new(

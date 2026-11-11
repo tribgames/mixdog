@@ -92,10 +92,9 @@ async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body
 // One send through the real sender; the retry trace rows the send writes (`_agentTraceFn`, the product's trace sink) are events of the list.
 // Before each clock step the endpoint has seen every connection the client released close (its `closed` entry), so that event comes before the
 // next attempt's events in the trace whatever the machine's load.
-// Two kinds: a connection the server ended (terminate / close-sent) has its server-initiated `closed`; one the client released (its socket no longer open at the server) has its `closed`.
-const releasedClosed = () =>
-  world.count((e) => e.event === 'terminate' || (e.event === 'close-sent' && e.by === 'server')) <= world.count((e) => e.event === 'closed' && e.serverInitiated)
-  && world.count((e) => e.event === 'closed') >= world.count((e) => e.event === 'open') - world.conns.filter((c) => c.ws?.readyState === 1).length;
+// Every retry step of these cases follows a failed attempt whose connection is ended (dropped or closed by the server, or released by the
+// client), and no case keeps a connection open across a step: the step waits until every connection opened so far is closed at the server.
+const releasedClosed = () => world.count((e) => e.event === 'closed') >= world.count((e) => e.event === 'open');
 const send = (poolKey, body, sendExtras = {}) => rec.clock.followRetries(sendViaWebSocket({
   auth: { type: 'xai', access_token: 'fixture-access-token' }, body, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
   onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail }),

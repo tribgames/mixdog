@@ -164,7 +164,7 @@ await rec.run('provider-opt-out-with-old-update-history', `${SRC}:242`, {}, asyn
     await sendCompatResponses(provider, session.messages, MODEL, [], appendTurn(session, provider, effort));
     session.messages.push({ role: 'assistant', content: 'ok' });
   }
-  const updatesBeforeOptOut = updatesOf(JSON.parse(requests.at(-1).body)).length;
+  const updatesBeforeOptOut = rec.own('reading the configuration updates of the last request', () => updatesOf(JSON.parse(requests.at(-1).body)).length);
   provider.config.effortConfigurationEnabled = false;
   const opts = appendTurn(session, provider, 'medium');
   const before = structuredClone(session.messages);

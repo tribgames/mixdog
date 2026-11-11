@@ -170,7 +170,7 @@ for (const { name, event } of protocols) {
       if (interruption === 'cancel') controller.abort(reason);
       else await rec.clock.advance(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, { what: 'semantic idle window' });
       const outcome = await result;
-      await rec.net.records[0].whenClientClosed;
+      await rec.own('the first request\'s connection closing', () => rec.net.records[0].whenClientClosed);
       return { ...outcome, rejectedWithTheCallerReason: outcome.error === reason, listenersAfter: getEventListeners(controller.signal, 'abort').length };
     });
   }

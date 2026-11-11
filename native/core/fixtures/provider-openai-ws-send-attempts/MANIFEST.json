@@ -22,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 345678,
+      "bytes": 345620,
       "path": "cases.json",
-      "sha256": "b5f663105384e8810e013ac493bcdd1f9099daff7b1ba4fb0d6f52cd359576bf"
+      "sha256": "8346299cb5e7f30d4702c4402658bfe92a24122ac2b203697ef1d637dbafde33"
     }
   ],
   "inputs": [
@@ -46,11 +46,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "943f721e9658f8eed8cacc854a53a0444e43d9d39e1dde978ebfcb4260689ebd"
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "ca2aba4fd278a0a7c9bce57b40c5470d7811acb5f895cba2524dc21c960f1ddc"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -142,12 +142,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs",
-  "recorderSha256": "1aca3210893175a4356c993f0c847079f9e260f35ce5ce55111f8630bcba584b",
+  "recorderSha256": "87a9c68ba1775dbb42135bc43521f026a1548a7e74d469b64ebda46af0187c0d",
   "replay": "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-ws-send-attempts",
-  "totalBytes": 345678,
+  "totalBytes": 345620,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
