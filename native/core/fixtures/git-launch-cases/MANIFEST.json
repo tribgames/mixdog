@@ -22,7 +22,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -34,7 +34,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.cs",
-      "sha256": "7a13b92f6255f5a8734efe47a7d3231dfa2568f0994df8e92f625c9438415317"
+      "sha256": "c5646a38b316e4f608e4b479b24a630365bd431fd00daca1fd1f55f267ed6c08"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.mjs",
