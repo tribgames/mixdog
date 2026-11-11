@@ -18,7 +18,21 @@ const rec = await startRecording({
 });
 const treeRequire = createRequire(join(rec.tree, 'package.json'));
 const Ajv2020 = treeRequire('ajv/dist/2020.js');
-const { buildAntigravityRequest, antigravityFunctionCallingMode } = await rec.P('agent/orchestrator/providers/antigravity-request.mjs');
+const { buildAntigravityRequest: buildLogged, antigravityFunctionCallingMode } = await rec.P('agent/orchestrator/providers/antigravity-request.mjs');
+// Every build the case makes is kept whole (the returned { request, ... } as the product built it, in call order) beside the value the case reads from it: a case result is
+// { value, built }, so no result is reduced to the part the Node assertion inspects.
+const builds = [];
+const buildAntigravityRequest = (...args) => {
+  const built = buildLogged(...args);
+  builds.push(built);
+  return built;
+};
+const runCase = rec.run.bind(rec);
+rec.run = (id, source, input, fn) => runCase(id, source, input, async (ctx) => {
+  builds.length = 0;
+  const value = await fn(ctx);
+  return { value, built: [...builds] };
+});
 const { toGeminiRequestTools } = await rec.P('agent/orchestrator/providers/gemini-schema.mjs');
 const { actionInputUnionFor } = await rec.P('agent/orchestrator/providers/lib/action-input-contract.mjs');
 const { BUILTIN_TOOLS } = await rec.P('agent/orchestrator/tools/builtin/builtin-tools.mjs');

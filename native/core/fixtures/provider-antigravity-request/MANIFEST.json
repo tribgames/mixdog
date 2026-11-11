@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 874657,
+      "bytes": 2224356,
       "path": "cases.json",
-      "sha256": "8a6e869bc72b9bd5d47996785eaff2ee7a3455e0528521e4c7d307262769ad0c"
+      "sha256": "b97bc887bcb92f332cbdf31c2ef20ab364f94f954a8dfb8548d91559c4559b19"
     }
   ],
   "inputs": [
@@ -219,9 +219,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-antigravity-request.mjs",
-  "recorderSha256": "81a88c23aabe5514cc33bf6b8f948de1dce65a6135c6c131c4d715b85b14c1ee",
+  "recorderSha256": "905508641a14a9a927698dd2b758b266e6d00c7daa555206cd274faf5d801f36",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "set": "provider-antigravity-request",
-  "totalBytes": 874657,
+  "totalBytes": 2224356,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
