@@ -364,6 +364,31 @@ async fn every_builder_input_comes_from_the_process_services() {
     }
 }
 
+/// A thread opened after a restart finds the process registry empty; its first request readies the header's provider as
+/// the route hop does (`RegistryHopHost::provider`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
+/// registry) — for every kind of provider the agent config can name, not only a custom one.
+#[tokio::test]
+async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
+    let key = json!({"enabled": true, "apiKey": "k"});
+    let mut providers = Map::new();
+    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter"] {
+        providers.insert(name.into(), key.clone());
+    }
+    providers.insert(
+        "custom-abc".into(),
+        json!({"enabled": true, "type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
+    );
+    let names: Vec<String> = providers.keys().cloned().collect();
+    let w = world(&[], Value::Object(providers), Vec::new()).await;
+    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services));
+    for name in names {
+        let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
+        registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        let adapter = registry.try_get(&name).await.unwrap().unwrap_or_else(|| panic!("{name}: not readied"));
+        assert_eq!(adapter.id().to_string(), name);
+    }
+}
+
 #[tokio::test]
 async fn a_remote_client_holds_no_model_credentials() {
     let w = world(&[("MIXDOG_MODEL_PROXY", "client"), ("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
