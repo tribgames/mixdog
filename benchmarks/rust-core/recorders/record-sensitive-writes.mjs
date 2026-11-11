@@ -250,7 +250,9 @@ try {
   const a = await record('a', run, workspace);
   if (a.scan.length) throw new Error(`Node left a sensitive value readable:\n${a.scan.map((hit) => `${hit.file}@${hit.offset} (${hit.encoding} of ${hit.value})`).join('\n')}`);
   const b = await record('b', run, workspace);
-  const view = (r) => JSON.stringify({ files: r.normalized.files, scan: r.scan, state: r.normalized.maskValue({ ...r.state, sessionId: undefined }) }, null, 1);
+  // A file this recording cannot compare (NOT_COMPARED: its rows follow a timer) is not compared between the two runs either.
+  const compared = (files) => Object.fromEntries(Object.entries(files).filter(([name]) => !Object.hasOwn(NOT_COMPARED, name)));
+  const view = (r) => JSON.stringify({ files: compared(r.normalized.files), scan: r.scan, state: r.normalized.maskValue({ ...r.state, sessionId: undefined }) }, null, 1);
   if (view(a) !== view(b)) {
     writeFileSync(join(run, 'a.json'), view(a));
     writeFileSync(join(run, 'b.json'), view(b));

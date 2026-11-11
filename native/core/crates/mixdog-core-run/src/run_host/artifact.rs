@@ -104,7 +104,8 @@ impl ToolResultArtifacts {
     fn describe(&self, content: &str) -> (PathBuf, Artifact) {
         let sha256 = hex(&Sha256::digest(content.as_bytes()));
         let path = self.dir.join(format!("{sha256}.txt"));
-        let artifact = Artifact { display_path: display(&path), lines: split_lines(content), sha256 };
+        let artifact =
+            Artifact { display_path: display(&path), path: path.to_string_lossy().into_owned(), lines: split_lines(content), sha256 };
         (path, artifact)
     }
 }
@@ -162,6 +163,7 @@ mod tests {
         let file = data.path().join("tool-results/sess_1____x").join(format!("{}.txt", artifact.sha256));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
         assert_eq!(artifact.display_path, display(&file));
+        assert_eq!(artifact.path, file.to_string_lossy());
         // an intact file is reused; a data-free one is replaced; a foreign one refuses
         assert!(store.persist(text).await.is_some());
         std::fs::write(&file, vec![0u8; text.len()]).unwrap();

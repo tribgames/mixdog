@@ -88,6 +88,16 @@ impl HostManualCompaction {
     }
 }
 
+/// The stored bodies a compactor serializes for an execution archive: each conversation message's own row, as Node's
+/// `session.messages` hold them (an unregistered message would archive as `null`).
+fn registered(messages: &[AgentMessage], rows: &[Value]) -> Arc<StoredRows> {
+    let stored = Arc::new(StoredRows::new());
+    for (message, row) in messages.iter().zip(rows) {
+        stored.record(message, row.clone());
+    }
+    stored
+}
+
 fn number(value: f64) -> Value {
     mixdog_js::json_number(value)
 }
@@ -294,7 +304,7 @@ impl ManualCompaction for HostManualCompaction {
         let Some(settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: registered(&messages, &rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
@@ -415,7 +425,7 @@ impl ManualCompaction for HostManualCompaction {
         let Some(settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: registered(&messages[messages.len() - rows.len()..], &rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, source.as_str())),
             blobs: parts.blobs.clone(),
         };
