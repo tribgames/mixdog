@@ -148,6 +148,7 @@
             }
           ],
           "fired": [],
+          "advances": [],
           "pending": [
             {
               "api": "setTimeout",
@@ -188,6 +189,7 @@
         "timers": {
           "armed": [],
           "fired": [],
+          "advances": [],
           "pending": []
         }
       }
@@ -229,6 +231,7 @@
             }
           ],
           "fired": [],
+          "advances": [],
           "pending": [
             {
               "api": "setTimeout",
@@ -417,6 +420,7 @@
             }
           ],
           "fired": [],
+          "advances": [],
           "pending": [
             {
               "api": "setTimeout",
@@ -15575,6 +15579,7 @@
             }
           ],
           "fired": [],
+          "advances": [],
           "pending": []
         }
       }
@@ -15779,6 +15784,7 @@
             }
           ],
           "fired": [],
+          "advances": [],
           "pending": []
         }
       }

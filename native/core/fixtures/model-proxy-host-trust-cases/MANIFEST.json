@@ -14,9 +14,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 557582,
+      "bytes": 557738,
       "path": "golden.json",
-      "sha256": "c406794eca8e0dd7590766c96118ec998561cd61a748ab9e9f7b8cead7873c9c"
+      "sha256": "f9ca4282080039bbf84f3a545b54ac7c93ff7e67b9ec89d99de5d25b27b6ebcf"
     }
   ],
   "inputs": [
@@ -50,7 +50,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "f01774e9437804ec261de5fe208d19c472fd1193c4df8b9f202030aaae558676"
+      "sha256": "227390fd2d1f96b579ec2ce564d8884be0fc714379b484f3e77d93743f997538"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -76,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "b7684fc7d331b5e4ba985a9cafba7de0c91e3869e208a126d9443c113ce93dd9",
+  "recorderSha256": "7cea7b07a2286a0640104b744b1b80f51d0f301af02b4329b75055820b5dd0f1",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
     "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",
@@ -99,6 +99,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "model-proxy-host-trust-cases",
-  "totalBytes": 557582,
+  "totalBytes": 557738,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
