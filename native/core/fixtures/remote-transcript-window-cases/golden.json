@@ -1,0 +1,1841 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a page revealed above a short first page arrives as history, the rows the phone opened on stay its tail",
+      "observed": {
+        "heldRows": 8,
+        "pagedRows": 8,
+        "rowChars": 1500,
+        "historyOutputChars": 600,
+        "openedResultsEqualHeld": true,
+        "pageLimitRequested": 72,
+        "rows": [
+          {
+            "id": "h0",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "b1464120d9dc7f1d94409f43d98cab040bcaea81a77f9843cd389588a03ebfc9"
+          },
+          {
+            "id": "h1",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "f2d608348e4c408e8a9108fc93f2b8c4a2f2e7fa3f30ee0d5ade86b864c0b003"
+          },
+          {
+            "id": "h2",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "fb1140f65720f194c0a50f0044b1e42d2fca2bfeb1f7e78fff0d1360fdcd67e7"
+          },
+          {
+            "id": "h3",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "5d2b0767975e03d311f80161b31920a965c203c244a4643a8ad5e2b936cb06df"
+          },
+          {
+            "id": "h4",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "ee3bc3b236c703733f2b693eb50e41d1f01084a60161e743f977b84b0f6f757a"
+          },
+          {
+            "id": "h5",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "1db2a018b501c90eb8a87fc41be21d0d4e47c88da6096600e708b32de0a1ad70"
+          },
+          {
+            "id": "h6",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "397af802c99f848c5c29b9b30560a0bbaa44fbe5baa1e03cec3c0e5c914bdeb9"
+          },
+          {
+            "id": "h7",
+            "kind": "tool",
+            "resultChars": 600,
+            "remoteOutputTruncated": 1503,
+            "bytes": 801,
+            "sha256": "66ac8ccbea35cecc2d0366e35c504065f41d03484d89ea1a1979527eb59961e4"
+          },
+          {
+            "id": "t0",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "2f958b3aadb76de0245ca55976197a0b578468f6bb1f33d3ebd7801842ff2e2d"
+          },
+          {
+            "id": "t1",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "fdd39caa15703ca8815192bf3b654483dc16da2b94755e067cf25a0e299e90c9"
+          },
+          {
+            "id": "t2",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "fb1ee72020f661db7148d1666eef227df4f298cce241521927dfb039ca7a2e5d"
+          },
+          {
+            "id": "t3",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "dec3d479cb034c119a431243392d821746fbf74103385da35a5b2da94d4ee21c"
+          },
+          {
+            "id": "t4",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "17dda82e947d59c606ab7177aa9ef52f770082892427c1de5cfc693a1f784de8"
+          },
+          {
+            "id": "t5",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "9f9f98ba0b925f6e7893d1b4c1524447241e43c17ad43f3789a8b781fafd8e95"
+          },
+          {
+            "id": "t6",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "f4a75b0fa6f21591198e1cb9d984cc5fd5c367eb6663e9657e22158b0d6a6df3"
+          },
+          {
+            "id": "t7",
+            "kind": "tool",
+            "resultChars": 1503,
+            "bytes": 1602,
+            "sha256": "c9a0887bbe5d3fa1b735713dbd8c19fef092f9ff1435c23bbe9ecfe911d2eb1c"
+          }
+        ],
+        "wires": [
+          {
+            "bytes": 12881,
+            "wire": {
+              "jsonChars": 12881,
+              "sha256": "0a56187fe6f28b3480d484228d786c99662b6bed2c0bc717af1c299a86b48f9d"
+            }
+          },
+          {
+            "bytes": 6582,
+            "wire": {
+              "jsonChars": 6582,
+              "sha256": "d696926835f2708aa702c183cc5d3ee03db149ae020382e81d11537e305b7e14"
+            }
+          }
+        ],
+        "pagedRowsCutAsHistory": [
+          {
+            "id": "h0",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h1",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h2",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h3",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h4",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h5",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h6",
+            "resultChars": 600,
+            "truncated": 1503
+          },
+          {
+            "id": "h7",
+            "resultChars": 600,
+            "truncated": 1503
+          }
+        ],
+        "openedRowsStillWhole": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "case": "a phone's first page stays within its byte budget however wide the shared window is",
+      "observed": {
+        "tailBytes": 128000,
+        "tailItems": 20,
+        "wide": {
+          "sharedRows": 32,
+          "rowChars": 20000,
+          "ids": [
+            "u26",
+            "u27",
+            "u28",
+            "u29",
+            "u30",
+            "u31"
+          ],
+          "bytes": 120240,
+          "hasOlder": true,
+          "wires": [
+            {
+              "bytes": 120303,
+              "wire": {
+                "jsonChars": 120303,
+                "sha256": "d9de6e4708b1666c13030c8708bb57d31e309a492942d381f8208ea7b1abb4c3"
+              }
+            }
+          ]
+        },
+        "floor": {
+          "ids": [
+            "u26",
+            "u27",
+            "u28",
+            "u29",
+            "u30",
+            "u31"
+          ],
+          "bytes": 120240,
+          "hasOlder": true
+        },
+        "short": {
+          "count": 20,
+          "ids": [
+            "s12",
+            "s13",
+            "s14",
+            "s15",
+            "s16",
+            "s17",
+            "s18",
+            "s19",
+            "s20",
+            "s21",
+            "s22",
+            "s23",
+            "s24",
+            "s25",
+            "s26",
+            "s27",
+            "s28",
+            "s29",
+            "s30",
+            "s31"
+          ]
+        }
+      }
+    },
+    {
+      "case": "live rows append past the first page; older rows reveal only on the phone request, within the page",
+      "observed": {
+        "afterLiveRow": {
+          "ids": [
+            "r20",
+            "r21",
+            "r22",
+            "r23",
+            "r24",
+            "r25",
+            "r26",
+            "r27",
+            "r28",
+            "r29",
+            "r30",
+            "r31",
+            "r32",
+            "r33",
+            "r34",
+            "r35",
+            "r36",
+            "r37",
+            "r38",
+            "r39",
+            "live"
+          ]
+        },
+        "pageLimitRequested": 26,
+        "paged": {
+          "count": 26,
+          "ids": [
+            "r15",
+            "r16",
+            "r17",
+            "r18",
+            "r19",
+            "r20",
+            "r21",
+            "r22",
+            "r23",
+            "r24",
+            "r25",
+            "r26",
+            "r27",
+            "r28",
+            "r29",
+            "r30",
+            "r31",
+            "r32",
+            "r33",
+            "r34",
+            "r35",
+            "r36",
+            "r37",
+            "r38",
+            "r39",
+            "live"
+          ],
+          "hasOlder": true
+        },
+        "staleWhenDesktopPromptAbove": false,
+        "staleWhenNewDesktopRow": true,
+        "wires": [
+          {
+            "bytes": 1077,
+            "wire": {
+              "items": [
+                {
+                  "id": "r20",
+                  "kind": "user",
+                  "text": "r20 wwwwwwwwww"
+                },
+                {
+                  "id": "r21",
+                  "kind": "user",
+                  "text": "r21 wwwwwwwwww"
+                },
+                {
+                  "id": "r22",
+                  "kind": "user",
+                  "text": "r22 wwwwwwwwww"
+                },
+                {
+                  "id": "r23",
+                  "kind": "user",
+                  "text": "r23 wwwwwwwwww"
+                },
+                {
+                  "id": "r24",
+                  "kind": "user",
+                  "text": "r24 wwwwwwwwww"
+                },
+                {
+                  "id": "r25",
+                  "kind": "user",
+                  "text": "r25 wwwwwwwwww"
+                },
+                {
+                  "id": "r26",
+                  "kind": "user",
+                  "text": "r26 wwwwwwwwww"
+                },
+                {
+                  "id": "r27",
+                  "kind": "user",
+                  "text": "r27 wwwwwwwwww"
+                },
+                {
+                  "id": "r28",
+                  "kind": "user",
+                  "text": "r28 wwwwwwwwww"
+                },
+                {
+                  "id": "r29",
+                  "kind": "user",
+                  "text": "r29 wwwwwwwwww"
+                },
+                {
+                  "id": "r30",
+                  "kind": "user",
+                  "text": "r30 wwwwwwwwww"
+                },
+                {
+                  "id": "r31",
+                  "kind": "user",
+                  "text": "r31 wwwwwwwwww"
+                },
+                {
+                  "id": "r32",
+                  "kind": "user",
+                  "text": "r32 wwwwwwwwww"
+                },
+                {
+                  "id": "r33",
+                  "kind": "user",
+                  "text": "r33 wwwwwwwwww"
+                },
+                {
+                  "id": "r34",
+                  "kind": "user",
+                  "text": "r34 wwwwwwwwww"
+                },
+                {
+                  "id": "r35",
+                  "kind": "user",
+                  "text": "r35 wwwwwwwwww"
+                },
+                {
+                  "id": "r36",
+                  "kind": "user",
+                  "text": "r36 wwwwwwwwww"
+                },
+                {
+                  "id": "r37",
+                  "kind": "user",
+                  "text": "r37 wwwwwwwwww"
+                },
+                {
+                  "id": "r38",
+                  "kind": "user",
+                  "text": "r38 wwwwwwwwww"
+                },
+                {
+                  "id": "r39",
+                  "kind": "user",
+                  "text": "r39 wwwwwwwwww"
+                }
+              ],
+              "transcriptHasOlder": true,
+              "__itemsRevision": 1
+            }
+          },
+          {
+            "bytes": 181,
+            "wire": {
+              "__itemsPatch": {
+                "base": 1,
+                "revision": 2,
+                "prefix": 20,
+                "append": [
+                  {
+                    "id": "live",
+                    "kind": "user",
+                    "text": "live wwwwwwwwww"
+                  }
+                ]
+              },
+              "__statePatch": {
+                "base": 1,
+                "revision": 2,
+                "changed": {},
+                "removed": []
+              }
+            }
+          },
+          {
+            "bytes": 396,
+            "wire": {
+              "__itemsPatch": {
+                "base": 2,
+                "revision": 3,
+                "prepend": [
+                  {
+                    "id": "r15",
+                    "kind": "user",
+                    "text": "r15 wwwwwwwwww"
+                  },
+                  {
+                    "id": "r16",
+                    "kind": "user",
+                    "text": "r16 wwwwwwwwww"
+                  },
+                  {
+                    "id": "r17",
+                    "kind": "user",
+                    "text": "r17 wwwwwwwwww"
+                  },
+                  {
+                    "id": "r18",
+                    "kind": "user",
+                    "text": "r18 wwwwwwwwww"
+                  },
+                  {
+                    "id": "r19",
+                    "kind": "user",
+                    "text": "r19 wwwwwwwwww"
+                  }
+                ],
+                "prefix": 21,
+                "append": []
+              },
+              "__statePatch": {
+                "base": 2,
+                "revision": 3,
+                "changed": {},
+                "removed": []
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a phone page reveals at most 512 rows a request, whatever limit it names, and pages on to the first row",
+      "observed": {
+        "rows": 2000,
+        "counts": [
+          20,
+          532,
+          1044,
+          1556,
+          2000
+        ],
+        "revealed": [
+          512,
+          512,
+          512,
+          444
+        ],
+        "firstId": "d0",
+        "hasOlder": false,
+        "wireBytes": [
+          1157,
+          28301,
+          28214,
+          27279,
+          23481
+        ]
+      }
+    },
+    {
+      "case": "an oversized newest tool row goes with its outputs cut to fit, readable whole through Show full output",
+      "observed": {
+        "tailBytes": 128000,
+        "count": 1,
+        "sentBytes": 127997,
+        "members": [
+          {
+            "id": "m0",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m1",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m2",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m3",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m4",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m5",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m6",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m7",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m8",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m9",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m10",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m11",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m12",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m13",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m14",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m15",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m16",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m17",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m18",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m19",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m20",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m21",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m22",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m23",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m24",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m25",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m26",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m27",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m28",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m29",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m30",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m31",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m32",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m33",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m34",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m35",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m36",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m37",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m38",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          },
+          {
+            "id": "m39",
+            "resultChars": 3055,
+            "note": {
+              "kind": "omitted",
+              "at": 3055,
+              "omitted": 4945
+            },
+            "remoteOutputTruncated": 8000,
+            "readBackWhole": true
+          }
+        ],
+        "wires": [
+          {
+            "bytes": 128055,
+            "wire": {
+              "jsonChars": 128055,
+              "sha256": "4363ac36a37aa445e8010b2e05307d48eab2490cc93354773392955147ac2cd2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a compacted live session whose runtime spilled rows pages back on the phone to its first row",
+      "observed": {
+        "rows": 700,
+        "compactionAfterRow": 400,
+        "firstLiveRowAfterCap": "it_256",
+        "steps": [
+          {
+            "step": 0,
+            "hostRows": 20,
+            "heldRows": 20,
+            "hasOlder": true
+          },
+          {
+            "step": 1,
+            "limit": 84,
+            "hostWindowGrew": true,
+            "hostRows": 84,
+            "heldRows": 84,
+            "hasOlder": true
+          },
+          {
+            "step": 2,
+            "limit": 148,
+            "hostWindowGrew": true,
+            "hostRows": 148,
+            "heldRows": 148,
+            "hasOlder": true
+          },
+          {
+            "step": 3,
+            "limit": 212,
+            "hostWindowGrew": true,
+            "hostRows": 212,
+            "heldRows": 212,
+            "hasOlder": true
+          },
+          {
+            "step": 4,
+            "limit": 276,
+            "hostWindowGrew": true,
+            "hostRows": 276,
+            "heldRows": 276,
+            "hasOlder": true
+          },
+          {
+            "step": 5,
+            "limit": 340,
+            "hostWindowGrew": true,
+            "hostRows": 340,
+            "heldRows": 340,
+            "hasOlder": true
+          },
+          {
+            "step": 6,
+            "limit": 404,
+            "hostWindowGrew": true,
+            "hostRows": 404,
+            "heldRows": 404,
+            "hasOlder": true
+          },
+          {
+            "step": 7,
+            "limit": 468,
+            "hostWindowGrew": true,
+            "hostRows": 445,
+            "heldRows": 445,
+            "hasOlder": true
+          },
+          {
+            "step": 8,
+            "limit": 509,
+            "hostWindowGrew": true,
+            "hostRows": 509,
+            "heldRows": 509,
+            "hasOlder": true
+          },
+          {
+            "step": 9,
+            "limit": 573,
+            "hostWindowGrew": true,
+            "hostRows": 573,
+            "heldRows": 573,
+            "hasOlder": true
+          },
+          {
+            "step": 10,
+            "limit": 637,
+            "hostWindowGrew": true,
+            "hostRows": 637,
+            "heldRows": 637,
+            "hasOlder": true
+          },
+          {
+            "step": 11,
+            "limit": 701,
+            "hostWindowGrew": true,
+            "hostRows": 701,
+            "heldRows": 701,
+            "hasOlder": false
+          }
+        ],
+        "tailBytes": 128000,
+        "tailItems": 20,
+        "pageBytes": 1000000,
+        "heldIdsEqualAll": true,
+        "heldIds": [
+          "it_0",
+          "it_1",
+          "it_2",
+          "it_3",
+          "it_4",
+          "it_5",
+          "it_6",
+          "it_7",
+          "it_8",
+          "it_9",
+          "it_10",
+          "it_11",
+          "it_12",
+          "it_13",
+          "it_14",
+          "it_15",
+          "it_16",
+          "it_17",
+          "it_18",
+          "it_19",
+          "it_20",
+          "it_21",
+          "it_22",
+          "it_23",
+          "it_24",
+          "it_25",
+          "it_26",
+          "it_27",
+          "it_28",
+          "it_29",
+          "it_30",
+          "it_31",
+          "it_32",
+          "it_33",
+          "it_34",
+          "it_35",
+          "it_36",
+          "it_37",
+          "it_38",
+          "it_39",
+          "it_40",
+          "it_41",
+          "it_42",
+          "it_43",
+          "it_44",
+          "it_45",
+          "it_46",
+          "it_47",
+          "it_48",
+          "it_49",
+          "it_50",
+          "it_51",
+          "it_52",
+          "it_53",
+          "it_54",
+          "it_55",
+          "it_56",
+          "it_57",
+          "it_58",
+          "it_59",
+          "it_60",
+          "it_61",
+          "it_62",
+          "it_63",
+          "it_64",
+          "it_65",
+          "it_66",
+          "it_67",
+          "it_68",
+          "it_69",
+          "it_70",
+          "it_71",
+          "it_72",
+          "it_73",
+          "it_74",
+          "it_75",
+          "it_76",
+          "it_77",
+          "it_78",
+          "it_79",
+          "it_80",
+          "it_81",
+          "it_82",
+          "it_83",
+          "it_84",
+          "it_85",
+          "it_86",
+          "it_87",
+          "it_88",
+          "it_89",
+          "it_90",
+          "it_91",
+          "it_92",
+          "it_93",
+          "it_94",
+          "it_95",
+          "it_96",
+          "it_97",
+          "it_98",
+          "it_99",
+          "it_100",
+          "it_101",
+          "it_102",
+          "it_103",
+          "it_104",
+          "it_105",
+          "it_106",
+          "it_107",
+          "it_108",
+          "it_109",
+          "it_110",
+          "it_111",
+          "it_112",
+          "it_113",
+          "it_114",
+          "it_115",
+          "it_116",
+          "it_117",
+          "it_118",
+          "it_119",
+          "it_120",
+          "it_121",
+          "it_122",
+          "it_123",
+          "it_124",
+          "it_125",
+          "it_126",
+          "it_127",
+          "it_128",
+          "it_129",
+          "it_130",
+          "it_131",
+          "it_132",
+          "it_133",
+          "it_134",
+          "it_135",
+          "it_136",
+          "it_137",
+          "it_138",
+          "it_139",
+          "it_140",
+          "it_141",
+          "it_142",
+          "it_143",
+          "it_144",
+          "it_145",
+          "it_146",
+          "it_147",
+          "it_148",
+          "it_149",
+          "it_150",
+          "it_151",
+          "it_152",
+          "it_153",
+          "it_154",
+          "it_155",
+          "it_156",
+          "it_157",
+          "it_158",
+          "it_159",
+          "it_160",
+          "it_161",
+          "it_162",
+          "it_163",
+          "it_164",
+          "it_165",
+          "it_166",
+          "it_167",
+          "it_168",
+          "it_169",
+          "it_170",
+          "it_171",
+          "it_172",
+          "it_173",
+          "it_174",
+          "it_175",
+          "it_176",
+          "it_177",
+          "it_178",
+          "it_179",
+          "it_180",
+          "it_181",
+          "it_182",
+          "it_183",
+          "it_184",
+          "it_185",
+          "it_186",
+          "it_187",
+          "it_188",
+          "it_189",
+          "it_190",
+          "it_191",
+          "it_192",
+          "it_193",
+          "it_194",
+          "it_195",
+          "it_196",
+          "it_197",
+          "it_198",
+          "it_199",
+          "it_200",
+          "it_201",
+          "it_202",
+          "it_203",
+          "it_204",
+          "it_205",
+          "it_206",
+          "it_207",
+          "it_208",
+          "it_209",
+          "it_210",
+          "it_211",
+          "it_212",
+          "it_213",
+          "it_214",
+          "it_215",
+          "it_216",
+          "it_217",
+          "it_218",
+          "it_219",
+          "it_220",
+          "it_221",
+          "it_222",
+          "it_223",
+          "it_224",
+          "it_225",
+          "it_226",
+          "it_227",
+          "it_228",
+          "it_229",
+          "it_230",
+          "it_231",
+          "it_232",
+          "it_233",
+          "it_234",
+          "it_235",
+          "it_236",
+          "it_237",
+          "it_238",
+          "it_239",
+          "it_240",
+          "it_241",
+          "it_242",
+          "it_243",
+          "it_244",
+          "it_245",
+          "it_246",
+          "it_247",
+          "it_248",
+          "it_249",
+          "it_250",
+          "it_251",
+          "it_252",
+          "it_253",
+          "it_254",
+          "it_255",
+          "it_256",
+          "it_257",
+          "it_258",
+          "it_259",
+          "it_260",
+          "it_261",
+          "it_262",
+          "it_263",
+          "it_264",
+          "it_265",
+          "it_266",
+          "it_267",
+          "it_268",
+          "it_269",
+          "it_270",
+          "it_271",
+          "it_272",
+          "it_273",
+          "it_274",
+          "it_275",
+          "it_276",
+          "it_277",
+          "it_278",
+          "it_279",
+          "it_280",
+          "it_281",
+          "it_282",
+          "it_283",
+          "it_284",
+          "it_285",
+          "it_286",
+          "it_287",
+          "it_288",
+          "it_289",
+          "it_290",
+          "it_291",
+          "it_292",
+          "it_293",
+          "it_294",
+          "it_295",
+          "it_296",
+          "it_297",
+          "it_298",
+          "it_299",
+          "it_300",
+          "it_301",
+          "it_302",
+          "it_303",
+          "it_304",
+          "it_305",
+          "it_306",
+          "it_307",
+          "it_308",
+          "it_309",
+          "it_310",
+          "it_311",
+          "it_312",
+          "it_313",
+          "it_314",
+          "it_315",
+          "it_316",
+          "it_317",
+          "it_318",
+          "it_319",
+          "it_320",
+          "it_321",
+          "it_322",
+          "it_323",
+          "it_324",
+          "it_325",
+          "it_326",
+          "it_327",
+          "it_328",
+          "it_329",
+          "it_330",
+          "it_331",
+          "it_332",
+          "it_333",
+          "it_334",
+          "it_335",
+          "it_336",
+          "it_337",
+          "it_338",
+          "it_339",
+          "it_340",
+          "it_341",
+          "it_342",
+          "it_343",
+          "it_344",
+          "it_345",
+          "it_346",
+          "it_347",
+          "it_348",
+          "it_349",
+          "it_350",
+          "it_351",
+          "it_352",
+          "it_353",
+          "it_354",
+          "it_355",
+          "it_356",
+          "it_357",
+          "it_358",
+          "it_359",
+          "it_360",
+          "it_361",
+          "it_362",
+          "it_363",
+          "it_364",
+          "it_365",
+          "it_366",
+          "it_367",
+          "it_368",
+          "it_369",
+          "it_370",
+          "it_371",
+          "it_372",
+          "it_373",
+          "it_374",
+          "it_375",
+          "it_376",
+          "it_377",
+          "it_378",
+          "it_379",
+          "it_380",
+          "it_381",
+          "it_382",
+          "it_383",
+          "it_384",
+          "it_385",
+          "it_386",
+          "it_387",
+          "it_388",
+          "it_389",
+          "it_390",
+          "it_391",
+          "it_392",
+          "it_393",
+          "it_394",
+          "it_395",
+          "it_396",
+          "it_397",
+          "it_398",
+          "it_399",
+          "it_div",
+          "it_400",
+          "it_401",
+          "it_402",
+          "it_403",
+          "it_404",
+          "it_405",
+          "it_406",
+          "it_407",
+          "it_408",
+          "it_409",
+          "it_410",
+          "it_411",
+          "it_412",
+          "it_413",
+          "it_414",
+          "it_415",
+          "it_416",
+          "it_417",
+          "it_418",
+          "it_419",
+          "it_420",
+          "it_421",
+          "it_422",
+          "it_423",
+          "it_424",
+          "it_425",
+          "it_426",
+          "it_427",
+          "it_428",
+          "it_429",
+          "it_430",
+          "it_431",
+          "it_432",
+          "it_433",
+          "it_434",
+          "it_435",
+          "it_436",
+          "it_437",
+          "it_438",
+          "it_439",
+          "it_440",
+          "it_441",
+          "it_442",
+          "it_443",
+          "it_444",
+          "it_445",
+          "it_446",
+          "it_447",
+          "it_448",
+          "it_449",
+          "it_450",
+          "it_451",
+          "it_452",
+          "it_453",
+          "it_454",
+          "it_455",
+          "it_456",
+          "it_457",
+          "it_458",
+          "it_459",
+          "it_460",
+          "it_461",
+          "it_462",
+          "it_463",
+          "it_464",
+          "it_465",
+          "it_466",
+          "it_467",
+          "it_468",
+          "it_469",
+          "it_470",
+          "it_471",
+          "it_472",
+          "it_473",
+          "it_474",
+          "it_475",
+          "it_476",
+          "it_477",
+          "it_478",
+          "it_479",
+          "it_480",
+          "it_481",
+          "it_482",
+          "it_483",
+          "it_484",
+          "it_485",
+          "it_486",
+          "it_487",
+          "it_488",
+          "it_489",
+          "it_490",
+          "it_491",
+          "it_492",
+          "it_493",
+          "it_494",
+          "it_495",
+          "it_496",
+          "it_497",
+          "it_498",
+          "it_499",
+          "it_500",
+          "it_501",
+          "it_502",
+          "it_503",
+          "it_504",
+          "it_505",
+          "it_506",
+          "it_507",
+          "it_508",
+          "it_509",
+          "it_510",
+          "it_511",
+          "it_512",
+          "it_513",
+          "it_514",
+          "it_515",
+          "it_516",
+          "it_517",
+          "it_518",
+          "it_519",
+          "it_520",
+          "it_521",
+          "it_522",
+          "it_523",
+          "it_524",
+          "it_525",
+          "it_526",
+          "it_527",
+          "it_528",
+          "it_529",
+          "it_530",
+          "it_531",
+          "it_532",
+          "it_533",
+          "it_534",
+          "it_535",
+          "it_536",
+          "it_537",
+          "it_538",
+          "it_539",
+          "it_540",
+          "it_541",
+          "it_542",
+          "it_543",
+          "it_544",
+          "it_545",
+          "it_546",
+          "it_547",
+          "it_548",
+          "it_549",
+          "it_550",
+          "it_551",
+          "it_552",
+          "it_553",
+          "it_554",
+          "it_555",
+          "it_556",
+          "it_557",
+          "it_558",
+          "it_559",
+          "it_560",
+          "it_561",
+          "it_562",
+          "it_563",
+          "it_564",
+          "it_565",
+          "it_566",
+          "it_567",
+          "it_568",
+          "it_569",
+          "it_570",
+          "it_571",
+          "it_572",
+          "it_573",
+          "it_574",
+          "it_575",
+          "it_576",
+          "it_577",
+          "it_578",
+          "it_579",
+          "it_580",
+          "it_581",
+          "it_582",
+          "it_583",
+          "it_584",
+          "it_585",
+          "it_586",
+          "it_587",
+          "it_588",
+          "it_589",
+          "it_590",
+          "it_591",
+          "it_592",
+          "it_593",
+          "it_594",
+          "it_595",
+          "it_596",
+          "it_597",
+          "it_598",
+          "it_599",
+          "it_600",
+          "it_601",
+          "it_602",
+          "it_603",
+          "it_604",
+          "it_605",
+          "it_606",
+          "it_607",
+          "it_608",
+          "it_609",
+          "it_610",
+          "it_611",
+          "it_612",
+          "it_613",
+          "it_614",
+          "it_615",
+          "it_616",
+          "it_617",
+          "it_618",
+          "it_619",
+          "it_620",
+          "it_621",
+          "it_622",
+          "it_623",
+          "it_624",
+          "it_625",
+          "it_626",
+          "it_627",
+          "it_628",
+          "it_629",
+          "it_630",
+          "it_631",
+          "it_632",
+          "it_633",
+          "it_634",
+          "it_635",
+          "it_636",
+          "it_637",
+          "it_638",
+          "it_639",
+          "it_640",
+          "it_641",
+          "it_642",
+          "it_643",
+          "it_644",
+          "it_645",
+          "it_646",
+          "it_647",
+          "it_648",
+          "it_649",
+          "it_650",
+          "it_651",
+          "it_652",
+          "it_653",
+          "it_654",
+          "it_655",
+          "it_656",
+          "it_657",
+          "it_658",
+          "it_659",
+          "it_660",
+          "it_661",
+          "it_662",
+          "it_663",
+          "it_664",
+          "it_665",
+          "it_666",
+          "it_667",
+          "it_668",
+          "it_669",
+          "it_670",
+          "it_671",
+          "it_672",
+          "it_673",
+          "it_674",
+          "it_675",
+          "it_676",
+          "it_677",
+          "it_678",
+          "it_679",
+          "it_680",
+          "it_681",
+          "it_682",
+          "it_683",
+          "it_684",
+          "it_685",
+          "it_686",
+          "it_687",
+          "it_688",
+          "it_689",
+          "it_690",
+          "it_691",
+          "it_692",
+          "it_693",
+          "it_694",
+          "it_695",
+          "it_696",
+          "it_697",
+          "it_698",
+          "it_699"
+        ],
+        "firstId": "it_0",
+        "hasOlder": false
+      }
+    },
+    {
+      "case": "an oversized message row is sent whole, so a first page with it is over the budget (as HEAD)",
+      "observed": {
+        "rowChars": 400000,
+        "ids": [
+          "big"
+        ],
+        "bytes": 400040,
+        "sentWhole": true,
+        "tailBytes": 128000,
+        "hasOlder": true,
+        "wires": [
+          {
+            "bytes": 400098,
+            "wire": {
+              "jsonChars": 400098,
+              "sha256": "49724d445101dbb40da894f948cefab660bbb7e4d8a6c9065be093e566dbb450"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
