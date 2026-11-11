@@ -8,15 +8,12 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-gemini-stream',
-  pure: {
-    '*': 'mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered',
-  },
-  entry: 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard (pure cases: the scripted response is the recorded status, headers and body chunks as delivered); gemini.mjs GeminiProvider.send against the loopback endpoint (the first-chunk window case, WIRE level). Not run: a live endpoint.',
-  compare: 'PURE cases (see `levels`): feed `input.response.$response.bodyChunks` to the public GeminiDecoder (google/decode.rs:193) and compare `response` / `error` (typed code, status, flags) and the `progress` / `text` / `dispatched` callbacks in order. WIRE case first-chunk-window: serve a request that is accepted and never answered through the Rust Gemini send, advance a virtual clock as `clock` records, and compare the request as it arrived (10 requests: the retries) and the final `error` (code, timeoutPhase, message).',
-  replay: "PURE: mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub). WIRE: mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) via ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint.",
+  entry: 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test\'s silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.',
+  compare: 'Serve each case\'s `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.',
+  replay: "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
 });
 const { consumeGeminiRestStreamResponse, createGeminiTextLeakGuard } = await rec.P('agent/orchestrator/providers/gemini-stream.mjs');
-const { GeminiProvider } = await rec.P('agent/orchestrator/providers/gemini.mjs');
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse';
 const SRC = 'src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs';
 
 const nativePart = { functionCall: { id: 'native-id', name: 'read', args: { path: 'fixture' } }, thoughtSignature: 'native-signature' };
@@ -39,10 +36,14 @@ const consume = async (response, options = {}) => {
   }
   return { ...out, ...seen };
 };
-// The input of a case is the scripted response itself: status, headers and the body bytes as delivered.
+// The input of a case is the served script: status, content type and the body chunks as written to the socket; the product function reads a real fetch Response of it.
 const run = (id, line, chunks, fn, raw) => {
-  const response = rec.response([raw ?? frames(chunks)]);
-  return rec.run(id, `${SRC}:${line}`, { response }, () => (fn ?? consume)(response));
+  const served = { status: 200, contentType: 'text/event-stream', chunks: [raw ?? frames(chunks)] };
+  return rec.run(id, `${SRC}:${line}`, { served }, async ({ net }) => {
+    net.reply = () => served;
+    const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    return (fn ?? consume)(response);
+  });
 };
 
 await run('whole-call-without-finish', 28, [cand([nativePart])]);
@@ -74,12 +75,15 @@ const inBand = { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'quo
 await run('in-band-error-before-text', 168, [inBand]);
 await run('in-band-error-after-stop', 174, [cand([{ text: 'ok' }], { finishReason: 'STOP' }), inBand]);
 await run('in-band-error-unterminated-tail', 185, [], undefined, `data: ${JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } })}`);
-// The first-chunk window is a timer of the send, not of the decoder: WIRE level. The real GeminiProvider sends to the loopback endpoint, which accepts the request and never
-// writes a byte (`hold`); the virtual clock moves to every timer the send arms (the first-chunk watchdog, then its retry sleeps) until the send ends.
-await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:197`, { endpoint: 'accepts the request, never writes a byte', clock: 'every armed timer in due order until the send ends' }, async () => {
-  rec.net.reply = () => ({ status: 200, contentType: 'text/event-stream', chunks: [], hold: true });
-  const provider = new GeminiProvider({ apiKey: 'fixture-key' });
-  const settled = provider.send([{ role: 'user', content: 'hi' }], 'gemini-2.5-pro', [], {}).then((response) => ({ response }), (error) => ({ error }));
-  return rec.clock.followRetries(settled, { sites: /./, what: 'gemini first-chunk window and retries' });
+// :197 - the test hands consumeGeminiRestStreamResponse a response that never produces a chunk and a 25 ms first-byte window: the endpoint accepts the request and never writes a body byte; the
+// product timer runs on the virtual clock and the recorder advances it by exactly 25 ms once the timer is armed.
+await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:197`, { served: { status: 200, contentType: 'text/event-stream', chunks: [], hold: true }, options: { label: 'fixture', firstByteTimeoutMs: 25 }, advanceMs: 25 }, async ({ net, clock }) => {
+  net.reply = () => ({ status: 200, contentType: 'text/event-stream', chunks: [], hold: true });
+  const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const pending = consumeGeminiRestStreamResponse(response, { label: 'fixture', firstByteTimeoutMs: 25 }).then((value) => ({ response: value }), (error) => ({ error }));
+  const armed = () => clock.pendingFrom(/./).some((timer) => timer.due === Date.now() - rec.T0 + 25);
+  await clock.advance(0, { until: armed, what: 'first-chunk window armed' });
+  await clock.advance(25, { what: 'first-chunk window (25 ms)' });
+  return pending;
 });
 await rec.finish();

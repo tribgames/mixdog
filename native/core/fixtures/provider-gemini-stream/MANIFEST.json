@@ -1,14 +1,14 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "PURE cases (see `levels`): feed `input.response.$response.bodyChunks` to the public GeminiDecoder (google/decode.rs:193) and compare `response` / `error` (typed code, status, flags) and the `progress` / `text` / `dispatched` callbacks in order. WIRE case first-chunk-window: serve a request that is accepted and never answered through the Rust Gemini send, advance a virtual clock as `clock` records, and compare the request as it arrived (10 requests: the retries) and the final `error` (code, timeoutPhase, message).",
+  "compare": "Serve each case's `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard (pure cases: the scripted response is the recorded status, headers and body chunks as delivered); gemini.mjs GeminiProvider.send against the loopback endpoint (the first-chunk window case, WIRE level). Not run: a live endpoint.",
+  "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test's silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 48784,
+      "bytes": 70436,
       "path": "cases.json",
-      "sha256": "95936605b78ac32cfe189484860cadb55947478ef0cb3fe008191c0fd458b7c6"
+      "sha256": "f9d1541baa49cb7bc3dac3e891a9d830072f7b69e962ec1b8002d28ede30b2a2"
     }
   ],
   "inputs": [
@@ -51,93 +51,75 @@
   "levels": [
     {
       "id": "whole-call-without-finish",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "one-complete-one-unfinished-0",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "one-complete-one-unfinished-1",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "one-complete-one-unfinished-2",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "several-complete-calls-without-finish",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "no-finish-text-only",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "no-finish-thoughts-only",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "no-finish-partial-functionCall",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "no-finish-empty-candidate",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "native-tool-chunks-replayable",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "visible-text-then-native-chunk",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "leaked-call-held-back",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "leaked-call-dispatched",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "ordered-parts-and-signatures",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "in-band-error-before-text",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "in-band-error-after-stop",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "in-band-error-unterminated-tail",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     },
     {
       "id": "first-chunk-window-follows-caller-and-names-phase",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub, `pub mod decode` at providers/google/mod.rs:19; new :241 with a DecodeDialect, with_known_tools :276, feed/finish in `impl WireDecoder` :551): fed the recorded body chunks as delivered"
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -159,12 +141,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-stream.mjs",
-  "recorderSha256": "62d2f45fc6b1a94508c9594758cac617e0815a4b67c031ad2b453c891430e48f",
-  "replay": "PURE: mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub). WIRE: mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) via ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint.",
+  "recorderSha256": "4d34c081b549a8f3feb46db05234eb0aadc2fd1691a3fad8242486cb5741410b",
+  "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-gemini-stream",
-  "totalBytes": 48784,
+  "totalBytes": 70436,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
