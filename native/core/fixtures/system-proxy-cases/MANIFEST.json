@@ -70,7 +70,21 @@
   "recorderSha256": "124bed27e429535d277f7feae7ce3071cb195ee48fc3f426672fb166e387e0c0",
   "replay": {
     "compare": "mixdog-app-server-daemon system_proxy_claim.rs and mixdog-ai netproxy: replay the lookup requests, lease attach/release and the route answers; compare asked origins, settled args, attach/detach counts and routes whole",
-    "entry": "Drive these public items on o1: mixdog-app-server-daemon/src/system_proxy_claim.rs:28 new; mixdog-ai/src/netproxy/system.rs:601 attach_resolver; mixdog-ai/src/netproxy/system.rs:354 route_from_chromium.",
+    "declaredExclusions": [
+      {
+        "case": "the desktop and the runtime agree on the lookup event",
+        "reason": "compares two Node constants (the desktop's and the Node daemon's SYSTEM_PROXY_REQUEST_EVENT); the core replaces that event with the typed host/systemProxy/resolve request, so no core value corresponds"
+      },
+      {
+        "case": "the window answers a lookup with Chromium’s answer for its origin, and failures by name only",
+        "reason": "apps/desktop/src/main/system-proxy.ts answerSystemProxyRequest runs in the desktop's main process (the host-claim client), not in the core"
+      },
+      {
+        "case": "the lease attaches one resolver while any asking client is connected",
+        "reason": "apps/desktop/src/main/system-proxy.ts createSystemProxyLease (visibility epochs, NaN epoch, older daemon) runs in the desktop's main process; the core's side, one resolver per SystemProxy claim dropped with the claim, is replayed by the last case"
+      }
+    ],
+    "entry": "netproxy/system_replay_tests.rs drives the last case: SystemProxy::adopt (mixdog-ai/src/netproxy/system.rs:551) with the recorded registry, then the claim's resolver as SystemProxyClaims::claimed (mixdog-app-server-daemon/src/system_proxy_claim.rs:34) attaches it, SystemProxy::attach_resolver (mixdog-ai/src/netproxy/system.rs:601) over HostResolver asking host/systemProxy/resolve, SystemProxy::route (mixdog-ai/src/netproxy/system.rs:480) per origin, and the handle dropped as the claim ends.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the desktop answer envelopes of attach and release (the lease the desktop holds and its release answer): system_proxy_claim.rs and netproxy/system.rs hold the resolver attach and the Chromium route only; no release answer function in either"
