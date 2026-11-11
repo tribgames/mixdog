@@ -103,6 +103,8 @@
           "generation": 2,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-context-switch",
           "messages": [
@@ -112,7 +114,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3f404142434445464748494a\",\"id\":\"sess_sequence_detach_fail_2\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_detach_fail_2\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-context-switch\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3f404142434445464748494a\",\"id\":\"sess_sequence_detach_fail_2\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_detach_fail_2\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-context-switch\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl"
         ]
@@ -286,6 +288,8 @@
           "generation": 3,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "detach",
           "closedReason": "test",
@@ -297,7 +301,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8b8c8d8e8f90919293949596\",\"id\":\"sess_sequence_random_2_4\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_2_4\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8b8c8d8e8f90919293949596\",\"id\":\"sess_sequence_random_2_4\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_2_4\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_2_4.log.jsonl"
@@ -520,6 +524,8 @@
           "generation": 2,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "closedReason": "test",
@@ -531,7 +537,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"191a1b1c1d1e1f2021222324\",\"id\":\"sess_sequence_random_5_7\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_5_7\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"191a1b1c1d1e1f2021222324\",\"id\":\"sess_sequence_random_5_7\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_5_7\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_2_4.log.jsonl",
@@ -593,6 +599,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -603,7 +611,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"434445464748494a4b4c4d4e\",\"id\":\"sess_sequence_random_6_8\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_6_8\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"434445464748494a4b4c4d4e\",\"id\":\"sess_sequence_random_6_8\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_6_8\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_2_4.log.jsonl",
@@ -676,6 +684,8 @@
           "generation": 2,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -687,7 +697,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"65666768696a6b6c6d6e6f70\",\"id\":\"sess_sequence_random_7_9\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_7_9\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"65666768696a6b6c6d6e6f70\",\"id\":\"sess_sequence_random_7_9\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_7_9\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_2_4.log.jsonl",
@@ -767,6 +777,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -777,7 +789,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8f909192939495969798999a\",\"id\":\"sess_sequence_random_8_10\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_8_10\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8f909192939495969798999a\",\"id\":\"sess_sequence_random_8_10\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_8_10\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_2_4.log.jsonl",
@@ -951,6 +963,8 @@
           "generation": 2,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "messages": [
@@ -960,7 +974,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"dbdcdddedfe0e1e2e3e4e5e6\",\"id\":\"sess_sequence_random_10_12\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_10_12\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"dbdcdddedfe0e1e2e3e4e5e6\",\"id\":\"sess_sequence_random_10_12\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_10_12\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1033,6 +1047,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -1047,7 +1063,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"05060708090a0b0c0d0e0f10\",\"id\":\"sess_sequence_random_11_13\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_11_13\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"05060708090a0b0c0d0e0f10\",\"id\":\"sess_sequence_random_11_13\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_11_13\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1140,6 +1156,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -1150,7 +1168,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2f303132333435363738393a\",\"id\":\"sess_sequence_random_12_14\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_12_14\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2f303132333435363738393a\",\"id\":\"sess_sequence_random_12_14\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_12_14\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1242,6 +1260,8 @@
           "generation": 2,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "closedReason": "test",
@@ -1253,7 +1273,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5152535455565758595a5b5c\",\"id\":\"sess_sequence_random_13_15\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_13_15\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5152535455565758595a5b5c\",\"id\":\"sess_sequence_random_13_15\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_13_15\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1333,6 +1353,8 @@
           "generation": 2,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "closedReason": "test",
@@ -1352,7 +1374,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7b7c7d7e7f80818283848586\",\"id\":\"sess_sequence_random_14_16\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_14_16\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7b7c7d7e7f80818283848586\",\"id\":\"sess_sequence_random_14_16\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_14_16\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1765,6 +1787,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -1775,7 +1799,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5d5e5f606162636465666768\",\"id\":\"sess_sequence_random_19_21\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_19_21\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5d5e5f606162636465666768\",\"id\":\"sess_sequence_random_19_21\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_19_21\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1882,6 +1906,8 @@
           "generation": 3,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "closedReason": "test",
@@ -1893,7 +1919,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7f808182838485868788898a\",\"id\":\"sess_sequence_random_20_22\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_20_22\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7f808182838485868788898a\",\"id\":\"sess_sequence_random_20_22\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_20_22\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -1974,6 +2000,8 @@
           "generation": 0,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "messages": [
             {
               "role": "user",
@@ -1997,7 +2025,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"b1b2b3b4b5b6b7b8b9babbbc\",\"id\":\"sess_sequence_random_21_23\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_21_23\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"b1b2b3b4b5b6b7b8b9babbbc\",\"id\":\"sess_sequence_random_21_23\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_21_23\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -2098,6 +2126,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -2112,7 +2142,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"d3d4d5d6d7d8d9dadbdcddde\",\"id\":\"sess_sequence_random_22_24\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_22_24\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"d3d4d5d6d7d8d9dadbdcddde\",\"id\":\"sess_sequence_random_22_24\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_22_24\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -2280,6 +2310,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -2290,7 +2322,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"1718191a1b1c1d1e1f202122\",\"id\":\"sess_sequence_random_24_26\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_24_26\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"1718191a1b1c1d1e1f202122\",\"id\":\"sess_sequence_random_24_26\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_24_26\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -2578,6 +2610,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -2604,7 +2638,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7d7e7f808182838485868788\",\"id\":\"sess_sequence_random_27_29\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_27_29\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7d7e7f808182838485868788\",\"id\":\"sess_sequence_random_27_29\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_27_29\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -2785,6 +2819,8 @@
           "generation": 3,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "messages": [
@@ -2798,7 +2834,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e1e2e3e4e5e6e7e8e9eaebec\",\"id\":\"sess_sequence_random_29_31\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_29_31\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":3},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e1e2e3e4e5e6e7e8e9eaebec\",\"id\":\"sess_sequence_random_29_31\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_29_31\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":3},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -2891,6 +2927,8 @@
           "generation": 1,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "detach",
           "messages": [
@@ -2904,7 +2942,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"131415161718191a1b1c1d1e\",\"id\":\"sess_sequence_random_30_32\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_30_32\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"131415161718191a1b1c1d1e\",\"id\":\"sess_sequence_random_30_32\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_30_32\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -2982,6 +3020,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -2992,7 +3032,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"35363738393a3b3c3d3e3f40\",\"id\":\"sess_sequence_random_31_33\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_31_33\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"35363738393a3b3c3d3e3f40\",\"id\":\"sess_sequence_random_31_33\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_31_33\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -3105,6 +3145,8 @@
           "generation": 4,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "closedReason": "test",
@@ -3116,7 +3158,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5758595a5b5c5d5e5f606162\",\"id\":\"sess_sequence_random_32_34\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_32_34\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3},\"unset\":[]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":4,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5758595a5b5c5d5e5f606162\",\"id\":\"sess_sequence_random_32_34\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_32_34\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3},\"unset\":[]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":4,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -3523,6 +3565,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -3545,7 +3589,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"ff000102030405060708090a\",\"id\":\"sess_sequence_random_36_38\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_36_38\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"ff000102030405060708090a\",\"id\":\"sess_sequence_random_36_38\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_36_38\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -3628,6 +3672,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -3638,7 +3684,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2122232425262728292a2b2c\",\"id\":\"sess_sequence_random_37_39\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_37_39\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2122232425262728292a2b2c\",\"id\":\"sess_sequence_random_37_39\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_37_39\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -3734,6 +3780,8 @@
           "generation": 2,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "messages": [
@@ -3747,7 +3795,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"434445464748494a4b4c4d4e\",\"id\":\"sess_sequence_random_38_40\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_38_40\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"434445464748494a4b4c4d4e\",\"id\":\"sess_sequence_random_38_40\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_38_40\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":2,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -3842,6 +3890,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -3860,7 +3910,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"75767778797a7b7c7d7e7f80\",\"id\":\"sess_sequence_random_39_41\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_39_41\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"75767778797a7b7c7d7e7f80\",\"id\":\"sess_sequence_random_39_41\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_39_41\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -4088,6 +4138,8 @@
           "generation": 3,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -4099,7 +4151,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c9cacbcccdcecfd0d1d2d3d4\",\"id\":\"sess_sequence_random_41_43\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_41_43\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c9cacbcccdcecfd0d1d2d3d4\",\"id\":\"sess_sequence_random_41_43\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_41_43\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"detachedReason\":\"detach\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":3},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -4325,6 +4377,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -4335,7 +4389,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2d2e2f303132333435363738\",\"id\":\"sess_sequence_random_43_45\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_43_45\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2d2e2f303132333435363738\",\"id\":\"sess_sequence_random_43_45\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_43_45\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -4602,6 +4656,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -4612,7 +4668,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"a3a4a5a6a7a8a9aaabacadae\",\"id\":\"sess_sequence_random_46_48\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_46_48\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"a3a4a5a6a7a8a9aaabacadae\",\"id\":\"sess_sequence_random_46_48\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_46_48\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -4703,6 +4759,8 @@
           "generation": 1,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "detach",
           "messages": [
@@ -4712,7 +4770,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c5c6c7c8c9cacbcccdcecfd0\",\"id\":\"sess_sequence_random_47_49\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_47_49\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c5c6c7c8c9cacbcccdcecfd0\",\"id\":\"sess_sequence_random_47_49\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_47_49\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -5370,6 +5428,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -5380,7 +5440,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c1c2c3c4c5c6c7c8c9cacbcc\",\"id\":\"sess_sequence_random_53_55\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_53_55\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c1c2c3c4c5c6c7c8c9cacbcc\",\"id\":\"sess_sequence_random_53_55\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_53_55\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -5468,6 +5528,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -5482,7 +5544,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e3e4e5e6e7e8e9eaebecedee\",\"id\":\"sess_sequence_random_54_56\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_54_56\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e3e4e5e6e7e8e9eaebecedee\",\"id\":\"sess_sequence_random_54_56\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_54_56\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -5659,6 +5721,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -5669,7 +5733,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2728292a2b2c2d2e2f303132\",\"id\":\"sess_sequence_random_56_58\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_56_58\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2728292a2b2c2d2e2f303132\",\"id\":\"sess_sequence_random_56_58\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_56_58\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -5764,6 +5828,8 @@
           "generation": 1,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "messages": [
@@ -5773,7 +5839,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"494a4b4c4d4e4f5051525354\",\"id\":\"sess_sequence_random_57_59\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_57_59\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"494a4b4c4d4e4f5051525354\",\"id\":\"sess_sequence_random_57_59\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_57_59\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -5869,6 +5935,8 @@
           "generation": 2,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "desktop-session-delete",
           "closedReason": "test",
@@ -5880,7 +5948,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6b6c6d6e6f70717273747576\",\"id\":\"sess_sequence_random_58_60\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_58_60\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6b6c6d6e6f70717273747576\",\"id\":\"sess_sequence_random_58_60\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_58_60\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-session-delete\"},\"unset\":[]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":2,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -5982,6 +6050,8 @@
           "generation": 1,
           "closed": false,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "updatedAt": 1700000000000,
           "detachedReason": "detach",
           "messages": [
@@ -5999,7 +6069,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"95969798999a9b9c9d9e9fa0\",\"id\":\"sess_sequence_random_59_61\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_59_61\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"95969798999a9b9c9d9e9fa0\",\"id\":\"sess_sequence_random_59_61\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_59_61\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",
@@ -6098,6 +6168,8 @@
           "generation": 1,
           "closed": true,
           "tools": [],
+          "offloadSources": [],
+          "offloadSourcesRules": 2,
           "closedReason": "test",
           "status": "closed",
           "updatedAt": 1700000000000,
@@ -6112,7 +6184,7 @@
             }
           ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bfc0c1c2c3c4c5c6c7c8c9ca\",\"id\":\"sess_sequence_random_60_62\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_60_62\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bfc0c1c2c3c4c5c6c7c8c9ca\",\"id\":\"sess_sequence_random_60_62\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_60_62\",\"generation\":0,\"closed\":false,\"tools\":[],\"offloadSources\":[],\"offloadSourcesRules\":2}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
         "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_10_12.log.jsonl",

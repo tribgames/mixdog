@@ -115,7 +115,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -145,7 +147,9 @@
                 "fast": true,
                 "modelParameters": {}
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -216,7 +220,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -252,7 +258,9 @@
                 "fast": false,
                 "modelParameters": {}
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -359,7 +367,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -404,7 +414,9 @@
                   "context": "272k"
                 }
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -626,7 +638,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -661,7 +675,9 @@
                 "contextPercent": 50,
                 "selectedContextWindow": 500000
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -702,7 +718,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -737,7 +755,9 @@
                 "contextPercent": 50,
                 "selectedContextWindow": 500000
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -779,7 +799,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -814,7 +836,9 @@
                 "contextPercent": 100,
                 "selectedContextWindow": 1000000
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -857,7 +881,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -892,7 +918,9 @@
                 "contextPercent": 30,
                 "selectedContextWindow": 272000
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -934,7 +962,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -966,7 +996,9 @@
                 "modelParameters": {},
                 "contextPercent": 50
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -1028,7 +1060,9 @@
               "provider": "openai-oauth",
               "model": "gpt-6-astra",
               "messages": [],
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             }
           },
           "outcome": {
@@ -1058,7 +1092,9 @@
                 "fast": false,
                 "modelParameters": {}
               },
-              "tools": []
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
             },
             "file": {
               "modelSettings": {
@@ -1320,6 +1356,10 @@
               "auto": true
             },
             "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2,
             "inheritedFromSessionId": "source",
             "updatedAt": 1700000000000
           },
@@ -1355,6 +1395,10 @@
                   "auto": true
                 },
                 "tools": [],
+                "offloadSources": [
+                  "source"
+                ],
+                "offloadSourcesRules": 2,
                 "inheritedFromSessionId": "source",
                 "updatedAt": 1700000000000
               },
@@ -1489,7 +1533,11 @@
             "compaction": {
               "auto": true
             },
-            "tools": []
+            "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2
           },
           "saves": []
         },
@@ -1550,6 +1598,10 @@
               "auto": true
             },
             "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2,
             "inheritedFromSessionId": "source",
             "updatedAt": 1700000000000
           },
@@ -1589,6 +1641,10 @@
                   "auto": true
                 },
                 "tools": [],
+                "offloadSources": [
+                  "source"
+                ],
+                "offloadSourcesRules": 2,
                 "inheritedFromSessionId": "source",
                 "updatedAt": 1700000000000
               },
@@ -1725,6 +1781,10 @@
               "auto": true
             },
             "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2,
             "inheritedFromSessionId": "source",
             "updatedAt": 1700000000000
           }
@@ -1777,6 +1837,10 @@
                 "auto": true
               },
               "tools": [],
+              "offloadSources": [
+                "source"
+              ],
+              "offloadSourcesRules": 2,
               "inheritedFromSessionId": "source",
               "updatedAt": 1700000000000
             }
@@ -1832,6 +1896,10 @@
                 "auto": true
               },
               "tools": [],
+              "offloadSources": [
+                "source"
+              ],
+              "offloadSourcesRules": 2,
               "inheritedFromSessionId": "source",
               "updatedAt": 1700000000000
             }
@@ -1865,7 +1933,11 @@
             "compaction": {
               "auto": true
             },
-            "tools": []
+            "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2
           }
         },
         "empty": {
@@ -1890,7 +1962,11 @@
             "compaction": {
               "auto": true
             },
-            "tools": []
+            "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2
           }
         }
       }
