@@ -206,6 +206,7 @@ impl Callback {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_mcp_callback_answers_as_nodes() {
+    let _seams = crate::oauth_seams().await;
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let title = case["title"].as_str().unwrap();

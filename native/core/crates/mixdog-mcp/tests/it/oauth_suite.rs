@@ -200,6 +200,7 @@ async fn browser_get(url: &Url) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn sign_in_connect_refresh_and_sign_out() {
+    let _seams = crate::oauth_seams().await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let shared: Shared = Arc::default();

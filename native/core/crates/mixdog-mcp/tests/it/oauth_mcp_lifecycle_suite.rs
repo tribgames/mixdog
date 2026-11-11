@@ -503,7 +503,7 @@ async fn seed(stage: &Stage, client: &str) -> u16 {
 }
 
 /// The cases by the prefix of their title: each group is its own test (the seams are process-wide, so a test replays its
-/// cases one after the other) and `every_case_belongs_to_a_group` keeps the groups equal to the whole recording.
+/// cases one after the other, holding `crate::oauth_seams` against the other tests of the process) and `every_case_belongs_to_a_group` keeps the groups equal to the whole recording.
 const GROUPS: [&[&str]; 8] = [
     &["exchange invalid_client", "exchange unauthorized_client"],
     &["exchange invalid_grant"],
@@ -516,6 +516,7 @@ const GROUPS: [&[&str]; 8] = [
 ];
 
 async fn replay_group(group: usize) {
+    let _seams = crate::oauth_seams().await;
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let mut failures = Vec::new();
     let mut replayed = 0;
