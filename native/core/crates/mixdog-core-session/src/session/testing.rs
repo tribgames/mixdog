@@ -109,6 +109,8 @@ pub struct TestCompaction {
     pub heir_asked: Mutex<Vec<(u64, bool)>>,
     /// `compact_for_heir` fails (the compactor threw).
     pub heir_fails: std::sync::atomic::AtomicBool,
+    /// Each `prune_offloads`: the thread and the transcripts it was given.
+    pub pruned: Mutex<Vec<(String, String)>>,
 }
 
 #[async_trait::async_trait]
@@ -131,6 +133,9 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     }
     async fn post_compact(&self, _: &ThreadId, trigger: &str) {
         lock(&self.calls).push(format!("post {trigger}"));
+    }
+    async fn prune_offloads(&self, thread: &ThreadId, transcripts: String) {
+        lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
     async fn rearm(&self, _: &ThreadId) {
         lock(&self.calls).push("rearm".into());

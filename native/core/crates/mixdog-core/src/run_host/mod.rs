@@ -118,6 +118,8 @@ mod execution_tail_node_tests;
 mod summary_mode_node_tests;
 #[cfg(test)]
 mod presend_goal_reminder_node_tests;
+#[cfg(test)]
+mod offload_prune_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
