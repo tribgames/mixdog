@@ -46,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -144,9 +144,10 @@
   "recorderSha256": "e539d8232877030ed604dd8f5d070a355abf0ceeaa12816a1d090d00819a6862",
   "replay": {
     "compare": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole",
-    "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git.rs:90 start_git.",
+    "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:267 launch_for; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git_launch.rs:295 forget_missing; mixdog-scm/src/git.rs:90 start_git.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "resolveGitLaunch under that name, gitChildEnv and startGitSync: no function"
+      "startGitSync (the synchronous start with the same retry): no function"
     ],
     "normalised": {
       "tempRoots": "every temp root is written <root> wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)"
@@ -165,8 +166,18 @@
         "path": "native/core/crates/mixdog-scm/src/git_launch.rs"
       },
       {
+        "line": 267,
+        "name": "launch_for",
+        "path": "native/core/crates/mixdog-scm/src/git_launch.rs"
+      },
+      {
         "line": 287,
         "name": "git_command",
+        "path": "native/core/crates/mixdog-scm/src/git_launch.rs"
+      },
+      {
+        "line": 295,
+        "name": "forget_missing",
         "path": "native/core/crates/mixdog-scm/src/git_launch.rs"
       },
       {
