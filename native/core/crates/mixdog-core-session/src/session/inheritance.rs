@@ -70,8 +70,27 @@ fn clean(value: Option<&Value>) -> String {
 }
 
 /// `inheritableMessages`: system blocks belong to the session that built them.
-pub(super) fn inheritable(messages: Vec<Value>) -> Vec<Value> {
+pub fn inheritable(messages: Vec<Value>) -> Vec<Value> {
     messages.into_iter().filter(|message| message.get("role").and_then(Value::as_str) != Some("system")).collect()
+}
+
+/// `inheritanceFit(messages, target)`: the verdict on `messages` carried rows of a conversation over the target's
+/// [`FitBasis`] (`None`: an unmeasurable route, which stays permissive).
+pub fn inheritance_fit(provider: &str, model: &str, messages: usize, basis: Option<&FitBasis>) -> Map<String, Value> {
+    let mut out = Map::new();
+    out.insert("provider".into(), json!(provider));
+    out.insert("model".into(), json!(model));
+    out.insert("messages".into(), json!(messages));
+    let (known, fits, used, limit) = match basis {
+        Some(basis) if basis.limit > 0 => (true, basis.used < basis.limit, basis.used, basis.limit),
+        _ => (false, true, 0, 0),
+    };
+    out.insert("known".into(), json!(known));
+    out.insert("fits".into(), json!(fits));
+    out.insert("used".into(), json!(used));
+    out.insert("limit".into(), json!(limit));
+    out.insert("percent".into(), if known { json!(((used as f64 / limit as f64) * 100.0).ceil().max(0.0) as u64) } else { Value::Null });
+    out
 }
 
 /// `inheritanceFitMessage`.
@@ -315,19 +334,9 @@ impl SessionDirectory {
         };
         // `inheritanceFit`: the base names the target's route, empty when it has none.
         let (name, tag) = if provider.is_empty() || model.is_empty() { (String::new(), String::new()) } else { (provider, model) };
-        let mut out = Map::new();
-        out.insert("provider".into(), json!(name));
-        out.insert("model".into(), json!(tag));
-        out.insert("messages".into(), json!(carried.len()));
-        let (known, fits, used, limit) = match &basis {
-            Some(basis) if basis.limit > 0 => (true, basis.used < basis.limit, basis.used, basis.limit),
-            _ => (false, true, 0, 0),
-        };
-        out.insert("known".into(), json!(known));
-        out.insert("fits".into(), json!(fits));
-        out.insert("used".into(), json!(used));
-        out.insert("limit".into(), json!(limit));
-        out.insert("percent".into(), if known { json!(((used as f64 / limit as f64) * 100.0).ceil().max(0.0) as u64) } else { Value::Null });
+        let mut out = inheritance_fit(&name, &tag, carried.len(), basis.as_ref());
+        let (known, fits) = (out["known"] == json!(true), out["fits"] == json!(true));
+        let (used, limit) = (out["used"].as_u64().unwrap_or(0), out["limit"].as_u64().unwrap_or(0));
         // An oversized conversation is compacted for the heir rather than refused.
         let will_compact = known && !fits && basis.as_ref().is_some_and(|basis| basis.compactable);
         out.insert("willCompact".into(), json!(will_compact));

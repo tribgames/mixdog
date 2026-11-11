@@ -14,11 +14,10 @@
 //! `assistantBlocks`, `uiDiff`, and from `meta`: `source` (a string `meta` is a bare source),
 //! `attempt`, `submissionIds`, `transcript.messageId`, `effortConfiguration`.
 
-use mixdog_core_run::run_host::route_wiring::effort_value;
 use std::sync::Arc;
 
-use mixdog_agent::effort::EffortSnapshot;
-use mixdog_agent::message::{AgentMessage, Source, ToolKind, ToolTiming};
+use crate::effort::EffortSnapshot;
+use crate::message::{AgentMessage, Source, ToolKind, ToolTiming};
 use mixdog_core_api::domain::provider::{
     BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, StopReason, TextAttachment, ToolCall,
 };
@@ -418,7 +417,7 @@ fn meta_row(m: &AgentMessage, base: Option<&Value>, was: Option<&AgentMessage>) 
         set_or_remove(&mut meta, "transcript", (!transcript.is_empty()).then(|| Value::Object(transcript)));
     }
     if changed(&|w| w.effort == m.effort) {
-        set_or_remove(&mut meta, "effortConfiguration", m.effort.as_ref().map(effort_value));
+        set_or_remove(&mut meta, "effortConfiguration", m.effort.as_ref().map(EffortSnapshot::to_value));
     }
     // A bare `hook` / `skill` source with nothing else is the string form.
     if base.is_none_or(Value::is_string) && meta.len() == 1 && matches!(m.source, Some(Source::Hook | Source::Skill)) {
@@ -459,7 +458,8 @@ fn fresh_row(m: &AgentMessage) -> Row {
     set_or_remove(&mut row, "providerReplay", replay_value(m, None));
     set_or_remove(&mut row, "providerMetadata", m.provider_metadata.clone());
     set_or_remove(&mut row, "nativeToolSearch", m.message.native_tool_search.clone());
-    set_or_remove(&mut row, "turnReminder", m.message.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
+    // The run sets the agent message's own field; the provider message carries it only once sent (`wire`).
+    set_or_remove(&mut row, "turnReminder", m.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
     set_or_remove(&mut row, "stopReason", m.stop_reason.as_ref().map(|s| json!(stop_name(s))));
     set_or_remove(&mut row, "toolKind", m.tool_kind.map(|k| json!(kind_name(k))));
     set_or_remove(&mut row, "toolTiming", m.tool_timing.as_ref().map(timing_row));
@@ -515,8 +515,8 @@ pub fn row_of(message: &AgentMessage) -> Value {
     if m.provider_replay() != w.provider_replay() {
         set_or_remove(&mut row, "providerReplay", replay_value(message, base.get("providerReplay")));
     }
-    if m.turn_reminder != w.turn_reminder {
-        set_or_remove(&mut row, "turnReminder", m.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
+    if message.turn_reminder != was.turn_reminder {
+        set_or_remove(&mut row, "turnReminder", message.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
     }
     if message.stop_reason != was.stop_reason {
         set_or_remove(&mut row, "stopReason", message.stop_reason.as_ref().map(|s| json!(stop_name(s))));
@@ -616,7 +616,7 @@ mod tests {
     /// message, whose lowering carries the text only.
     #[test]
     fn a_reference_parts_object_survives_the_row_and_stays_off_the_wire() {
-        let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
+        let golden: Value = serde_json::from_str(include_str!("../../mixdog-core/src/run_host/golden/attachment_reference.json")).unwrap();
         let media = golden["pdf_pages"]["info"].as_object().unwrap().clone();
         let files = json!({ "kind": "files", "files": [{ "attachmentRef": "r", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1, "path": "/p/a.pdf" }] }).as_object().unwrap().clone();
         for meta in [media, files] {

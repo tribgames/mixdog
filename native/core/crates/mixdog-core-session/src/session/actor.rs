@@ -40,6 +40,7 @@ use mixdog_core_api::domain::approval::ApprovalId;
 use mixdog_core_api::feed::FeedFrame;
 use mixdog_core_api::ids::FeedEpoch;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::QueuedId;
 use mixdog_core_api::ids::ThreadId;
@@ -307,6 +308,15 @@ pub(crate) enum UnwindAt {
     Delete,
 }
 
+/// The recovered model context of a turn the process died in: the context's rows in order (kept and new), the new
+/// rows to commit with their facts, and whether anything differs from what is stored.
+#[derive(Default)]
+pub(crate) struct Recovery {
+    replacement: Vec<(ItemId, Value)>,
+    new: Vec<(ItemCommit, RowFacts)>,
+    changed: bool,
+}
+
 /// Results of lane jobs the actor submitted.
 pub(crate) enum JobDone {
     Encoded {
@@ -317,6 +327,10 @@ pub(crate) enum JobDone {
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
+    /// The open-time recovery of a turn the process died in has read and finalized the model context.
+    Recovered { rid: String, result: Result<Recovery, String> },
+    /// The recovery's records are durable (or failed): requests are served again.
+    RecoveryDone(Result<(), RunError>),
     /// A prompt-history append job ended: the list as the writer saw it, and the appends that did
     /// not land (the write failed, or the lane refused or dropped the job).
     PromptFlushed { list: Option<Vec<String>>, unwritten: Vec<String> },
@@ -481,7 +495,8 @@ pub(crate) enum Init {
     },
     /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
     /// ops its scope fenced are refused from the start (P §9.4).
-    Open { fenced: Vec<String> },
+    /// `ready` is told once the recovery is saved (or failed): the opener returns the thread only then.
+    Open { fenced: Vec<String>, ready: oneshot::Sender<()> },
 }
 
 /// `SUBMISSION_ID_MEMORY` (`session-flow/queue.mjs`).
@@ -723,6 +738,11 @@ pub(crate) struct SessionActor {
     submissions: Submissions,
     /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
     goal_checking: bool,
+    /// The open-time recovery of an interrupted turn runs: requests wait for it, so the first read
+    /// or turn sees the recovered conversation (Node recovers before the session is returned).
+    recovering: bool,
+    /// The opener waiting for the open-time recovery.
+    opened: Option<oneshot::Sender<()>>,
     /// When a thread nobody ever watched, quiet since, is unloaded (Node's `idleEvictMs` deadline
     /// on the idle clock); `None` while it is not waiting for that.
     idle_evict_at: Option<tokio::time::Instant>,
@@ -1059,6 +1079,8 @@ impl SessionActor {
             submitter: None,
             submissions: Submissions::default(),
             goal_checking: false,
+            recovering: false,
+            opened: None,
             idle_evict_at: None,
             goal_deferred: false,
             goal_tail: None,
@@ -1123,11 +1145,15 @@ impl SessionActor {
                     }],
                 );
             }
-            Init::Open { fenced } => {
+            Init::Open { fenced, ready } => {
                 for op in fenced {
                     self.ops.fence(&OpId::from(op)).expect("a loading actor has seen no op");
                 }
+                self.opened = Some(ready);
                 self.recover();
+                if !self.recovering {
+                    self.recovery_ended();
+                }
             }
         }
         // The session is installed (created or resumed): `syncSessionCompaction` (`boot/infrastructure.mjs`).
@@ -1171,7 +1197,7 @@ impl SessionActor {
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
-                Some(msg) = self.ch.inbox_rx.recv() => self.take_inbox(msg).await,
+                Some(msg) = self.ch.inbox_rx.recv(), if !self.recovering => self.take_inbox(msg).await,
                 else => break,
             }
             // The header writes a finished route move held, in order, until one of them starts the next move.
@@ -1708,6 +1734,13 @@ impl SessionActor {
             }
             JobDone::GoalSeen(None) => {}
             JobDone::CommitFacts { turn, item, facts, ack } => self.commit_with_facts(turn, item, facts, ack),
+            JobDone::Recovered { rid, result } => self.recovered(rid, result),
+            JobDone::RecoveryDone(done) => {
+                if let Err(error) = done {
+                    tracing::warn!("[session] the recovered turn of {} could not be saved: {error:?}", self.id.as_str());
+                }
+                self.recovery_ended();
+            }
             JobDone::CommitUnread { ack, error } => {
                 tracing::warn!(thread = %self.id, "a run's row was not committed: its facts could not be read ({error:?})");
                 let _ = ack.send(Err(RunError::NotApplied));
@@ -2311,6 +2344,7 @@ impl SessionActor {
                 self.settle_goal(settle);
             }
             Effect::AfterPublish(tx) => self.after_publish.push(tx),
+            Effect::Decided(_) => {}
         }
     }
 
@@ -2377,14 +2411,32 @@ impl SessionActor {
                 Effect::AfterPublish(tx) => {
                     let _ = tx.send(Err(error.clone()));
                 }
+                Effect::Decided(_) => {}
             }
         }
     }
 
-    /// A barrier failed: nothing after the acked state is applied (RL §6.1).
+    /// A barrier failed: nothing after the acked state is applied (RL §6.1). A conditional header patch behind the
+    /// record that failed was decided against a header that never landed: its caller hears `conflict` with the header
+    /// as it holds and computes it again, as Node's write accepted behind a failed one runs on what that one did.
     fn fail_all(&mut self, error: CoreError) {
-        for entry in self.outbox.fail_all() {
-            self.fail_entry(entry, &error);
+        for (index, entry) in self.outbox.fail_all().into_iter().enumerate() {
+            let decided = entry.effects.iter().find_map(|effect| match effect {
+                Effect::Decided(keys) => Some(keys.clone()),
+                _ => None,
+            });
+            match decided {
+                Some(keys) if index > 0 => {
+                    let current: serde_json::Map<String, Value> =
+                        keys.into_iter().map(|key| (key.clone(), self.acked.header.get(&key).cloned().unwrap_or(Value::Null))).collect();
+                    for effect in entry.effects {
+                        if let Effect::Reply { tx: Some(tx), .. } = effect {
+                            let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
+                        }
+                    }
+                }
+                _ => self.fail_entry(entry, &error),
+            }
         }
         self.generation += 1;
         self.projected = self.acked.clone();
@@ -2621,9 +2673,10 @@ impl SessionActor {
             Ctl::RefreshSurface => self.refresh_surface(),
             Ctl::CwdApplied { changed } => self.cwd_applied(changed),
             Ctl::Unsubscribed => self.try_unload(),
-            Ctl::Closed => {
+            Ctl::Closed(taken) => {
                 self.tombstoned = true;
                 self.try_unload();
+                let _ = taken.send(());
             }
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
@@ -4377,6 +4430,13 @@ impl SessionActor {
                 let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
                 return Ok(());
             }
+            // A save issued for an ownership generation (`saveSessionAsync(session, { expectedGeneration })`): dropped
+            // when the header it would land on is past that generation (`_dropsAgainst`, `store.mjs:149-153`).
+            let expected = req.params.get("expectedGeneration").and_then(Value::as_f64);
+            if super::close::drops_against(&self.projected.header, expected) {
+                let _ = tx.send(Ok(Reply::Value(json!({ "dropped": true }))));
+                return Ok(());
+            }
         }
         // `restoreQueued` of an entry that is not queued (it started, or was taken) answers
         // `count: 0` and the composer's own text, not an error.
@@ -4413,6 +4473,17 @@ impl SessionActor {
                 // post, an import) are kept for the next write when theirs fails, as Node's recorder keeps them.
                 self.outbox.begin_unit(req.method.as_str() == "thread/roomRows/commit");
                 self.apply_plan(plan, req.op.clone(), tx);
+                if req.method.as_str() == "thread/header/patch" {
+                    let mut keys: Vec<String> = req.params.get("expect").and_then(Value::as_object).map(|expect| expect.keys().cloned().collect()).unwrap_or_default();
+                    if req.params.get("expectedGeneration").and_then(Value::as_f64).is_some() {
+                        keys.extend(["generation".to_owned(), "closed".to_owned()]);
+                    }
+                    if !keys.is_empty()
+                        && let Some(entry) = self.outbox.last_mut()
+                    {
+                        entry.effects.push(Effect::Decided(keys));
+                    }
+                }
                 self.outbox.end_unit();
                 Ok(())
             }
@@ -5271,6 +5342,12 @@ impl SessionActor {
     /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
     /// unless the thread was opened only for it (Node wakes only the live session).
     fn task_notification(&mut self, surface: &str, task_id: String, status: String, text: String, origin: Option<&'static str>, live: bool) {
+        // A closing or closed owner never queues a completion (`notification-bus.mjs` `notifySessionCompletion`: `if
+        // (!open) return handled`): the close cancels the session's shells, and their completions must not enqueue
+        // model work for it.
+        if origin.is_none() && (self.deleting || self.tombstoned || self.cell.closed.load(SeqCst) || self.acked.header.get("closed") == Some(&Value::Bool(true))) {
+            return;
+        }
         let now = self.deps.clock.now_ms();
         let built = match origin {
             None => completions::entry(surface, &task_id, &status, &text, now),
@@ -5774,6 +5851,8 @@ impl SessionActor {
         {
             self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
         }
+        // The last run is the turn the process died in.
+        let died_in = runs.last().cloned();
         for rid in runs {
             let record = Record::Run(RunRecord {
                 rid: id(&rid),
@@ -5785,6 +5864,119 @@ impl SessionActor {
                 detail: None,
             });
             self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
+        if let Some(rid) = died_in {
+            self.recover_interrupted_turn(rid);
+        }
+    }
+
+    /// Node's reconnect recovery (`_recoverTurnCheckpointDurably`, `turn-checkpoint-recovery.mjs:113-131`): the turn
+    /// the process died in is finalized as `finalizeInterruptedTurn` with `process-crash` leaves it (every unanswered
+    /// call closed as cancelled, the restart line, `sentRequestTail` on the row the request ended with) and saved
+    /// durably before the session is served, so the first read shows it. Requests wait meanwhile.
+    fn recover_interrupted_turn(&mut self, rid: String) {
+        self.recovering = true;
+        let (store, lanes, thread, attachments, jobs) =
+            (self.deps.store.clone(), self.deps.lanes, self.id.clone(), self.deps.attachments.clone(), self.jobs_tx.clone());
+        tokio::spawn(async move {
+            let result = async {
+                let rows = super::run::read_context(&store, &lanes, &thread).await.map_err(|error| format!("{error:?}"))?;
+                let bodies: Vec<Value> = rows.iter().map(|(_, body)| body.clone()).collect();
+                let recovered = mixdog_agent::interrupt::recover_after_restart(&bodies)?;
+                let token = CancellationToken::new();
+                lanes
+                    .io
+                    .submit(&token, move |lane| {
+                        let mut out = Recovery::default();
+                        for row in recovered {
+                            match row {
+                                mixdog_agent::interrupt::RecoveredRow::Kept { index, body } => {
+                                    out.changed |= body != rows[index].1;
+                                    out.replacement.push((rows[index].0.clone(), body));
+                                }
+                                mixdog_agent::interrupt::RecoveredRow::New { role, mut body } => {
+                                    out.changed = true;
+                                    let facts = attachments.facts(lane, &mut body);
+                                    let iid = super::run::new_item_id();
+                                    out.replacement.push((iid.clone(), body.clone()));
+                                    out.new.push((ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: role != "user", body, prompt: None }, facts));
+                                }
+                            }
+                        }
+                        out
+                    })
+                    .map_err(|error| format!("{error:?}"))?
+                    .await
+                    .map_err(|_| "the recovery job was dropped".to_owned())
+            }
+            .await;
+            let _ = jobs.send(JobDone::Recovered { rid, result });
+        });
+    }
+
+    fn recovery_ended(&mut self) {
+        self.recovering = false;
+        if let Some(ready) = self.opened.take() {
+            let _ = ready.send(());
+        }
+    }
+
+    fn recovered(&mut self, rid: String, result: Result<Recovery, String>) {
+        let recovery = match result {
+            Ok(recovery) => recovery,
+            Err(error) => {
+                // Nothing was written: the stored rows stay as the process left them.
+                tracing::warn!("[session] the interrupted turn of {} could not be recovered: {error}", self.id.as_str());
+                self.recovery_ended();
+                return;
+            }
+        };
+        let turn = TurnId::from(rid);
+        let mut records = Vec::new();
+        if recovery.changed {
+            for (item, facts) in recovery.new {
+                let display = self.row_display(item.role.as_deref(), &item.body);
+                match self.item_record(&turn, item, facts, None) {
+                    Ok(record) => records.push((record, display)),
+                    Err(error) => {
+                        tracing::warn!("[session] the interrupted turn of {} could not be recovered: {error:?}", self.id.as_str());
+                        self.recovery_ended();
+                        return;
+                    }
+                }
+            }
+            // The model context restarts on the recovered rows (silent: nothing leaves the transcript).
+            records.push((
+                Record::Compacted(CompactedRecord {
+                    cid: id(&new_id()),
+                    summary_iid: None,
+                    op: None,
+                    at: Some(self.deps.clock.now_ms()),
+                    dropped_count: Some(0),
+                    dropped: None,
+                    silent: Some(true),
+                    replacement: Slot::Inline(
+                        recovery.replacement.into_iter().map(|(iid, body)| ReplacementEntry { iid: iid.as_str().to_owned(), body }).collect(),
+                    ),
+                }),
+                Display::None,
+            ));
+            self.transcript_rewritten = true;
+        }
+        let Some(last) = records.len().checked_sub(1) else {
+            self.recovery_ended();
+            return;
+        };
+        let (ack, durable) = oneshot::channel();
+        let jobs = self.jobs_tx.clone();
+        tokio::spawn(async move {
+            let done = durable.await.unwrap_or(Err(RunError::NotApplied));
+            let _ = jobs.send(JobDone::RecoveryDone(done));
+        });
+        let mut ack = Some(ack);
+        for (index, (record, display)) in records.into_iter().enumerate() {
+            let effects = if index == last { vec![Effect::ItemAck(ack.take().expect("one ack"))] } else { Vec::new() };
+            self.accept_record(record, Class::Normal, display, Vec::new(), effects);
         }
     }
 

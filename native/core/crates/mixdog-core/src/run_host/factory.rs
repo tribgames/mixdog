@@ -240,9 +240,7 @@ impl RunFactory for RunHostFactory {
     }
 }
 
-pub(super) fn new_item_id() -> ItemId {
-    ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
-}
+pub(super) use mixdog_core_session::session::run::new_item_id;
 
 fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
     RunOutcome::Failed(TurnError { message: message.into(), data, provider_error: None })
@@ -1264,6 +1262,7 @@ async fn drive(
             let mut transcript = output.transcript.clone();
             if let Some(mut message) = mixdog_agent::response::intermediate_message(&terminal) {
                 message.message_id = Some(sink.message_id());
+                message.turn_reminder.clone_from(&output.last_reminder);
                 *lock(&sink.terminal) = Some((output.iterations, output.tool_calls_total));
                 if let Err(error) = sink.commit(&message).await {
                     sink.flush().await;
@@ -2910,4 +2909,10 @@ mod tests {
         assert_eq!(status["requestSnapshot"], Value::Null, "Node's nextMainRequest is null without a user conversation");
         assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
     }
+
+    #[path = "../../restart_prefix_tests.rs"]
+    mod restart_prefix;
+
+    #[path = "../../session_message_sanitize_replay.rs"]
+    mod session_message_sanitize_replay;
 }
