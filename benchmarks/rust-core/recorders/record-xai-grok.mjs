@@ -10,7 +10,7 @@ const rec = await startRecording({
   net: false,
   entry: 'scripts/provider-toolcall/_shared.mjs re-exports: normalizeGrokToolSchemas(BUILTIN_TOOLS entry), xaiResponsesCacheRouting(opts, params, tools, model), _xaiResponsesFingerprintPayloadForTest, GrokOAuthProvider({ preconnect: false })._ensureInner(token, model) with MIXDOG_OAI_TRANSPORT / MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT set as the test sets them. Not run: a send.',
   compare: 'mixdog-ai providers::grok (tool_schema, mod.rs:42-98) and compat::tests cache routing: compare `result` whole (normalized schemas, cache mode/key presence/equalities, fingerprint flags, inner provider transport + baseURL). Cache keys are recorded as produced; their equalities are in `equalities`.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::grok::codec() (grok/mod.rs:212) and adapter() (grok/mod.rs:224), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::grok::codec() (grok/mod.rs:208) and adapter() (grok/mod.rs:220), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const { _xaiResponsesFingerprintPayloadForTest, xaiResponsesCacheRouting, GrokOAuthProvider, BUILTIN_TOOLS, normalizeGrokToolSchemas } = await rec.load('scripts/provider-toolcall/_shared.mjs');
 const SRC = 'scripts/provider-toolcall/xai-grok.test.mjs';
