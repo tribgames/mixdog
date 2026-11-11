@@ -180,10 +180,15 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     if (!run) return;
     const { members, live } = run;
     run = null;
+    if (live) liveCards.push({ at: merged.length, stopped: members.some((member) => stoppedRows.has(member.item)) });
     // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
     if (members.length >= 2 || live) merged.push(yield* aggregateRowSteps(members, live));
     else for (const member of members) merged.push(member.item);
   }
+  // A live card's header is sealed (`finalizeToolHeaders`, header-sync.mjs:13-31) once the block it is in ends: the turn's next
+  // non-tool row (`clearAggregateContinuation` at assistant text, a steer or a compact, turn.mjs:256,322; the turn's end,
+  // `finalizeToolCards`, turn-tool-cards.mjs:291, which a Stop runs too). Until then it shows the active header form, finished or not.
+  const liveCards: { at: number; stopped: boolean }[] = [];
   let seen = 0;
   for (const item of rows) {
     if (++seen % ROWS_PER_STEP === 0) yield;
@@ -211,6 +216,9 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     run = { bucket, live, members: [{ item, category }] };
   }
   yield* flush();
+  let lastOther = merged.length - 1;
+  while (lastOther >= 0 && merged[lastOther]!.kind === 'tool') lastOther--;
+  for (const { at, stopped } of liveCards) merged[at] = { ...merged[at], headerFinalized: stopped || at < lastOther };
   return merged;
 }
 
