@@ -58,11 +58,11 @@ fn fixture(id: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap()
 }
 
-/// The Node runtime the recorder ran under (the manifest's `provenance.nodeVersion`): the SDK's
+/// The Node runtime the recorder ran under (the manifest's `nodeVersion`): the SDK's
 /// `x-stainless-runtime-version` names it, where the product names its own (`grok::SDK_RUNTIME_VERSION`).
 fn recorder_node() -> String {
     let manifest: Value = serde_json::from_str(&std::fs::read_to_string(format!("{DIR}/MANIFEST.json")).unwrap()).unwrap();
-    manifest["provenance"]["nodeVersion"].as_str().unwrap().to_owned()
+    manifest["nodeVersion"].as_str().unwrap().to_owned()
 }
 
 /// How the answer's body reaches the decoder.

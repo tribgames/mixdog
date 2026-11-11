@@ -144,6 +144,21 @@
       "sha256": "7c5566bf2ded6fcee23a140bf9967a2c22c3bf192b86907723073c8bfa7fc52d"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -161,32 +176,15 @@
     "treeKind": "archive",
     "version": "1.4.5"
   },
-  "provenance": {
-    "inputs": [
-      {
-        "path": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
-        "sha256": "575ab2ee860abf5cff9bec9f7d51662cc3b3a03e35e0e16bde058d4c7ed4db74"
-      },
-      {
-        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-        "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
-      },
-      {
-        "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
-        "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
-      }
-    ],
-    "nodeVersion": "v22.20.0",
-    "recorderSha256": "575ab2ee860abf5cff9bec9f7d51662cc3b3a03e35e0e16bde058d4c7ed4db74"
-  },
   "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
+  "recorderSha256": "0c14ebc1dba79e211a3dee27f1445abd8cd3b70477b5d6b7c89b347fe7b8343d",
   "replayExclusions": {
     "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
     "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",
     "listing requests to raw.githubusercontent.com and models.dev": "the shared model catalogs, fetched by the catalog service (ListingLookup), not by the provider under test",
     "onStreamDelta kinds other than 'reasoning'": "not logged by the recorder: 'transport' / 'semantic' / 'text' / 'tool' feed the session's liveness clock (the core's progress stamps), and the text and tool calls are compared as textDelta and the result's toolCalls; 'reasoning' is logged because it is the reasoning the caller is shown",
     "request header accept-encoding": "the recorder dials a plain-http loopback, so undici writes its http value; the replay writes the Rust request's head for that same scheme (node_http::head)",
-    "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (provenance.nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
+    "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
     "result.reasoning": "no engine of these wires returns it (null in every recording) and the core has no such result field: the reasoning shown is compared as the streamDelta events, the reasoning kept as reasoningContent",
     "stageChange 'requesting' / 'streaming'": "the engine's spinner phases; in the core the turn loop raises them around the send (agent Stage::Connecting / Streaming), not the provider stream the replay reads",
     "toolCall": "the folded result's toolCalls are compared instead (the core's stream carries the call as ToolCallDone, which the result holds)"
