@@ -16,7 +16,7 @@
     {
       "bytes": 366158,
       "path": "golden.json",
-      "sha256": "a44890295d6696e6de11f57bac6a0ac2bbd046a9dd7429e2a4937791cd416c27"
+      "sha256": "23b0b155565a7367337bbc62064cbb0545b1afc84667257fe42ad1427dcac0ef"
     }
   ],
   "inputs": [
@@ -76,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "959c7f7c43aa20b3db85953c4c1da6a52a6ebfd56d3cb82b20d9d5272d473ff2",
+  "recorderSha256": "64cacf43ce5127bef86b49282562b3c30d603f5cf009beb718e5435732ff509f",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
     "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",

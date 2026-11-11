@@ -8838,12 +8838,12 @@
         ],
         "secretHookCalled": false,
         "allowlistedCallbacks": [
-          "onReasoningDelta",
           "onStageChange",
           "onStreamDelta",
-          "onStreamItemStart",
           "onTextDelta",
+          "onReasoningDelta",
           "onTextReset",
+          "onStreamItemStart",
           "onToolCall",
           "onToolExcluded"
         ],
