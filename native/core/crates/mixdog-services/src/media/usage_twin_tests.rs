@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::usage::{gemini_usage, image_api_usage, interactions_usage, reported_usage, responses_usage, xai_usage};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/services/media-usage-twin.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/media-usage-twin.json");
 
 /// The recorder writes `undefined` as this marker (JSON has none); every reader treats it as null.
 fn input(case: &Value) -> Value {
@@ -23,7 +23,7 @@ fn check(golden: &Value, key: &str, read: fn(&Value) -> Option<Value>) {
 
 #[test]
 fn usage_is_read_as_nodes_reads_it() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     check(&golden, "gemini", gemini_usage);
     check(&golden, "interactions", interactions_usage);
     check(&golden, "responses", responses_usage);
@@ -33,7 +33,7 @@ fn usage_is_read_as_nodes_reads_it() {
 
 #[test]
 fn a_failure_carries_only_billable_usage() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["withReported"].as_array().unwrap() {
         let given = input(case);
         let got = reported_usage(if given.is_null() { None } else { Some(given.clone()) });

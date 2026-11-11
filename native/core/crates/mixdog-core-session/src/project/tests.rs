@@ -102,7 +102,7 @@ impl SessionSource for Sessions {
 }
 
 fn goldens() -> Vec<Value> {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/project-methods/golden.json")).expect("golden.json parses");
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/project-methods/golden.json")).expect("golden.json parses");
     all["steps"].as_array().expect("steps").clone()
 }
 

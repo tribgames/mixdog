@@ -714,7 +714,7 @@ async fn an_unpaired_device_loses_its_access_at_once_and_its_connection_when_the
     h.runtime.close().await;
 }
 
-const BROWSER_STREAMS: &str = include_str!("../../../../../fixtures/browser-streams/streams.json");
+const BROWSER_STREAMS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/browser-streams/streams.json");
 
 /// A phone's browser stream ends at its device's unpair and at the relay's close, through the production wiring (the runtime's unpair
 /// and close → `PairedDeviceCleanup` → the live view): Node's unpair drops the device from its streams (`remote-relay.ts:619`,
@@ -723,7 +723,7 @@ const BROWSER_STREAMS: &str = include_str!("../../../../../fixtures/browser-stre
 /// told it in `an unpaired phone that alone streams a session stops the desktop view`: the subscribe's request, then the drop's.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once() {
-    let all: Value = serde_json::from_str(BROWSER_STREAMS).unwrap();
+    let all: Value = serde_json::from_str(&BROWSER_STREAMS).unwrap();
     let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired phone that alone streams a session stops the desktop view").unwrap();
     let (subscribe, unpair) = (&scenario["steps"][0], &scenario["steps"][3]);
     assert_eq!((subscribe["method"].as_str(), unpair["op"].as_str()), (Some("browserRemoteStream"), Some("unpair")));
@@ -755,7 +755,7 @@ async fn an_unpair_or_the_relay_closing_ends_the_phones_browser_stream_at_once()
 /// the patched Node answered in `an unpaired device whose connections stay open is refused and sent nothing`.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpaired_device_left_open_is_shown_nothing_on_any_live_view_path() {
-    let all: Value = serde_json::from_str(BROWSER_STREAMS).unwrap();
+    let all: Value = serde_json::from_str(&BROWSER_STREAMS).unwrap();
     let scenario = all["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "an unpaired device whose connections stay open is refused and sent nothing").unwrap();
     let (steps, recorded) = (&scenario["steps"], &scenario["recorded"]);
     assert_eq!(
@@ -905,11 +905,11 @@ async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on
     h.runtime.close().await;
 }
 
-const FILE_DOWNLOADS: &str = include_str!("../../../../../fixtures/file-downloads/file-downloads.json");
+const FILE_DOWNLOADS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-downloads/file-downloads.json");
 
 /// The frame Node's phone got for the `n`th call of the scenario `name`, which must be of the phone method `method`, without its id.
 fn download_call(name: &str, n: usize, method: &str) -> Value {
-    let recording: Value = serde_json::from_str(FILE_DOWNLOADS).unwrap();
+    let recording: Value = serde_json::from_str(&FILE_DOWNLOADS).unwrap();
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}"));
     let step = scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{name}: no call {n}"));
     assert_eq!(step["method"], method, "{name}: call {n}");

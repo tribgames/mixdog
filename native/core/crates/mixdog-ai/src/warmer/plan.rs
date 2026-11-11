@@ -323,7 +323,7 @@ mod tests {
     use super::*;
 
     fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/cache-warm/golden.json")).unwrap()
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-warm/golden.json")).unwrap()
     }
 
     fn gap_of(value: &Value) -> Gap {

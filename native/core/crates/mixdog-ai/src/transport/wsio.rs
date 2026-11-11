@@ -721,7 +721,7 @@ mod tests {
 
     /// Recorded from `ws` 8.22.0 itself (`ws-deflate-vectors.mjs`).
     fn vectors() -> Value {
-        let text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-deflate-vectors.json"));
+        let text = mixdog_testkit::fixture!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-deflate-vectors.json");
         serde_json::from_str(text).unwrap()
     }
 
@@ -846,8 +846,8 @@ mod tests {
         }
         // What ws's receiver read when it took these frames (`ws-deflate-verify.mjs --out`): the frames written now are
         // the ones it read, whole and in order, and it read each as the message sent.
-        let read: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-read-rust.json"))).unwrap();
-        let vectors_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-deflate-vectors.json"));
+        let read: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-read-rust.json")).unwrap();
+        let vectors_text = mixdog_testkit::fixture!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-deflate-vectors.json");
         let digest: String = <sha2::Sha256 as sha2::Digest>::digest(vectors_text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(read["manifest"]["vectorsSha256"], digest.as_str(), "ws read the frames of other vectors");
         assert_eq!(read["manifest"]["ws"], "8.22.0");

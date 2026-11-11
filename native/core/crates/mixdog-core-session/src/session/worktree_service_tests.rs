@@ -26,10 +26,10 @@ use super::worktree_tests::git;
 use super::worktree_tests::rig;
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/thread-scm/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/thread-scm/golden.json");
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden")
+    serde_json::from_str(&GOLDEN).expect("golden")
 }
 
 fn is_sha(text: &str) -> bool {

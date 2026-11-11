@@ -29,6 +29,7 @@ mixdog-core-base = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
