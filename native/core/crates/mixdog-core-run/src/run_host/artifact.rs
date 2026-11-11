@@ -191,6 +191,10 @@ fn listed_sidecars(_lane: &InLane<DurabilityIo>, dir: &Path) -> Vec<PathBuf> {
     entries.flatten().filter(|entry| entry.file_name().to_string_lossy().ends_with(".txt")).map(|entry| entry.path()).collect()
 }
 
+/// Every archive a prune has read, in order (tests count them).
+#[cfg(test)]
+static ARCHIVE_READS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
 fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>, transcripts: &str, now_ms: u64) {
     // Only this session's own directory is pruned.
@@ -227,6 +231,8 @@ fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>,
     }
     let mut i = 0;
     while i < reachable.len() {
+        #[cfg(test)]
+        ARCHIVE_READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(dir.join(&reachable[i]));
         // An unreadable root must not destroy recovery evidence.
         let Ok(text) = std::fs::read_to_string(dir.join(&reachable[i])) else { return };
         let mut grew = false;
@@ -348,6 +354,30 @@ mod tests {
         store.prune(store.prune_candidates().await, haystack, now_ms).await;
         let left: Vec<bool> = [&shown, &chained, &gone, &young].iter().map(|file| dir.join(file).exists()).collect();
         assert_eq!(left, [true, true, false, true]);
+    }
+
+    /// A prune with nothing to delete (every old sidecar named, the unnamed one young) lists the folder and reads no
+    /// archive; once the unnamed one is old, the archive the transcript names is read and the unnamed one goes.
+    #[tokio::test]
+    async fn a_prune_with_nothing_old_and_unnamed_reads_no_archive() {
+        let data = tempfile::tempdir().unwrap();
+        let store = ToolResultArtifacts::new(io(), data.path(), "sess_r");
+        let dir = data.path().join("tool-results/sess_r");
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = |c: char| format!("{}.txt", c.to_string().repeat(64));
+        let (archive, young) = (name('a'), name('c'));
+        std::fs::write(dir.join(&archive), "older output is elsewhere").unwrap();
+        std::fs::write(dir.join(&young), "new").unwrap();
+        let aged = |file: &str| std::fs::File::options().write(true).open(dir.join(file)).unwrap().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60)).unwrap();
+        aged(&archive);
+        let haystack = serde_json::json!([{ "content": format!("the archive is at {}", display(&dir.join(&archive))) }]).to_string();
+        let now_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        let reads = || ARCHIVE_READS.lock().unwrap().iter().filter(|path| path.starts_with(&dir)).count();
+        store.prune(store.prune_candidates().await, haystack.clone(), now_ms()).await;
+        assert_eq!((reads(), dir.join(&archive).exists(), dir.join(&young).exists()), (0, true, true));
+        aged(&young);
+        store.prune(store.prune_candidates().await, haystack, now_ms()).await;
+        assert_eq!((reads(), dir.join(&archive).exists(), dir.join(&young).exists()), (1, true, false));
     }
 
     #[test]
