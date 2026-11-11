@@ -256,6 +256,11 @@ fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider:
     super::context_world::snapshot_tools(header, tools, referenced, &provider)
 }
 
+/// The session's `wireRoute` as the pin a gateway's send reads; `None` without one.
+fn wire_pin_of(route: Option<&Value>) -> Option<mixdog_core_api::domain::provider::WirePin> {
+    mixdog_core_api::domain::provider::WirePin::from_route(route?)
+}
+
 fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
@@ -347,6 +352,7 @@ impl HostRunParts {
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
         options.model_max_output_tokens = settings.model_max_output_tokens;
         options.provider_state = source.provider_state;
+        options.wire_pin = wire_pin_of(header.get("wireRoute"));
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
 
@@ -508,7 +514,7 @@ impl RunParts for HostRunParts {
         } else {
             header
         };
-        let RequestParts { provider, cwd, tool_set, settings, options } = self
+        let RequestParts { provider, cwd, tool_set, settings, mut options } = self
             .request_parts(RequestSource {
                 thread,
                 header,
@@ -532,6 +538,8 @@ impl RunParts for HostRunParts {
                 // The route moved while resolving: the newer route pins on its own turn.
                 let live = directory.live_header(thread).header();
                 if text(&live, "provider") == provider_id && text(&live, "model") == model {
+                    // The turn's sends read the pin the session now holds (`sendWireRoute` reads `session.wireRoute`).
+                    options.wire_pin = wire_pin_of(Some(&pin));
                     let mut set = serde_json::Map::new();
                     set.insert("wireRoute".into(), pin);
                     input.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await.map_err(|_| refuse("the pinned wire route could not be saved"))?;
