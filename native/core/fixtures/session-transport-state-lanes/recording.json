@@ -1,0 +1,512 @@
+{
+  "domain": "session-transport-state-lanes",
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-state-lanes.mjs",
+  "testFile": "scripts/session-transport/state-lanes.test.mjs",
+  "cases": [
+    {
+      "name": "tool-card-update-sends-only-the-changed-transcript-suffix",
+      "testLine": 48,
+      "input": {
+        "generator": "2000 items {id: item-<i>, kind: message (tool for i=1999), status: settled, text: row-<i>}; next = same with item 1999 {status: completed, text: tool result} and busy true->false",
+        "previous": {
+          "sessionId": "suffix-test",
+          "busy": true,
+          "itemCount": 2000
+        },
+        "next": {
+          "sessionId": "suffix-test",
+          "busy": false,
+          "itemCount": 2000
+        }
+      },
+      "result": {
+        "patch": {
+          "set": {
+            "busy": false
+          },
+          "remove": [],
+          "itemsAppend": {
+            "from": 1999,
+            "values": [
+              {
+                "id": "item-1999",
+                "kind": "tool",
+                "status": "completed",
+                "text": "tool result"
+              }
+            ]
+          }
+        },
+        "patchHasItemsInSet": false,
+        "patchJsonLength": 148,
+        "appliedEqualsNext": true
+      }
+    },
+    {
+      "name": "unknown-session-subscription-is-rejected-before-a-runtime-is-created",
+      "testLine": 67,
+      "input": {
+        "call": [
+          "session.subscribe",
+          {
+            "sessionId": "missing_session"
+          },
+          {
+            "clientToken": "stale_pane"
+          }
+        ],
+        "sessionExists": "always false"
+      },
+      "result": {
+        "outcome": {
+          "error": {
+            "message": "session missing_session is not available",
+            "code": null
+          }
+        },
+        "runtimeCreations": 0,
+        "sessionExistsCalls": [
+          "missing_session"
+        ],
+        "serviceSize": 0
+      }
+    },
+    {
+      "name": "agent-session-publishes-through-the-subscribed-session-state-lane",
+      "testLine": 94,
+      "input": {
+        "client": {
+          "clientToken": "desktop-pane"
+        },
+        "storedSession": {
+          "items": [
+            {
+              "id": "brief",
+              "kind": "user",
+              "text": "worker brief"
+            }
+          ]
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.subscribe(agent_child)",
+            "ok": {
+              "sessionId": "agent_child",
+              "reservedOnly": false,
+              "projection": true,
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "agent_child",
+                "queued": [],
+                "items": [
+                  {
+                    "id": "brief",
+                    "kind": "user",
+                    "text": "worker brief"
+                  }
+                ]
+              },
+              "subscribed": true
+            }
+          },
+          {
+            "step": "external publish (brief, tool-1; busy)",
+            "frames": [
+              {
+                "frame": {
+                  "type": "session-state",
+                  "key": "session-state:agent_child",
+                  "sessionId": "agent_child",
+                  "revision": "<epoch revision>+1",
+                  "full": {
+                    "sessionId": "agent_child",
+                    "items": [
+                      {
+                        "id": "brief",
+                        "kind": "user",
+                        "text": "worker brief"
+                      },
+                      {
+                        "id": "tool-1",
+                        "kind": "tool",
+                        "text": "read source"
+                      }
+                    ],
+                    "queued": [],
+                    "busy": true
+                  }
+                },
+                "targets": [
+                  "desktop-pane"
+                ]
+              }
+            ],
+            "pendingViewerSessions": 0,
+            "runtimeCreations": 0
+          },
+          {
+            "step": "session.read(agent_child)",
+            "ok": {
+              "sessionId": "agent_child",
+              "reservedOnly": false,
+              "revision": "<epoch revision>+1",
+              "full": {
+                "sessionId": "agent_child",
+                "items": [
+                  {
+                    "id": "brief",
+                    "kind": "user",
+                    "text": "worker brief"
+                  },
+                  {
+                    "id": "tool-1",
+                    "kind": "tool",
+                    "text": "read source"
+                  }
+                ],
+                "queued": [],
+                "busy": true
+              }
+            }
+          },
+          {
+            "step": "session.unsubscribe(agent_child)",
+            "ok": {
+              "sessionId": "agent_child",
+              "unsubscribed": true
+            }
+          },
+          {
+            "step": "external publish after unsubscribe (ignored item)",
+            "publisherStillRegistered": true,
+            "newFrames": 0
+          }
+        ],
+        "readStoredSessionCalls": [
+          "agent_child"
+        ],
+        "runtimeCreations": 0,
+        "totalFrames": 1
+      }
+    },
+    {
+      "name": "disconnected-channel-remote-state-churn-keeps-only-the-latest-frame",
+      "testLine": 303,
+      "input": {
+        "register": {
+          "leadPid": "<pid>",
+          "passive": true
+        },
+        "writes": "remote state \"state-0\" .. \"state-9999\" in order, client has no SSE stream"
+      },
+      "result": {
+        "clientFound": true,
+        "pendingRemoteStateFrame": "{\"type\":\"notify\",\"method\":\"notifications/mixdog/remote\",\"params\":{\"state\":\"state-9999\"}}",
+        "hasPendingQueue": false
+      }
+    },
+    {
+      "name": "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence",
+      "testLine": 327,
+      "input": {
+        "register": {
+          "leadPid": "<pid>",
+          "passive": true
+        },
+        "calls": [
+          {
+            "name": "activate_channel_bridge",
+            "args": {
+              "active": true,
+              "sessionId": "session_remote"
+            }
+          },
+          {
+            "name": "activate_channel_bridge",
+            "args": {
+              "active": false,
+              "sessionId": "session_remote"
+            }
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "call": {
+              "name": "activate_channel_bridge",
+              "args": {
+                "active": true,
+                "sessionId": "session_remote"
+              }
+            },
+            "response": {
+              "ok": {
+                "result": {
+                  "ok": true
+                }
+              }
+            },
+            "lastState": {
+              "enabled": true,
+              "sessionId": "session_remote",
+              "cwd": "<cwd>",
+              "daemonPid": "<pid>",
+              "updatedAt": "<ms>"
+            },
+            "stateCount": 4
+          },
+          {
+            "call": {
+              "name": "activate_channel_bridge",
+              "args": {
+                "active": false,
+                "sessionId": "session_remote"
+              }
+            },
+            "response": {
+              "ok": {
+                "result": {
+                  "ok": true
+                }
+              }
+            },
+            "lastState": {
+              "enabled": false,
+              "sessionId": null,
+              "cwd": null,
+              "daemonPid": "<pid>",
+              "updatedAt": "<ms>"
+            },
+            "stateCount": 5
+          }
+        ],
+        "states": [
+          {
+            "enabled": false,
+            "sessionId": null,
+            "cwd": null,
+            "daemonPid": "<pid>",
+            "updatedAt": "<ms>"
+          },
+          {
+            "enabled": false,
+            "sessionId": null,
+            "cwd": "<cwd>",
+            "daemonPid": "<pid>",
+            "updatedAt": "<ms>"
+          },
+          {
+            "enabled": true,
+            "sessionId": "null",
+            "cwd": "<cwd>",
+            "daemonPid": "<pid>",
+            "updatedAt": "<ms>"
+          },
+          {
+            "enabled": true,
+            "sessionId": "session_remote",
+            "cwd": "<cwd>",
+            "daemonPid": "<pid>",
+            "updatedAt": "<ms>"
+          },
+          {
+            "enabled": false,
+            "sessionId": null,
+            "cwd": null,
+            "daemonPid": "<pid>",
+            "updatedAt": "<ms>"
+          }
+        ],
+        "hostCalls": [
+          {
+            "name": "activate_channel_bridge",
+            "args": {
+              "active": true,
+              "sessionId": "session_remote"
+            }
+          },
+          {
+            "name": "activate_channel_bridge",
+            "args": {
+              "active": false,
+              "sessionId": "session_remote"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "every-attached-client-observes-the-same-session-snapshot-stream",
+      "testLine": 365,
+      "input": {
+        "clients": [
+          "terminal",
+          "desktop",
+          "unrelated"
+        ],
+        "steps": [
+          "terminal session.create",
+          "desktop session.subscribe",
+          "terminal submit \"from terminal\"",
+          "desktop submit \"from desktop\""
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "terminal session.create",
+            "sessionIdMatches": true,
+            "reservedOnly": true
+          },
+          {
+            "step": "desktop session.subscribe",
+            "subscribed": true
+          },
+          {
+            "step": "terminal session.submit \"from terminal\"; desktop view folded items",
+            "items": [
+              {
+                "id": 1,
+                "text": "from terminal"
+              }
+            ]
+          },
+          {
+            "step": "desktop session.submit \"from desktop\"; terminal view folded items",
+            "items": [
+              {
+                "id": 1,
+                "text": "from terminal"
+              },
+              {
+                "id": 2,
+                "text": "from desktop"
+              }
+            ]
+          },
+          {
+            "step": "unrelated client frames for the session",
+            "count": 0
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "<cwd>"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "error": null
+          },
+          {
+            "name": "session.subscribe",
+            "args": {
+              "sessionId": "<daemon session 1>"
+            },
+            "context": {
+              "clientToken": "<client 2>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "error": null
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "from terminal"
+            },
+            "context": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "error": null
+          },
+          {
+            "name": "session.submit",
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "prompt": "from desktop"
+            },
+            "context": {
+              "clientToken": "<client 2>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "in-daemon-transport-connection-receives-frames-without-owning-daemon-lifetime",
+      "testLine": 428,
+      "input": {
+        "attach": [
+          {
+            "lifecycle": true
+          },
+          {
+            "lifecycle": false
+          }
+        ],
+        "close": "the external client"
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "attach an external client and an in-daemon (lifecycle:false) client",
+            "clientCount": 1,
+            "connectionCount": 2,
+            "clientsEmpty": null
+          },
+          {
+            "step": "external client closed",
+            "clientCount": 0,
+            "connectionCount": 1,
+            "clientsEmpty": "empty"
+          }
+        ]
+      }
+    }
+  ],
+  "notRecorded": [
+    {
+      "testLine": 19,
+      "name": "wire-safe runtime state crosses the daemon without a transcript clone",
+      "reason": "asserts object identity (result.full === state, same items array) of a Node in-memory snapshot: a memory property with no wire-visible value"
+    },
+    {
+      "testLine": 192,
+      "name": "a live daemon SSE stream reconnects in place with the same client registration",
+      "reason": "the Node HTTP/SSE stream client itself; the Rust core serves the app-server WebSocket, no counterpart"
+    },
+    {
+      "testLine": 275,
+      "name": "a disconnected client receives bounded session resync markers instead of a huge backlog",
+      "reason": "SSE backlog budget and resyncRequired markers of the Node transport; removed in the Rust protocol (no resync markers)"
+    },
+    {
+      "testLine": 446,
+      "name": "a local attachment keeps a silent stream: only the socket closing ends it",
+      "reason": "SSE stream-liveness timers of the Node client (mock clock on its own HTTP server); no Rust counterpart"
+    },
+    {
+      "testLine": 493,
+      "name": "a silent SSE is reconnected and a continuous reconnect storm exhausts its budget",
+      "reason": "SSE liveness timeout and reconnect budget of the Node client; no Rust counterpart"
+    }
+  ]
+}

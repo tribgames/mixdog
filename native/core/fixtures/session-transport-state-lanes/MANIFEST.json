@@ -1,0 +1,63 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-transport-state-lanes.mjs --tree <tree>",
+  "entry": "Ran src/standalone/session-state-patch.mjs (diffSessionState/applySessionStatePatch), session-service.mjs createSessionService().handleCall with scripted sessionExists / readStoredSession / subscribeExternalSessionStates / onFrame, channel-transport.mjs createChannelTransport over real HTTP on 127.0.0.1, and the real session transport + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs. Did not run the SSE reconnect/liveness cases (192, 275, 446, 493) nor the identity case 19.",
+  "exclusions": [
+    "cases 19, 192, 275, 446, 493 are listed in notRecorded with their reasons",
+    "case 365: frames are DELTAS of a stream with timing-dependent coalescing, so only the folded transcript (itemsFromFrames, as the test folds it) is recorded at each wait, not the frame list",
+    "case 303: written through the transport's `_writeRemoteStateToForTest` hook (the same function the pointer uses) because the production writer needs a displaced client",
+    "case 327: the published state objects carry updatedAt (ms) -> <ms> and daemonPid -> <pid>",
+    "client tokens (random uuid) -> <client N> by first appearance; daemon session ids sess_daemon_<ms>_<32 hex> -> <daemon session N>",
+    "revision / baseRevision values above 1e12 (epoch-based, restart-monotonic) -> <epoch revision>+offset from the first one seen in the case",
+    "the runtime root temp dir -> <runtime root>, this process's cwd -> <cwd>, its pid/ppid in leadPid fields -> <pid>/<ppid>",
+    "queuedMs of a service call (time in the lane) is not recorded: it is a wall-clock measure"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 14320,
+      "path": "recording.json",
+      "sha256": "4d0df2ff851de9de7889878f8888890bab997c4e4613f7c98dc078d29544ef4f"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-daemon-harness.mjs",
+      "sha256": "9527596ccea60373a9391e7dc25f5c24f4854791fa1d64141d2949a8cbaf7ebe"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-state-lanes.mjs",
+  "recorderSha256": "171888ca6139241f2903489c9adf2404a85a26ff97e46a31537e2c3444ddd4da",
+  "replay": "mixdog-app-server thread/transcript patches and lane pushes (APP/lane_pushes.rs, subscriptions.rs) and mixdog-app-server-daemon lifecycle (DMN/lifecycle): case 48 compare the patch for the same two states byte for byte; 67/94 compare refusal text, subscribed answer and pushed frames; 303/327 compare the latest pending frame / ordered state callbacks; 365 compare each view's folded items; 428 compare client/connection counts and the clients-empty signal.",
+  "set": "session-transport-state-lanes",
+  "testFile": "scripts/session-transport/state-lanes.test.mjs",
+  "totalBytes": 14320
+}
