@@ -163,6 +163,19 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         }
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
+    async fn defer_prune(&self, thread: &ThreadId) {
+        let offloads = lock(&self.offloads).clone();
+        if let Some((data, _)) = offloads {
+            offload_store(&data, thread).mark_prune_pending().await;
+        }
+    }
+    async fn prune_pending(&self, thread: &ThreadId) -> bool {
+        let offloads = lock(&self.offloads).clone();
+        match offloads {
+            Some((data, _)) => offload_store(&data, thread).prune_pending().await,
+            None => false,
+        }
+    }
     async fn rearm(&self, _: &ThreadId) {
         lock(&self.calls).push("rearm".into());
     }

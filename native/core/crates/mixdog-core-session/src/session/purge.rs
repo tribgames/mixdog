@@ -112,10 +112,11 @@ pub(crate) fn project_slug(cwd: &str) -> String {
     resolved.replace('/', "-")
 }
 
-/// `clearOffloadSessionSync`: the session's offloaded tool results (`*.txt`), then its folder.
+/// `clearOffloadSessionSync`: the session's offloaded tool results (`*.txt`) and its pending prune's marker, then
+/// its folder.
 fn clear_offloaded(lane: &InLane<MaintenanceIo>, dir: &Path) {
     let Ok(names) = mixdog_statefile::list_dir(lane, dir) else { return };
-    for name in names.iter().filter(|name| name.ends_with(".txt")) {
+    for name in names.iter().filter(|name| name.ends_with(".txt") || *name == ".prune-pending") {
         mixdog_rt::job_progress();
         let _ = mixdog_statefile::remove_file(lane, &dir.join(name));
     }
