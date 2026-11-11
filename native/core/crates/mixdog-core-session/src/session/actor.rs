@@ -2290,6 +2290,8 @@ impl SessionActor {
         let shown = self.book.shown();
         if self.cell.shown_approval.load().as_ref().map(|request| request.id) != shown.map(|request| request.id) {
             self.cell.shown_approval.store(shown.cloned().map(Arc::new));
+            // `runtime.subscribe`: a state change its watchers read (a send's approval wait).
+            self.cell.shown_changed.send_modify(|seq| *seq += 1);
         }
     }
 

@@ -13,9 +13,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12737994,
+      "bytes": 12954569,
       "path": "golden.json",
-      "sha256": "647b89aaaaa2100be4060e05b6bea6719f775c963d9295a646b0d62d944b7d97"
+      "sha256": "65a2a3b1372afff81a2994df189336fefa82589f5f51ffbe28f6e015a68b2f3c"
     }
   ],
   "product": {
@@ -44,10 +44,10 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-    "recorderSha256": "64a85adff823ae1b10ff650f45cf569aedc6c8a40b705d1daec6370bfe2a9ca1"
+    "recorderSha256": "44f3c3d45def6b19ec99439daf11292a919546cf79a47733847b4227c53406e8"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-  "scenarios": 173,
+  "scenarios": 176,
   "set": "session-tool-control",
-  "totalBytes": 12737994
+  "totalBytes": 12954569
 }
