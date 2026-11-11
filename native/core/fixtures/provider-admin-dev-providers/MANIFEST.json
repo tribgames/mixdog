@@ -1,15 +1,17 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "per step, apply the `developer` flags (stored `agent.developer`) and compare `provider_available(name, client_mode=false, stored_developer)` for each name in `known`, and the whole `setup` (providerSetup result: the `oauth` rows) and `status` (providerStatus rows) the product listed; `listAccountsError` is the whole error for an unknown OAuth provider.",
+  "compare": "per step: send the recorded requests to the Rust daemon front door in order and compare each response whole (setDeveloperOption result, getDeveloperSettings, getProviderSetup oauth rows, listProviders rows, getProviderAccounts result or error) and the config file text the daemon wrote after each setDeveloperOption.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/session-runtime/services/provider-admin.mjs providerSetup({}, { checkSecrets: false, detectLocal: false }).oauth / providerStatus({}) / isKnownProvider / listProviderAccounts, with src/runtime/shared/config.mjs updateSection(\"agent\", ...) over the recording data dir (MIXDOG_CONFIG_READ_TTL_MS=0).",
+  "entry": "src/standalone/daemon.mjs (the real daemon process: session front door on a loopback port, per-daemon token in daemon.json) with the desktop requests POST /client/register and POST /call { name: session.create | session.read | session.configure, args: { sessionId, action, args } } with the actions setDeveloperOption(id, enabled), getDeveloperSettings, getProviderSetup and getProviderAccounts(id); the config file mixdog-config.json of the data directory before and after each change. The daemon boots with MIXDOG_DAEMON_SKIP_MEMORY=1 and MIXDOG_RUNTIME_ROOT / MIXDOG_SESSION_PORT pointing into the recording.",
   "exclusions": [
+    "result.full of every /call response (the daemon projection of the session view: items, client host pid, revisions) is written as <session view projection>; the session id and the revision / updatedAt / createdAt / startedAt numbers of the daemon (its clock) in a response are written as <session id> and <daemon clock>; requests[].headers: the VALUES of x-mixdog-daemon-token (the per-daemon random token read from daemon.json) and the client token in the body (random, returned by /client/register) are written as <daemon token> and <client token>; host carries the fixed session port of the recording as <port>; every other header and the body are recorded as sent",
+    "the daemon process, its pid and its listening ports are not recorded: only the HTTP exchanges with the front door and the config file text",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -17,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 116882,
+      "bytes": 347368,
       "path": "cases.json",
-      "sha256": "dfda605c0390d199d30a8fffc0b6d298d07b37963769f872092d8059cc6f93d5"
+      "sha256": "a30aa0f3b53149cc2c568ef300101e3cd993a85ca204e61571eb9efc65ea9355"
     }
   ],
   "inputs": [
@@ -41,18 +43,17 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
+      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "636c8a2a61f1766d1a8700f7e40ce3f90c1e93d5e551e31aaa4b47044768509b"
+      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
     }
   ],
   "levels": [
     {
       "id": "dev-oauth-providers-follow-developer-flags",
-      "level": "pure",
-      "rust": null
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -74,9 +75,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs",
-  "recorderSha256": "f09f55753f35f5f2f4988a8da152e0386da8383fc07ace1cb87e78bfe4a34bb9",
-  "replay": "PURE, per output: (1) availability per option state: mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) (`pub mod admin_models`, service/mod.rs:5); (2) the provider setup rows (`setup`, the oauth rows): mixdog-core-domains/src/domains/ai_account/provider_setup.rs:451 `pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOptions) -> Value` (`pub mod provider_setup`, ai_account/mod.rs:19); (3) the account-listing error for an unknown OAuth provider: mixdog-core-domains/src/domains/ai_account/admin.rs:379 `list_provider_accounts(&self, provider)` (`pub mod admin`, ai_account/mod.rs:4). (4) `status` (providerStatus rows): RUST WORK - looked for a public provider_status / providers_status function in mixdog-core-domains ai_account, mixdog-ai service and registry: none; the closest, registry/effective.rs:31-33, builds the listing but is not a status function.",
+  "recorderSha256": "6125c20d15107c0e528c99ac7f2bc801bbf77ef40daf64a9a6c52a0772bd9eaa",
+  "replay": "WIRE: the desktop requests as sent over a socket to the Rust daemon (the same /client/register and /call exchanges). No public Rust function replaces the daemon entry for these admin requests; the pure functions named in earlier revisions (service/admin_models provider_available, ai_account provider_setup and list_provider_accounts) cover availability, setup rows and the account error only, not the status rows nor the config writes.",
   "set": "provider-admin-dev-providers",
-  "totalBytes": 116882,
+  "totalBytes": 347368,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
