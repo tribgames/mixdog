@@ -8,6 +8,9 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-anthropic-thinking-contract',
   net: false,
+  exclusions: [
+    '`bodyAfter` is not compared: it is the object the test handed applyAnthropicEffortToBody, which throws before it writes to it; the core refuses such a request before it builds any body (AnthropicCodec::encode returns the refusal), so no body exists to compare',
+  ],
   entry: 'src/runtime/agent/orchestrator/providers/anthropic-effort.mjs applyAnthropicEffortToBody(body, { model, opts, maxTokens, clampThinkingBudgetTokens }) and anthropic-oauth.mjs _buildRequestBodyForCacheSmoke(history, model, [], { effort }) after setModelEffortCapabilities([]). Not run: a send.',
   compare: 'mixdog-core run_host/builder_env.rs (adaptive-only generation floor, :197-224) and mixdog-ai providers::anthropic body.rs (:670-684): the refusal text per model id and the whole request `body` per model/effort.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). The adaptive-only floor (`manual_thinking`, `adaptive_thinking`, effort levels per model id with an empty catalog) is mixdog_core::run_host::builder_env::CatalogCaps::new(..).caps(model) (run_host/builder_env.rs:184, pub; module `pub mod run_host` lib.rs:1): replay `caps(model)` for the floor per model id; the refusal of a manual budget and the request body are produced by the codec (anthropic/body.rs:656, :690 inside AnthropicCodec, reached through the adapter above).",

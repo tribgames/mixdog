@@ -35,7 +35,7 @@ async fn every_case_replays_as_nodes() {
         let (outcome, events) = within(&format!("{}: the send", case.id), replay_world::send_with(adapter.as_ref(), request, &cancel, Default::default())).await;
         assert_eq!(outcome.expect("the scripted stream completes"), 1, "{}: one attempt", case.id);
         set.assert_requests(case, &endpoint.arrivals(), None);
-        replay_anthropic::assert_send(&case.id, case.result(), &replay_anthropic::send(&events.events, args[1].as_str()));
+        replay_anthropic::assert_send(&set, &case.id, case.result(), &replay_anthropic::send(&events.events, args[1].as_str()));
     }
 }
 

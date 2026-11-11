@@ -10,6 +10,7 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/anthropic-effort.mjs applyAnthropicEffortToBody(body, { model, opts, maxTokens, clampThinkingBudgetTokens }) and anthropic-oauth.mjs _buildRequestBodyForCacheSmoke(history, model, [], { effort }) after setModelEffortCapabilities([]). Not run: a send.",
   "exclusions": [
+    "`bodyAfter` is not compared: it is the object the test handed applyAnthropicEffortToBody, which throws before it writes to it; the core refuses such a request before it builds any body (AnthropicCodec::encode returns the refusal), so no body exists to compare",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -148,7 +149,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-thinking-contract.mjs",
-  "recorderSha256": "10ecc2e61f3582264fb8e405d0a222f4559503e847684832f3c2cfbd6c53f7e8",
+  "recorderSha256": "790f1467620c4350b52c8d233b8fcc68a97ad58d8c8ff2055e06758135cfe597",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). The adaptive-only floor (`manual_thinking`, `adaptive_thinking`, effort levels per model id with an empty catalog) is mixdog_core::run_host::builder_env::CatalogCaps::new(..).caps(model) (run_host/builder_env.rs:184, pub; module `pub mod run_host` lib.rs:1): replay `caps(model)` for the floor per model id; the refusal of a manual budget and the request body are produced by the codec (anthropic/body.rs:656, :690 inside AnthropicCodec, reached through the adapter above).",
   "set": "provider-anthropic-thinking-contract",
   "totalBytes": 24080,

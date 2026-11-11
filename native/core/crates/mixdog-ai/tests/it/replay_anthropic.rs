@@ -2,17 +2,16 @@
 //! over `anthropic-sse-turn/turn-outcome.mjs`), built from the core's stream events, and the callbacks the send made
 //! (`onToolCall`, `onStreamDelta`), for the group-A Anthropic replays.
 //!
-//! Every field of Node's result is built from a core event here, or is one the shared `RESULT_FIELDS` table
-//! (`mixdog_testkit::provider_fields`) declares unread; [`assert_send`] compares the rest whole and in Node's key
-//! order.
+//! Every field of Node's result is built from a core event here, or is one the set's manifest declares not compared
+//! ([`CaseSet::excludes`]); [`assert_send`] compares the rest whole and in Node's key order.
 #![allow(dead_code, reason = "each Anthropic set uses part of it")]
 
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_testkit::Exact;
-use mixdog_testkit::provider_fields::result_field_unread;
 use serde_json::Value;
 
+use crate::provider_case::CaseSet;
 use crate::provider_case::assert_exact;
 use crate::provider_case::plain;
 
@@ -155,24 +154,15 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
     Send { result: Exact::Object(result), tool_calls: Exact::Array(calls), stream_deltas: Exact::Array(deltas) }
 }
 
-/// Node's result without the keys `RESULT_FIELDS` declares unread.
-pub fn comparable(node: &Exact) -> Exact {
-    match node {
-        Exact::Object(entries) => Exact::Object(
-            entries
-                .iter()
-                .filter(|(k, _)| !(mixdog_testkit::provider_fields::RESULT_FIELDS.iter().any(|(f, _, _)| f == k) && result_field_unread(k)))
-                .cloned()
-                .collect(),
-        ),
-        other => panic!("Node's result is an object: {other:?}"),
-    }
+/// Node's result without the keys the set's manifest declares not compared.
+pub fn comparable(set: &CaseSet, node: &Exact) -> Exact {
+    set.compared("", node)
 }
 
-/// Node's `onStreamDelta` kinds without `transport`, which `RESULT_FIELDS` declares unread (`streamDeltas.transport`).
-pub fn semantic_deltas(node: &Exact) -> Exact {
-    assert!(result_field_unread("streamDeltas.transport"));
-    Exact::Array(node.as_array().iter().filter(|k| k.as_str() != "transport").cloned().collect())
+/// Node's `onStreamDelta` kinds, without `transport` where the manifest declares it not compared.
+pub fn semantic_deltas(set: &CaseSet, node: &Exact) -> Exact {
+    let transport = set.excludes("onStreamDelta('transport')");
+    Exact::Array(node.as_array().iter().filter(|k| !(transport && k.as_str() == "transport")).cloned().collect())
 }
 
 /// The recorder's derived keys (`usageSlots`, the invalid-args markers, `toolCallsIsUndefined`) from `result`.
@@ -195,13 +185,13 @@ pub fn derived(key: &str, result: &Exact, tool_calls: &Exact) -> Exact {
 
 /// The recorded `{result, toolCalls, streamDeltas, ...derived}` of `id` against the core's send, whole.
 #[track_caller]
-pub fn assert_send(id: &str, recorded: &Exact, got: &Send) {
+pub fn assert_send(set: &CaseSet, id: &str, recorded: &Exact, got: &Send) {
     for (key, want) in recorded.entries() {
         let what = format!("{id}: {key}");
         match key.as_str() {
-            "result" => assert_exact(&what, &comparable(want), &got.result),
+            "result" => assert_exact(&what, &comparable(set, want), &got.result),
             "toolCalls" => assert_exact(&what, want, &got.tool_calls),
-            "streamDeltas" => assert_exact(&what, &semantic_deltas(want), &got.stream_deltas),
+            "streamDeltas" => assert_exact(&what, &semantic_deltas(set, want), &got.stream_deltas),
             other => assert_exact(&what, want, &derived(other, &got.result, &got.tool_calls)),
         }
     }
