@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use mixdog_ai::broker::SendError;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_ai::service::error_text::sent_code;
 use mixdog_core_api::domain::provider::StreamEvent;
+use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_testkit::Exact;
 
 use crate::provider_case::error_field;
@@ -118,12 +120,40 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "name" => match value.as_str() {
             "AbortError" => assert!(left.cancelled, "{what}: an AbortError is the caller's cancel"),
             "StreamStalledError" | "AgentStallAbortError" => assert!(left.error(field).timed_out, "{what}: {mapping}"),
+            "TruncatedStreamError" => assert_eq!(left.error(field).transport, Some(TransportFault::TruncatedStream), "{what}: {mapping}"),
+            // An error the stream's own frame carried: no transport fault, no timer.
+            "GeminiInBandError" => {
+                let error = left.error(field);
+                assert!(error.transport.is_none() && !error.timed_out, "{what}: {mapping}");
+            }
             _ => assert!(left.error.is_some(), "{what}: an error surfaced"),
         },
-        "code" | "providerErrorCode" | "type" => assert_eq!(left.error(field).code.as_deref(), opt_str(value), "{what}: {mapping}"),
+        // `sent_code`: the core's own code, `TRUNCATED_STREAM` for a cut stream that names none.
+        "code" | "providerErrorCode" | "type" => {
+            let sent = sent_code(left.error(field));
+            assert_eq!((!sent.is_empty()).then_some(sent.as_str()), opt_str(value), "{what}: {mapping}");
+        }
+        "truncatedStream" => {
+            assert_eq!(left.error(field).transport == Some(TransportFault::TruncatedStream), opt_bool(value), "{what}: {mapping}")
+        }
+        // A Gemini status names the code (`geminiErrorContract`: the status, lower-cased).
+        "geminiStatus" => assert_eq!(left.error(field).code.as_deref(), Some(value.as_str().to_lowercase().as_str()), "{what}: {mapping}"),
+        // The RetryInfo delay (`"<n>s"`) is the wait.
+        "details" => {
+            let delay = value.as_array().iter().find_map(|detail| match detail.try_get("retryDelay") {
+                Some(Exact::String(text)) => text.strip_suffix('s').and_then(|n| n.parse::<f64>().ok()),
+                _ => None,
+            });
+            assert_eq!(left.error(field).retry_after, delay.map(|s| Duration::from_millis((s * 1000.0).ceil() as u64)), "{what}: {mapping}");
+        }
         "error" | "providerError" | "payload" => {
             let error = left.error(field);
-            let code = value.try_get("code").and_then(opt_str).or_else(|| value.try_get("type").and_then(opt_str));
+            // A Gemini body's error names its HTTP status as `code` and its own code as `status`.
+            let code = match value.try_get("code") {
+                Some(Exact::Number(_)) => value.try_get("status").map(|s| s.as_str().to_lowercase()),
+                other => other.and_then(opt_str).or_else(|| value.try_get("type").and_then(opt_str)).map(str::to_owned),
+            };
+            let code = code.as_deref();
             assert_eq!(error.code.as_deref(), code, "{what}.code: {mapping}");
             // `httpResponseError` / `applyTypedWireMessage`: the error's message ends with the body's own message (its
             // first 200 UTF-16 units), or with the typed copy (`userMessage`) that took its place.
@@ -178,7 +208,16 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "liveTextEmitted" | "emittedText" => assert_eq!(left.text_emitted(), opt_bool(value), "{what}: {mapping}"),
         "emittedToolCall" | "toolCallEmitted" => assert_eq!(left.tool_dispatched(), opt_bool(value), "{what}: {mapping}"),
         "unsafeToRetry" => assert_eq!(left.replay_unsafe(), opt_bool(value), "{what}: {mapping}"),
-        "streamStalled" | "firstByteTimeout" => assert_eq!(left.error(field).timed_out, opt_bool(value), "{what}: {mapping}"),
+        "firstByteTimeout" => assert_eq!(left.error(field).timed_out, opt_bool(value), "{what}: {mapping}"),
+        "streamStalled" => {
+            let error = left.error(field);
+            let stalled = match &error.transport {
+                // A cut after relayed text keeps it (the partial-final stamp): the core keeps the attempt's text.
+                Some(TransportFault::TruncatedStream) if !error.timed_out => error.exposure.text_emitted,
+                _ => error.timed_out,
+            };
+            assert_eq!(stalled, opt_bool(value), "{what}: {mapping}");
+        }
         "streamOutcome" => compare_outcome(what, value, left),
         other => panic!("{what}: no comparison for {other} ({mapping})"),
     }
