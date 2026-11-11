@@ -12,8 +12,9 @@ import {
   fsyncSync,
   unlinkSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
-import { readdir, rm, stat } from 'node:fs/promises';
+import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as nodeUtil from 'node:util';
@@ -241,20 +242,60 @@ function _readHeadTail(filePath, fileSize, label = 'utf-8', final = false) {
 export const SHELL_OUTPUT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 let shellOutputSweepStarted = false;
 
+// Each run's spill files have an ownership record beside them,
+// `<taskId>.owner.json`, written (running) before the files are opened and
+// rewritten (finished) once nothing writes them. The sweep goes by it alone, so
+// a process sharing the folder never takes a run that is still going, however
+// long it has been silent, and never a file it did not write.
+const OWNER_SUFFIX = '.owner.json';
+const SPILL_SUFFIXES = ['.stdout', '.stderr'];
+
+function writeOwnerRecord(path, state) {
+  writeFileSync(path, JSON.stringify({ pid: process.pid, state }));
+}
+
+// Removes the ended runs' files older than the retention. Files named like a
+// run's spill file with no ownership record beside them (a user's, an older
+// version's) stay; their count is logged and returned.
 export async function sweepExpiredShellOutput(dir, now = Date.now()) {
   let names;
   try {
     names = await readdir(dir);
   } catch {
-    return;
+    return 0;
   }
   const cutoff = now - SHELL_OUTPUT_RETENTION_MS;
-  for (const name of names) {
-    const file = join(dir, name);
+  const aged = async (file) => {
     try {
-      if ((await stat(file)).mtimeMs < cutoff) await rm(file, { force: true });
+      return (await stat(file)).mtimeMs < cutoff;
+    } catch (err) {
+      return err?.code === 'ENOENT';
+    }
+  };
+  // The records indexed once, so each spill file is looked up, not searched for.
+  const owned = new Set(names.filter((name) => name.endsWith(OWNER_SUFFIX)).map((name) => name.slice(0, -OWNER_SUFFIX.length)));
+  let unowned = 0;
+  for (const name of names) {
+    const suffix = SPILL_SUFFIXES.find((s) => name.endsWith(s));
+    if (suffix && !owned.has(name.slice(0, -suffix.length))) unowned += 1;
+  }
+  for (const name of names) {
+    if (!name.endsWith(OWNER_SUFFIX)) continue;
+    const taskId = name.slice(0, -OWNER_SUFFIX.length);
+    const owner = join(dir, name);
+    const files = SPILL_SUFFIXES.map((s) => join(dir, `${taskId}${s}`));
+    try {
+      const record = JSON.parse(await readFile(owner, 'utf8'));
+      if (record?.state !== 'finished' || !(await aged(owner))) continue;
+      if (!(await Promise.all(files.map(aged))).every(Boolean)) continue;
+      for (const file of files) await rm(file, { force: true });
+      await rm(owner, { force: true });
     } catch {}
   }
+  if (unowned > 0) {
+    process.stderr.write(`[shell-output] sweep left ${unowned} file(s) named like spill files with no ownership record in ${dir}\n`);
+  }
+  return unowned;
 }
 
 // Owns the captured stdout/stderr buffers for a single command run. Starts
@@ -303,12 +344,14 @@ export class TaskOutput {
     }
     this.stdoutPath = join(dir, `${this.taskId}.stdout`);
     this.stderrPath = join(dir, `${this.taskId}.stderr`);
+    this.ownerPath = join(dir, `${this.taskId}${OWNER_SUFFIX}`);
     // openSync failure (EMFILE, EACCES, ENOSPC, ENOTDIR after a race) used
     // to throw straight up into the stream `data` handler, which left the
     // child running with no further writes captured. Catch + record so the
     // run settles cleanly under inline-only mode; the partial buffer in
     // stdoutBuf/stderrBuf survives.
     try {
+      writeOwnerRecord(this.ownerPath, 'running');
       this.stdoutFd = openSync(this.stdoutPath, 'a');
       this.stderrFd = openSync(this.stderrPath, 'a');
     } catch (err) {
@@ -322,6 +365,7 @@ export class TaskOutput {
       this.stderrFd = null;
       this.stdoutPath = null;
       this.stderrPath = null;
+      this.ownerPath = null;
       return;
     }
     if (this.stdoutBuf) {
@@ -578,6 +622,12 @@ export class TaskOutput {
       } catch {}
       this.stderrFd = null;
     }
+    // Nothing writes the files any more: the sweep may take them once aged.
+    if (this.ownerPath) {
+      try {
+        writeOwnerRecord(this.ownerPath, 'finished');
+      } catch {}
+    }
   }
 
   // Drop the spilled files when the inline body already covers the full
@@ -597,6 +647,12 @@ export class TaskOutput {
         unlinkSync(this.stderrPath);
       } catch {}
       this.stderrPath = null;
+    }
+    if (this.ownerPath) {
+      try {
+        unlinkSync(this.ownerPath);
+      } catch {}
+      this.ownerPath = null;
     }
     this.spilled = false;
     this.direct = false;
