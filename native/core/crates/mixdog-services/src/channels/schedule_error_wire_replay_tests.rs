@@ -10,9 +10,14 @@
 //! What the call answers is compared with the body Node's daemon answered on the wire
 //! (`{ error, code, details }`). The rename carries what a save requires besides the recorded names
 //! (`instructions`, `time`, `overwrite`, as the Schedules view sends them); `SCHEDULE_RENAME_UNCERTAIN`
-//! has no path in the core (Node raises it when the session runtime's call to the channel worker
-//! process fails, `channel-config-api.mjs:63`; the core's admin calls its scheduler in process).
+//! has no path in K1: Node raises it when the session runtime's call to the channel worker
+//! process fails (`channel-config-api.mjs:63`); the core's admin calls its scheduler in process, a
+//! cut client call is settled by the op index's `op/status`, and a reload failing after the row is
+//! stored is `SCHEDULE_RENAME_RELOAD_FAILED` (the manifest's `declared.results[3]` has the paths).
 //! Both, and the desktop hops after the wire, are declared in the manifest.
+//!
+//! After each refusal the scheduler is left as Node's `renameLocked` leaves it
+//! (`scheduler.mjs:528-552`): see `scheduler::tests` for the timers on the injected clock.
 
 use mixdog_core_api::CoreError;
 use mixdog_protocol::DomainErrorDetail;
