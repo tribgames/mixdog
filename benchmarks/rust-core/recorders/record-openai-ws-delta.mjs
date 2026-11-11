@@ -17,6 +17,20 @@ const rec = await startRecording({
     'cache-observation-*': 'RUST WORK: cache observation / continuity reset reasons are trace fields of the Node sender; no public Rust function (looked in openai/cache_key.rs, openai/continuation.rs)',
   },
   set: 'provider-openai-ws-delta',
+  exclusions: ['result...results[].result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared'],
+  // The send's own timing report (`transportTiming`, `*Ms` fields) is measured with the real performance clock: those numbers are replaced by a marker at this declared path only.
+  maskRow: (row) => {
+    const walk = (value) => {
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!value || typeof value !== 'object') return;
+      for (const [key, inner] of Object.entries(value)) {
+        if (key === 'transportTiming' && inner && typeof inner === 'object') {
+          for (const k of Object.keys(inner)) if (/Ms$/.test(k) && typeof inner[k] === 'number') inner[k] = '<ms, real clock>';
+        } else walk(inner);
+      }
+    };
+    walk(row.result);
+  },
   net: false,
   entry: 'openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (over a real loopback WebSocket; _agentTraceFn collects the trace rows); Not run: the seams of the Node test (:316-318); the real acquire, send and stream run instead, openai-compat-stream.mjs isInvalidToolArgsMarker.',
   compare: 'mixdog-ai providers::openai delta.rs (:197-298) and decoder.rs:271-287; mixdog-trace builders.rs:765-781 (no production caller: K1 gaps G12): compare `result` whole (frame mode/reason/previous_response_id/input, hashes of the mismatch diagnostics, parsed tool_search args, cache observations). `traceRows` are the rows Node writes; Rust writes none today (diagnostic only).',
@@ -41,14 +55,6 @@ const withEnv = async (value, fn) => {
 };
 const msg = (role, content) => ({ type: 'message', role, content });
 
-await rec.run('tool-search-malformed-args-marker', `${SRC}:21`, { args: '{"query": dispatchAiWrapped}' }, () => {
-  const out = parseToolSearchArgs('{"query": dispatchAiWrapped}');
-  return { out, isMarker: isInvalidToolArgsMarker(out) };
-});
-await rec.run('tool-search-valid-object-empty-preserved', `${SRC}:30`, {}, () => {
-  const obj = { query: 'y' };
-  return { valid: parseToolSearchArgs('{"query":"x"}'), objectPassthroughIsSame: parseToolSearchArgs(obj) === obj, empty: parseToolSearchArgs(''), whitespace: parseToolSearchArgs('   '), nul: parseToolSearchArgs(null), undef: parseToolSearchArgs(undefined) ?? null, emptyIsMarker: isInvalidToolArgsMarker(parseToolSearchArgs('')) };
-});
 await rec.run('default-delta-falls-back-on-request-property-mismatch', `${SRC}:44`, {}, () => withEnv(null, () => {
   const body = { model: 'gpt-5.5', input: [msg('user', 'hi')] };
   const entry = { lastRequestSansInput: '{}', lastResponseId: 'resp_prev', lastRequestInput: body.input, lastResponseItems: [] };
@@ -68,26 +74,6 @@ await rec.run('ws-delta-previous-response-id-safe-fallbacks', `${SRC}:60`, { env
   };
   const traceSafe = JSON.stringify(out.responseMismatch.responseOutputMismatch);
   return { ...out, traceSafe: ['call_other', 'provider-function-secret', 'replayed-function-secret'].map((s) => [s, traceSafe.includes(s)]) };
-}));
-await rec.run('message-mismatch-diagnostics-hash-content', `${SRC}:161`, {}, () => withEnv('ws-delta', () => {
-  const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
-  const expected = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'provider secret' }] };
-  const actual = { type: 'message', role: 'assistant', content: [{ type: 'input_text', text: 'replayed secret' }] };
-  const delta = _computeDelta({ entry: { lastRequestSansInput: '{"model":"gpt-5.5"}', lastResponseId: 'resp_prev', lastRequestInput: [prior], lastResponseItems: [expected] }, body: { model: 'gpt-5.5', input: [prior, actual] } });
-  const traceSafe = JSON.stringify(delta.responseOutputMismatch);
-  return { reason: delta.reason, mismatch: delta.responseOutputMismatch, leaks: ['provider secret', 'replayed secret'].map((s) => [s, traceSafe.includes(s)]) };
-}));
-await rec.run('diagnostic-hashes-normalize-equivalent-forms', `${SRC}:195`, {}, () => withEnv('ws-delta', () => {
-  const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
-  const mismatch = (expected, actual) => _computeDelta({ entry: { lastRequestSansInput: '{"model":"gpt-5.5"}', lastResponseId: 'resp_prev', lastRequestInput: [prior], lastResponseItems: [expected] }, body: { model: 'gpt-5.5', input: [prior, actual] } }).responseOutputMismatch;
-  const out = (text) => ({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
-  const inp = (text) => ({ type: 'message', role: 'assistant', content: [{ type: 'input_text', text }] });
-  const messageExpected = mismatch(out('same sensitive message'), out('different message'));
-  const messageActual = mismatch(out('different message'), inp('same sensitive message'));
-  const fn = (argumentsValue) => mismatch({ type: 'function_call', call_id: 'call_same', name: 'tool', arguments: argumentsValue }, { type: 'function_call', call_id: 'call_different', name: 'tool', arguments: '{"ignored":"replayed-function-secret"}' });
-  const a = fn('{"api_key":"function-secret","nested":{"z":2,"a":1}}');
-  const b = fn('{"nested":{"a":1,"z":2},"api_key":"function-secret"}');
-  return { messageExpected, messageActual, messageHashesEqual: messageExpected.response_output_mismatch_expected_hash === messageActual.response_output_mismatch_actual_hash, functionA: a, functionB: b, functionHashesEqual: a.response_output_mismatch_expected_hash === b.response_output_mismatch_expected_hash };
 }));
 // Over a real WebSocket: send 1 learns the response (resp_prev + the expected output item); send 2 replays a different item, so the product itself
 // builds the mismatch diagnostics and writes them to the trace rows. The trace sink (`_agentTraceFn`) is an output hook: its rows are events of the case.
@@ -123,13 +109,6 @@ await rec.run('mismatch-diagnostics-reach-trace-rows', `${SRC}:262`, { env: 'ws-
   const text = JSON.stringify(sends.map((s) => s.events.filter((e) => e.event === 'trace-row')));
   return { sends, secretsInTrace: ['provider-function-secret', 'replayed-function-secret', 'provider-custom-input-secret', 'replayed-custom-input-secret'].map((s) => [s, text.includes(s)]) };
 }));
-await rec.run('native-tool-search-output-replays-canonically', `${SRC}:351`, { env: 'ws-delta' }, () => withEnv('ws-delta', () => {
-  const baseTools = [{ type: 'tool_search', execution: 'client', description: 'load tools', parameters: { type: 'object', properties: {} } }];
-  const output = { type: 'tool_search_output', call_id: 'call_load_1', status: 'completed', execution: 'client', tools: [{ type: 'function', name: 'read', parameters: { type: 'object', properties: {} } }] };
-  const body = { model: 'gpt-5.5', instructions: 'sys', tools: baseTools, prompt_cache_key: 'cache-key', input: [msg('user', 'load read'), { type: 'tool_search_call', call_id: 'call_load_1', execution: 'client', arguments: { names: ['read'] } }, output, msg('user', 'use read')] };
-  const delta = _computeDelta({ entry: { lastRequestSansInput: _stableStringify(_sansInput(body)), lastResponseId: 'resp_prev', lastRequestInput: [body.input[0]], lastResponseItems: [body.input[1]] }, body });
-  return { body, delta };
-}));
 await rec.run('canonical-full-frame-key-order', `${SRC}:402`, {}, () => {
   const body = { model: 'gpt-5.5', instructions: 'sys', input: [msg('user', 'hi')], tool_choice: 'auto', parallel_tool_calls: true, reasoning: { effort: 'medium' }, store: false, stream: true, include: ['reasoning.encrypted_content'], prompt_cache_key: 'k', text: { verbosity: 'low' } };
   const frame = _buildResponseCreateFrame(body);
@@ -141,16 +120,80 @@ await rec.run('canonical-delta-frame-key-order', `${SRC}:426`, {}, () => {
   const noInstr = _buildResponseCreateFrame({ ...body, instructions: '' }, { previousResponseId: 'resp_prev', inputOverride: [] });
   return { body, delta, deltaKeys: Object.keys(delta), noInstr, noInstrKeys: Object.keys(noInstr) };
 });
-await rec.run('cache-observation-warm-zero-and-retreats', `${SRC}:455`, {}, () => {
-  const obs = (cachedMax, usage, extra = {}) => _cacheObservationForTest({ entry: { promptCacheMaxCachedTokens: cachedMax }, result: { usage }, ...extra });
-  const previousInput = [msg('user', 'old long transcript')];
-  const rewrittenBody = { model: 'gpt-5.5', input: [msg('user', 'compact summary')] };
+// ---- the helper-level cases, observed where a caller can observe them: the frames the client writes, the events of the stream, and the trace rows of the send ----
+// One exchange on a real loopback WebSocket: the sends of `steps` go through sendViaWebSocket on one pool key (xai auth), the server answers the n-th request frame with steps[n-1].answer; every frame,
+// the callbacks and the trace rows the send writes (`_agentTraceFn`, an output hook) are events of the ordered list.
+const created = (id) => ({ type: 'response.created', response: { id, model: 'gpt-5.5' } });
+const done = (id, output, usage = { input_tokens: 1, output_tokens: 1 }) => ({ type: 'response.completed', response: { id, model: 'gpt-5.5', output, usage } });
+async function exchange(key, steps) {
+  world.reset({ onFrame: (conn, _frame, n) => { for (const frame of steps[n - 1].answer) conn.send(frame); } });
+  const results = [];
+  for (const step of steps) {
+    world.note({ event: 'send-start', phase: step.phase });
+    const out = await sendViaWebSocket({
+      auth: { type: 'xai', access_token: 'test-token' }, body: step.body, poolKey: key, cacheKey: 'ws-delta-wire', iteration: 1, useModel: 'gpt-5.5', traceProvider: 'xai',
+      onToolCall: (call) => world.note({ event: 'tool', call }),
+      _agentTraceFn: (row) => world.note({ event: 'trace-row', row }),
+    }).then((result) => ({ result }), (error) => ({ error }));
+    world.note({ event: 'send-result', phase: step.phase });
+    results.push({ phase: step.phase, ...out });
+  }
+  const events = world.trace.map((x) => ({ ...x }));
+  for (const conn of world.conns) conn.close(1000, 'recorder-end');
+  await world.until((trace) => trace.some((x) => x.event === 'closed'), 'socket closed');
+  return { results, events };
+}
+const searchCall = (args) => ({ type: 'tool_search_call', id: 'ts_1', call_id: 'call_ts', execution: 'client', ...(args === undefined ? {} : { arguments: args }) });
+const searchTurn = (key, args) => exchange(key, [{ phase: 'search', body: { model: 'gpt-5.5', input: [msg('user', 'load tools')] }, answer: [created('resp_ts'), { type: 'response.output_item.done', item: searchCall(args) }, done('resp_ts', [searchCall(args)])] }]);
+await rec.run('tool-search-malformed-args-marker', `${SRC}:21`, { arguments: '{"query": dispatchAiWrapped}' }, () => searchTurn('ts-malformed', '{"query": dispatchAiWrapped}'));
+await rec.run('tool-search-valid-object-empty-preserved', `${SRC}:30`, { arguments: ['{"query":"x"}', { query: 'y' }, '', '   ', null, 'absent'] }, async () => {
+  const variants = { validString: '{"query":"x"}', object: { query: 'y' }, empty: '', whitespace: '   ', nul: null, absent: undefined };
+  const out = {};
+  for (const [name, args] of Object.entries(variants)) out[name] = await searchTurn(`ts-${name}`, args);
+  return out;
+});
+const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
+const replayPair = (key, expected, actual) => exchange(key, [
+  { phase: 'learn', body: { model: 'gpt-5.5', input: [prior] }, answer: [created('resp_prev'), done('resp_prev', [expected])] },
+  { phase: 'replay-with-mismatch', body: { model: 'gpt-5.5', input: [prior, actual] }, answer: [created('resp_next'), done('resp_next', [])] },
+]);
+const out = (text) => ({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
+const inp = (text) => ({ type: 'message', role: 'assistant', content: [{ type: 'input_text', text }] });
+await rec.run('message-mismatch-diagnostics-hash-content', `${SRC}:161`, { expected: 'provider secret (output_text)', actual: 'replayed secret (input_text)' }, async () => {
+  const exchanged = await replayPair('diag-message', out('provider secret'), inp('replayed secret'));
+  const text = JSON.stringify(exchanged.events.filter((e) => e.event === 'trace-row'));
+  return { ...exchanged, leaks: ['provider secret', 'replayed secret'].map((s) => [s, text.includes(s)]) };
+});
+await rec.run('diagnostic-hashes-normalize-equivalent-forms', `${SRC}:195`, { pairs: ['message: expected output_text "same sensitive message" vs the same text replayed as input_text', 'function_call: arguments in two key orders'] }, async () => {
+  const fn = (key, args) => replayPair(key, { type: 'function_call', call_id: 'call_same', name: 'tool', arguments: args }, { type: 'function_call', call_id: 'call_different', name: 'tool', arguments: '{"ignored":"replayed-function-secret"}' });
   return {
-    zero: obs(47_616, { inputTokens: 59_000, promptTokens: 59_000, cachedTokens: 0 }),
-    partial: obs(101_888, { inputTokens: 102_456, promptTokens: 102_456, cachedTokens: 60_928 }),
-    healthy: obs(101_888, { inputTokens: 106_468, promptTokens: 106_468, cachedTokens: 103_424 }),
-    compacted: obs(255_488, { inputTokens: 21_066, promptTokens: 21_066, cachedTokens: 8_704 }, { continuityResetReason: 'input_prefix_mismatch' }),
-    continuityResetReason: _cacheContinuityResetReasonForTest({ mode: 'full', deltaReason: 'full_default', entry: { lastResponseId: 'resp_old', lastRequestSansInput: _stableStringify(_sansInput(rewrittenBody)), lastRequestInput: previousInput }, body: rewrittenBody }),
+    messageExpected: await replayPair('norm-msg-a', out('same sensitive message'), out('different message')),
+    messageActual: await replayPair('norm-msg-b', out('different message'), inp('same sensitive message')),
+    functionA: await fn('norm-fn-a', '{"api_key":"function-secret","nested":{"z":2,"a":1}}'),
+    functionB: await fn('norm-fn-b', '{"nested":{"a":1,"z":2},"api_key":"function-secret"}'),
+  };
+});
+await rec.run('native-tool-search-output-replays-canonically', `${SRC}:351`, { env: 'ws-delta' }, () => withEnv('ws-delta', async () => {
+  const tools = [{ type: 'tool_search', execution: 'client', description: 'load tools', parameters: { type: 'object', properties: {} } }];
+  const call = { type: 'tool_search_call', call_id: 'call_load_1', execution: 'client', arguments: { names: ['read'] } };
+  const output = { type: 'tool_search_output', call_id: 'call_load_1', status: 'completed', execution: 'client', tools: [{ type: 'function', name: 'read', parameters: { type: 'object', properties: {} } }] };
+  const base = { model: 'gpt-5.5', instructions: 'sys', tools, prompt_cache_key: 'cache-key' };
+  return exchange('native-tool-search', [
+    { phase: 'learn', body: { ...base, input: [msg('user', 'load read')] }, answer: [created('resp_prev'), done('resp_prev', [call])] },
+    { phase: 'replay', body: { ...base, input: [msg('user', 'load read'), call, output, msg('user', 'use read')] }, answer: [created('resp_next'), done('resp_next', [])] },
+  ]);
+}));
+await rec.run('cache-observation-warm-zero-and-retreats', `${SRC}:455`, { scenarios: ['zero', 'partial', 'healthy', 'compacted'] }, async () => {
+  const usage = (input, cached) => ({ input_tokens: input, output_tokens: 1, input_tokens_details: { cached_tokens: cached } });
+  const scenario = (key, maxCached, second, secondBody) => exchange(key, [
+    { phase: 'learn', body: { model: 'gpt-5.5', input: [msg('user', 'old long transcript')] }, answer: [created('resp_a'), done('resp_a', [], usage(maxCached + 1000, maxCached))] },
+    { phase: 'replay', body: secondBody ?? { model: 'gpt-5.5', input: [msg('user', 'old long transcript'), msg('user', 'next')] }, answer: [created('resp_b'), done('resp_b', [], usage(second.input, second.cached))] },
+  ]);
+  return {
+    zero: await scenario('cache-zero', 47_616, { input: 59_000, cached: 0 }),
+    partial: await scenario('cache-partial', 101_888, { input: 102_456, cached: 60_928 }),
+    healthy: await scenario('cache-healthy', 101_888, { input: 106_468, cached: 103_424 }),
+    compacted: await scenario('cache-compacted', 255_488, { input: 21_066, cached: 8_704 }, { model: 'gpt-5.5', input: [msg('user', 'compact summary')] }),
   };
 });
 await rec.finish();
