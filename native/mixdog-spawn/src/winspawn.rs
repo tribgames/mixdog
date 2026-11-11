@@ -224,12 +224,15 @@ fn resolve_program(program: &str, env: Option<&[(OsString, OsString)]>) -> io::R
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "program path has no file name"));
     }
     let exists = |path: &Path| std::fs::symlink_metadata(path).is_ok();
+    // Absolute at lookup, as std's `to_user_path` does, so a later change of this process's current
+    // directory cannot make `CreateProcessW` pick another file; a failure to do so is the error.
+    let absolute = |path: &Path| std::path::absolute(path).map(wide);
     if program.contains(['/', '\\']) {
         if program.len() >= 4 && program.as_bytes()[program.len() - 4..].eq_ignore_ascii_case(b".exe") {
-            return Ok(wide(program));
+            return absolute(Path::new(program));
         }
         let with_exe = format!("{program}.exe");
-        return Ok(wide(if exists(Path::new(&with_exe)) { with_exe.as_str() } else { program }));
+        return absolute(Path::new(if exists(Path::new(&with_exe)) { with_exe.as_str() } else { program }));
     }
     // "If the file name does not contain an extension, .exe is appended", for searched names only.
     let file = if program.contains('.') { program.to_owned() } else { format!("{program}.exe") };
@@ -247,11 +250,10 @@ fn resolve_program(program: &str, env: Option<&[(OsString, OsString)]>) -> io::R
                 .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
                 .filter(|dir| !dir.as_os_str().is_empty()),
         );
-    directories
-        .map(|dir| dir.join(&file))
-        .find(|candidate| exists(candidate))
-        .map(wide)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "program not found"))
+    match directories.map(|dir| dir.join(&file)).find(|candidate| exists(candidate)) {
+        Some(found) => absolute(&found),
+        None => Err(io::Error::new(io::ErrorKind::NotFound, "program not found")),
+    }
 }
 
 /// A handle the child may inherit, closed on drop.
@@ -475,16 +477,55 @@ mod tests {
     /// never searched it, and a null application name makes `CreateProcessW` do so.
     #[test]
     fn a_program_only_in_the_current_directory_is_not_found() {
+        use std::os::windows::process::CommandExt;
         let name = format!("mixdog-cwd-only-{}", std::process::id());
         let dir = std::env::temp_dir().join(&name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::copy(ping(), dir.join(format!("{name}.exe"))).unwrap();
-        let before = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&dir).unwrap();
-        let env = [(OsString::from("PATH"), OsString::new())];
-        let kind = std::panic::catch_unwind(|| refusal(&name, &name, Some(&env)));
-        std::env::set_current_dir(before).unwrap();
+        // A process of its own, started in that directory, so no other test sees it as current.
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "winspawn::tests::cwd_only_child", "--nocapture"])
+            .env("MIXDOG_CWD_ONLY", &name)
+            .current_dir(&dir)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut child = child;
+            let _ = sender.send(child.wait());
+        });
+        let status = receiver.recv_timeout(std::time::Duration::from_secs(60));
+        if status.is_err() {
+            // The deadline passed: end the child and anything it started.
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(kind.unwrap(), io::ErrorKind::NotFound);
+        let status = status.expect("the child did not finish within 60 s").unwrap();
+        assert!(status.success(), "the child check failed: {status}");
+    }
+
+    /// The body of the test above, run in the process it starts; a no-op in a normal run.
+    #[test]
+    fn cwd_only_child() {
+        let Some(name) = std::env::var_os("MIXDOG_CWD_ONLY") else { return };
+        let name = name.to_string_lossy().into_owned();
+        let env = [(OsString::from("PATH"), OsString::new())];
+        assert_eq!(refusal(&name, &name, Some(&env)), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn a_relative_program_path_is_resolved_to_an_absolute_one() {
+        for program in ["relative\\dir\\tool.exe", "relative\\dir\\tool"] {
+            let resolved = resolve_program(program, None).unwrap();
+            let path = PathBuf::from(OsString::from_wide(&resolved[..resolved.len() - 1]));
+            assert!(path.is_absolute(), "{program} resolved to {path:?}");
+        }
     }
 }
