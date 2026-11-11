@@ -14,6 +14,8 @@
 //! Project text saves (`projectFs/writeText`) are not this service: they keep the in-place rewrite
 //! and recovery journal of [`crate::fsops`].
 
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
@@ -25,6 +27,7 @@ use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::LazyLock;
@@ -36,11 +39,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use grep::matcher::Matcher;
+use grep::printer::StandardBuilder;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::BinaryDetection;
 use grep::searcher::Searcher;
 use grep::searcher::SearcherBuilder;
 use grep::searcher::Sink;
+use grep::searcher::SinkFinish;
 use grep::searcher::SinkMatch;
 use ignore::WalkBuilder;
 use ignore::overrides::OverrideBuilder;
@@ -869,43 +874,48 @@ fn walk_error(error: &ignore::Error, root: &Path) -> FsError {
 }
 
 /// The search server's `max_columns` (serve_search/matching.rs:276-277, `.max_columns(500)` with
-/// `.max_columns_preview(true)`); [`match_text`] has the rule.
-const MAX_COLUMNS: usize = 500;
+/// `.max_columns_preview(true)`).
+const MAX_COLUMNS: u64 = 500;
 
-/// grep-printer 0.2.2 `write_exceeded_line`'s mark when no match is coloured (standard.rs:1373-1374).
-const LONG_LINE_MARK: &str = " [... omitted end of long line]";
-
-/// A match line as the search server prints it and splits its output, the matcher having run on the whole line. The
-/// server's searcher ends a line at `\n` only (serve_search/matching.rs:34) and its no-colour standard printer
-/// (matching.rs:271-277) writes each line through grep-printer 0.2.2 `write_line` (standard.rs:1258-1282):
-/// - trigger (`exceeds_max_columns`, standard.rs:1600-1602): the line's byte length WITH its terminator (`\n`, or
-///   `\r\n` counted as two bytes; a file's last line without one counts its own bytes) is over [`MAX_COLUMNS`];
-/// - not over: the line is printed whole, then `output_lines` (matching.rs:180-186) decodes the output lossily and
-///   splits it with `str::lines`, which drops the `\n` or `\r\n`;
-/// - over (`write_exceeded_line` with preview, standard.rs:1361-1374): the end of the first [`MAX_COLUMNS`] grapheme
-///   clusters as bstr segments the raw bytes, the terminator among them (`\r\n` is one cluster, invalid UTF-8 a
-///   cluster per maximal invalid sequence, and bstr's segmentation has no Indic conjunct rule), then
-///   `write_colored_matches` trims a trailing `\n` only (standard.rs:1320), so a `\r` stays, and [`LONG_LINE_MARK`]
-///   follows; `output_lines` then decodes it lossily.
-///
-/// The preview is not cut short however many bytes its clusters take: the queue's memory is bounded by
-/// [`QUEUE_BYTES`] instead.
-fn match_text(bytes: &[u8]) -> String {
-    use bstr::ByteSlice as _;
-    if bytes.len() <= MAX_COLUMNS {
-        let line = bytes.strip_suffix(b"\n").map_or(bytes, |line| line.strip_suffix(b"\r").unwrap_or(line));
-        return String::from_utf8_lossy(line).into_owned();
-    }
-    let end = bytes.grapheme_indices().map(|(_, end, _)| end).take(MAX_COLUMNS).last().unwrap_or(0);
-    let preview = &bytes[..end];
-    let mut text = String::from_utf8_lossy(preview.strip_suffix(b"\n").unwrap_or(preview)).into_owned();
-    text.push_str(LONG_LINE_MARK);
-    text
+/// serve_search/config.rs `search_heap_bytes()` (:82-89, `MIXDOG_SEARCH_HEAP_BYTES`, default 32 MiB, within
+/// 1 MiB..=128 MiB): the heap a file's search may take for its line buffer (matching.rs:171). A line the buffer cannot
+/// hold within it fails the file's search, so it also bounds what one line of a search holds in memory.
+fn search_heap_bytes() -> usize {
+    bounded_env("MIXDOG_SEARCH_HEAP_BYTES", 32 << 20, 1 << 20, 128 << 20)
 }
 
-/// One line per match, like ripgrep's standard printer; the column is the first match's byte start. Stops the file
-/// when the request's match budget is spent or the stream is closed.
-struct Collect<'a> {
+/// What the printer writes, shared with the sink that reads each match's line back.
+#[derive(Clone, Default)]
+struct Printed(Rc<RefCell<Vec<u8>>>);
+
+impl Write for Printed {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The text of the one match the printer wrote (`N:` and the line), read as Node's server reads its printer's output
+/// (`output_lines`, matching.rs:180-186: decoded lossily, split with `str::lines`) and its client reads the line (the
+/// text after the line number's `:`).
+fn printed_text(bytes: &[u8]) -> String {
+    let output = String::from_utf8_lossy(bytes);
+    let line = output.lines().next().unwrap_or("");
+    line.split_once(':').map_or(line, |(_, text)| text).to_owned()
+}
+
+/// One line per match, printed by the printer Node's search server prints with: grep-printer's standard printer built
+/// as serve_search builds it (matching.rs:271-278: no heading, no path, `max_columns(500)` with preview, no colour), fed
+/// by the same searcher, so a long line's trigger and preview are the crate's own. The column is the first match's byte
+/// start. Stops the file when the request's match budget is spent or the stream is closed.
+struct Collect<'a, P> {
+    /// The printer's sink, and what it writes.
+    printer: P,
+    printed: Printed,
     matcher: &'a grep::regex::RegexMatcher,
     path: &'a AbsPath,
     out: &'a Out<SearchMatch>,
@@ -918,17 +928,30 @@ struct Collect<'a> {
     root: &'a Path,
 }
 
-impl Sink for Collect<'_> {
+impl<P: Sink<Error = io::Error>> Sink for Collect<'_, P> {
     type Error = io::Error;
 
-    fn matched(&mut self, _: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
+    fn begin(&mut self, searcher: &Searcher) -> Result<bool, io::Error> {
+        self.printer.begin(searcher)
+    }
+
+    fn binary_data(&mut self, searcher: &Searcher, binary_byte_offset: u64) -> Result<bool, io::Error> {
+        self.printer.binary_data(searcher, binary_byte_offset)
+    }
+
+    fn finish(&mut self, searcher: &Searcher, finish: &SinkFinish) -> Result<(), io::Error> {
+        self.printer.finish(searcher, finish)
+    }
+
+    fn matched(&mut self, searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
         if *self.left == Some(0) {
             return Ok(false);
         }
-        let bytes = found.bytes();
-        let column = self.matcher.find(bytes).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
+        self.printer.matched(searcher, found)?;
+        let text = printed_text(&self.printed.0.take());
+        let column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
         let line = found.line_number().unwrap_or(0);
-        if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text: match_text(bytes) })) {
+        if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text })) {
             self.closed = true;
             return Ok(false);
         }
@@ -1626,7 +1649,16 @@ impl Produce<SearchMatch> for Searching {
                 }
             };
             let searched = opened.and_then(|inner| {
+                let printed = Printed::default();
+                let mut printer = StandardBuilder::new()
+                    .heading(false)
+                    .path(false)
+                    .max_columns(Some(MAX_COLUMNS))
+                    .max_columns_preview(true)
+                    .build_no_color(printed.clone());
                 let mut sink = Collect {
+                    printer: printer.sink(matcher),
+                    printed,
                     matcher,
                     path: &path,
                     out,
@@ -2169,6 +2201,9 @@ mod tests {
 
     use super::*;
 
+    /// grep-printer 0.2.2's mark after a long line's preview when no match is coloured (standard.rs:1373-1374).
+    const LONG_LINE_MARK: &str = " [... omitted end of long line]";
+
     fn lanes() -> FsLanes {
         let tokens = mixdog_rt::testing::tokens();
         FsLanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io }
@@ -2576,7 +2611,8 @@ mod tests {
         while let Some(m) = s.next().await {
             texts.push(m.unwrap().text);
         }
-        assert_eq!(texts, vec!["needle\r", "needle", "needle\r"]);
+        // The last line has no terminator: the printer adds one, and `str::lines` drops the `\r` before it.
+        assert_eq!(texts, vec!["needle\r", "needle", "needle"]);
     }
 
     #[cfg(unix)]
