@@ -71,10 +71,19 @@
   "recorderSha256": "84bda72337f3c470996ad2161c1c8494a5d471f4865ffd9c95a10f7f21e88037",
   "replay": {
     "compare": "mixdog-app-server thread/items/list paging and the phone transcript window: feed each case's rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole)",
-    "entry": "Drive these public items on o1: thread/items/list (mixdog-app-protocol/src/methods.rs:185).",
+    "entry": "In K1 the phone opens a thread with thread/resume (a row-counted ResumeWindow, mixdog-app-protocol/src/v2/feed.rs:65) and pages with thread/items/list (methods.rs:185; mixdog-core-session reads.rs items_list: limit 1..512, byteBudget), called by the phone adapter (apps/desktop/src/renderer/remote-protocol-chat-host.ts readTranscriptHistory) and folded into rows by packages/protocol-client. Every case records Node's desktop-main snapshot delta wires over hand-made rows ({id, kind, text}), which no core read returns; no case is replayed on replay-k1-session-host-a (see cases).",
+    "cases": {
+      "a page revealed above a short first page arrives as history, the rows the phone opened on stay its tail": "not replayed: Node snapshot wires (encodePhoneSessionState prepend); the K1 page is a thread/items/list answer folded in TS",
+      "a phone's first page stays within its byte budget however wide the shared window is": "not replayed: the core's first page (thread/resume) is counted in rows, it has no byte budget; recorded as Node wires",
+      "live rows append past the first page; older rows reveal only on the phone request, within the page": "not replayed: Node snapshot wires and viewIsStale (TS, apps/desktop/src/main/remote-view-staleness.ts in K1)",
+      "a phone page reveals at most 512 rows a request, whatever limit it names, and pages on to the first row": "not replayed: Node snapshot wires; in K1 the adapter refuses a limit over 512 (requiredTranscriptHistoryRequest) and items_list takes 1..512",
+      "an oversized newest tool row goes with its outputs cut to fit, readable whole through Show full output": "not replayed: the core cuts no tool output to a page budget and has no full-output read (remoteToolOutput); recorded as Node wires",
+      "a compacted live session whose runtime spilled rows pages back on the phone to its first row": "not replayed: Node's spill buffer and live window (session-service transcript-window.mjs) over hand-made rows; the core pages its own store",
+      "an oversized message row is sent whole, so a first page with it is over the budget (as HEAD)": "not replayed: Node snapshot wires and byte counts"
+    },
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the phone transcript window (encodePhoneSessionState, requestPhoneTranscriptPage, remoteToolOutput): no counterpart found"
+      "a byte budget on the phone's first page (thread/resume window) and cutting of oversized tool outputs with a full-output read (encodePhoneSessionState, remoteToolOutput)"
     ],
     "normalised": {},
     "protocolMethods": [
