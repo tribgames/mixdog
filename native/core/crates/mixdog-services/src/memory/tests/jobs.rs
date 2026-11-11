@@ -179,6 +179,103 @@ async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it(
     assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
 }
 
+/// Every `entries` row whole, as Node's recorder reads them (`to_jsonb`), in id order, and the positions blob.
+async fn on_disk(db: &Db) -> (Value, Value) {
+    let rows = db.query("SELECT to_jsonb(e) FROM entries e ORDER BY id", &[]).await.expect("rows");
+    let positions = crate::memory::schema::get_meta(db, "state.transcript_offsets").await.expect("meta");
+    (Value::Array(rows.iter().map(|r| r.get::<_, Value>(0)).collect()), positions.unwrap_or(Value::Null))
+}
+
+/// `fixtures/transcript-restart/restart-kill.json` (`record-transcript-restart.mjs`): Node's watcher ingest over its real
+/// memory database, killed (SIGKILL) right after its k-th row insert returned, k = 1 .. n (the last, the point between
+/// the last insert and the position save), then started again. Here the same file: the core's own ingest, never killed,
+/// stores what Node's stores (so a kill after its k-th insert leaves Node's k rows, the position not yet saved); and from
+/// each point's disk as Node's kill left it (its rows, the id sequence they used, no position), the core's start stores
+/// every line once and leaves Node's rows, ids and position.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does() {
+    let path = |rel: &str| format!("{}/../../fixtures/{rel}", env!("CARGO_MANIFEST_DIR"));
+    let read = |rel: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path(rel)).expect("recording")).expect("json") };
+    let writer = read("session-transcript/writer.json");
+    let recorded = read("transcript-restart/restart-kill.json");
+    let now = 1_772_600_767_890_i64;
+    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
+    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
+    let pg = TestPg::start().await;
+    // One database per run: each point starts from an empty store.
+    let fresh = || async {
+        let db = memory_db(&pg).await;
+        db.batch("TRUNCATE entries RESTART IDENTITY CASCADE; DELETE FROM meta WHERE key = 'state.transcript_offsets';").await.expect("empty store");
+        db
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let file = work.join("sess_restart.jsonl");
+    let escaped = serde_json::to_string(&work.to_string_lossy()).unwrap();
+    let cwd = escaped[1..escaped.len() - 1].to_owned();
+    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &cwd);
+    std::fs::write(&file, &text).unwrap();
+    // The file's length follows its directory's: a position Node saved at the end of its file (`fileBytes`) is the
+    // end of this one.
+    let key = format!("<cwd>{}sess_restart.jsonl", std::path::MAIN_SEPARATOR);
+    let named = |value: Value, node_bytes: &Value| -> Value {
+        let mut value: Value = serde_json::from_str(&value.to_string().replace(&cwd, "<cwd>")).unwrap();
+        if let Some(position) = value.pointer_mut("/positions").and_then(|p| p.get_mut(&key)) {
+            if position["bytes"] == json!(text.len()) {
+                position["bytes"] = node_bytes.clone();
+            }
+        }
+        value
+    };
+    let start = |db: Db| {
+        let file = file.clone();
+        let work = work.clone();
+        async move {
+            let ingest = TranscriptIngest::new(db, io(), Arc::new(move || now));
+            ingest.load_transcript_offsets().await;
+            ingest.ingest_transcript_file(&file, Some(&work)).await.unwrap()
+        }
+    };
+
+    let db = fresh().await;
+    let count = start(db.clone()).await;
+    let (rows, positions) = on_disk(&db).await;
+    let unkilled = &recorded["unkilled"];
+    assert_eq!(
+        named(json!({ "fileBytes": unkilled["fileBytes"], "count": count, "rows": rows, "positions": positions }), &unkilled["fileBytes"]),
+        *unkilled,
+        "the watcher never killed"
+    );
+
+    for point in recorded["points"].as_array().unwrap() {
+        let k = point["k"].as_u64().unwrap();
+        assert_eq!(point["atKill"]["positions"], Value::Null, "point {k}: Node's kill came before the position save");
+        let db = fresh().await;
+        // The disk as the kill left it: Node's rows (named back to this directory) and the ids the inserts used.
+        for row in point["atKill"]["rows"].as_array().unwrap() {
+            let row: Value = serde_json::from_str(&row.to_string().replace("<cwd>", &cwd)).unwrap();
+            db.execute(
+                "INSERT INTO entries(id, ts, role, content, source_ref, session_id, source_turn, project_id, time_source) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                &[&row["id"].as_i64(), &row["ts"].as_i64(), &row["role"].as_str(), &row["content"].as_str(), &row["source_ref"].as_str(), &row["session_id"].as_str(), &row["source_turn"].as_i64().map(|t| t as i32), &row["project_id"].as_str(), &row["time_source"].as_str()],
+            )
+            .await
+            .expect("the row the kill left");
+        }
+        db.execute("SELECT setval('entries_id_seq', $1)", &[&(k as i64)]).await.expect("the sequence the inserts used");
+        let (rows, _) = on_disk(&db).await;
+        assert_eq!(named(rows, &point["fileBytes"]), point["atKill"]["rows"], "point {k}: the disk the kill left");
+        let count = start(db.clone()).await;
+        let (rows, positions) = on_disk(&db).await;
+        assert_eq!(
+            named(json!({ "count": count, "rows": rows, "positions": positions }), &point["fileBytes"]),
+            point["restart"],
+            "point {k}: after the restart"
+        );
+    }
+}
+
 fn assert_offset(ingest: &TranscriptIngest, file: &Path, expected: &Value) {
     let got = ingest.get_offset(file).expect("a stored position");
     assert_eq!(
