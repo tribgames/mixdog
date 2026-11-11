@@ -77,7 +77,7 @@ export const REPLAY_TARGETS = {
   },
   'model-proxy-host-cases': {
     rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core/src/run_host/model_proxy_pc.rs', 80, 'PcQuotaProbe'), r('mixdog-core/src/run_host/model_proxy_pc.rs', 250, 'PcProviderConfig')],
-    missing: ['the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930'],
+    missing: [],
   },
   'model-proxy-host-trust-cases': {
     rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs', 184, 'ModelProxyService::call', 'the `modelProxy/run` request: admission by payload size, then the run and its typed events')],
