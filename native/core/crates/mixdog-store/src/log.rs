@@ -913,19 +913,35 @@ impl LogWriter {
         }
         let total = batch_len + checkpoint.as_ref().map_or(0, |c| c.frame_len() as u64);
         let (file_no, base) = if rotate { (self.file_no + 1, 0) } else { (self.file_no, end) };
-        let mut buf = Vec::with_capacity(total as usize);
+        // A batch over the durability window (one request's whole unit, e.g. an inherited conversation: Node writes it as one
+        // record) is still one write and one barrier; a checkpoint of the state after it ends the write, so the newest anchor
+        // stays within REVERSE_SCAN_MAX of the end (FORMAT.md §6.3).
+        let closing = total > DURABILITY_WINDOW_BYTES;
+        // More than one record frame is a group (FORMAT.md §3.6): a marker frame naming the members' count and bytes, then the
+        // members, so recovery takes all of them or none (a kill inside the write leaves no prefix of the batch). The leading
+        // checkpoint stays outside it: it is the state before the batch, whole on its own, and an anchor the reverse scan may
+        // start from.
+        let members = batch.len() + usize::from(closing);
+        let marker_len = if members > 1 { (GROUP_MARKER_LEN + FRAME_OVERHEAD) as u64 } else { 0 };
+        let mut buf = Vec::with_capacity(total as usize + marker_len as usize);
         let mut positions = Vec::with_capacity(batch.len() + 2);
         let mut lens = Vec::with_capacity(batch.len() + 2);
-        for (ordinal, e) in (self.fold.next_ordinal..).zip(checkpoint.iter().chain(&batch)) {
-            let offset = base + buf.len() as u64;
+        let mut ordinals = self.fold.next_ordinal..;
+        if let Some(cp) = &checkpoint {
+            let ordinal = ordinals.next().expect("unbounded");
+            positions.push(FramePos { ordinal, file_no, offset: base });
+            framing::encode_into(&mut buf, ordinal, &cp.payload);
+            lens.push(cp.frame_len() as u64);
+        }
+        let group_at = buf.len();
+        let first_member = self.fold.next_ordinal + u64::from(checkpoint.is_some());
+        for (ordinal, e) in ordinals.zip(&batch) {
+            let offset = base + marker_len + buf.len() as u64;
             framing::encode_into(&mut buf, ordinal, &e.payload);
             positions.push(FramePos { ordinal, file_no, offset });
             lens.push(e.frame_len() as u64);
         }
-        // A batch over the durability window (one request's whole unit, e.g. an inherited conversation: Node writes it as one
-        // record) is still one write and one barrier, so it lands whole or not at all; a checkpoint of the state after it ends
-        // the write, so the newest anchor stays within REVERSE_SCAN_MAX of the end (FORMAT.md §6.3).
-        let trailing = if total > DURABILITY_WINDOW_BYTES {
+        let trailing = if closing {
             let mut after = self.fold.clone();
             let skip = usize::from(checkpoint.is_some());
             if checkpoint.is_some() {
@@ -936,7 +952,7 @@ impl LogWriter {
             }
             let (state, blob) = body_slot(after.checkpoint_state())?;
             let encoded = Encoded::new(Record::Checkpoint(CheckpointRecord { state }), blob.into_iter().collect())?;
-            let offset = base + buf.len() as u64;
+            let offset = base + marker_len + buf.len() as u64;
             framing::encode_into(&mut buf, after.next_ordinal, &encoded.payload);
             positions.push(FramePos { ordinal: after.next_ordinal, file_no, offset });
             lens.push(encoded.frame_len() as u64);
@@ -944,6 +960,12 @@ impl LogWriter {
         } else {
             None
         };
+        if members > 1 {
+            let mut marker = Vec::with_capacity(marker_len as usize);
+            framing::encode_into(&mut marker, first_member, &group_marker(members as u64, (buf.len() - group_at) as u64));
+            debug_assert_eq!(marker.len() as u64, marker_len);
+            buf.splice(group_at..group_at, marker);
+        }
         // Blobs before the frames that reference them (SM §7.5).
         let mut pins: Vec<BlobPin> = Vec::new();
         for blob in checkpoint.iter().chain(&batch).chain(trailing.iter()).flat_map(|e| &e.blobs) {

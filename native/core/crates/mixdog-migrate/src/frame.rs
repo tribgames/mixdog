@@ -134,8 +134,25 @@ pub fn scan(buf: &[u8], start_ordinal: u64) -> (Vec<Committed>, ScanEnd) {
     let mut committed = Vec::new();
     let mut p = 0;
     let mut expected = start_ordinal;
+    // A group being read (`mixdog_store::schema::frame::GROUP_MARKER`): members end at `.0`, `.1` still due, a tail torn
+    // inside it is torn from its marker `.2`, and the members read so far (from `committed[.3..]`) go with it.
+    let mut group: Option<(usize, u64, usize, usize)> = None;
     loop {
-        let torn = ScanEnd::Torn { offset: p as u64 };
+        if let Some((end, due, _, _)) = group {
+            if p == end && due == 0 {
+                group = None;
+            } else if p >= end || due == 0 {
+                return (committed, ScanEnd::Corrupt { offset: p as u64, ordinal: expected, cause: CorruptCause::Framing });
+            }
+        }
+        let (torn, kept) = match group {
+            Some((_, _, marker, kept)) => (ScanEnd::Torn { offset: marker as u64 }, kept),
+            None => (ScanEnd::Torn { offset: p as u64 }, committed.len()),
+        };
+        let torn = |mut committed: Vec<Committed>| {
+            committed.truncate(kept);
+            (committed, torn.clone())
+        };
         let corrupt = |cause| ScanEnd::Corrupt {
             offset: p as u64,
             ordinal: expected,
@@ -145,17 +162,17 @@ pub fn scan(buf: &[u8], start_ordinal: u64) -> (Vec<Committed>, ScanEnd) {
             return (committed, ScanEnd::Clean);
         }
         if written <= p {
-            return (committed, torn);
+            return torn(committed);
         }
         let h = &buf[p..written.min(p + HEADER_LEN)];
         let len = match check_header(h, expected) {
             Err(cause) => return (committed, corrupt(cause)),
-            Ok(None) => return (committed, torn),
+            Ok(None) => return torn(committed),
             Ok(Some(len)) => len,
         };
         let payload_end = p + HEADER_LEN + len;
         if payload_end > written {
-            return (committed, torn);
+            return torn(committed);
         }
         if h[CRC_AT..CRC_AT + CRC_DIGITS]
             != *format!("{:08x}", crc32c(&buf[p + HEADER_LEN..payload_end])).as_bytes()
@@ -163,10 +180,29 @@ pub fn scan(buf: &[u8], start_ordinal: u64) -> (Vec<Committed>, ScanEnd) {
             return (committed, corrupt(CorruptCause::Crc));
         }
         if payload_end == written {
-            return (committed, torn);
+            return torn(committed);
         }
         if buf[payload_end] != TERMINATOR {
             return (committed, corrupt(CorruptCause::Framing));
+        }
+        match mixdog_store::schema::frame::parse_group_marker(&buf[p + HEADER_LEN..payload_end]) {
+            Err(cause) => return (committed, corrupt(cause)),
+            Ok(Some((count, bytes))) => {
+                if group.is_some() {
+                    return (committed, corrupt(CorruptCause::Framing));
+                }
+                let end = (payload_end + 1).saturating_add(bytes as usize);
+                if end > written {
+                    return (committed, ScanEnd::Torn { offset: p as u64 });
+                }
+                group = Some((end, count, p, committed.len()));
+                p = payload_end + 1;
+                continue;
+            }
+            Ok(None) => {}
+        }
+        if let Some((_, due, _, _)) = group.as_mut() {
+            *due -= 1;
         }
         committed.push(Committed {
             ordinal: expected,
