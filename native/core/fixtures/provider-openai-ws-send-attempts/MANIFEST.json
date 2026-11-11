@@ -10,7 +10,7 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. The state-machine cases feed a scripted Error (own properties are the inputs) and read `attempts.state` and the error objects after each call; the `ws-*` cases run sendViaWebSocket over a real loopback WebSocket.",
   "exclusions": [
-    "auth-token-refresh-stalls-past-its-timeout-classifies-as-auth (:345): recorded through the auth exchange (scripted token endpoint that never sends the body, virtual clock past the 30000 ms refresh timeout); the error the product surfaces is the refresh wrapper (openai-oauth-tokens.mjs refreshUnderLock: \"OpenAI OAuth token refresh failed (...timed out after 30000ms)...\") without the inner timeoutPhase, so its reason class is the product's answer for that error, not the test's hand-built inner error",
+    "auth-token-refresh-stalls-past-its-timeout-classifies-as-auth (:345): the recorded answer is what the product path gives, reasonClass \"other\" (stage reason \"Connection interrupted\"). The cited test asserts \"auth\" one level lower: it hands retryReasonClass (provider-error-kind.mjs:767, `timeoutPhase === auth`) the inner timeout error that exchangeRefreshToken throws (openai-oauth-tokens.mjs:278-280, timeoutPhase auth). On the product path refreshStoredTokens -> refreshUnderLock catches it and throws a new Error(\"OpenAI OAuth token refresh failed (...). Re-authenticate via provider login.\") (openai-oauth-tokens.mjs:354) that copies reauth fields only for a permanent refusal and carries neither timeoutPhase nor a cause, so the class the test asserts is not what a caller of the refresh receives",
     "NOT HELD (no send reaches it): exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches",
     "NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)",
     "reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts",
@@ -24,7 +24,7 @@
     {
       "bytes": 345678,
       "path": "cases.json",
-      "sha256": "08722d37bfab8033c80db8a861e00231b37e1737f0f45aaac4ac855dee28cfc0"
+      "sha256": "b5f663105384e8810e013ac493bcdd1f9099daff7b1ba4fb0d6f52cd359576bf"
     }
   ],
   "inputs": [
@@ -46,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "9c3bac7af557e26757ee81a258b4ed3ae3c18603f4f249a376ae9785f29c6835"
+      "sha256": "943f721e9658f8eed8cacc854a53a0444e43d9d39e1dde978ebfcb4260689ebd"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
@@ -142,7 +142,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs",
-  "recorderSha256": "fe644f9f82bb7b0fa2d7c199a8eecdd1a3ae24fac60c0109d2eba92ab2aabba0",
+  "recorderSha256": "1aca3210893175a4356c993f0c847079f9e260f35ce5ce55111f8630bcba584b",
   "replay": "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
