@@ -70,7 +70,48 @@
   "recorderSha256": "b4eb697c752879b479ac1b7b4132405adb6dd52f5f4f8a986ffd4615f44ab77b",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
-    "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details; mixdog-ai/src/retry/classify.rs:142 kind_of (classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object).",
+    "declaredExclusions": [
+      {
+        "probeKeys": [
+          "describe",
+          "persistedDescribe",
+          "summaryReDescribe"
+        ],
+        "reason": "describeError's full notice (recovery, recoveryTemplate, params, details, fingerprint) and its re-reading of a persisted item or summary are the desktop renderer's (apps/desktop/src/renderer/ErrorNotice.tsx imports the shared JS module); the core answers presentErrorText, safeErrorDetails and the persisted errorKind only"
+      },
+      {
+        "probeKeys": [
+          "builtError"
+        ],
+        "reason": "Node's Error object built from the spec (name, props): the core holds the failure as ProviderError / ErrorResponse, built from the same fields in the replay"
+      },
+      {
+        "probes": "every input with t \"D\" (a persisted descriptor object)",
+        "reason": "presenting a stored errorKind again is the renderer's reading of a persisted item; the core presents a failure once, when it is recorded (mixdog-core-session/src/session/failure_record.rs failure_record)"
+      },
+      {
+        "case": "diagnostic payloads and display summaries have bounded size",
+        "keys": [
+          "result"
+        ],
+        "reason": "describeError of the long input (the renderer notice, as describe above); safeDataOfLongJson is replayed"
+      },
+      {
+        "case": "both summaries and details redact credentials while retaining useful context",
+        "keys": [
+          "texts"
+        ],
+        "reason": "the notice's four shown strings, read from describe (renderer); the two the core answers, safeDetailsOfString and presentErrorText, are replayed with the probe under result"
+      },
+      {
+        "case": "typed codes classify errors; the wait and reset time are shown when known",
+        "keys": [
+          "tz"
+        ],
+        "reason": "the recording's time zone, an input (manifest inputs.timeZone)"
+      }
+    ],
+    "entry": "mixdog-ai/src/service/error_presentation_replay_tests.rs: E/T probes as the ProviderError an adapter classifies (retry::classify::kind_of over the typed fields, mixdog-ai/src/retry/classify.rs:142), Q probes as the cache warm's refused POST (providers/anthropic/errors.rs classify_response + quota_error_text, now pub(crate)), S probes as a bare string; each through present_error_text (service/error_text.rs:174), safe_error_details (:346) and Descriptor::of (the errorKind failure_record persists); deterministicKinds through ErrorKind::is_deterministic.",
     "existsButNotPublicOnO1": [
       "describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private",
       "anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)"
@@ -84,7 +125,8 @@
       "providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds"
     ],
     "normalised": {
-      "secretShapedInput": "sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
+      "socketErrors": "Node's errno text is the core's typed TransportFault: an E probe with code ECONNRESET is built with fault_from_io(ConnectionReset, after connect) and the T probe (undici `TypeError: fetch failed`) with fault_from_io(ConnectionRefused, connecting) (mixdog-ai/src/transport/fault.rs:18); kind_of reads the fault, never the code text",
+      "secretShapedInput":"sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
       "timeZone": "recorded with TZ=UTC (the reset wording is local time); resetAt = the fixed clock + 1 h"
     },
     "protocolMethods": [],

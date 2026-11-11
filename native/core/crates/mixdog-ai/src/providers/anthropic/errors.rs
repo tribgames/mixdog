@@ -100,7 +100,7 @@ fn retry_after(headers: &[(String, String)]) -> Option<Duration> {
 
 /// `anthropicQuotaError`'s message (`anthropic-oauth-request/initial-status.mjs`): the text a
 /// cache warm's refused POST fails with on the subscription wire.
-pub(super) fn quota_error_text(response: &ErrorResponse) -> String {
+pub(crate) fn quota_error_text(response: &ErrorResponse) -> String {
     let retry = retry_after(&response.headers).map_or_else(String::new, |after| {
         let ms = after.as_millis();
         let shown = if ms >= 60_000 && ms % 60_000 == 0 {
