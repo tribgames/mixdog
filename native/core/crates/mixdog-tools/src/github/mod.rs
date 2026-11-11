@@ -49,7 +49,7 @@ impl GithubTool {
 
     /// `executeGithubTool`: the text the model reads for `args`, or the request's failure.
     async fn text(&self, ctx: &ToolContext, args: &JsonValue) -> Result<String, ScmFailure> {
-        let result = self.client.execute(args, ctx.cwd.as_path(), &ctx.cancel).await?;
+        let result = reduce::parsed(&self.client.execute(args, ctx.cwd.as_path(), &ctx.cancel).await?);
         let action = args.get("action").and_then(JsonValue::as_str).unwrap_or("");
         let original = result.get("data").cloned().unwrap_or(JsonValue::Null);
         let data = reduce::project_list(action, &original)
@@ -60,24 +60,24 @@ impl GithubTool {
         if reduced.get("hostname").and_then(JsonValue::as_str) == Some(contract::DEFAULT_HOSTNAME) {
             reduced.shift_remove("hostname");
         }
-        let text = mixdog_js::json_stringify(&JsonValue::Object(reduced.clone()));
+        let text = reduce::stringify_value(&JsonValue::Object(reduced.clone()));
         // Lists point at raw only when a row or excerpt was cut; they are projected by design. Everything else needs raw
         // whenever the reduction dropped data.
         let lossy = if contract::definition(action).is_some_and(|def| def.list) {
             data.as_array().is_some_and(|rows| reduce::rows_were_cut(rows))
         } else {
-            mixdog_js::json_stringify(&data) != mixdog_js::json_stringify(&original)
+            reduce::stringify_value(&data) != reduce::stringify_value(&original)
         };
         if !lossy && reduce::fits(&text) {
             return Ok(text);
         }
         let content = match &original {
-            JsonValue::String(text) => text.clone(),
-            other => mixdog_js::json_stringify_indent(other, 2),
+            JsonValue::String(text) => reduce::plain_text(text),
+            other => mixdog_js::json_stringify_indent_parsed(other, 2),
         };
         let raw = self.archive(ctx, &content).await;
-        reduced.insert("raw".to_owned(), JsonValue::String(raw.unwrap_or_else(|| NO_ARCHIVE.to_owned())));
-        let with_raw = mixdog_js::json_stringify(&JsonValue::Object(reduced.clone()));
+        reduced.insert("raw".to_owned(), JsonValue::String(raw.map_or_else(|| NO_ARCHIVE.to_owned(), |path| mixdog_js::json_parsed_text(&path))));
+        let with_raw = reduce::stringify_value(&JsonValue::Object(reduced.clone()));
         Ok(if reduce::fits(&with_raw) { with_raw } else { reduce::cap_result(&reduced, args) })
     }
 

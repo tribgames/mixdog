@@ -2,13 +2,42 @@
 //! decision fields (API-only URLs and node ids dropped, users and nested repositories named by login / full_name), lists as
 //! compact rows, issue and pull-request views with a capped body, and every result within the output cap. JavaScript's
 //! semantics are kept where the text depends on them: lengths count UTF-16 units, `||` and `&&` read truthiness, a field whose
-//! value is `undefined` is left out of the JSON.
+//! value is `undefined` is left out of the JSON. Every string is parsed text (`mixdog_js::json_parse`'s encoding): a cut inside
+//! a surrogate pair keeps the lone surrogate, which `JSON.stringify` writes as its `\udxxx` escape, as Node's slice does.
+
+use std::sync::LazyLock;
 
 use serde_json::Map;
 use serde_json::Value;
 
-/// `GITHUB_OUTPUT_MAX_BYTES` (`shared/tool-output-limit.mjs`): the bytes of the text one result may take.
-pub const OUTPUT_MAX_BYTES: usize = 10 * 1024;
+/// `GITHUB_OUTPUT_MAX_BYTES` (`shared/tool-output-limit.mjs`): `positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024)`,
+/// read once as Node reads it when the module loads.
+pub fn output_max_bytes() -> usize {
+    static MAX: LazyLock<usize> = LazyLock::new(|| positive_env_int(std::env::var("MIXDOG_GITHUB_OUTPUT_MAX_BYTES").ok().as_deref(), 10 * 1024));
+    *MAX
+}
+
+/// `positiveEnvInt`: `parseInt(value, 10)` when it is finite and above 0, else `fallback`. `parseInt` reads the leading
+/// (optionally signed) digits after leading white space; a value past the double range is Infinity, not finite.
+pub(crate) fn positive_env_int(value: Option<&str>, fallback: usize) -> usize {
+    let Some(value) = value else { return fallback };
+    let text = mixdog_js::js_trim_start(value);
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let end = digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len());
+    let number: f64 = match digits[..end].parse() {
+        Ok(number) => number,
+        Err(_) => return fallback,
+    };
+    if negative || !number.is_finite() || number <= 0.0 {
+        return fallback;
+    }
+    // `Buffer.byteLength(text) <= max` for any text a usize can measure.
+    if number >= usize::MAX as f64 { usize::MAX } else { number as usize }
+}
+
 const MIN_CLAMPED_STRING: usize = 200;
 const EXCERPT_MAX: usize = 140;
 const BODY_MAX: usize = 1500;
@@ -29,11 +58,33 @@ const USER_KEYS: [&str; 11] = ["user", "owner", "assignee", "merged_by", "actor"
 const USER_LIST_KEYS: [&str; 2] = ["assignees", "requested_reviewers"];
 
 fn units(text: &str) -> usize {
-    mixdog_js::utf16_len(text)
+    mixdog_js::json_parsed_utf16(text).len()
 }
 
+/// `text.slice(0, count)`.
 fn head(text: &str, count: usize) -> String {
-    mixdog_js::slice_utf16(text, count)
+    let code = mixdog_js::json_parsed_utf16(text);
+    mixdog_js::json_parsed_from_utf16(&code[..count.min(code.len())])
+}
+
+/// Every string of `value` (keys too) as parsed text, for a value read with a parser that keeps no lone surrogate.
+pub fn parsed(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(mixdog_js::json_parsed_text(text)),
+        Value::Array(items) => Value::Array(items.iter().map(parsed).collect()),
+        Value::Object(object) => Value::Object(object.iter().map(|(key, item)| (mixdog_js::json_parsed_text(key), parsed(item))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// `JSON.stringify(value)` of parsed text.
+pub fn stringify_value(value: &Value) -> String {
+    mixdog_js::json_stringify_indent_parsed(value, 0)
+}
+
+/// The JavaScript string parsed text stands for, written as UTF-8 writes it (a lone surrogate as U+FFFD).
+pub fn plain_text(text: &str) -> String {
+    String::from_utf16_lossy(&mixdog_js::json_parsed_utf16(text))
 }
 
 /// JavaScript truthiness of a field (`undefined` is `None`).
@@ -309,7 +360,7 @@ fn body_text(value: Option<&Value>) -> Option<Value> {
     if length <= BODY_MAX {
         return Some(Value::String(text.to_owned()));
     }
-    let high = text.encode_utf16().nth(BODY_MAX - 1).is_some_and(|unit| (0xd800..=0xdbff).contains(&unit));
+    let high = mixdog_js::json_parsed_utf16(text).get(BODY_MAX - 1).is_some_and(|unit| (0xd800..=0xdbff).contains(unit));
     let cut = if high { BODY_MAX - 1 } else { BODY_MAX };
     Some(Value::String(format!("{}… {} more chars in raw", head(text, cut), length - cut)))
 }
@@ -386,12 +437,13 @@ pub fn rows_were_cut(rows: &[Value]) -> bool {
     rows.iter().any(|row| row.as_object().is_some_and(|row| row.values().any(|value| value.as_str().is_some_and(|text| text.ends_with('…')))))
 }
 
+/// `Buffer.byteLength(text) <= GITHUB_OUTPUT_MAX_BYTES`; `text` is JSON, whose lone surrogates are escapes.
 pub fn fits(text: &str) -> bool {
-    text.len() <= OUTPUT_MAX_BYTES
+    text.len() <= output_max_bytes()
 }
 
 fn stringify(value: &Map<String, Value>) -> String {
-    mixdog_js::json_stringify(&Value::Object(value.clone()))
+    stringify_value(&Value::Object(value.clone()))
 }
 
 /// `{ ...result, data, ...extra }`.
@@ -526,7 +578,7 @@ fn cap_records(result: &Map<String, Value>, data: &[Value]) -> String {
 
 /// `capText`: the tail of a log, from a line start, with the line range stated.
 fn cap_text(result: &Map<String, Value>, text: &str, args: &Value) -> String {
-    let code: Vec<u16> = text.encode_utf16().collect();
+    let code = mixdog_js::json_parsed_utf16(text);
     let newline = u16::from(b'\n');
     let total = code.iter().filter(|unit| **unit == newline).count() + 1;
     let refetch = args.get("action").and_then(Value::as_str) == Some("run.logs") && !truthy(args.get("failed"));
@@ -534,7 +586,7 @@ fn cap_text(result: &Map<String, Value>, text: &str, args: &Value) -> String {
         let first = code[..start].iter().filter(|unit| **unit == newline).count() + 1;
         with_data(
             result,
-            Value::String(String::from_utf16_lossy(&code[start..])),
+            Value::String(mixdog_js::json_parsed_from_utf16(&code[start..])),
             &[
                 ("shown", format!("lines {first}-{total} of {total}")),
                 ("omitted", format!("lines before {first} are in raw{}", if refetch { "; failed:true refetches only failed jobs" } else { "" })),
@@ -569,5 +621,33 @@ pub fn cap_result(result: &Map<String, Value>, args: &Value) -> String {
             let data = data.cloned().unwrap_or(Value::Null);
             clamp_to_fit(|value| with_data(result, value, &[]), &data, result)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Node: `JSON.stringify(('a'.repeat(199) + '😀').slice(0, 200))` keeps the high surrogate as `\ud83d`, six bytes.
+    #[test]
+    fn a_cut_inside_a_pair_keeps_the_lone_surrogate_and_counts_its_escape() {
+        let text = parsed(&Value::String(format!("{}😀", "a".repeat(199))));
+        let clamped = stringify_value(&clamp_strings(&text, 200));
+        assert_eq!(clamped, format!("\"{}\\ud83d… [1 more chars in raw]\"", "a".repeat(199)));
+        assert_eq!(clamped.len(), 1 + 199 + 6 + "… [1 more chars in raw]".len() + 1);
+    }
+
+    /// `positiveEnvInt`: `parseInt(value, 10)` when finite and positive, else the fallback.
+    #[test]
+    fn the_output_cap_reads_its_variable_as_parse_int_does() {
+        let read = |value: Option<&str>| positive_env_int(value, 10 * 1024);
+        assert_eq!(read(Some("512")), 512);
+        assert_eq!(read(Some("  512bytes")), 512);
+        assert_eq!(read(Some("+7")), 7);
+        assert_eq!(read(Some("1e3")), 1);
+        for fallback in [None, Some(""), Some("0"), Some("-5"), Some("abc"), Some("0x200")] {
+            assert_eq!(read(fallback), 10 * 1024, "{fallback:?}");
+        }
+        assert_eq!(read(Some(&"9".repeat(400))), 10 * 1024, "Infinity is not finite");
     }
 }
