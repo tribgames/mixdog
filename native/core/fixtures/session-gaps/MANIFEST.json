@@ -1,7 +1,10 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <exact export of b6f10295a>",
   "exclusions": [
-    "attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>"
+    "attachment-preflight: Node's file part carries its measured facts (sizeBytes, pageCount, textPages, textChars) on the message object it hands the provider (media-normalization.mjs pdfDescriptor prices from them); the core's request part has no such fields and prices from the same facts on the part's stored row, so the replay compares Node's sent file part without them and the facts, whole, with the core's stored row for the same part",
+    "legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact's utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first's place), because the core's store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)",
+    "attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>",
+    "compaction-pasted-text: the replay compares a thrown failure by name and message only; its errno fields (code, errno, syscall, path) are recorded but not compared, because the core's attachment reader carries the read's text and no errno (ReadError::Other, run_host/media.rs resolve_ref)"
   ],
   "fileCount": 4,
   "files": [
@@ -59,7 +62,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
-  "recorderSha256": "c8c119ef46a9095a309684a5a3a932ff21f22694b71fed84a9bfb92f98cefa75",
+  "recorderSha256": "d3e1f610e3575836d1069ba320b72495d47b512681f392e9bda1f0927253a7a0",
   "scenarios": [
     "legacy-json-keys",
     "image-strip",
