@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "openai-compat-responses.mjs sendCompatResponses(provider, history, model, tools, opts) on an OpenAICompatProvider-prototype instance whose `client.responses.create` is the scripted SDK endpoint (records body + headers, yields the scripted events and a response.completed), opencode-go.mjs resolveOpenCodeGoBaseURLs, openai-compat-presets.mjs OPENAI_COMPAT_PRESETS; fixtures from openai-compat-responses-parity.fixtures.mjs (nativeHistory) are inlined. Not run: a live endpoint or the SDK transport.",
+  "entry": "openai-compat-responses.mjs sendCompatResponses(provider, history, model, tools, opts) on a real OpenAICompatProvider (its real SDK client) sending to the loopback endpoint, which serves the scripted events and a response.completed as SSE frames (every request head and body is recorded as it arrived), opencode-go.mjs resolveOpenCodeGoBaseURLs, openai-compat-presets.mjs OPENAI_COMPAT_PRESETS; fixtures from openai-compat-responses-parity.fixtures.mjs (nativeHistory) are inlined. Not run: a live endpoint or the SDK transport.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 30250,
+      "bytes": 36737,
       "path": "cases.json",
-      "sha256": "e494958d1554ece927e77a1e0801f4e5075d2e68bc18ea6f826bb7e10bde3ef0"
+      "sha256": "4bbc31c3930ea7a1b6782b0b38818eb0d4770de868fbfe376792d9f68a54e8b9"
     }
   ],
   "inputs": [
@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "9ea2970d4d50044ee08cd2fa91c7d0d6981a8450af0eae081b42981830208edc"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -67,9 +67,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-compat-responses-alignment.mjs",
-  "recorderSha256": "130a1d4b84b238a90ff9d5902b6beeb962822c17d1148c71fffd49a86ecc669a",
+  "recorderSha256": "37653294bfe5bc93931c8c7e7fb26a0837858b8fb857afcf22cdff0c9f4fa611",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "replayExclusions": {
+    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+  },
   "set": "provider-compat-responses-alignment",
-  "totalBytes": 30250,
+  "totalBytes": 36737,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
