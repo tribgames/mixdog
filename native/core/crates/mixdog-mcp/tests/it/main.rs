@@ -28,6 +28,7 @@ mod posttool_suite;
 mod pretool_suite;
 mod scope_runtime_suite;
 mod scope_suite;
+mod scopes_node_cases_suite;
 mod setupmcp_suite;
 mod skill_catalog_suite;
 mod skillfm_suite;
