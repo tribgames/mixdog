@@ -155,12 +155,14 @@ async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it(
         (ingest, count)
     };
 
-    // The first start: every line is stored; it is killed before its position is persisted, so the blob is what it was.
-    let (_, count) = start().await;
-    assert_eq!(count as u64, starts[0]["count"].as_u64().unwrap(), "{}", starts[0]["label"]);
+    // The first start is killed (the ingest's kill point) after its last insert returned and before its position was
+    // persisted: the core's own ingest in a child process over this database. What it leaves is Node's recording: every
+    // line stored, and the blob a kill there leaves (none: Node's `persisted` of the first start is empty).
+    assert_eq!(starts[0]["count"].as_u64().unwrap(), starts[0]["inserts"].as_array().unwrap().len() as u64, "{}", starts[0]["label"]);
+    kill_ingest_at(&pg, starts[0]["inserts"].as_array().unwrap().len() as u64, &file, dir.path()).await;
     assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
-    // The blob Node's killed start left on disk (recorded), in place of the one this start persisted.
-    crate::memory::schema::set_meta(&db, "state.transcript_offsets", &starts[0]["persisted"]).await.expect("the blob a kill before the persist leaves");
+    let (_, left) = on_disk(&db).await;
+    assert_eq!(if left.is_null() { json!({}) } else { left }, starts[0]["persisted"], "the blob the kill left");
 
     // The next start reads the file from where the blob says (its start) and sends the same rows again: still one each.
     assert_eq!(starts[1]["inserts"], starts[0]["inserts"], "Node resends the same rows");
@@ -254,16 +256,7 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
         let db = fresh().await;
         // The core's own ingest in a child process, killed after its k-th insert returned (the ingest's kill point),
         // over this database.
-        let status = std::process::Command::new(std::env::current_exe().expect("the test binary"))
-            .args(["--exact", "memory::tests::jobs::restart_kill_child", "--ignored", "--nocapture", "--test-threads=1"])
-            .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
-            .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
-            .env("MIXDOG_KILL_PG_PORT", pg.cluster.port().to_string())
-            .env("MIXDOG_KILL_FILE", &file)
-            .env("MIXDOG_KILL_WORK", &work)
-            .status()
-            .expect("the child runs");
-        assert!(!status.success() && status.code() != Some(101), "point {k}: the child dies at its kill point, it neither ends nor fails: {status:?}");
+        kill_ingest_at(&pg, k, &file, &work).await;
         let (rows, positions) = on_disk(&db).await;
         assert_eq!(
             named(json!({ "rows": rows, "positions": positions }), &point["fileBytes"]),
@@ -279,6 +272,31 @@ async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_node
             "point {k}: after the restart"
         );
     }
+}
+
+/// The core's ingest of `file` (working folder `work`) in a child process over `pg`'s database, killed at the kill point after
+/// its `k`-th insert returned (`restart_kill_child`). The child is hidden, ended when this future is dropped, and waited for
+/// under one deadline.
+async fn kill_ingest_at(pg: &TestPg, k: u64, file: &Path, work: &Path) {
+    const DEADLINE: Duration = Duration::from_secs(180);
+    let mut command = tokio::process::Command::new(std::env::current_exe().expect("the test binary"));
+    command
+        .args(["--exact", "memory::tests::jobs::restart_kill_child", "--ignored", "--nocapture", "--test-threads=1"])
+        .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
+        .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
+        .env("MIXDOG_KILL_PG_PORT", pg.cluster.port().to_string())
+        .env("MIXDOG_KILL_FILE", file)
+        .env("MIXDOG_KILL_WORK", work)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let mut child = command.spawn().expect("the child runs");
+    let status = tokio::time::timeout(DEADLINE, child.wait())
+        .await
+        .unwrap_or_else(|_| panic!("point {k}: the killed ingest child did not end within {DEADLINE:?}"))
+        .expect("the child's status");
+    assert!(!status.success() && status.code() != Some(101), "point {k}: the child dies at its kill point, it neither ends nor fails: {status:?}");
 }
 
 /// The instant the restart recording ran at (`writer.json`'s `now`).
