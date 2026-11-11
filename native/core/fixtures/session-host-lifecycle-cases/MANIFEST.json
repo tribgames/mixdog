@@ -76,14 +76,10 @@
       "archiving a session archives its sub-agent sessions; restoring it brings back the ones it took": "mixdog-core-session thread_settings_tests (thread/archive, thread/unarchive, thread/delete; archive stamps read from the stored headers)",
       "archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive": "mixdog-core-session thread_settings_tests (thread/archive -> ThreadSettingsParts::worktrees, the ArchivedWorktrees hand-off)",
       "sub-agent retention archives exactly its tree's members through the real host, no cascade past them": "mixdog-core-session thread_settings_tests (sub_agent_retention::sweep over DirectoryRetention with the host's ArchiveStamps, then thread/unarchive and thread/archive)",
-      "a read lands in the session\u2019s own numbering: a surface counting in a retired one cannot read past it": "mixdog-core-session thread_settings_tests (thread/readState/update, then the catalog row's summary)"
+      "a read lands in the session\u2019s own numbering: a surface counting in a retired one cannot read past it": "mixdog-core-session thread_settings_tests (thread/readState/update, then the catalog row's summary)",
+      "failed metadata flushing cannot prevent host attachment cleanup": "apps/desktop/src/main/session-host-lifecycle-replay.test.mjs (K1's desktop service still holds the per-session metadata in <userData>/desktop-session-metadata.json: desktop-service.ts SessionHost.create -> session-host.ts DesktopSessionMetadata; the dispose with that path a directory, compared whole)"
     },
-    "excludedCases": [
-      {
-        "case": "failed metadata flushing cannot prevent host attachment cleanup",
-        "reason": "Node's file format alone: the desktop host flushes desktop-session-metadata.json at dispose. The core keeps no such file (archive stamps and read cursors are on each session's stored header, written with the change), so its stop has no metadata flush that could fail before the cleanup."
-      }
-    ],
+    "excludedCases": [],
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the restore of archived session trees and the desktop host disposal (overlapping disposals share one attachment cleanup): no counterpart found"
