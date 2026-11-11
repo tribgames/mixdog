@@ -477,6 +477,68 @@ fn a_published_core_that_does_not_answer_is_not_attached_as_healthy() {
     assert!(!report.healthy && !report.core_current, "another core's answer proves nothing: {report:?}");
 }
 
+/// A run attaching to a published core whose control listener is `listener`; `answer` plays the core's side of the
+/// probe's connection (the request already read) on the run's clock, which moves only when it advances it.
+fn probe_through(answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::IdleWatch, &str)) -> Report {
+    use std::io::Read;
+    let env = env();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let fx = crate::lifecycle::testing::fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let status = fx.lifecycle.status();
+    publish_core(&env.paths(), listener.local_addr().unwrap().port(), &status.instance_id);
+    let body = serde_json::to_string(&crate::control::api::StatusReply { status: (*status).clone(), stalled_ms: 0 }).unwrap();
+    let watch = super::idle::IdleWatch::manual();
+    let (done, report) = std::sync::mpsc::channel();
+    let probing = std::sync::Arc::clone(&watch);
+    std::thread::spawn(move || {
+        let host = env.host();
+        let access = super::os::OsAccess::with_idle(&host, probing);
+        done.send(run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap()).unwrap();
+    });
+    let (mut conn, _) = listener.accept().unwrap();
+    let mut request = Vec::new();
+    while !request.ends_with(b"\r\n\r\n") {
+        let mut byte = [0u8];
+        conn.read_exact(&mut byte).unwrap();
+        request.push(byte[0]);
+    }
+    assert!(request.starts_with(b"GET /mgmt/status "), "{}", String::from_utf8_lossy(&request));
+    answer(&mut conn, &watch, &body);
+    // Bounds only a failing run (a probe that never gives up); a passing one has already answered. The connection stays
+    // open until then, so the run cannot have seen its end instead of the limit.
+    let report = report.recv_timeout(Duration::from_secs(60)).expect("the probe is still waiting for the core");
+    drop(conn);
+    report
+}
+
+/// Node's `daemonRequest` gives up after 1,500 ms without a byte: a core that accepts the probe and stays silent is not
+/// attached as healthy, and no second core is started beside it.
+#[test]
+fn a_core_that_accepts_the_probe_and_stays_silent_is_not_healthy_after_the_idle_limit() {
+    let report = probe_through(|_, watch, _| watch.advance(super::idle::ANSWER_IDLE));
+    assert!(!report.healthy && !report.core_current && !report.started, "{report:?}");
+}
+
+/// The limit is on inactivity, not on the whole answer: a core that answers in two parts, each just inside the limit,
+/// is attached as healthy although the answer takes twice the limit.
+#[test]
+fn a_core_that_answers_slowly_within_the_idle_limit_is_attached() {
+    use std::io::Write;
+    let report = probe_through(|conn, watch, body| {
+        let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        let (first, rest) = reply.split_at(reply.len() / 2);
+        let just_inside = super::idle::ANSWER_IDLE - Duration::from_millis(1);
+        watch.advance(just_inside);
+        conn.write_all(first.as_bytes()).unwrap();
+        watch.wait_chunks(1);
+        watch.advance(just_inside);
+        conn.write_all(rest.as_bytes()).unwrap();
+        conn.shutdown(std::net::Shutdown::Write).unwrap();
+    });
+    assert!(report.healthy && report.core_current && !report.started, "{report:?}");
+}
+
 #[test]
 fn after_a_start_unused_older_installs_are_collected_but_running_ones_stay() {
     let env = env();
