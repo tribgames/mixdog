@@ -4,6 +4,8 @@
 //                      of a legacy `<id>.json`: the document 1.4.5 reads, or null for a record it cannot read.
 //
 //   node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <exact export of b6f10295a> [--only <scenario>]
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -16,6 +18,10 @@ const tree = resolveTree(args);
 const only = args.get('only');
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const load = (path) => import(pathToFileURL(join(tree, path)).href);
+// Node's runtime writes under its data directory: a fresh one, removed when the recording ends.
+const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-session-gaps-'));
+process.env.MIXDOG_DATA_DIR = dataDir;
+process.on('exit', () => rmSync(dataDir, { recursive: true, force: true }));
 
 // ---- item 11: a legacy session json naming a top-level key twice ----
 
@@ -141,7 +147,118 @@ async function imageStrip() {
   return { cases };
 }
 
-const scenarios = { 'legacy-json-keys': legacyJsonKeys, 'image-strip': imageStrip };
+// ---- item 6: the attachment preflight of `runPreSendCompactPass` (`referenceOversizedAttachments`) ----
+// Real PDFs (scanned pages: no text layer; text pages: 2,000 characters each) and a PNG go into Node's attachment
+// store and through its PDF intake (`preparePromptSubmissionForProvider`, which records the page and text-layer
+// counts on the part). Each case then runs the pre-send pass turn after turn over a session holding a Responses
+// continuation, as the request boundary does, and records the transcript and continuation each pass leaves. The data
+// directory in a reference's path is written `<data>`.
+
+function pdfBytes(pages, textPerPage) {
+  const objects = [];
+  const add = (body) => objects.push(body) && objects.length;
+  const catalog = add(null);
+  const tree = add(null);
+  const font = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const kids = [];
+  for (let n = 0; n < pages; n += 1) {
+    const text = textPerPage ? 'x'.repeat(textPerPage) : '';
+    const stream = text ? `BT /F1 4 Tf 10 700 Td (${text}) Tj ET` : '';
+    const content = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    kids.push(add(`<< /Type /Page /Parent ${tree} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${content} 0 R >>`));
+  }
+  objects[catalog - 1] = `<< /Type /Catalog /Pages ${tree} 0 R >>`;
+  objects[tree - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${pages} >>`;
+  let out = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((body, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const scanPdf = (n, pages) => ({ kind: 'pdf', filename: `scan-${n}.pdf`, pages, text: 0, seed: n });
+const textPdf = (n, pages) => ({ kind: 'pdf', filename: `notes-${n}.pdf`, pages, text: 2000, seed: n });
+const shot = { kind: 'png', filename: 'shot.png' };
+const attachmentCases = [
+  { name: 'eight-scans-500k', contextWindow: 500_000, nativePdf: true, turns: [['Summarize these contracts.', Array.from({ length: 8 }, (_, i) => scanPdf(i + 1, 37))], ['and the dates?', []]] },
+  { name: 'eight-scans-900k', contextWindow: 900_000, nativePdf: true, turns: [['Summarize these contracts.', Array.from({ length: 8 }, (_, i) => scanPdf(i + 1, 37))]] },
+  { name: 'under-the-budget', contextWindow: 200_000, nativePdf: true, turns: [['compare', [textPdf(1, 5), textPdf(2, 5)]], ['and the totals?', []]] },
+  { name: 'oldest-first', contextWindow: 200_000, nativePdf: true, turns: [['first', [scanPdf(1, 20)]], ['second', [scanPdf(2, 20)]], ['thanks', []]] },
+  { name: 'text-only-scan', contextWindow: 1_000_000, nativePdf: false, turns: [['read', [scanPdf(1, 2)]]] },
+  { name: 'native-scan', contextWindow: 1_000_000, nativePdf: true, turns: [['read', [scanPdf(1, 2)]]] },
+  { name: 'image-shares-the-budget', contextWindow: 500_000, nativePdf: true, turns: [['look', [shot, ...Array.from({ length: 8 }, (_, i) => scanPdf(i + 1, 37))]]] },
+  { name: 'text-pages-priced', contextWindow: 200_000, nativePdf: true, turns: [['notes', [textPdf(1, 12)]], ['more notes', [textPdf(2, 12)]]] },
+];
+
+async function attachmentPreflight() {
+  const store = await load('src/runtime/attachments/store.mjs');
+  const { runPreSendCompactPass } = await load('src/runtime/agent/orchestrator/session/pre-send-compact.mjs');
+  const data = process.env.MIXDOG_DATA_DIR;
+  const blobs = {};
+  const intake = async (items, nativePdf) => {
+    const prompt = items.map((item) => {
+      const bytes = item.kind === 'png' ? PNG : pdfBytes(item.pages, item.text);
+      const { attachmentRef, sizeBytes } = store.storeAttachmentBuffer(bytes);
+      blobs[attachmentRef] = bytes.toString('base64');
+      return item.kind === 'png'
+        ? { type: 'image', attachmentRef, mimeType: 'image/png', filename: item.filename, sizeBytes }
+        : { type: 'file', attachmentRef, mimeType: 'application/pdf', filename: item.filename, sizeBytes };
+    });
+    return (await store.preparePromptSubmissionForProvider({ prompt }, { nativePdf })).prompt;
+  };
+  const scrub = (value) => JSON.parse(JSON.stringify(value).split(JSON.stringify(data).slice(1, -1)).join('<data>'));
+  const { _withRegisteredProviderForTestAsync } = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
+  const cases = [];
+  for (const c of attachmentCases) {
+    // A provider that reads a PDF as text: its adapter declares `nativePdf = false`, as deepseek's does.
+    const run = (fn) => (c.nativePdf ? fn() : _withRegisteredProviderForTestAsync('deepseek', { nativePdf: false }, fn));
+    cases.push(await run(() => attachmentCase(c)));
+  }
+  return { blobs, cases };
+
+  async function attachmentCase(c) {
+    const session = {
+      id: `gaps-preflight-${c.name}`,
+      provider: c.nativePdf ? 'openai' : 'deepseek',
+      model: 'gpt-test',
+      contextWindow: c.contextWindow,
+      compaction: { auto: false },
+      messages: [{ role: 'system', content: 'rules' }],
+    };
+    const turns = [];
+    for (const [text, items] of c.turns) {
+      const parts = await intake(items, c.nativePdf);
+      if (session.messages.length > 1) session.messages.push({ role: 'assistant', content: 'ok' });
+      session.messages.push({ role: 'user', content: parts.length ? [{ type: 'text', text }, ...parts] : text });
+      const before = structuredClone(session.messages);
+      const opts = {};
+      const pass = await runPreSendCompactPass({
+        sessionRef: session,
+        sessionId: session.id,
+        messages: session.messages,
+        requestTools: [],
+        providerState: { responseId: `resp_${turns.length + 1}` },
+        opts,
+      });
+      turns.push({
+        messages: scrub(before),
+        after: scrub(session.messages),
+        providerStateKept: pass.providerState !== undefined,
+        compactChanged: pass.compactChanged,
+        cacheBreakIntent: opts.cacheBreakIntent ?? null,
+      });
+    }
+    return { name: c.name, contextWindow: c.contextWindow, nativePdf: c.nativePdf, turns };
+  }
+}
+
+const scenarios = { 'legacy-json-keys': legacyJsonKeys, 'image-strip': imageStrip, 'attachment-preflight': attachmentPreflight };
 
 const finalDir = join(FIXTURES_ROOT, 'session-gaps');
 const outDir = stageSet(finalDir, only ? [`${only}.json`] : null);

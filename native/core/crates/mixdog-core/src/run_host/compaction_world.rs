@@ -618,6 +618,95 @@ pub(crate) mod tests {
         assert_eq!(world.facts(&thread(), &header("anthropic-oauth"), &[]).await.cache.route_use_at(), None);
     }
 
+    /// Node's `runPreSendCompactPass` preflight (`fixtures/session-gaps/attachment-preflight.json`,
+    /// `record-session-gaps.mjs`): real PDFs and a PNG in the real attachment store, priced by the
+    /// counts Node's intake recorded for the same bytes (the extension host's inspector is Node's),
+    /// referenced through the real store files, each turn through the session's real compactor. Every
+    /// turn leaves the transcript Node's pass left, and a rewrite drops the continuation exactly when
+    /// Node's did (the run boundary clears `provider_state` whenever the compactor's preflight rewrites).
+    #[tokio::test]
+    async fn the_attachment_preflight_rewrites_each_turn_as_nodes_pre_send_pass() {
+        use base64::Engine as _;
+        use mixdog_core_api::domain::ext::PdfCounts;
+        use crate::run_host::attachment_store::{StoreFacts, StoreFiles};
+        use crate::run_host::message_row::{message_of, row_of};
+
+        /// The page and text-layer counts Node's intake recorded on each PDF, by its bytes.
+        struct Counted(std::collections::HashMap<String, PdfCounts>);
+        #[async_trait]
+        impl DocumentText for Counted {
+            async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
+                unreachable!("no office file")
+            }
+            async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, ExtError> {
+                unreachable!("the preflight extracts no text")
+            }
+            async fn pdf_counts(&self, _: &ThreadId, data: &str) -> Result<PdfIntake, ExtError> {
+                Ok(PdfIntake::Counts(*self.0.get(data).expect("a recorded PDF")))
+            }
+        }
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/attachment-preflight.json");
+        let recorded: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let mut counts = std::collections::HashMap::new();
+        for case in recorded["cases"].as_array().unwrap() {
+            for turn in case["turns"].as_array().unwrap() {
+                for message in turn["messages"].as_array().unwrap() {
+                    for part in message["content"].as_array().into_iter().flatten().filter(|p| p.get("pageCount").is_some()) {
+                        let data = recorded["blobs"][part["attachmentRef"].as_str().unwrap()].as_str().unwrap().to_owned();
+                        let n = |k: &str| part[k].as_u64().unwrap();
+                        counts.insert(data, PdfCounts { page_count: n("pageCount"), text_pages: n("textPages"), text_chars: n("textChars") });
+                    }
+                }
+            }
+        }
+        let counted: Arc<dyn DocumentText> = Arc::new(Counted(counts));
+        let cases = recorded["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let blobs = mixdog_store::blobs::BlobStore::new(dir.path());
+            for data in recorded["blobs"].as_object().unwrap().values() {
+                let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_str().unwrap()).unwrap();
+                crate::run_host::fixture_fs::write(blobs.path(&mixdog_store::blobs::digest_of(&bytes)), bytes);
+            }
+            let mut services = services(dir.path(), json!({}), Arc::default()).await;
+            services.docs = counted.clone();
+            services.attachment_facts = Arc::new(StoreFacts::new(blobs.clone(), &tokens).with_documents(counted.clone()));
+            services.files = Arc::new(StoreFiles::new(blobs.clone(), dir.path(), &tokens));
+            let compactors = SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), Arc::new(Fixed));
+            // `groq` declares it reads a PDF as text, as Node's recorded provider did.
+            let provider = if case["nativePdf"] == true { "openai" } else { "groq" };
+            let input = CompactorInput {
+                settings: CompactSettings { context_window: case["contextWindow"].as_u64(), ..CompactSettings::default() },
+                rows: Arc::new(StoredRows::new()),
+                archive: Arc::new(Archive),
+                blobs: Arc::new(NoBlobs),
+            };
+            let compactor = compactors.compactor(&thread(), &header(provider), &[], input).await.expect("a compactor");
+            let data = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
+            let shown = |messages: &[AgentMessage]| -> Value {
+                let rows = serde_json::to_string(&messages.iter().map(row_of).collect::<Vec<_>>()).unwrap();
+                serde_json::from_str(&rows.replace(&data[1..data.len() - 1], "<data>")).unwrap()
+            };
+            let mut transcript: Vec<AgentMessage> = Vec::new();
+            for (n, turn) in case["turns"].as_array().unwrap().iter().enumerate() {
+                // The turn's new messages, after the transcript the previous pass left.
+                let sent = turn["messages"].as_array().unwrap();
+                transcript.extend(sent[transcript.len()..].iter().map(|row| message_of(row).unwrap()));
+                let rewritten = compactor.preflight_attachments(&transcript).await;
+                assert_eq!(rewritten.is_none(), turn["providerStateKept"] == true, "{name} turn {n}: the continuation");
+                assert_eq!(rewritten.is_some(), turn["compactChanged"] == true, "{name} turn {n}: a rewrite");
+                if let Some(preflight) = rewritten {
+                    transcript = preflight.messages;
+                }
+                assert_eq!(shown(&transcript), turn["after"], "{name} turn {n}: the transcript");
+            }
+        }
+    }
+
     /// `SessionCompactors` builds a real compactor over the real world: the session's threshold of
     /// 1 token summarizes even a one-line chat, and a window-less route has no policy.
     #[tokio::test]
