@@ -64,9 +64,10 @@ use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
-use tokio::sync::mpsc;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use tokio_util::sync::CancellationToken;
-use tokio_util::sync::DropGuard;
 
 /// Node: `WINDOWS_RENAME_RETRY_BACKOFFS_MS`.
 const RENAME_BACKOFFS_MS: [u64; 8] = [25, 50, 100, 200, 400, 800, 1200, 1600];
@@ -699,113 +700,66 @@ impl FileService for LocalFileService {
     }
 
     fn walk(&self, lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
-        stream(lane, move |tx, stop| {
-            let root = request.root.as_path();
-            let mut builder = WalkBuilder::new(root);
-            builder.hidden(!request.include_hidden).sort_by_file_path(|a, b| a.cmp(b));
-            if !request.recursive {
-                builder.max_depth(Some(1));
-            }
-            match overrides_for(root, Vec::new()) {
-                Ok(overrides) => builder.overrides(overrides),
-                Err(error) => {
-                    let _ = tx.send(Err(invalid_pattern(&error, root)));
-                    return;
-                }
-            };
-            ignore_rules(&mut builder, request.respect_ignore);
-            let prune: Vec<PathBuf> = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
-            if !prune.is_empty() {
-                builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
-            }
-            for item in builder.build() {
-                if stop() {
-                    return;
-                }
-                let sent = match item {
-                    Ok(entry) if entry.depth() == 0 => continue,
-                    Ok(entry) => {
-                        let Some(kind) = entry.file_type().map(entry_kind) else { continue };
-                        if kind == EntryKind::Dir && !request.include_dirs {
-                            continue;
-                        }
-                        let Some(path) = AbsPath::new(entry.into_path()) else { continue };
-                        tx.send(Ok(DirEntry { path, kind }))
-                    }
-                    Err(error) => tx.send(Err(walk_error(&error, root))),
-                };
-                if sent.is_err() {
-                    return;
-                }
-            }
-        })
+        let root = request.root.as_path();
+        let mut builder = WalkBuilder::new(root);
+        builder.hidden(!request.include_hidden).sort_by_file_path(|a, b| a.cmp(b));
+        if !request.recursive {
+            builder.max_depth(Some(1));
+        }
+        match overrides_for(root, Vec::new()) {
+            Ok(overrides) => builder.overrides(overrides),
+            Err(error) => return pulled(lane, Failed(Some(invalid_pattern(&error, root)))),
+        };
+        ignore_rules(&mut builder, request.respect_ignore);
+        let prune: Vec<PathBuf> = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
+        if !prune.is_empty() {
+            builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
+        }
+        // The walker reads directories only when a batch pulls it.
+        pulled(lane, Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs })
     }
 
     fn search_text(&self, lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-        stream(lane, move |tx, stop| {
-            let root = request.root.as_path();
-            // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
-            // A pattern that does not parse is reported with the parser's own text, as Node shows it.
-            let matcher = match RegexMatcherBuilder::new()
-                .case_insensitive(!request.case_sensitive)
-                .fixed_strings(!request.regex)
-                .multi_line(true)
-                .line_terminator(Some(b'\n'))
-                .build(&request.pattern)
-            {
-                Ok(m) => m,
-                Err(error) => {
-                    let _ = tx.send(Err(FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone()))));
-                    return;
-                }
-            };
-            // ripgrep's rule: later globs win, so the excludes follow the includes.
-            let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
-            let overrides = match overrides_for(root, globs) {
-                Ok(overrides) => overrides,
-                Err(error) => {
-                    let _ = tx.send(Err(invalid_pattern(&error, root)));
-                    return;
-                }
-            };
-            let mut builder = WalkBuilder::new(root);
-            builder.hidden(!request.include_hidden).overrides(overrides);
-            ignore_rules(&mut builder, request.respect_ignore);
-            let mut files = Vec::new();
-            for item in builder.build() {
-                if stop() {
-                    return;
-                }
-                match item {
-                    Ok(entry) if entry.file_type().is_some_and(|t| t.is_file()) => files.push(entry.into_path()),
-                    Ok(_) => {}
-                    Err(error) => {
-                        if tx.send(Err(walk_error(&error, root))).is_err() {
-                            return;
-                        }
-                    }
-                }
+        let root = request.root.as_path();
+        // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
+        // A pattern that does not parse is reported with the parser's own text, as Node shows it.
+        let matcher = match RegexMatcherBuilder::new()
+            .case_insensitive(!request.case_sensitive)
+            .fixed_strings(!request.regex)
+            .multi_line(true)
+            .line_terminator(Some(b'\n'))
+            .build(&request.pattern)
+        {
+            Ok(m) => m,
+            Err(error) => {
+                let failed = FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone()));
+                return pulled(lane, Failed(Some(failed)));
             }
-            // Node sorts content results by path.
-            files.sort();
-            let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(b'\x00')).build();
-            for file in files {
-                if stop() {
-                    return;
-                }
-                let Some(path) = AbsPath::new(&file) else { continue };
-                let mut sink = Collect { matcher: &matcher, path: &path, tx: &tx };
-                match searcher.search_path(&matcher, &file, &mut sink) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == io::ErrorKind::BrokenPipe => return,
-                    Err(e) => {
-                        if tx.send(Err(io_error(&e, &file))).is_err() {
-                            return;
-                        }
-                    }
-                }
-            }
-        })
+        };
+        // ripgrep's rule: later globs win, so the excludes follow the includes.
+        let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
+        let overrides = match overrides_for(root, globs) {
+            Ok(overrides) => overrides,
+            Err(error) => return pulled(lane, Failed(Some(invalid_pattern(&error, root)))),
+        };
+        let mut builder = WalkBuilder::new(root);
+        builder.hidden(!request.include_hidden).overrides(overrides);
+        ignore_rules(&mut builder, request.respect_ignore);
+        pulled(
+            lane,
+            Searching {
+                matcher,
+                searcher: SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(b'\x00')).build(),
+                walk: Some(builder.build()),
+                root: root.to_path_buf(),
+                files: Vec::new(),
+                next: 0,
+                pending: VecDeque::new(),
+                left: request.limit,
+                #[cfg(feature = "count-jobs")]
+                _live: probe::Live::new(root),
+            },
+        )
     }
 }
 
@@ -841,58 +795,275 @@ fn walk_error(error: &ignore::Error, root: &Path) -> FsError {
     }
 }
 
-/// One line per match, like ripgrep's standard printer; the column is the first match's byte start.
+/// One line per match, like ripgrep's standard printer; the column is the first match's byte start. Stops the file
+/// when the request's match budget is spent or the stream is closed.
 struct Collect<'a> {
     matcher: &'a grep::regex::RegexMatcher,
     path: &'a AbsPath,
-    tx: &'a mpsc::UnboundedSender<Result<SearchMatch, FsError>>,
+    pending: &'a mut VecDeque<Result<SearchMatch, FsError>>,
+    left: &'a mut Option<usize>,
+    stop: &'a AtomicBool,
+    #[cfg(feature = "count-jobs")]
+    root: &'a Path,
 }
 
 impl Sink for Collect<'_> {
     type Error = io::Error;
 
     fn matched(&mut self, _: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
+        if self.stop.load(Ordering::SeqCst) || *self.left == Some(0) {
+            return Ok(false);
+        }
         let bytes = found.bytes();
         let column = self.matcher.find(bytes).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
         // `str::lines`, as the resident server does: only the terminator (`\n` or `\r\n`) goes.
         let text = String::from_utf8_lossy(bytes).lines().next().unwrap_or_default().to_owned();
         let line = found.line_number().unwrap_or(0);
-        Ok(self.tx.send(Ok(SearchMatch { path: self.path.clone(), line, column, text })).is_ok())
+        self.pending.push_back(Ok(SearchMatch { path: self.path.clone(), line, column, text }));
+        #[cfg(feature = "count-jobs")]
+        probe::found(self.root);
+        if let Some(left) = self.left.as_mut() {
+            *left -= 1;
+        }
+        Ok(*self.left != Some(0))
     }
 }
 
-struct Channel<T> {
-    rx: mpsc::UnboundedReceiver<T>,
-    _cancel: DropGuard,
+/// Items one pulled batch may produce: what a stream holds beyond what its consumer has taken.
+const BATCH: usize = 256;
+
+/// A stream's producer, advanced one batch per lane job, only while the consumer awaits the next item.
+trait Produce<T>: Send {
+    /// Appends at most `room` items to `out`; `false` once nothing more will come. Returns early once `stop` is set.
+    fn fill(&mut self, out: &mut Vec<Result<T, FsError>>, room: usize, stop: &AtomicBool) -> bool;
+}
+
+/// A stream that is one error.
+struct Failed(Option<FsError>);
+
+impl<T> Produce<T> for Failed {
+    fn fill(&mut self, out: &mut Vec<Result<T, FsError>>, _: usize, _: &AtomicBool) -> bool {
+        out.extend(self.0.take().map(Err));
+        false
+    }
+}
+
+struct Walking {
+    walk: ignore::Walk,
+    root: PathBuf,
+    include_dirs: bool,
+}
+
+impl Produce<DirEntry> for Walking {
+    fn fill(&mut self, out: &mut Vec<Result<DirEntry, FsError>>, room: usize, stop: &AtomicBool) -> bool {
+        while out.len() < room {
+            if stop.load(Ordering::SeqCst) {
+                return false;
+            }
+            match self.walk.next() {
+                None => return false,
+                Some(Ok(entry)) if entry.depth() == 0 => {}
+                Some(Ok(entry)) => {
+                    let Some(kind) = entry.file_type().map(entry_kind) else { continue };
+                    if kind == EntryKind::Dir && !self.include_dirs {
+                        continue;
+                    }
+                    let Some(path) = AbsPath::new(entry.into_path()) else { continue };
+                    out.push(Ok(DirEntry { path, kind }));
+                }
+                Some(Err(error)) => out.push(Err(walk_error(&error, &self.root))),
+            }
+        }
+        true
+    }
+}
+
+/// The text search: the walk first (Node sorts content results by path), then the files in order, each file's
+/// matches held until a batch takes them. It stops once the request's `limit` matches are found.
+struct Searching {
+    matcher: grep::regex::RegexMatcher,
+    searcher: Searcher,
+    walk: Option<ignore::Walk>,
+    root: PathBuf,
+    files: Vec<PathBuf>,
+    next: usize,
+    pending: VecDeque<Result<SearchMatch, FsError>>,
+    left: Option<usize>,
+    #[cfg(feature = "count-jobs")]
+    _live: probe::Live,
+}
+
+impl Produce<SearchMatch> for Searching {
+    fn fill(&mut self, out: &mut Vec<Result<SearchMatch, FsError>>, room: usize, stop: &AtomicBool) -> bool {
+        if let Some(walk) = self.walk.as_mut() {
+            for item in walk {
+                if stop.load(Ordering::SeqCst) {
+                    return false;
+                }
+                match item {
+                    Ok(entry) if entry.file_type().is_some_and(|t| t.is_file()) => self.files.push(entry.into_path()),
+                    Ok(_) => {}
+                    Err(error) => self.pending.push_back(Err(walk_error(&error, &self.root))),
+                }
+            }
+            self.files.sort();
+            self.walk = None;
+        }
+        while out.len() < room {
+            if let Some(item) = self.pending.pop_front() {
+                out.push(item);
+                continue;
+            }
+            if stop.load(Ordering::SeqCst) || self.left == Some(0) || self.next >= self.files.len() {
+                return false;
+            }
+            let file = std::mem::take(&mut self.files[self.next]);
+            self.next += 1;
+            let Some(path) = AbsPath::new(&file) else { continue };
+            let mut sink = Collect {
+                matcher: &self.matcher,
+                path: &path,
+                pending: &mut self.pending,
+                left: &mut self.left,
+                stop,
+                #[cfg(feature = "count-jobs")]
+                root: &self.root,
+            };
+            if let Err(e) = self.searcher.search_path(&self.matcher, &file, &mut sink) {
+                self.pending.push_back(Err(io_error(&e, &file)));
+            }
+        }
+        true
+    }
+}
+
+type Shared<T> = Arc<Mutex<Option<Box<dyn Produce<T>>>>>;
+
+/// A pulled stream: each `next` on an empty buffer runs one lane job that advances the producer by at most [`BATCH`]
+/// items, so nothing is produced ahead of the consumer beyond one batch and nothing runs between pulls.
+struct Pulled<T> {
+    lane: MaintenanceIo,
+    producer: Shared<T>,
+    stop: Arc<AtomicBool>,
+    buffer: VecDeque<Result<T, FsError>>,
+    /// A batch job whose `next` was abandoned (a cancelled call) may still be running.
+    in_flight: bool,
+    done: bool,
+}
+
+fn pulled<T: Send + 'static>(lane: MaintenanceIo, producer: impl Produce<T> + 'static) -> Box<dyn EventSource<Result<T, FsError>>> {
+    Box::new(Pulled {
+        lane,
+        producer: Arc::new(Mutex::new(Some(Box::new(producer)))),
+        stop: Arc::new(AtomicBool::new(false)),
+        buffer: VecDeque::new(),
+        in_flight: false,
+        done: false,
+    })
+}
+
+fn take_producer<T>(producer: &Shared<T>) -> Option<Box<dyn Produce<T>>> {
+    producer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
 }
 
 #[async_trait]
-impl<T: Send> EventSource<T> for Channel<T> {
-    async fn next(&mut self) -> Option<T> {
-        self.rx.recv().await
+impl<T: Send + 'static> EventSource<Result<T, FsError>> for Pulled<T> {
+    async fn next(&mut self) -> Option<Result<T, FsError>> {
+        while self.buffer.is_empty() && !self.done {
+            let (producer, stop) = (self.producer.clone(), self.stop.clone());
+            self.in_flight = true;
+            let batch = on(self.lane, move || {
+                let mut slot = producer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut out = Vec::new();
+                let more = slot.as_mut().is_some_and(|p| p.fill(&mut out, BATCH, &stop));
+                if !more {
+                    // The walker and its open directories are released on the lane.
+                    *slot = None;
+                }
+                (out, more)
+            })
+            .await;
+            self.in_flight = false;
+            match batch {
+                Ok((out, more)) => {
+                    self.buffer.extend(out);
+                    self.done = !more;
+                }
+                Err(error) => {
+                    self.buffer.push_back(Err(error));
+                    self.done = true;
+                }
+            }
+        }
+        self.buffer.pop_front()
+    }
+
+    /// Stops the producer and returns once no job of this stream runs and its walker is released.
+    async fn close(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.done = true;
+        self.buffer.clear();
+        if self.in_flight {
+            // The abandoned batch holds the producer until it sees `stop`; taking it here waits for that.
+            let producer = self.producer.clone();
+            let _ = on(self.lane, move || drop(take_producer(&producer))).await;
+            self.in_flight = false;
+        }
+        drop(take_producer(&self.producer));
     }
 }
 
-/// Runs `body` on the maintenance lane and streams what it sends. Dropping the stream cancels a
-/// job that has not started and stops one that has at its next item.
-fn stream<T, F>(lane: MaintenanceIo, body: F) -> Box<dyn EventSource<Result<T, FsError>>>
-where
-    T: Send + 'static,
-    F: FnOnce(mpsc::UnboundedSender<Result<T, FsError>>, &dyn Fn() -> bool) + Send + 'static,
-{
-    let (tx, rx) = mpsc::unbounded_channel();
-    let cancel = CancellationToken::new();
-    let job_cancel = cancel.clone();
-    let failed = tx.clone();
-    let job = counted(move || {
-        let probe = tx.clone();
-        body(tx, &|| job_cancel.is_cancelled() || probe.is_closed());
-    });
-    let submitted = lane.submit(&cancel, move |_| job());
-    if submitted.is_err() {
-        let _ = failed.send(Err(FsError::new(FsErrorKind::Io { os_code: None }, None)));
+impl<T> Drop for Pulled<T> {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
     }
-    Box::new(Channel { rx, _cancel: cancel.drop_guard() })
+}
+
+/// What a test can observe of the text searches: per search root, the matches produced and the searches whose
+/// producer is still alive.
+#[cfg(feature = "count-jobs")]
+pub mod probe {
+    use std::collections::HashMap;
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct SearchProbe {
+        pub found: u64,
+        pub live: u64,
+    }
+
+    static ROOTS: Mutex<Option<HashMap<PathBuf, SearchProbe>>> = Mutex::new(None);
+
+    fn with<R>(root: &Path, f: impl FnOnce(&mut SearchProbe) -> R) -> R {
+        let mut roots = ROOTS.lock().unwrap_or_else(PoisonError::into_inner);
+        f(roots.get_or_insert_with(HashMap::new).entry(root.to_path_buf()).or_default())
+    }
+
+    pub fn search(root: &Path) -> SearchProbe {
+        with(root, |p| *p)
+    }
+
+    pub(super) fn found(root: &Path) {
+        with(root, |p| p.found += 1);
+    }
+
+    pub(super) struct Live(PathBuf);
+
+    impl Live {
+        pub(super) fn new(root: &Path) -> Self {
+            with(root, |p| p.live += 1);
+            Self(root.to_path_buf())
+        }
+    }
+
+    impl Drop for Live {
+        fn drop(&mut self) {
+            with(&self.0, |p| p.live -= 1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1234,6 +1405,7 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: true,
+            limit: None,
         };
         let mut stream = fs.search_text(lanes().maintenance, request);
         let err = stream.next().await.unwrap().unwrap_err();
@@ -1260,6 +1432,7 @@ mod tests {
                 exclude_globs: Vec::new(),
                 include_hidden: true,
                 respect_ignore: false,
+                limit: None,
             };
             let mut s = fs.search_text(l.maintenance, request);
             async move {
@@ -1294,6 +1467,7 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: true,
+            limit: None,
         };
         let mut s = fs.search_text(lanes().maintenance, request);
         let mut texts = Vec::new();
@@ -1349,6 +1523,7 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: true,
+            limit: None,
         };
         let found = run(base.clone()).await;
         // ripgrep quits a file at its first NUL, so bin.rs reports nothing; skip/ is gitignored.

@@ -100,6 +100,8 @@ pub struct SearchRequest {
     pub exclude_globs: Vec<String>,
     pub include_hidden: bool,
     pub respect_ignore: bool,
+    /// The scan stops after this many matches (Node's search server, `collect_until`); `None` reads every match.
+    pub limit: Option<usize>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

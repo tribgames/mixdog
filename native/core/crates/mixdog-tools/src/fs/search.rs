@@ -45,6 +45,8 @@ const FIND_UNLIMITED_CAP: usize = 1_000;
 const GREP_DEFAULT_LIMIT: usize = 250;
 /// `GREP_CTX_HEAD_LIMIT_MAX`: the match blocks one content-mode page may hold.
 const GREP_CONTEXT_LIMIT_MAX: usize = 40;
+/// The content matches one path's scan keeps at most.
+const CONTENT_MATCH_CAP: usize = 200_000;
 /// `PUBLIC_PATH_BATCH_LIMIT`: the scopes one grep `path` array may name.
 const GREP_PATH_BATCH_LIMIT: usize = 10;
 const GREP_MAX_COLUMNS: usize = 500;
@@ -1024,6 +1026,10 @@ impl GrepTool {
                 exclude_globs,
                 include_hidden: true,
                 respect_ignore: !include_noise,
+                // The scan itself ends at the window (a file list or counts read every match), as Node's server's
+                // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
+                // hit before it checks a spent bound, so a bound of 0 still reads one.
+                limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
             },
         );
         let mut hits = Vec::new();
@@ -1032,7 +1038,7 @@ impl GrepTool {
         let end = pull_all(ctx, stream.as_mut(), |item| {
             match item {
                 Ok(SearchMatch { path, line, text, .. }) => {
-                    if mode == Mode::Content && hits.len() >= 200_000 {
+                    if mode == Mode::Content && hits.len() >= CONTENT_MATCH_CAP {
                         return false;
                     }
                     // A file list is one row per file (`--files-with-matches`).
