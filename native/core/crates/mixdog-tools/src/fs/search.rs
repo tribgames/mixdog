@@ -526,11 +526,17 @@ impl Tool for GlobTool {
             files = statted;
         }
         let total = files.len();
+        // Node's bounded newest-first page is a top-(offset+limit+1) window of the whole set, counted in full, that
+        // then passes the same GLOB_ACCUM_CAP fold as every listing (`mergeGlobRuns`).
+        if !natural && limit != usize::MAX && offset.saturating_add(limit).saturating_add(1).min(total) > GLOB_ACCUM_CAP {
+            files.truncate(GLOB_ACCUM_CAP);
+            capped = true;
+        }
         let windowed = files.get(offset..).unwrap_or(&[]);
         let page = &windowed[..windowed.len().min(limit)];
-        let mut lines: Vec<String> =
+        let lines: Vec<String> =
             page.iter().map(|(p, _)| display_path(p.as_path(), &ctx.cwd)).collect();
-        let remaining = windowed.len() - page.len();
+        let remaining = total.saturating_sub(offset + page.len());
         let mut text = lines.join("\n");
         if remaining > 0 {
             text.push_str(&format!(
@@ -587,22 +593,80 @@ impl Tool for GlobTool {
         if !complete {
             text.push_str("\n[warning] search timed out; partial results shown. Narrow path/pattern for a complete result.");
         }
-        if text.len() > LOCATOR_MAX_BYTES {
-            let (kept, dropped) = cap_lines(&text, LOCATOR_MAX_BYTES);
-            let shown = lines.len().saturating_sub(dropped);
-            lines.clear();
-            text = format!(
-                "{kept}\n{}",
-                cap_marker(
-                    &format_cap_size(LOCATOR_MAX_BYTES),
-                    &format!("{shown} entries shown"),
-                    Some((offset + shown) as u64),
-                    ""
-                )
-            );
-        }
-        Ok(text_output(text))
+        Ok(text_output(locator_budget(text, &locator_targets(&args), offset)))
     }
+}
+
+/// `_locatorTargets` of glob: the `path` argument's values, or `.`.
+fn locator_targets(args: &JsonValue) -> Vec<String> {
+    let raw = match &args["path"] {
+        JsonValue::Array(values) => values.clone(),
+        value => vec![value.clone()],
+    };
+    let values: Vec<String> = raw
+        .iter()
+        .map(|v| match v {
+            JsonValue::Null => String::new(),
+            JsonValue::String(s) => s.trim().to_owned(),
+            other => other.to_string().trim().to_owned(),
+        })
+        .filter(|v| !v.is_empty())
+        .collect();
+    if values.is_empty() { vec![".".to_owned()] } else { values }
+}
+
+/// Node's locator byte budget (`capLineOrientedToolOutput` with `_locatorBudgetFooter`): the most leading lines that
+/// fit in 20 KB together with a footer naming the complete rows they hold and the offset after them.
+fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
+    if text.len() <= LOCATOR_MAX_BYTES {
+        return text;
+    }
+    let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
+    let footer = |kept: &[&str]| {
+        let (mut target_index, mut visible) = (0usize, 0usize);
+        for line in kept {
+            if let Some(section) = line.strip_prefix("# glob ").filter(|s| !s.is_empty()) {
+                target_index = match targets.iter().position(|t| t == section) {
+                    Some(at) => at,
+                    None => (target_index + 1).min(targets.len().saturating_sub(1)),
+                };
+                visible = 0;
+                continue;
+            }
+            if line.is_empty() || ["#", "...", "[", "("].iter().any(|p| line.starts_with(p)) {
+                continue;
+            }
+            visible += 1;
+        }
+        let target = targets.get(target_index).or(targets.first()).map(String::as_str).unwrap_or("");
+        let remaining = targets.len().saturating_sub(target_index + 1);
+        let next = if remaining > 0 {
+            format!("; {remaining} target(s) not shown, next={}", serde_json::to_string(&targets[target_index + 1]).unwrap_or_default())
+        } else {
+            String::new()
+        };
+        cap_marker(
+            &format_cap_size(LOCATOR_MAX_BYTES),
+            &format!("{visible} complete row(s) shown for path={}{next}", serde_json::to_string(target).unwrap_or_default()),
+            Some((offset + visible) as u64),
+            "",
+        )
+    };
+    let (mut lo, mut hi, mut best) = (0usize, lines.len(), String::new());
+    while lo <= hi {
+        let mid = (lo + hi) / 2;
+        let kept = &lines[..mid];
+        let candidate = format!("{}{}{}", kept.join("\n"), if kept.is_empty() { "" } else { "\n" }, footer(kept));
+        if candidate.len() <= LOCATOR_MAX_BYTES {
+            best = candidate;
+            lo = mid + 1;
+        } else if mid == 0 {
+            break;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    if best.is_empty() { byte_prefix(&footer(&[]), LOCATOR_MAX_BYTES).to_owned() } else { best }
 }
 
 // ---------------------------------------------------------------------------

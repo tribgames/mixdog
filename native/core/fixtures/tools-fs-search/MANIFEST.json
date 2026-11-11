@@ -4,7 +4,7 @@
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 14,
+  "fileCount": 15,
   "files": [
     {
       "bytes": 1704,
@@ -40,6 +40,11 @@
       "bytes": 2575,
       "path": "glob-absolute.json",
       "sha256": "dbb867151a5fe3542c416a2eea36ea938f6d2233eb7bcca27d15cb9d62694992"
+    },
+    {
+      "bytes": 47246,
+      "path": "glob-past-cap.json",
+      "sha256": "a95b954ac10d7698d920c660b5031416abd305c93578b8c9d6aa4b61cadcf333"
     },
     {
       "bytes": 2306,
@@ -89,9 +94,13 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
       "sha256": "81706cfb9424070aebc944c20cbdc72c31c84d06bd60119e4ad752af2fc7fc91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
-  "node": "v22.20.0",
+  "nodeVersion": "v22.20.0",
   "normalised": [
     "the workspace path (backslash and forward-slash forms) is <ROOT> in every text",
     "a replay whose workspace lies under the home or Mixdog data folder reads that path's redacted spelling (~/…, <mixdog-data>/…) as <ROOT> too"
@@ -114,7 +123,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "4b4a974cc7bd38532b71064151d0d7c9f8ec9e80494fd88d771a8b8edf4c37a9",
+  "recorderSha256": "5af3414278ed686bc57df21ffe8381c9407d2916ab4b1ac22493083953d6b00f",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -129,8 +138,9 @@
     "grep-multi-pattern",
     "glob-absolute",
     "glob-unc",
+    "glob-past-cap",
     "list-glob-path"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 144948
+  "totalBytes": 192194
 }
