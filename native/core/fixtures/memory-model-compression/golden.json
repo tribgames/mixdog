@@ -1,0 +1,115 @@
+{
+  "modelId": "Xenova/multilingual-e5-small",
+  "modelFiles": {
+    "tokenizer.json": "eyJhZGRlZF90b2tlbnMiOiBbeyJpZCI6IDAsICJjb250ZW50IjogIjxzPiIsICJzaW5nbGVfd29yZCI6IGZhbHNlLCAibHN0cmlwIjogZmFsc2UsICJyc3RyaXAiOiBmYWxzZSwgIm5vcm1hbGl6ZWQiOiBmYWxzZSwgInNwZWNpYWwiOiB0cnVlfSwgeyJpZCI6IDEsICJjb250ZW50IjogIjxwYWQ+IiwgInNpbmdsZV93b3JkIjogZmFsc2UsICJsc3RyaXAiOiBmYWxzZSwgInJzdHJpcCI6IGZhbHNlLCAibm9ybWFsaXplZCI6IGZhbHNlLCAic3BlY2lhbCI6IHRydWV9LCB7ImlkIjogMiwgImNvbnRlbnQiOiAiPC9zPiIsICJzaW5nbGVfd29yZCI6IGZhbHNlLCAibHN0cmlwIjogZmFsc2UsICJyc3RyaXAiOiBmYWxzZSwgIm5vcm1hbGl6ZWQiOiBmYWxzZSwgInNwZWNpYWwiOiB0cnVlfSwgeyJpZCI6IDMsICJjb250ZW50IjogIjx1bms+IiwgInNpbmdsZV93b3JkIjogZmFsc2UsICJsc3RyaXAiOiBmYWxzZSwgInJzdHJpcCI6IGZhbHNlLCAibm9ybWFsaXplZCI6IGZhbHNlLCAic3BlY2lhbCI6IHRydWV9XSwgIm5vcm1hbGl6ZXIiOiBudWxsLCAicHJlX3Rva2VuaXplciI6IHsidHlwZSI6ICJNZXRhc3BhY2UiLCAicmVwbGFjZW1lbnQiOiAi4paBIiwgInByZXBlbmRfc2NoZW1lIjogImFsd2F5cyIsICJzcGxpdCI6IHRydWV9LCAicG9zdF9wcm9jZXNzb3IiOiB7InR5cGUiOiAiVGVtcGxhdGVQcm9jZXNzaW5nIiwgInNpbmdsZSI6IFt7IlNwZWNpYWxUb2tlbiI6IHsiaWQiOiAiPHM+IiwgInR5cGVfaWQiOiAwfX0sIHsiU2VxdWVuY2UiOiB7ImlkIjogIkEiLCAidHlwZV9pZCI6IDB9fSwgeyJTcGVjaWFsVG9rZW4iOiB7ImlkIjogIjwvcz4iLCAidHlwZV9pZCI6IDB9fV0sICJwYWlyIjogW10sICJzcGVjaWFsX3Rva2VucyI6IHsiPHM+IjogeyJpZCI6ICI8cz4iLCAiaWRzIjogWzBdLCAidG9rZW5zIjogWyI8cz4iXX0sICI8L3M+IjogeyJpZCI6ICI8L3M+IiwgImlkcyI6IFsyXSwgInRva2VucyI6IFsiPC9zPiJdfX19LCAibW9kZWwiOiB7InR5cGUiOiAiVW5pZ3JhbSIsICJ1bmtfaWQiOiAzLCAidm9jYWIiOiBbWyI8cz4iLCAwLjBdLCBbIjxwYWQ+IiwgMC4wXSwgWyI8L3M+IiwgMC4wXSwgWyI8dW5rPiIsIDAuMF0sIFsi4paBIiwgLTEuMF0sIFsiYSIsIC0yLjBdLCBbImIiLCAtMi4wXSwgWyJjIiwgLTIuMF0sIFsiZCIsIC0yLjBdLCBbImUiLCAtMi4wXSwgWyJmIiwgLTIuMF0sIFsiZyIsIC0yLjBdLCBbImgiLCAtMi4wXSwgWyJpIiwgLTIuMF0sIFsiaiIsIC0yLjBdLCBbImsiLCAtMi4wXSwgWyJsIiwgLTIuMF0sIFsibSIsIC0yLjBdLCBbIm4iLCAtMi4wXSwgWyJvIiwgLTIuMF0sIFsicCIsIC0yLjBdLCBbInEiLCAtMi4wXSwgWyJyIiwgLTIuMF0sIFsicyIsIC0yLjBdLCBbInQiLCAtMi4wXSwgWyJ1IiwgLTIuMF0sIFsidiIsIC0yLjBdLCBbInciLCAtMi4wXSwgWyJ4IiwgLTIuMF0sIFsieSIsIC0yLjBdLCBbInoiLCAtMi4wXV0sICJieXRlX2ZhbGxiYWNrIjogZmFsc2V9fQ==",
+    "tokenizer_config.json": "eyJtb2RlbF9tYXhfbGVuZ3RoIjogNTEyfQ==",
+    "onnx/model_quantized.onnx": "CAg6ug4KIQoJaW5wdXRfaWRzEgNpZHMiBENhc3QqCQoCdG8YAaABAgoYCgNpZHMKA29uZRIHc2hpZnRlZCIDQWRkCiIKB3NoaWZ0ZWQKBGF4aXMSBmNvbHVtbiIJVW5zcXVlZXplCicKBmNvbHVtbgoFc2NhbGUSEWxhc3RfaGlkZGVuX3N0YXRlIgNNdWwSDnRpbnktZW1iZWRkaW5nKg0QASIEAACAP0IDb25lKg0IARAHOgECQgRheGlzKpMMCAEIAQiAAxABIoAMAACAPwAAAEAAAEBAAACAQAAAoEAAAMBAAADgQAAAAEEAABBBAAAgQQAAMEEAAEBBAABQQQAAYEEAAHBBAACAQQAAiEEAAJBBAACYQQAAoEEAAKhBAACwQQAAuEEAAMBBAADIQQAA0EEAANhBAADgQQAA6EEAAPBBAAD4QQAAAEIAAARCAAAIQgAADEIAABBCAAAUQgAAGEIAABxCAAAgQgAAJEIAAChCAAAsQgAAMEIAADRCAAA4QgAAPEIAAEBCAABEQgAASEIAAExCAABQQgAAVEIAAFhCAABcQgAAYEIAAGRCAABoQgAAbEIAAHBCAAB0QgAAeEIAAHxCAACAQgAAgkIAAIRCAACGQgAAiEIAAIpCAACMQgAAjkIAAJBCAACSQgAAlEIAAJZCAACYQgAAmkIAAJxCAACeQgAAoEIAAKJCAACkQgAApkIAAKhCAACqQgAArEIAAK5CAACwQgAAskIAALRCAAC2QgAAuEIAALpCAAC8QgAAvkIAAMBCAADCQgAAxEIAAMZCAADIQgAAykIAAMxCAADOQgAA0EIAANJCAADUQgAA1kIAANhCAADaQgAA3EIAAN5CAADgQgAA4kIAAORCAADmQgAA6EIAAOpCAADsQgAA7kIAAPBCAADyQgAA9EIAAPZCAAD4QgAA+kIAAPxCAAD+QgAAAEMAAAFDAAACQwAAA0MAAARDAAAFQwAABkMAAAdDAAAIQwAACUMAAApDAAALQwAADEMAAA1DAAAOQwAAD0MAABBDAAARQwAAEkMAABNDAAAUQwAAFUMAABZDAAAXQwAAGEMAABlDAAAaQwAAG0MAABxDAAAdQwAAHkMAAB9DAAAgQwAAIUMAACJDAAAjQwAAJEMAACVDAAAmQwAAJ0MAAChDAAApQwAAKkMAACtDAAAsQwAALUMAAC5DAAAvQwAAMEMAADFDAAAyQwAAM0MAADRDAAA1QwAANkMAADdDAAA4QwAAOUMAADpDAAA7QwAAPEMAAD1DAAA+QwAAP0MAAEBDAABBQwAAQkMAAENDAABEQwAARUMAAEZDAABHQwAASEMAAElDAABKQwAAS0MAAExDAABNQwAATkMAAE9DAABQQwAAUUMAAFJDAABTQwAAVEMAAFVDAABWQwAAV0MAAFhDAABZQwAAWkMAAFtDAABcQwAAXUMAAF5DAABfQwAAYEMAAGFDAABiQwAAY0MAAGRDAABlQwAAZkMAAGdDAABoQwAAaUMAAGpDAABrQwAAbEMAAG1DAABuQwAAb0MAAHBDAABxQwAAckMAAHNDAAB0QwAAdUMAAHZDAAB3QwAAeEMAAHlDAAB6QwAAe0MAAHxDAAB9QwAAfkMAAH9DAACAQwCAgEMAAIFDAICBQwAAgkMAgIJDAACDQwCAg0MAAIRDAICEQwAAhUMAgIVDAACGQwCAhkMAAIdDAICHQwAAiEMAgIhDAACJQwCAiUMAAIpDAICKQwAAi0MAgItDAACMQwCAjEMAAI1DAICNQwAAjkMAgI5DAACPQwCAj0MAAJBDAICQQwAAkUMAgJFDAACSQwCAkkMAAJNDAICTQwAAlEMAgJRDAACVQwCAlUMAAJZDAICWQwAAl0MAgJdDAACYQwCAmEMAAJlDAICZQwAAmkMAgJpDAACbQwCAm0MAAJxDAICcQwAAnUMAgJ1DAACeQwCAnkMAAJ9DAICfQwAAoEMAgKBDAAChQwCAoUMAAKJDAICiQwAAo0MAgKNDAACkQwCApEMAAKVDAIClQwAApkMAgKZDAACnQwCAp0MAAKhDAICoQwAAqUMAgKlDAACqQwCAqkMAAKtDAICrQwAArEMAgKxDAACtQwCArUMAAK5DAICuQwAAr0MAgK9DAACwQwCAsEMAALFDAICxQwAAskMAgLJDAACzQwCAs0MAALRDAIC0QwAAtUMAgLVDAAC2QwCAtkMAALdDAIC3QwAAuEMAgLhDAAC5QwCAuUMAALpDAIC6QwAAu0MAgLtDAAC8QwCAvEMAAL1DAIC9QwAAvkMAgL5DAAC/QwCAv0MAAMBDQgVzY2FsZVocCglpbnB1dF9pZHMSDwoNCAcSCQoCCAEKAxIBblohCg5hdHRlbnRpb25fbWFzaxIPCg0IBxIJCgIIAQoDEgFuYikKEWxhc3RfaGlkZGVuX3N0YXRlEhQKEggBEg4KAggBCgMSAW4KAwiAA0IECgAQDQ=="
+  },
+  "cases": [
+    {
+      "name": "the first load compresses the model cache, once",
+      "compact": "ok",
+      "damaged": false,
+      "outcomes": [
+        {
+          "step": "warmup #1",
+          "reply": {
+            "type": "result",
+            "dims": 384
+          },
+          "loaded": true
+        },
+        {
+          "step": "dispose #2",
+          "reply": {
+            "type": "result",
+            "dims": {
+              "$exact": "undefined"
+            }
+          },
+          "loaded": false
+        },
+        {
+          "step": "warmup #3",
+          "reply": {
+            "type": "result",
+            "dims": 384
+          },
+          "loaded": true
+        }
+      ],
+      "calls": [
+        {
+          "step": "warmup #1",
+          "command": "compact.exe",
+          "args": [
+            "/c",
+            "/s:<modelDir>",
+            "/i",
+            "/q",
+            "/exe:lzx",
+            "<modelDir>\\*"
+          ],
+          "options": {
+            "timeout": 120000,
+            "windowsHide": true,
+            "maxBuffer": 1048576
+          }
+        }
+      ],
+      "sep": "\\"
+    },
+    {
+      "name": "a failed compression leaves the load succeeded",
+      "compact": "fail",
+      "damaged": false,
+      "outcomes": [
+        {
+          "step": "warmup #1",
+          "reply": {
+            "type": "result",
+            "dims": 384
+          },
+          "loaded": true
+        }
+      ],
+      "calls": [
+        {
+          "step": "warmup #1",
+          "command": "compact.exe",
+          "args": [
+            "/c",
+            "/s:<modelDir>",
+            "/i",
+            "/q",
+            "/exe:lzx",
+            "<modelDir>\\*"
+          ],
+          "options": {
+            "timeout": 120000,
+            "windowsHide": true,
+            "maxBuffer": 1048576
+          }
+        }
+      ],
+      "sep": "\\"
+    },
+    {
+      "name": "a failed load compresses nothing",
+      "compact": "ok",
+      "damaged": true,
+      "outcomes": [
+        {
+          "step": "warmup #1",
+          "reply": {
+            "type": "error",
+            "message": "Load model from D:\\mixdog-build\\tmp\\w23\\rec\\compress-U08l4M\\memory-models\\Xenova\\multilingual-e5-small\\onnx\\model_quantized.onnx failed:Protobuf parsing failed."
+          },
+          "loaded": false
+        }
+      ],
+      "calls": [],
+      "sep": "\\"
+    }
+  ]
+}
