@@ -49,7 +49,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 # WP-WEBRTC tests
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net", "test-util"] }
 tempfile = { workspace = true }
 # LR §9 tests: a phone through the in-process relay connection into the real server over the mock core.

@@ -95,7 +95,7 @@ async fn bounded<T>(
 ) -> Result<T, Stopped> {
     tokio::select! {
         biased;
-        () = tokio::time::sleep(limit) => {
+        () = mixdog_rt::time::sleep(limit) => {
             Err(Stopped::Timeout(format!("{label} timed out after {}s", (limit.as_millis() as f64 / 1000.0).round())))
         }
         done = run => done.map_err(Stopped::Failed),

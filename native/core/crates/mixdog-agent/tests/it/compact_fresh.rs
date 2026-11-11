@@ -136,7 +136,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for SlowHandoff {
         _: &[mixdog_agent::message::AgentMessage],
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
-        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(40)).await;
         Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0 })
     }
 }

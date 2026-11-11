@@ -89,10 +89,10 @@ async fn a_judgment_answers_while_every_cpu_bulk_thread_is_held_and_its_queue_is
     let judge = EffortJudgeModel::scripted(config, JudgeLanes::of(&tokens), script);
     // Waits no healthy judgment comes near: only the lane can make it miss them.
     let timing = JudgeTiming { warm: HANG, queue: HANG, cold: HANG, retry: HANG };
-    let turn = tokio::time::timeout(2 * HANG, judge.judge_turn(TurnInput::default(), timing)).await.expect("the turn is judged while cpu-bulk is full");
+    let turn = mixdog_rt::time::timeout(2 * HANG, judge.judge_turn(TurnInput::default(), timing)).await.expect("the turn is judged while cpu-bulk is full");
     assert!(matches!(&turn, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{turn:?}");
-    assert!(tokio::time::timeout(HANG, judge.supports_steps()).await.expect("step support is read while cpu-bulk is full"));
-    let probs = tokio::time::timeout(HANG, judge.probs(step("s"))).await.expect("the step is judged while cpu-bulk is full").expect("judged");
+    assert!(mixdog_rt::time::timeout(HANG, judge.supports_steps()).await.expect("step support is read while cpu-bulk is full"));
+    let probs = mixdog_rt::time::timeout(HANG, judge.probs(step("s"))).await.expect("the step is judged while cpu-bulk is full").expect("judged");
     assert_eq!(probs, PROBS);
     drop(release_tx);
 }
@@ -149,7 +149,7 @@ async fn two_sessions_judgments_run_one_at_a_time_in_arrival_order() {
         let judge = judge.clone();
         Box::pin(async move { judge.judge(step(request)).await })
     };
-    let next_start = async |started: &mut tokio::sync::mpsc::UnboundedReceiver<String>| tokio::time::timeout(HANG, started.recv()).await.expect("a judgment starts").expect("the model lives");
+    let next_start = async |started: &mut tokio::sync::mpsc::UnboundedReceiver<String>| mixdog_rt::time::timeout(HANG, started.recv()).await.expect("a judgment starts").expect("the model lives");
 
     let a1 = tokio::spawn(judged(&a, "a1"));
     assert_eq!(next_start(&mut started).await, "a1");
@@ -167,7 +167,7 @@ async fn two_sessions_judgments_run_one_at_a_time_in_arrival_order() {
     let want: Option<StepResult> = ladder.resolve(&PROBS);
     assert!(want.is_some());
     for task in [a1, b1, a2] {
-        assert_eq!(tokio::time::timeout(HANG, task).await.expect("the judgment answers").unwrap(), want);
+        assert_eq!(mixdog_rt::time::timeout(HANG, task).await.expect("the judgment answers").unwrap(), want);
     }
     assert_eq!(*held.log.lock().unwrap(), ["start a1", "end a1", "start b1", "end b1", "start a2", "end a2"]);
 }
@@ -330,14 +330,14 @@ fn rig(config: ModelConfig, mode: Loads) -> Rig {
 impl Rig {
     /// The next judgment to start: its thread.
     async fn next_start(&mut self) -> ThreadId {
-        let (request, thread) = tokio::time::timeout(HANG, self.started.recv()).await.expect("a judgment starts").expect("the model lives");
+        let (request, thread) = mixdog_rt::time::timeout(HANG, self.started.recv()).await.expect("a judgment starts").expect("the model lives");
         self.log.push(request);
         thread
     }
 
     /// The next load to start: its thread.
     async fn next_load(&mut self) -> ThreadId {
-        tokio::time::timeout(HANG, self.load_started.recv()).await.expect("a load starts").expect("the script lives")
+        mixdog_rt::time::timeout(HANG, self.load_started.recv()).await.expect("a load starts").expect("the script lives")
     }
 
     /// Ends the oldest held load (or the next one) with `outcome`.
@@ -365,7 +365,7 @@ impl Rig {
                 self.changes.changed().await.expect("the judge lives");
             }
         };
-        tokio::time::timeout(HANG, wait).await.unwrap_or_else(|_| panic!("waiting for {what}"));
+        mixdog_rt::time::timeout(HANG, wait).await.unwrap_or_else(|_| panic!("waiting for {what}"));
     }
 
     /// Waits until the judge's threads are `want`.
@@ -417,11 +417,11 @@ async fn ten_stuck_judgments_are_each_stopped_at_nodes_watchdog_and_a_fresh_mode
         assert!(!held.is_finished());
         rig.clock.advance(MS);
         assert_eq!(rig.threads().0, None, "stall {n}: let go at 10 s");
-        assert_eq!(tokio::time::timeout(HANG, held).await.expect("the stuck turn answers").unwrap(), TurnVerdict::Skipped(EXITED.into()), "stall {n}");
+        assert_eq!(mixdog_rt::time::timeout(HANG, held).await.expect("the stuck turn answers").unwrap(), TurnVerdict::Skipped(EXITED.into()), "stall {n}");
         rig.threads_become((None, 0)).await;
         assert_eq!(rig.dropped_on().last(), Some(&thread), "stall {n}: the model is dropped on its own thread");
     }
-    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    let next = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
     assert_eq!((rig.loads(), rig.threads()), (11, (Some(11), 0)));
 }
@@ -450,19 +450,19 @@ async fn a_watchdog_that_rings_as_its_run_ends_leaves_the_next_run_alone() {
     *rig.clock.gate.lock().unwrap() = Some((paused_tx, resume_rx));
     let clock = rig.clock.clone();
     let ringing = tokio::task::spawn_blocking(move || clock.advance(STUCK));
-    tokio::time::timeout(HANG, paused).await.expect("the first run's watchdog rings").unwrap();
+    mixdog_rt::time::timeout(HANG, paused).await.expect("the first run's watchdog rings").unwrap();
 
     rig.finish_run();
-    let answered = tokio::time::timeout(HANG, first).await.expect("the first run answers").unwrap();
+    let answered = mixdog_rt::time::timeout(HANG, first).await.expect("the first run answers").unwrap();
     assert!(matches!(&answered, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{answered:?}");
     let second = judged("wait 2");
     rig.next_start().await;
     resume.send(()).unwrap();
-    tokio::time::timeout(HANG, ringing).await.expect("the watchdog decides").unwrap();
+    mixdog_rt::time::timeout(HANG, ringing).await.expect("the watchdog decides").unwrap();
 
     assert_eq!(rig.threads(), (Some(1), 0), "the thread still takes jobs");
     rig.finish_run();
-    let answered = tokio::time::timeout(HANG, second).await.expect("the second run answers").unwrap();
+    let answered = mixdog_rt::time::timeout(HANG, second).await.expect("the second run answers").unwrap();
     assert!(matches!(&answered, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{answered:?}");
     assert_eq!((rig.loads(), rig.threads()), (1, (Some(1), 0)));
     assert_eq!(rig.log, ["wait 1", "wait 2"]);
@@ -488,8 +488,8 @@ async fn fifty_shutdowns_during_loads_that_never_return_hold_at_most_two_threads
         if cycle < THREADS {
             rig.next_load().await;
         }
-        tokio::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
-        assert_eq!(tokio::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()), "cycle {cycle}");
+        mixdog_rt::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
+        assert_eq!(mixdog_rt::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()), "cycle {cycle}");
         let (current, retiring) = rig.threads();
         assert!(usize::from(current.is_some()) + retiring <= THREADS, "cycle {cycle}: {:?}", rig.threads());
     }
@@ -500,7 +500,7 @@ async fn fifty_shutdowns_during_loads_that_never_return_hold_at_most_two_threads
     rig.threads_become((None, 0)).await;
     assert_eq!(rig.dropped_on().len(), THREADS, "each late model is dropped on its own thread");
     rig.finish_load(Ok(()));
-    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    let next = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
     assert_eq!((rig.loads(), rig.threads()), (THREADS + 1, (Some(THREADS as u64 + 1), 0)));
 }
@@ -523,8 +523,8 @@ async fn a_load_cut_short_by_shutdown_stores_nothing_and_holds_no_exit() {
         });
         let loader = rig.next_load().await;
         let before = judge.status();
-        tokio::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
-        assert_eq!(tokio::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()));
+        mixdog_rt::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no load");
+        assert_eq!(mixdog_rt::time::timeout(HANG, verdict).await.expect("the turn answers at once").unwrap(), TurnVerdict::Skipped("warming".into()));
         assert_eq!(rig.threads(), (None, 1), "the loading thread is counted, not waited for");
         rig.finish_load(outcome);
         rig.threads_become((None, 0)).await;
@@ -536,7 +536,7 @@ async fn a_load_cut_short_by_shutdown_stores_nothing_and_holds_no_exit() {
     }
     // Nothing was remembered: the next judgment loads without a load-error back-off.
     rig.finish_load(Ok(()));
-    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
+    let next = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
 }
 
@@ -588,7 +588,7 @@ async fn nodes_waits_answer_warming_timeout_busy_and_end_the_worker_on_the_judge
     rig.clock.advance(MS);
     rig.threads_become((None, 0)).await;
     rig.finish_load(Ok(()));
-    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t4"), node)).await.expect("a turn");
+    let next = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t4"), node)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
     rig.next_start().await;
     assert_eq!(rig.loads(), 2);
@@ -607,31 +607,31 @@ async fn a_panic_in_a_load_or_a_judgment_answers_at_once_and_a_new_thread_takes_
     let mut rig = rig(config, Loads::PanicFirst);
     let judge = rig.judge.clone();
 
-    let loaded = tokio::time::timeout(HANG, judge.probs(step("s"))).await.expect("a panicking load answers at once");
+    let loaded = mixdog_rt::time::timeout(HANG, judge.probs(step("s"))).await.expect("a panicking load answers at once");
     assert!(matches!(&loaded, Err(JudgeError::Load(message)) if message == "load boom"), "{loaded:?}");
     rig.threads_become((None, 0)).await;
     assert_eq!(
-        tokio::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn"),
+        mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), PATIENT)).await.expect("a turn"),
         TurnVerdict::Skipped("load-error: load boom".into())
     );
     // Past the back-off a turn loads again, on a new thread.
     let retry = JudgeTiming { retry: Duration::ZERO, ..PATIENT };
-    let judged = tokio::time::timeout(HANG, judge.judge_turn(turn("t"), retry)).await.expect("a turn");
+    let judged = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t"), retry)).await.expect("a turn");
     assert!(matches!(&judged, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{judged:?}");
     let two = rig.next_start().await;
     assert_eq!((rig.loads(), rig.threads()), (2, (Some(2), 0)));
 
-    let boom = tokio::time::timeout(HANG, judge.probs(step("boom"))).await.expect("a panicking judgment answers at once");
+    let boom = mixdog_rt::time::timeout(HANG, judge.probs(step("boom"))).await.expect("a panicking judgment answers at once");
     assert!(matches!(boom, Err(JudgeError::Worker(_))), "{boom:?}");
     assert_eq!(rig.next_start().await, two);
     rig.threads_become((None, 0)).await;
-    let after = tokio::time::timeout(HANG, judge.probs(step("s"))).await.expect("judged on a new thread");
+    let after = mixdog_rt::time::timeout(HANG, judge.probs(step("s"))).await.expect("judged on a new thread");
     assert_eq!(after.expect("judged"), PROBS);
     let three = rig.next_start().await;
     assert_ne!(three, two);
     assert_eq!((rig.loads(), rig.threads()), (3, (Some(3), 0)));
 
-    assert_eq!(tokio::time::timeout(HANG, judge.judge_turn(turn("boom"), PATIENT)).await.expect("a turn"), TurnVerdict::Skipped(EXITED.into()));
+    assert_eq!(mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("boom"), PATIENT)).await.expect("a turn"), TurnVerdict::Skipped(EXITED.into()));
     rig.threads_become((None, 0)).await;
 }
 
@@ -656,13 +656,13 @@ async fn shutdown_answers_the_running_and_queued_turns_and_waits_for_no_thread()
     let mut second = Box::pin(judge.judge_turn(turn("t2"), PATIENT));
     assert!(poll_once(&mut second).is_none(), "t2 waits behind t1");
 
-    tokio::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no thread");
-    assert_eq!(tokio::time::timeout(HANG, first).await.expect("t1 answers at once").unwrap(), TurnVerdict::Skipped(EXITED.into()));
-    assert_eq!(tokio::time::timeout(HANG, second).await.expect("t2 answers at once"), TurnVerdict::Skipped(EXITED.into()));
+    mixdog_rt::time::timeout(HANG, judge.shutdown()).await.expect("shutdown waits for no thread");
+    assert_eq!(mixdog_rt::time::timeout(HANG, first).await.expect("t1 answers at once").unwrap(), TurnVerdict::Skipped(EXITED.into()));
+    assert_eq!(mixdog_rt::time::timeout(HANG, second).await.expect("t2 answers at once"), TurnVerdict::Skipped(EXITED.into()));
     assert!(!judge.is_ready());
     rig.threads_become((None, 0)).await;
     assert_eq!(rig.dropped_on(), [one]);
-    let next = tokio::time::timeout(HANG, judge.judge_turn(turn("t3"), PATIENT)).await.expect("a turn");
+    let next = mixdog_rt::time::timeout(HANG, judge.judge_turn(turn("t3"), PATIENT)).await.expect("a turn");
     assert!(matches!(&next, TurnVerdict::Probs { probs, .. } if probs.as_slice() == PROBS), "{next:?}");
     assert_ne!(rig.next_start().await, one);
     assert_eq!(rig.loads(), 2);

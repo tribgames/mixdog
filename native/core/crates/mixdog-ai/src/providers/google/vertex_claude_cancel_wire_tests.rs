@@ -51,7 +51,7 @@ use crate::transport::loopback::Script;
 const DEADLINE: Duration = Duration::from_secs(30);
 
 async fn within<T>(what: &str, step: impl Future<Output = T>) -> T {
-    tokio::time::timeout(DEADLINE, step).await.unwrap_or_else(|_| panic!("{what}: not within {DEADLINE:?}"))
+    mixdog_rt::time::timeout(DEADLINE, step).await.unwrap_or_else(|_| panic!("{what}: not within {DEADLINE:?}"))
 }
 
 /// The caller: keeps the events, and cancels at the scenario's step.

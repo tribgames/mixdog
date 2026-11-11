@@ -144,7 +144,7 @@ impl ModelWarmup {
         let this = self.clone();
         state.task = Some(mixdog_rt::spawn("model-warmup", mixdog_rt::TaskClass::Work, async move {
             if !delay.is_zero() {
-                tokio::time::sleep_until(deadline).await;
+                mixdog_rt::time::sleep_until(deadline).await;
             }
             this.fire();
         }));

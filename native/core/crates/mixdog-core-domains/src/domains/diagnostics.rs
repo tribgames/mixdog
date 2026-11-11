@@ -974,7 +974,7 @@ async fn doctor_check(
     interactive: InteractiveIo,
 ) -> Value {
     let work = run_check(id, thread.as_ref(), &*sources, &config, &cancel, interactive);
-    let verdict = match tokio::time::timeout(config.check_timeout, work).await {
+    let verdict = match mixdog_rt::time::timeout(config.check_timeout, work).await {
         Err(_) => Verdict {
             level: Level::Warn,
             detail: format!(

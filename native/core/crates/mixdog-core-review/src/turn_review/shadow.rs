@@ -353,7 +353,7 @@ impl ShadowRepos {
         loop {
             let dispatch = self.shared.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()).take();
             let Some(mut dispatch) = dispatch else { break };
-            match tokio::time::timeout(deadline, &mut dispatch).await {
+            match mixdog_rt::time::timeout(deadline, &mut dispatch).await {
                 Ok(joined) => joined.expect("the review signal dispatch ended without delivering"),
                 Err(_) => {
                     // Still in flight: a later wait can still join it.
@@ -1174,7 +1174,7 @@ impl Root {
         let started = Arc::new(AtomicBool::new(false));
         let (root, flag) = (self.clone(), started.clone());
         let task = tokio::spawn(async move {
-            tokio::time::sleep(SHADOW_GC_DELAY).await;
+            mixdog_rt::time::sleep(SHADOW_GC_DELAY).await;
             flag.store(true, Ordering::SeqCst);
             // Outside the state lock: collection can run for minutes and git serializes itself
             // through gc.lock. `forget_root` waits for this before deleting the repository.

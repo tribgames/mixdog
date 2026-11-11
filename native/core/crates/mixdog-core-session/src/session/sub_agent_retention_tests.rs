@@ -237,17 +237,17 @@ async fn the_timer_sweeps_every_interval_until_cancelled() {
     let sink = errors.clone();
     let cancel = CancellationToken::new();
     let ended = start(host.clone(), Arc::new(now_ms), Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())), cancel.clone());
-    tokio::time::sleep(SWEEP_INTERVAL - Duration::from_secs(1)).await;
+    mixdog_rt::time::sleep(SWEEP_INTERVAL - Duration::from_secs(1)).await;
     assert_eq!(*host.0.lock().unwrap(), 0, "the first pass is an interval after the start");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    mixdog_rt::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(*host.0.lock().unwrap(), 1);
-    tokio::time::sleep(SWEEP_INTERVAL).await;
+    mixdog_rt::time::sleep(SWEEP_INTERVAL).await;
     assert_eq!(*host.0.lock().unwrap(), 2);
     assert_eq!(errors.lock().unwrap().len(), 2);
     assert!(errors.lock().unwrap()[0].starts_with("sub-agent retention error: "));
     cancel.cancel();
     ended.await.expect("the timer task ends with its token");
-    tokio::time::sleep(SWEEP_INTERVAL * 2).await;
+    mixdog_rt::time::sleep(SWEEP_INTERVAL * 2).await;
     assert_eq!(*host.0.lock().unwrap(), 2);
 }
 
@@ -432,7 +432,7 @@ async fn the_timer_task_ends_after_the_admitted_operation() {
         }
         async fn delete(&self, id: &str, activity: f64, peers: &[(String, f64)], cancel: &CancellationToken) -> Result<bool, CoreError> {
             self.entered.notify_one();
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            mixdog_rt::time::sleep(Duration::from_secs(10)).await;
             *self.finished.lock().unwrap() += 1;
             self.inner.delete(id, activity, peers, cancel).await
         }
@@ -443,7 +443,7 @@ async fn the_timer_task_ends_after_the_admitted_operation() {
     let host = Arc::new(Slow { inner: inner.clone(), entered: entered.clone(), finished: Mutex::new(0) });
     let cancel = CancellationToken::new();
     let ended = start(host.clone(), Arc::new(now_ms), Arc::new(|_| {}), cancel.clone());
-    tokio::time::sleep(SWEEP_INTERVAL + Duration::from_secs(1)).await;
+    mixdog_rt::time::sleep(SWEEP_INTERVAL + Duration::from_secs(1)).await;
     entered.notified().await;
     cancel.cancel();
     ended.await.expect("ended");

@@ -112,7 +112,7 @@ async fn idle_run(idle: Duration) {
     assert!(opened["transferId"].is_string());
 
     // The editor is "open": everything above has settled. From here on nothing may run.
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    mixdog_rt::time::sleep(Duration::from_secs(2)).await;
     conn.drain_text();
     // Calibration: a stat run through the crate's entry point shows in the counter, so a zero below
     // means something.
@@ -126,7 +126,7 @@ async fn idle_run(idle: Duration) {
     .unwrap();
     assert_eq!(job_snapshot().started, calibrate.started + 1, "the counter cannot see a lane job");
     let open = job_snapshot();
-    tokio::time::sleep(idle).await;
+    mixdog_rt::time::sleep(idle).await;
     let close = job_snapshot();
     if let Some(violation) = idle_window_violation(open, close) {
         panic!("{violation} over an idle window of {idle:?}: something polls");
@@ -141,7 +141,7 @@ async fn idle_run(idle: Duration) {
             break started.elapsed();
         }
         assert!(started.elapsed() < Duration::from_secs(3), "no fs/changed after an external write");
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     };
     assert!(latency <= Duration::from_millis(400), "fs/changed took {latency:?}");
     eprintln!("idle {idle:?}: 0 file-system jobs started; external write pushed after {latency:?}");

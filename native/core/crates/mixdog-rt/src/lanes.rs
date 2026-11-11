@@ -157,6 +157,12 @@ impl QueuedJob {
         self.cancel.is_cancelled()
     }
 
+    /// The same job with its body wrapped by `wrap` (the replay's clock counts it while it is queued or running).
+    #[cfg(feature = "virtual-clock")]
+    pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send>) -> Self {
+        Self { lane: self.lane, enqueued_at: self.enqueued_at, cancel: self.cancel, run: wrap(self.run) }
+    }
+
     /// Runs the job on the calling lane thread, or drops it if it was cancelled while queued.
     pub fn run(self) -> JobRun {
         if self.cancel.is_cancelled() {

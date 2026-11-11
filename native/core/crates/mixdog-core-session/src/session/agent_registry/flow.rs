@@ -837,7 +837,7 @@ mod tests {
         // The body of the same execution replaces its preview on the tail card.
         eventually_on!(&[&handle.cell.stepped], || has_body().then_some(())).await;
         directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cards(), 1, "one card for the execution; its body shows once");
     }
 }

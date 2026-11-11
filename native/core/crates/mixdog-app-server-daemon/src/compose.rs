@@ -968,6 +968,32 @@ mod tests {
             assert!(text.contains("[daemon] closing"), "{text}");
         });
     }
+
+    /// Case 9 of Node's K1 recording `fixtures/github-cases`: `isBuiltinTool('github')`, read from the recording. The `github` tool a session
+    /// gets from the composed registry (the core's pool, resolved for a session of the default tool spec as `session_tools::resolve` resolves
+    /// it, held as `session_doc` holds it) is a built-in exactly when it is held as Node's built-in definition whole: an internal tool would be
+    /// held projected, without its title. The rest of the case is replayed in mixdog-tools (`github::k1_replay`).
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the recorded fixture")]
+    fn the_github_tool_a_session_gets_is_nodes_builtin_one() {
+        crate::compose_test_support::in_child(module_path!(), "the_github_tool_a_session_gets_is_nodes_builtin_one", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            use mixdog_core::run_host::session_tools;
+            let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/github-cases/golden.json")).unwrap()).unwrap();
+            let case = &golden["cases"][9];
+            assert_eq!(case["case"], "the agent tool is registered and returns the ordinary builtin text/error contract");
+            let recorded = case["observed"]["isBuiltinTool"].as_bool().expect("isBuiltinTool is recorded as a boolean");
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap();
+            let pool = core.real.tool_pool.clone();
+            let request = session_tools::Resolve { tool_spec: None, model: "", skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] };
+            let held = session_tools::resolve(&pool, Vec::new(), &request).iter().find(|tool| tool.spec().name == "github").map(|tool| session_tools::session_doc(&pool, tool));
+            let node = mixdog_js::fixture_tools::definition("github").expect("Node's built-in github definition");
+            assert_eq!(held.as_ref() == Some(&node), recorded, "isBuiltinTool('github'): the session holds {held:#?}");
+            core.set_stop_reason("test");
+            core.run_stop_steps().await;
+        });
+    }
 }
 
 /// Every scope the composition asks an op gate for must be in `OP_SCOPES`, or `compose` fails at startup with "the op gate of `<scope>` was not passed".
