@@ -1,0 +1,42 @@
+{
+  "set": "provider-custom-provider-route",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "default-provider-validation-gets-saved-config",
+      "source": "src/runtime/agent/orchestrator/runtime-core/custom-provider-route.test.mjs:5",
+      "input": {
+        "config": {
+          "default": "main",
+          "presets": [
+            {
+              "id": "main",
+              "provider": "custom-test",
+              "model": "m1"
+            }
+          ],
+          "providers": {
+            "custom-test": {
+              "type": "custom",
+              "enabled": true
+            }
+          }
+        }
+      },
+      "result": {
+        "defaultProvider": "custom-test",
+        "routeProvider": "custom-test",
+        "validatorCalls": [
+          {
+            "id": "custom-test",
+            "sameConfigObject": true
+          },
+          {
+            "id": "custom-test",
+            "sameConfigObject": true
+          }
+        ]
+      }
+    }
+  ]
+}
