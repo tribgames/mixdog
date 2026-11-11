@@ -244,7 +244,7 @@ impl RoomExchangeHost for World {
         self.push(json!(["decideTurn", {
             "roomName": step.room_name,
             "members": step.members.iter().map(|member| json!({ "id": member.id, "name": member.name, "description": member.description })).collect::<Vec<_>>(),
-            "rows": step.rows.iter().map(|row| json!(row.id)).collect::<Vec<_>>(),
+            "rows": step.rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>(),
             "turns": turns,
             "mustPick": step.decide.must_pick,
             "last": step.decide.last,

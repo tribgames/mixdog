@@ -2508,9 +2508,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let room_sessions = Arc::new(
         mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
     );
-    let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
-        summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
-    ))));
+    // Node's supervisor step logs one line per step with `process.stderr.write` (`room-supervisor-completion.mjs` default `log`): the daemon's raw stderr.
+    let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(
+        Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
+            summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
+        )),
+        { let log = b.log.clone(); Arc::new(move |chunk: &str| log.raw(chunk)) },
+    ));
     // Node's rooms log (`agent-rooms.ts:190`) is `console.warn("[mixdog-rooms] <line>")` in the desktop main process. Rooms live in the core (spec §9), so it is the
     // daemon's `console.warn`, which `installRedirect` (`daemon.mjs:844`) writes as `[<ISO>] [console.warn] [mixdog-rooms] <line>`: `console_warn_sink()` (wp-ai-svc-35), no `[daemon]` tag.
     let room_log: Arc<dyn Fn(&str) + Send + Sync> = {

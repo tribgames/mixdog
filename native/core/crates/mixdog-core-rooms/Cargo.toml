@@ -10,6 +10,10 @@ workspace = true
 [lib]
 doctest = false
 
+[features]
+# The scripted exchange of the room recordings' replays (`rooms::exchange_script`), for the crates that replay them.
+test-support = []
+
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
@@ -35,6 +39,7 @@ tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).

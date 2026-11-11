@@ -194,8 +194,8 @@ impl AgentCatalog for Catalog {
 struct Unmanaged;
 #[async_trait]
 impl Maintainer for Unmanaged {
-    async fn ask(&self, _: &str, _: &str) -> Maintained {
-        Maintained::Unmanaged
+    async fn decide(&self, _: &crate::rooms::exchange_run::SupervisorStep) -> Result<Option<crate::rooms::exchange::Decision>, String> {
+        Ok(Some(crate::rooms::exchange::Decision { action: crate::rooms::exchange::Action::Unmanaged, scene: None }))
     }
 }
 
