@@ -12,23 +12,58 @@
           "message": "Our servers are currently overloaded. Please try again later.",
           "type": "server_error"
         },
-        "shape": "APIError with `error` attached and status undefined"
+        "frames": [
+          {
+            "error": {
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "type": "server_error"
+            }
+          }
+        ]
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "APIError",
+          "name": "Error",
           "message": "Our servers are currently overloaded. Please try again later.",
           "code": "server_error",
           "props": {
-            "name": "APIError",
             "status": {
               "$exact": "undefined"
             },
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
             "error": {
               "message": "Our servers are currently overloaded. Please try again later.",
               "type": "server_error"
             },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "server_error",
             "providerWireError": true,
             "providerError": {
               "message": "Our servers are currently overloaded. Please try again later.",
@@ -67,7 +102,10 @@
               "replayUnsafe": false,
               "replaySafe": true,
               "successEligible": false
-            }
+            },
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 5
           }
         },
         "outcome": {
@@ -95,17 +133,32 @@
           "replaySafe": true,
           "successEligible": false
         },
-        "classification": "transient",
-        "providerErrorIsTheWirePayload": true
+        "classification": "transient"
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
           "args": [
-            {},
+            "gateway",
             {
-              "label": "Chat Completions"
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m1",
+            [],
+            {}
           ]
         },
         {
@@ -113,18 +166,46 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "Our servers are currently overloaded. Please try again later.",
               "code": "server_error",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "Our servers are currently overloaded. Please try again later.",
                   "type": "server_error"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "server_error",
                 "providerWireError": true,
                 "providerError": {
                   "message": "Our servers are currently overloaded. Please try again later.",
@@ -163,7 +244,10 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                }
+                },
+                "providerRecoveryExhausted": true,
+                "providerRecoveryOwner": "withRetry",
+                "providerRecoveryAttempts": 5
               }
             }
           ]
@@ -173,18 +257,46 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "Our servers are currently overloaded. Please try again later.",
               "code": "server_error",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "Our servers are currently overloaded. Please try again later.",
                   "type": "server_error"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "server_error",
                 "providerWireError": true,
                 "providerError": {
                   "message": "Our servers are currently overloaded. Please try again later.",
@@ -223,10 +335,573 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                }
+                },
+                "providerRecoveryExhausted": true,
+                "providerRecoveryOwner": "withRetry",
+                "providerRecoveryAttempts": 5
               }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1197,
+          "fromMs": 0,
+          "fired": [
+            {
+              "dueMs": 499
+            },
+            {
+              "dueMs": 1197
+            }
+          ],
+          "toMs": 1197
+        },
+        {
+          "advanceMs": 2305,
+          "fromMs": 1197,
+          "fired": [
+            {
+              "dueMs": 3502
+            }
+          ],
+          "toMs": 3502
+        },
+        {
+          "advanceMs": 3734,
+          "fromMs": 3502,
+          "fired": [
+            {
+              "dueMs": 6502
+            },
+            {
+              "dueMs": 7236
+            }
+          ],
+          "toMs": 7236
+        },
+        {
+          "advanceMs": 9391,
+          "fromMs": 7236,
+          "fired": [
+            {
+              "dueMs": 9502
+            },
+            {
+              "dueMs": 12502
+            },
+            {
+              "dueMs": 16627
+            }
+          ],
+          "toMs": 16627
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "73"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
         }
       ]
     },
@@ -239,24 +914,61 @@
           "message": "You exceeded your current quota.",
           "type": "insufficient_quota",
           "code": "insufficient_quota"
-        }
+        },
+        "frames": [
+          {
+            "error": {
+              "message": "You exceeded your current quota.",
+              "type": "insufficient_quota",
+              "code": "insufficient_quota"
+            }
+          }
+        ]
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "APIError",
+          "name": "Error",
           "message": "You exceeded your current quota.",
           "code": "insufficient_quota",
           "props": {
-            "name": "APIError",
             "status": {
               "$exact": "undefined"
             },
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
             "error": {
               "message": "You exceeded your current quota.",
               "type": "insufficient_quota",
               "code": "insufficient_quota"
             },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "insufficient_quota",
             "providerWireError": true,
             "providerError": {
               "message": "You exceeded your current quota.",
@@ -328,12 +1040,28 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
           "args": [
-            {},
+            "gateway",
             {
-              "label": "Chat Completions"
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m1",
+            [],
+            {}
           ]
         },
         {
@@ -341,19 +1069,47 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "You exceeded your current quota.",
               "code": "insufficient_quota",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "You exceeded your current quota.",
                   "type": "insufficient_quota",
                   "code": "insufficient_quota"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "insufficient_quota",
                 "providerWireError": true,
                 "providerError": {
                   "message": "You exceeded your current quota.",
@@ -403,19 +1159,47 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "You exceeded your current quota.",
               "code": "insufficient_quota",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "You exceeded your current quota.",
                   "type": "insufficient_quota",
                   "code": "insufficient_quota"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "insufficient_quota",
                 "providerWireError": true,
                 "providerError": {
                   "message": "You exceeded your current quota.",
@@ -460,6 +1244,92 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}\n\n"
+            ],
+            "hold": false
+          }
+        }
       ]
     },
     {
@@ -471,23 +1341,58 @@
           "message": "Our servers are currently overloaded. Please try again later.",
           "type": "server_error"
         },
-        "shape": "APIError with `error` attached and status undefined"
+        "frames": [
+          {
+            "error": {
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "type": "server_error"
+            }
+          }
+        ]
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "APIError",
+          "name": "Error",
           "message": "Our servers are currently overloaded. Please try again later.",
           "code": "server_error",
           "props": {
-            "name": "APIError",
             "status": {
               "$exact": "undefined"
             },
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
             "error": {
               "message": "Our servers are currently overloaded. Please try again later.",
               "type": "server_error"
             },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "server_error",
             "providerWireError": true,
             "providerError": {
               "message": "Our servers are currently overloaded. Please try again later.",
@@ -526,7 +1431,10 @@
               "replayUnsafe": false,
               "replaySafe": true,
               "successEligible": false
-            }
+            },
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 5
           }
         },
         "outcome": {
@@ -554,17 +1462,49 @@
           "replaySafe": true,
           "successEligible": false
         },
-        "classification": "transient",
-        "providerErrorIsTheWirePayload": true
+        "classification": "transient"
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
           "args": [
-            {},
+            "gateway",
             {
-              "label": "Responses"
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "gateway",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
+                }
+              ]
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
           ]
         },
         {
@@ -572,18 +1512,46 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "Our servers are currently overloaded. Please try again later.",
               "code": "server_error",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "Our servers are currently overloaded. Please try again later.",
                   "type": "server_error"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "server_error",
                 "providerWireError": true,
                 "providerError": {
                   "message": "Our servers are currently overloaded. Please try again later.",
@@ -622,7 +1590,10 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                }
+                },
+                "providerRecoveryExhausted": true,
+                "providerRecoveryOwner": "withRetry",
+                "providerRecoveryAttempts": 5
               }
             }
           ]
@@ -632,18 +1603,46 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "Our servers are currently overloaded. Please try again later.",
               "code": "server_error",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "Our servers are currently overloaded. Please try again later.",
                   "type": "server_error"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "server_error",
                 "providerWireError": true,
                 "providerError": {
                   "message": "Our servers are currently overloaded. Please try again later.",
@@ -682,10 +1681,486 @@
                   "replayUnsafe": false,
                   "replaySafe": true,
                   "successEligible": false
-                }
+                },
+                "providerRecoveryExhausted": true,
+                "providerRecoveryOwner": "withRetry",
+                "providerRecoveryAttempts": 5
               }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1160,
+          "fromMs": 16627,
+          "fired": [
+            {
+              "dueMs": 17787
+            }
+          ],
+          "toMs": 17787
+        },
+        {
+          "advanceMs": 2101,
+          "fromMs": 17787,
+          "fired": [
+            {
+              "dueMs": 19888
+            }
+          ],
+          "toMs": 19888
+        },
+        {
+          "advanceMs": 3752,
+          "fromMs": 19888,
+          "fired": [
+            {
+              "dueMs": 22888
+            },
+            {
+              "dueMs": 23640
+            }
+          ],
+          "toMs": 23640
+        },
+        {
+          "advanceMs": 9037,
+          "fromMs": 23640,
+          "fired": [
+            {
+              "dueMs": 25888
+            },
+            {
+              "dueMs": 28888
+            },
+            {
+              "dueMs": 32677
+            }
+          ],
+          "toMs": 32677
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: undefined\ndata: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: undefined\ndata: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: undefined\ndata: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: undefined\ndata: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: undefined\ndata: {\"error\":{\"message\":\"Our servers are currently overloaded. Please try again later.\",\"type\":\"server_error\"}}\n\n"
+            ],
+            "hold": false
+          }
         }
       ]
     },
@@ -698,24 +2173,61 @@
           "message": "You exceeded your current quota.",
           "type": "insufficient_quota",
           "code": "insufficient_quota"
-        }
+        },
+        "frames": [
+          {
+            "error": {
+              "message": "You exceeded your current quota.",
+              "type": "insufficient_quota",
+              "code": "insufficient_quota"
+            }
+          }
+        ]
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "APIError",
+          "name": "Error",
           "message": "You exceeded your current quota.",
           "code": "insufficient_quota",
           "props": {
-            "name": "APIError",
             "status": {
               "$exact": "undefined"
             },
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
             "error": {
               "message": "You exceeded your current quota.",
               "type": "insufficient_quota",
               "code": "insufficient_quota"
             },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "insufficient_quota",
             "providerWireError": true,
             "providerError": {
               "message": "You exceeded your current quota.",
@@ -787,12 +2299,45 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
           "args": [
-            {},
+            "gateway",
             {
-              "label": "Responses"
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "gateway",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
+                }
+              ]
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
           ]
         },
         {
@@ -800,19 +2345,47 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "You exceeded your current quota.",
               "code": "insufficient_quota",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "You exceeded your current quota.",
                   "type": "insufficient_quota",
                   "code": "insufficient_quota"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "insufficient_quota",
                 "providerWireError": true,
                 "providerError": {
                   "message": "You exceeded your current quota.",
@@ -862,19 +2435,47 @@
           "args": [
             {
               "$exact": "error",
-              "name": "APIError",
+              "name": "Error",
               "message": "You exceeded your current quota.",
               "code": "insufficient_quota",
               "props": {
-                "name": "APIError",
                 "status": {
                   "$exact": "undefined"
                 },
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "text/event-stream"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
                 "error": {
                   "message": "You exceeded your current quota.",
                   "type": "insufficient_quota",
                   "code": "insufficient_quota"
                 },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": "insufficient_quota",
                 "providerWireError": true,
                 "providerError": {
                   "message": "You exceeded your current quota.",
@@ -918,6 +2519,92 @@
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: undefined\ndata: {\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}\n\n"
+            ],
+            "hold": false
+          }
         }
       ]
     },
@@ -4236,23 +5923,27 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
           "args": [
+            "gateway",
             {
-              "$stream": [
-                {
-                  "choices": [
-                    {
-                      "delta": {
-                        "content": "visible partial"
-                      },
-                      "finish_reason": null
-                    }
-                  ]
-                }
-              ],
-              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
-            },
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m1",
+            [],
             {
               "signal": {
                 "aborted": false,
@@ -4260,7 +5951,6 @@
                   "$exact": "undefined"
                 }
               },
-              "label": "fixture",
               "onTextDelta": {
                 "callback": "onTextDelta"
               }
@@ -4349,6 +6039,93 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        }
       ]
     },
     {
@@ -4366,16 +6143,15 @@
           ]
         },
         "interruption": "idle",
-        "semanticIdleTimeoutMs": 20,
         "advanceMs": [
-          20
+          300000
         ]
       },
       "result": {
         "error": {
           "$exact": "error",
           "name": "StreamStalledError",
-          "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+          "message": "gateway SSE idle stream timed out after 300000ms of inactivity",
           "code": "ESTREAMSTALL",
           "props": {
             "name": "StreamStalledError",
@@ -4449,23 +6225,27 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
           "args": [
+            "gateway",
             {
-              "$stream": [
-                {
-                  "choices": [
-                    {
-                      "delta": {
-                        "content": "visible partial"
-                      },
-                      "finish_reason": null
-                    }
-                  ]
-                }
-              ],
-              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
-            },
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "m1",
+            [],
             {
               "signal": {
                 "aborted": false,
@@ -4473,11 +6253,9 @@
                   "$exact": "undefined"
                 }
               },
-              "label": "fixture",
               "onTextDelta": {
                 "callback": "onTextDelta"
-              },
-              "semanticIdleTimeoutMs": 20
+              }
             }
           ]
         },
@@ -4487,7 +6265,7 @@
             {
               "$exact": "error",
               "name": "StreamStalledError",
-              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "message": "gateway SSE idle stream timed out after 300000ms of inactivity",
               "code": "ESTREAMSTALL",
               "props": {
                 "name": "StreamStalledError",
@@ -4538,7 +6316,7 @@
             {
               "$exact": "error",
               "name": "StreamStalledError",
-              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "message": "gateway SSE idle stream timed out after 300000ms of inactivity",
               "code": "ESTREAMSTALL",
               "props": {
                 "name": "StreamStalledError",
@@ -4586,16 +6364,104 @@
       ],
       "clock": [
         {
-          "advanceMs": 20,
-          "fromMs": 0,
+          "advanceMs": 300000,
+          "fromMs": 32677,
           "fired": [
             {
-              "id": 35,
-              "dueMs": 20
+              "dueMs": 35677
+            },
+            {
+              "dueMs": 332677
             }
           ],
-          "toMs": 20,
-          "armed": []
+          "toMs": 332677
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "112"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"choices\":[{\"delta\":{\"content\":\"visible partial\"},\"finish_reason\":null}]}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
         }
       ]
     },
@@ -4681,17 +6547,38 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "gateway",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$stream": [
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "gateway",
                 {
-                  "type": "response.output_text.delta",
-                  "delta": "visible partial"
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              ],
-              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
+              ]
             },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
             {
               "signal": {
                 "aborted": false,
@@ -4699,11 +6586,16 @@
                   "$exact": "undefined"
                 }
               },
-              "label": "fixture",
               "onTextDelta": {
                 "callback": "onTextDelta"
               }
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
           ]
         },
         {
@@ -4788,6 +6680,93 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"visible partial\"}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        }
       ]
     },
     {
@@ -4799,16 +6778,15 @@
           "delta": "visible partial"
         },
         "interruption": "idle",
-        "semanticIdleTimeoutMs": 20,
         "advanceMs": [
-          20
+          300000
         ]
       },
       "result": {
         "error": {
           "$exact": "error",
           "name": "StreamStalledError",
-          "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+          "message": "gateway:responses SSE idle stream timed out after 300000ms of inactivity",
           "code": "ESTREAMSTALL",
           "props": {
             "name": "StreamStalledError",
@@ -4848,7 +6826,9 @@
               "replaySafe": false,
               "successEligible": false
             },
-            "emittedText": true
+            "emittedText": true,
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "gateway-content-idle-policy"
           }
         },
         "outcome": {
@@ -4882,17 +6862,38 @@
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "gateway",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$stream": [
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "gateway",
                 {
-                  "type": "response.output_text.delta",
-                  "delta": "visible partial"
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              ],
-              "then": "the stream yields the first event, then waits until the caller aborts its signal and ends"
+              ]
             },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
             {
               "signal": {
                 "aborted": false,
@@ -4900,12 +6901,16 @@
                   "$exact": "undefined"
                 }
               },
-              "label": "fixture",
               "onTextDelta": {
                 "callback": "onTextDelta"
-              },
-              "semanticIdleTimeoutMs": 20
+              }
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
           ]
         },
         {
@@ -4914,7 +6919,7 @@
             {
               "$exact": "error",
               "name": "StreamStalledError",
-              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "message": "gateway:responses SSE idle stream timed out after 300000ms of inactivity",
               "code": "ESTREAMSTALL",
               "props": {
                 "name": "StreamStalledError",
@@ -4954,7 +6959,9 @@
                   "replaySafe": false,
                   "successEligible": false
                 },
-                "emittedText": true
+                "emittedText": true,
+                "providerRecoveryExhausted": true,
+                "providerRecoveryOwner": "gateway-content-idle-policy"
               }
             }
           ]
@@ -4965,7 +6972,7 @@
             {
               "$exact": "error",
               "name": "StreamStalledError",
-              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "message": "gateway:responses SSE idle stream timed out after 300000ms of inactivity",
               "code": "ESTREAMSTALL",
               "props": {
                 "name": "StreamStalledError",
@@ -5005,7 +7012,9 @@
                   "replaySafe": false,
                   "successEligible": false
                 },
-                "emittedText": true
+                "emittedText": true,
+                "providerRecoveryExhausted": true,
+                "providerRecoveryOwner": "gateway-content-idle-policy"
               }
             }
           ]
@@ -5013,16 +7022,101 @@
       ],
       "clock": [
         {
-          "advanceMs": 20,
-          "fromMs": 20,
+          "advanceMs": 300000,
+          "fromMs": 332677,
           "fired": [
             {
-              "id": 39,
-              "dueMs": 40
+              "dueMs": 632677
             }
           ],
-          "toMs": 40,
-          "armed": []
+          "toMs": 632677
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"visible partial\"}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
         }
       ]
     }
