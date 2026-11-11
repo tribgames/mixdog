@@ -479,6 +479,10 @@ pub struct CompactRequest<'a> {
     /// The provider refused the request as too long: the latest request's
     /// attachments now travel by reference.
     pub reference_latest_attachments: bool,
+    /// A pass inside a running turn (`pre-send-compact.mjs`: `activeTurn: true`): the turn's
+    /// progress since its input gets the continuation reminder. A manual or scheduled pass
+    /// between turns (`compaction-runner.mjs`) and an heir's carry have none.
+    pub active_turn: bool,
 }
 
 pub struct CompactOutput {

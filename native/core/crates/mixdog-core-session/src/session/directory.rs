@@ -681,6 +681,33 @@ impl SessionDirectory {
             .map(|_| ())
     }
 
+    /// [`create_with_id`](Self::create_with_id) over a `header` carrying a session's options (`session_options::write_header`):
+    /// a home or room session is a Node `createSession` too, so it begins with its tool surface seeded, as `thread/start`'s.
+    pub async fn create_seeded_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
+        let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
+        let header = self
+            .inner
+            .deps
+            .new_tools
+            .seed(&id, &header)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
+        self.inner
+            .create(CreateSpec {
+                id: Some(id),
+                header,
+                base: None,
+                op: None,
+                method: Method("thread/start"),
+                params,
+                seed: Some(seeded),
+                settings: None,
+                starting: None,
+            })
+            .await
+            .map(|_| ())
+    }
+
     /// Creates a thread under a minted id with `header` as its first durable write (an internal
     /// `createSession`: nobody subscribes to it).
     pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {

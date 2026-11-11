@@ -328,17 +328,14 @@ async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_wai
     eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
     assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false"]);
 
-    let holds = handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst);
-    let next = {
-        let handle = handle.clone();
-        tokio::spawn(async move { turn(&handle, "next", "op-2").await })
-    };
-    // The actor took the turn and the compaction's gate held it.
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(std::sync::atomic::Ordering::SeqCst) > holds).then_some(())).await;
-    assert!(!next.is_finished() && idle(&handle), "the next turn waits for the compaction");
+    // The turn is admitted at once (`submitToSession` answers while the compaction runs, as the
+    // session-send-world recording shows) and queued behind the compaction's gate.
+    let next = turn(&handle, "next", "op-2").await;
+    assert_eq!(next["kind"], json!("queued"), "{next}");
+    assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the next turn waits for the compaction");
     hold.notify_one();
-    super::testing::awaiting(|| "the next turn to be taken once the compaction ended".to_owned(), next).await.expect("joined");
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "the next turn started once the compaction ended");
     assert_eq!(super::testing::lock(&rig.compaction.calls)[..2], ["compact manual false", "post manual"]);
     assert_eq!(super::testing::lock(&rig.compaction.calls).iter().filter(|call| call.starts_with("compact")).count(), 1, "it ran once");
     gate.notify_one();
@@ -433,9 +430,10 @@ async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_d
     gate.notify_one();
     eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
 
+    let queued = call(&handle, "turn/start", json!({ "input": { "prompt": "next" } }), "h-1").await.expect("admitted");
+    assert_eq!(queued["kind"], json!("queued"), "a turn is queued behind the gate, not held: {queued}");
     let mut held_calls = Vec::new();
     for (method, params, op) in [
-        ("turn/start", json!({ "input": { "prompt": "next" } }), "h-1"),
         ("thread/clear", json!({}), "h-2"),
         ("thread/compact/start", json!({}), "h-3"),
     ] {
@@ -448,13 +446,7 @@ async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_d
     assert!(matches!(deleted, Reply::Value(Value::Bool(true))), "the delete is not held by the compaction: {deleted:?}");
     for (method, held) in held_calls {
         let answer = super::testing::awaiting(|| format!("the {method} the gate held to be answered after the delete"), held).await.expect("joined");
-        // A turn gets the submit refusal of a closed session, as any turn sent to one does.
-        let closed = match &answer {
-            Err(CoreError::DomainError { code: Some(code), .. }) => method == "turn/start" && **code == *super::actor::SUBMIT_REFUSED,
-            Err(CoreError::ThreadClosing { .. }) => method != "turn/start",
-            _ => false,
-        };
-        assert!(closed, "{method}: the deleted session is closed to it: {answer:?}");
+        assert!(matches!(&answer, Err(CoreError::ThreadClosing { .. })), "{method}: the deleted session is closed to it: {answer:?}");
     }
 }
 

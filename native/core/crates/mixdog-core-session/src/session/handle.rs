@@ -281,6 +281,9 @@ impl SessionHandle {
         });
         let view = self.cell.view.load_full();
         let feed: Arc<dyn FeedSource> = self.feed.clone();
+        // The resume's release drains what an earlier process left queued (`resume.mjs:72`); a full control lane has
+        // a resume of its own pending.
+        let _ = self.cell.ctl_tx.try_send(Ctl::Resumed);
         Ok(Reply::Subscribe(Subscribe {
             result: json!({ "thread": view.summary }),
             feed,

@@ -17,7 +17,7 @@ export interface ServiceRequest {
 
 /** What the caller gets back: the core's reply, or the shell snapshot this process holds (a core reply carries no
  *  session state, it arrives on the thread feeds), or nothing. */
-export type ServiceResult = 'reply' | 'snapshot' | 'none';
+export type ServiceResult = 'reply' | 'snapshot' | 'none' | 'accepted' | 'interrupt';
 
 interface Route {
   requests: ServiceRequest[];
@@ -128,9 +128,9 @@ const SINGLE: Readonly<Record<string, Single>> = {
     one('agent/memory/delete', { agentId, entryId: entry.id, indexRevision: entry.indexRevision }),
   inheritSession: ([threadId, route, options]) =>
     one('thread/fork', given({ threadId, route, compact: options?.compact }), 'reply'),
-  submitToSession: ([threadId, prompt, options]) => one('turn/start', { threadId, input: turnInput(prompt, options) }),
+  submitToSession: ([threadId, prompt, options]) => one('turn/start', { threadId, input: turnInput(prompt, options) }, 'accepted'),
   abortSession: ([threadId, options]) =>
-    one('turn/interrupt', given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId })),
+    one('turn/interrupt', given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId }), 'interrupt'),
   listProviderModels: ([options]) => one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),
   setModelRoute: ([route, threadId]) => one('route/set', given({ threadId, route }), 'snapshot'),
   setFast: ([on, threadId]) => one('fast/set', given({ threadId, on }), 'snapshot'),
@@ -202,6 +202,11 @@ export function createServiceLane({
 }): ServiceLane {
   const send = ({ method, params }: ServiceRequest): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
+      // A thread the core does not have is Node's `session <id> is not available` (session-views.mjs, session-action.mjs).
+      const reason = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+      if (reason?.kind === 'rpc' && reason.data?.reason === 'threadNotFound' && typeof params.threadId === 'string') {
+        throw new Error(`session ${params.threadId} is not available`);
+      }
       throw coreErrorForWindow(error);
     });
   // The threads this process resumed (`setVisibleSessions` names the visible set; the core feeds only those).
@@ -270,7 +275,13 @@ export function createServiceLane({
       const { requests, result } = routeService(method, args);
       let reply: unknown;
       for (const request of requests) reply = await send(request);
-      return (result === 'snapshot' ? snapshot() : result === 'none' ? undefined : reply) as T;
+      // `interrupt`: Node's `abortSession` answer, without the wire's own `cancelRequested` and `turnId`.
+      if (result === 'interrupt' && reply && typeof reply === 'object') {
+        const { cancelRequested: _cancelRequested, turnId: _turnId, ...answer } = reply as Record<string, unknown>;
+        return answer as T;
+      }
+      // `accepted`: the contract's `true` of a submission the core took (a refusal is the request's error).
+      return (result === 'snapshot' ? snapshot() : result === 'none' ? undefined : result === 'accepted' ? true : reply) as T;
     },
   };
 }

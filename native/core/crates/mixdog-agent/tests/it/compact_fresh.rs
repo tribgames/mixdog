@@ -117,6 +117,7 @@ async fn compactor_equals_node() {
                 trigger: CompactTrigger::Auto,
                 require_reduction: false,
                 reference_latest_attachments: false,
+                active_turn: true,
             })
             .await
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -185,6 +186,7 @@ async fn the_pipeline_time_spans_the_summary_and_the_summary_time_is_its_own() {
                 trigger: CompactTrigger::Auto,
                 require_reduction: false,
                 reference_latest_attachments: false,
+                active_turn: true,
             })
             .await
             .expect("compact");

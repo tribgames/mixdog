@@ -142,11 +142,26 @@ export function createModel(c) {
           return void res.end(JSON.stringify({ id: 'chatcmpl-send', object: 'chat.completion', model: MODEL.model, choices: [{ index: 0, message: { role: 'assistant', content: 'Title' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
         }
         const answer = answerOf(kind);
+        // Two sessions asking at once arrive in either order; `after` has the endpoint take this request only once a request of that
+        // kind was taken, so the recorded order is the endpoint's own.
+        if (answer.after && !requests.some((r) => r.kind === answer.after)) {
+          const wake = () => {
+            if (!requests.some((r) => r.kind === answer.after)) return;
+            wakers.delete(wake);
+            take();
+          };
+          wakers.add(wake);
+          return;
+        }
+        take();
+        function take() {
         requests.push({
           kind,
           messages: messages.map((m) => ({ role: m.role, text: textOf(m.content), ...(m.tool_calls ? { calls: m.tool_calls.map((t) => ({ name: t.function?.name, args: t.function?.arguments })) } : {}) })),
         });
-        note(`request ${requests.length}: ${kind}`);
+        const n = requests.length;
+        note(`request ${n}: ${kind}${body.stream === true ? '' : ' (unstreamed)'}`);
+        res.once('close', () => note(`request ${n}: ${kind} answered ${res.statusCode}${res.writableFinished ? '' : ' (closed by its caller first)'}`));
         if (answer.hold) {
           const go = () => stream(res, answer, body.stream === true);
           held.set(kind, go);
@@ -161,6 +176,7 @@ export function createModel(c) {
         }
         stir();
         stream(res, answer, body.stream === true);
+        }
       });
     },
     held: (kind) => held.has(kind),
@@ -264,7 +280,7 @@ export async function runSteps(c, app, model) {
   const stored = {};
   for (const alias of model.aliases.keys()) stored[alias] = (await outcome(app.read(id(alias)).then(rowsOf), `readSessionTranscript ${alias}`));
   await app.quit(within);
-  return { steps, requests: model.requests, shown, stored, aliases: Object.fromEntries(model.aliases) };
+  return { steps, requests: model.requests, shown, stored, aliases: Object.fromEntries(model.aliases), root: caseRoot(c), userData: app.userData };
 }
 
 async function runEach(c, app, model, steps, count, id, rows, submissionId) {
@@ -293,7 +309,7 @@ async function runEach(c, app, model, steps, count, id, rows, submissionId) {
       }, `${step.who} idle`);
     else if (step.do === 'shows') await model.until(() => rows(step.who).some((row) => row.kind === step.kind && (!step.text || String(row.text).includes(step.text))), `${step.who} shows ${step.kind} ${step.text ?? ''}`);
     else if (step.do === 'restart') {
-      await app.quit(within);
+      await (step.killed ? app.kill(within) : app.quit(within));
       await app.open(within);
       await within(STEP_MS, app.watch([...model.aliases.values()]), 'setVisibleSessions after the restart');
     } else if (step.do === 'archive') steps.push({ archive: step.who, ...(await outcome(app.archive(id(step.who), true), `setSessionArchived ${step.who}`)) });
@@ -309,14 +325,32 @@ async function runEach(c, app, model, steps, count, id, rows, submissionId) {
 export function normalized(recorded) {
   let text = JSON.stringify(recorded).replace(PAD_RUN, (run) => (run === PAD ? '<pad>' : `<pad part ${run.length} chars>`));
   for (const [alias, id] of Object.entries(recorded.aliases)) text = text.replaceAll(id, `@${alias}`);
+  // The app's user-data folder (where the unclassified workspace lies), then the case's own folder, as the recording spells them:
+  // in a string, and in a JSON text a string holds (a tool result).
+  for (const [path, name] of [
+    [recorded.userData, '<userData>'],
+    [recorded.root, '<case>'],
+  ]) {
+    const once = JSON.stringify(path).slice(1, -1);
+    text = text.replaceAll(JSON.stringify(once).slice(1, -1), name).replaceAll(once, name);
+  }
   const numbered = new Map();
   text = text.replace(/\b(atask|msg|sess_desktop|call|it)_[0-9a-zA-Z-]+|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, (found, prefix) => {
     const key = found;
     if (!numbered.has(key)) numbered.set(key, `<${prefix ?? 'uuid'}:${[...numbered.keys()].filter((k) => k.startsWith(prefix ?? '')).length + 1}>`);
     return numbered.get(key);
   });
+  // A compaction handoff's digest (`compactHeader`, compact/messages.mjs) hashes the summarized messages' `at`, `elapsedMs` and
+  // `attemptId`: minted from each side's own clock and uuids, it is numbered as they are.
+  const digests = new Map();
+  text = text.replace(/(messages=\d+ sha256=)([0-9a-f]{16})/g, (_, head, digest) => {
+    if (!digests.has(digest)) digests.set(digest, `<handoff:${digests.size + 1}>`);
+    return head + digests.get(digest);
+  });
   const out = JSON.parse(text);
   delete out.aliases;
+  delete out.root;
+  delete out.userData;
   return out;
 }
 
@@ -326,11 +360,14 @@ const start = [
   { do: 'home', agent: 'ann', as: 'H' },
   { do: 'task', as: 'R', prompt: 'You are the recipient.' },
   { do: 'watch', who: ['H', 'R'] },
+  // The recipient's first turn has ended: what is said to it next is a turn of its own, not steering into that one.
+  { do: 'idle', who: 'R' },
 ];
 const kick = [{ do: 'say', to: 'H', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }];
 /** A recipient with a conversation long enough to summarize, whose next turn schedules its compaction and then fails. */
 const notes = [
   { do: 'task', as: 'R', prompt: 'You are the recipient.' },
+  { do: 'idle', who: 'R' },
   { do: 'say', to: 'R', prompt: 'NOTES: take notes.' },
   { do: 'until', request: 'notes' },
   { do: 'idle', who: 'R' },
@@ -341,7 +378,7 @@ const reported = [{ do: 'until', request: 'other', n: 2 }, { do: 'idle', who: 'H
 
 export const CASES = [
   // The plain send, the reference the others differ from.
-  { name: 'send-reported', bots: ann, call: send(), steps: [...start, ...kick, { do: 'until', request: 'work' }, ...reported] },
+  { name: 'send-reported', bots: ann, call: send(), answers: { work: { after: 'tool-result', text: FINAL } }, steps: [...start, ...kick, { do: 'until', request: 'work' }, ...reported] },
 
   // Reported home exactly once.
   {
@@ -383,7 +420,10 @@ export const CASES = [
     name: 'restart-before-recipient-turn',
     bots: ann,
     call: send(),
-    steps: [...start, { do: 'say', to: 'R', prompt: 'BUSY: hold on.' }, { do: 'held', request: 'busy' }, ...kick, { do: 'idle', who: 'H' }, { do: 'restart' }, ...reported, { do: 'settle', ms: 6000 }],
+    // Ended from outside: an app's own stop ends the running turn and drops the queued send, and whether that process still reports it
+    // before it exits is a race inside Node's stop.
+    // The restart restores the queued send (`restoreLeadSteeringFromDisk`) and it runs.
+    steps: [...start, { do: 'say', to: 'R', prompt: 'BUSY: hold on.' }, { do: 'held', request: 'busy' }, ...kick, { do: 'idle', who: 'H' }, { do: 'restart', killed: true }, ...reported, { do: 'settle', ms: 6000 }],
   },
   {
     name: 'restart-during-recipient-turn',
@@ -398,6 +438,16 @@ export const CASES = [
     call: send(),
     steps: [...start, ...kick, { do: 'until', request: 'work' }, { do: 'idle', who: 'R' }, { do: 'restart' }, ...reported],
   },
+
+  // `session action=status` of another session (`readSessionStatus`, daemon-session-control.mjs:203): idle, busy, missing.
+  { name: 'status-idle', bots: ann, call: { action: 'status', session_id: '@R' }, steps: [...start, ...kick, { do: 'idle', who: 'H' }] },
+  {
+    name: 'status-busy',
+    bots: ann,
+    call: { action: 'status', session_id: '@R' },
+    steps: [...start, { do: 'say', to: 'R', prompt: 'BUSY: hold on.' }, { do: 'held', request: 'busy' }, ...kick, { do: 'idle', who: 'H' }, { do: 'release', request: 'busy' }, { do: 'idle', who: 'R' }],
+  },
+  { name: 'status-missing', bots: ann, call: { action: 'status', session_id: 'sess_gone' }, steps: [...start, ...kick, { do: 'idle', who: 'H' }] },
 
   // The recipient at the send.
   {
@@ -463,7 +513,7 @@ export const CASES = [
       { do: 'settle', ms: 4000 },
     ],
   },
-  { name: 'recipient-archived', bots: ann, call: send(), steps: [...start, { do: 'archive', who: 'R' }, ...kick, { do: 'idle', who: 'H' }, { do: 'settle', ms: 6000 }] },
+  { name: 'recipient-archived', bots: ann, call: send(), answers: { work: { after: 'tool-result', text: FINAL } }, steps: [...start, { do: 'archive', who: 'R' }, ...kick, { do: 'until', request: 'work' }, ...reported] },
   { name: 'recipient-missing', bots: ann, call: send('sess_gone'), steps: [...start, ...kick, { do: 'idle', who: 'H' }] },
   {
     name: 'recipient-deleted-in-flight',

@@ -33,7 +33,9 @@ const uuid = () => {
 };
 crypto.randomUUID = uuid;
 Object.defineProperty(globalThis.crypto, 'randomUUID', { value: uuid, configurable: true });
-const base = 1_800_000_000_000 + start * 3_600_000;
+// Ten minutes per start: a restart is not an absence (an hour would make every queued row the restart restores a stale one,
+// tui-steering-persist.mjs STALE_STEERING_RESTORE_TTL_MS).
+const base = 1_800_000_000_000 + start * 600_000;
 const instant = new AsyncLocalStorage();
 const now = () => instant.getStore() ?? base;
 Date.now = now;
