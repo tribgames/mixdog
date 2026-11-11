@@ -2,8 +2,8 @@
 // Replays the sensitive-writes scenario (lib/sensitive-writes-scenario.mjs; Node's recording is
 // native/core/fixtures/sensitive-writes/golden.json) against a built `mixdogd`: one isolated profile, a scripted OpenAI-chat
 // provider, and this client as the desktop (it claims the browser host role and answers `host/browser/command` as the recorded
-// bridge answered, and as the secret card it hands the password through `approval/provideSecret`). The first core runs the two
-// turns and the compaction and is stopped; a second core on the same profile resumes the thread and runs the third turn.
+// bridge answered, and as the secret card it hands the password through `approval/provideSecret`). The first core runs the first
+// process's turns and the compaction and is stopped; a second core on the same profile resumes the thread and runs the last turn.
 //
 // Then every file under the profile (data, home, AppData, temp, the runtime folder), the workspace and the cores' debug log is
 // searched for the scenario's three values as UTF-8, JSON-escaped (plain and \uXXXX), UTF-16LE/BE, base64 and base64url (lib/sensitive-writes-files.mjs
@@ -12,8 +12,12 @@
 // process runs and the marker after the reload. The core's tool-failure log is compared with Node's file whole (normalised the
 // same way). The exit code is 1 on any difference or hit.
 //
-//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/replay-sensitive-writes.mjs --mixdogd <exe>
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+// The PostgreSQL runtime is installed into the profile as an installed one is left (`active-version` and the tree it names), so
+// the core's memory store (the search copy and the memory rows, `<data>/pgdata`) is written and searched like every other file.
+//
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> MIXDOG_PG_RUNTIME=<an installed runtime folder: active-version + runtime-pg...>
+//     node benchmarks/rust-core/recorders/replay-sensitive-writes.mjs --mixdogd <exe>
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 import { join, resolve } from 'node:path';
@@ -206,12 +210,17 @@ function coreText(body) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const bin = resolve(arg('--mixdogd'));
   if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent (the workspace path is part of the files)');
+  const pgRuntime = process.env.MIXDOG_PG_RUNTIME;
+  if (!pgRuntime || !existsSync(join(pgRuntime, 'active-version'))) throw new Error('MIXDOG_PG_RUNTIME must name an installed PostgreSQL runtime folder (active-version and the tree it names)');
   const base = mkdtempSync(join(scratch, 'sw-rpl-'));
   const ws = join(base, 'ws');
   mkdirSync(ws);
   const profile = join(base, 'profile');
   const p = { root: base, profile, home: join(profile, 'home'), mixdogHome: join(profile, 'home', '.mixdog'), data: join(profile, 'home', '.mixdog', 'data'), runtime: join(profile, 'runtime'), appData: join(profile, 'home', 'AppData', 'Roaming'), local: join(profile, 'home', 'AppData', 'Local'), tmp: join(profile, 'tmp'), bridge: join(base, 'bridge') };
   for (const d of [p.data, p.runtime, p.appData, p.local, p.tmp, p.bridge, join(base, 'bin')]) mkdirSync(d, { recursive: true });
+  const active = readFileSync(join(pgRuntime, 'active-version'), 'utf8').trim();
+  cpSync(join(pgRuntime, `runtime-${active}`), join(p.data, 'runtime', `runtime-${active}`), { recursive: true });
+  writeFileSync(join(p.data, 'runtime', 'active-version'), active);
   p.exe = join(base, 'bin', 'mixdogd.exe');
   copyFileSync(bin, p.exe);
   writeFileSync(join(base, 'bin', 'js-runtime.json'), JSON.stringify({ program: process.execPath, packageRoot: repo }));
@@ -263,6 +272,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const hits = scanSecrets(base, [CODE, FAILED, SECRET], [...walk(profile), ...walk(ws), log]);
     for (const hit of hits) console.log(`HIT ${hit.file}@${hit.offset} (${hit.encoding} of ${hit.value})`);
     bad += hits.length;
+    // The memory store was written (else its search proves nothing): Node's recording has its cluster, so must the core.
+    const store = join(p.data, 'pgdata');
+    if (Object.keys(golden.files).some((name) => name.startsWith('mixdog_data_dir/pgdata/')) && !existsSync(store)) {
+      bad += 1;
+      console.log(`NO-STORE the core wrote no ${store}, Node's recording has its memory store`);
+    }
     // 2. The model input per provider call, against Node's.
     if (requests.length !== golden.sends.length) {
       bad += 1;

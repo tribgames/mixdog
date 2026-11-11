@@ -6,9 +6,9 @@
     "SECRET": "Tr0ub4dor&3"
   },
   "files": {
-    "mixdog_data_dir/gateway-usage.local.jsonl": "\n{\"ts\":<ms>,\"provider\":\"sensitive-writes\",\"model\":\"sensitive-writes-model\",\"providerKind\":\"api\",\"routeKey\":\"sensitive-writes\\u0001sensitive-writes-model\\u0001\\u0001\",\"routeSectionStartedAt\":<ms>,\"responseModel\":\"sensitive-writes-model\",\"serviceTier\":null,\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":1,\"costUsd\":0,\"costSource\":\"none\",\"contextUsedPct\":13.17,\"durationMs\":<measured>,\"requestKind\":\"chat\",\"effort\":null,\"sessionId\":\"<session>\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"toolCount\":0,\"systemCount\":null,\"messageCount\":13,\"chatMessageCount\":null,\"cacheStrategy\":null,\"rawUsageKeys\":[],\"compact\":{\"contextWindow\":null,\"compactLimitTokens\":null,\"budgetWindow\":null,\"beforeTokens\":null,\"afterTokens\":16861,\"reserveTokens\":null,\"method\":null,\"compacted\":false}}\n",
-    "mixdog_data_dir/history/agent-trace.jsonl": "{\"kind\":\"context\",\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"totalBytes\":<measured>,\"breakdown\":{\"contextBytes\":0,\"prefetchBytes\":0,\"promptBytes\":56,\"userTurnBytes\":56,\"messagesBytes\":<measured>,\"messagesCount\":4},\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":2,\"batch_schema_version\":1,\"batch_id\":\"<id:0>\",\"iteration\":1,\"calls\":[{\"tool_call_id\":\"call_fill_ok\",\"tool_name\":\"browser\",\"array_lengths\":null},{\"tool_call_id\":\"call_fill_bad\",\"tool_name\":\"browser\",\"array_lengths\":null}]},\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"tool_name\":\"browser\",\"tool_kind\":\"internal\",\"tool_ms\":<measured>,\"tool_args\":{\"action\":\"fill\",\"input\":{\"ref\":\"e1\",\"text\":\"[redacted]\",\"sensitive\":true}},\"tool_args_hash\":\"8336b97ff473eeb5\",\"tool_args_summary\":{\"action\":\"fill\",\"input\":{\"ref\":\"e1\",\"text\":\"[redacted]\",\"sensitive\":true}},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":9,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":<measured>,\"execution_ms\":<measured>,\"result_collection_wait_ms\":<measured>,\"postprocess_ms\":<measured>,\"total_ms\":<measured>},\"batch\":{\"batch_id\":\"<id:0>\",\"tool_call_id\":\"call_fill_ok\"},\"execution_intervals\":[{\"started_at_ms\":<ms>,\"completed_at_ms\":<ms>}]},\"cwd\":\"<ws>\",\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"tool_name\":\"browser\",\"tool_kind\":\"internal\",\"tool_ms\":<measured>,\"tool_args\":{\"action\":\"fill\",\"input\":{\"ref\":\"e2\",\"text\":\"[redacted]\",\"sensitive\":true}},\"tool_args_hash\":\"fb50f29a6e651113\",\"tool_args_summary\":{\"action\":\"fill\",\"input\":{\"ref\":\"e2\",\"text\":\"[redacted]\",\"sensitive\":true}},\"result_kind\":\"error\",\"result_error_first_line\":\"Error: no element e2 on the page\",\"result_error_category\":\"runtime/failure\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":32,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":<measured>,\"execution_ms\":<measured>,\"result_collection_wait_ms\":<measured>,\"postprocess_ms\":<measured>,\"total_ms\":<measured>},\"batch\":{\"batch_id\":\"<id:0>\",\"tool_call_id\":\"call_fill_bad\"},\"execution_intervals\":[{\"started_at_ms\":<ms>,\"completed_at_ms\":<ms>}]},\"cwd\":\"<ws>\",\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":1,\"batch_schema_version\":1,\"batch_id\":\"<id:1>\",\"iteration\":2,\"calls\":[{\"tool_call_id\":\"call_secret\",\"tool_name\":\"handoff_user\",\"array_lengths\":null}]},\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"iteration\":2,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"tool_name\":\"handoff_user\",\"tool_kind\":\"internal\",\"tool_ms\":<measured>,\"tool_args\":{\"handoff\":{\"kind\":\"secret\",\"surface\":\"browser\",\"target\":\"Portal password\",\"field\":\"password\"}},\"tool_args_hash\":\"c61deb85ada217ad\",\"tool_args_summary\":{\"handoff\":{\"kind\":\"secret\",\"surface\":\"browser\",\"target\":\"Portal password\",\"field\":\"password\"}},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":7,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":<measured>,\"execution_ms\":<measured>,\"result_collection_wait_ms\":<measured>,\"postprocess_ms\":<measured>,\"total_ms\":<measured>},\"batch\":{\"batch_id\":\"<id:1>\",\"tool_call_id\":\"call_secret\"},\"execution_intervals\":[{\"started_at_ms\":<ms>,\"completed_at_ms\":<ms>}]},\"cwd\":\"<ws>\",\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"ts\":<ms>,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"preset\":null,\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"duration\":<measured>,\"profileId\":null,\"inputTokens\":3,\"outputTokens\":3,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":0,\"prefixHash\":null,\"costUsd\":0,\"transportTiming\":null,\"payload\":{},\"session_id\":\"<session>\"}\n{\"kind\":\"context\",\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"totalBytes\":<measured>,\"breakdown\":{\"contextBytes\":0,\"prefetchBytes\":0,\"promptBytes\":20,\"userTurnBytes\":20,\"messagesBytes\":<measured>,\"messagesCount\":11},\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"ts\":<ms>,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"preset\":null,\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"duration\":<measured>,\"profileId\":null,\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":0,\"prefixHash\":null,\"costUsd\":0,\"transportTiming\":null,\"payload\":{},\"session_id\":\"<session>\"}\n{\"kind\":\"compact_meta\",\"stage\":\"manual\",\"trigger\":\"manual\",\"compact_changed\":false,\"input_prefix_hash\":\"f409568408f5\",\"before_count\":13,\"after_count\":13,\"before_bytes\":<measured>,\"after_bytes\":<measured>,\"context_window\":128000,\"budget_tokens\":128000,\"boundary_tokens\":128000,\"target_budget_tokens\":32000,\"reserve_tokens\":11957,\"pressure_tokens\":16861,\"trigger_tokens\":128000,\"message_tokens_est\":4904,\"duration_ms\":<measured>,\"provider\":\"sensitive-writes\",\"model\":\"sensitive-writes-model\",\"error\":null,\"error_code\":null,\"recovered_error\":null,\"details\":null,\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"kind\":\"context\",\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"totalBytes\":<measured>,\"breakdown\":{\"contextBytes\":0,\"prefetchBytes\":0,\"promptBytes\":23,\"userTurnBytes\":23,\"messagesBytes\":<measured>,\"messagesCount\":13},\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"ts\":<ms>,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"preset\":null,\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"duration\":<measured>,\"profileId\":null,\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":0,\"prefixHash\":null,\"costUsd\":0,\"transportTiming\":null,\"payload\":{},\"session_id\":\"<session>\"}\n",
-    "mixdog_data_dir/history/tool-failures.jsonl": "{\"ts\":<ms>,\"session_id\":\"<session>\",\"iteration\":1,\"tool_name\":\"browser\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"cwd\":\"<ws>\",\"tool_ms\":<measured>,\"tool_args\":{\"action\":\"fill\",\"input\":{\"ref\":\"e2\",\"text\":\"[redacted]\",\"sensitive\":true}},\"error_first_line\":\"Error: no element e2 on the page\",\"error_preview\":\"Error: no element e2 on the page\",\"result_bytes_est\":32,\"result_lines_est\":1}\n",
+    "mixdog_data_dir/gateway-usage.local.jsonl": "\n{\"ts\":<ms>,\"provider\":\"sensitive-writes\",\"model\":\"sensitive-writes-model\",\"providerKind\":\"api\",\"routeKey\":\"sensitive-writes\\u0001sensitive-writes-model\\u0001\\u0001\",\"routeSectionStartedAt\":<ms>,\"responseModel\":\"sensitive-writes-model\",\"serviceTier\":null,\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":1,\"costUsd\":0,\"costSource\":\"none\",\"contextUsedPct\":13.17,\"durationMs\":<measured>,\"requestKind\":\"chat\",\"effort\":null,\"sessionId\":\"<session>\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"toolCount\":0,\"systemCount\":null,\"messageCount\":13,\"chatMessageCount\":null,\"cacheStrategy\":null,\"rawUsageKeys\":[],\"compact\":{\"contextWindow\":null,\"compactLimitTokens\":null,\"budgetWindow\":null,\"beforeTokens\":null,\"afterTokens\":16863,\"reserveTokens\":null,\"method\":null,\"compacted\":false}}\n",
+    "mixdog_data_dir/history/agent-trace.jsonl": "{\"kind\":\"context\",\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"totalBytes\":<measured>,\"breakdown\":{\"contextBytes\":0,\"prefetchBytes\":0,\"promptBytes\":56,\"userTurnBytes\":56,\"messagesBytes\":<measured>,\"messagesCount\":4},\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":2,\"batch_schema_version\":1,\"batch_id\":\"<id:0>\",\"iteration\":1,\"calls\":[{\"tool_call_id\":\"call_fill_ok\",\"tool_name\":\"browser\",\"array_lengths\":null},{\"tool_call_id\":\"call_fill_bad\",\"tool_name\":\"browser\",\"array_lengths\":null}]},\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"tool_name\":\"browser\",\"tool_kind\":\"internal\",\"tool_ms\":<measured>,\"tool_args\":{\"action\":\"fill\",\"input\":{\"ref\":\"e1\",\"text\":\"[redacted]\",\"sensitive\":true}},\"tool_args_hash\":\"8336b97ff473eeb5\",\"tool_args_summary\":{\"action\":\"fill\",\"input\":{\"ref\":\"e1\",\"text\":\"[redacted]\",\"sensitive\":true}},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":9,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":<measured>,\"execution_ms\":<measured>,\"result_collection_wait_ms\":<measured>,\"postprocess_ms\":<measured>,\"total_ms\":<measured>},\"batch\":{\"batch_id\":\"<id:0>\",\"tool_call_id\":\"call_fill_ok\"},\"execution_intervals\":[{\"started_at_ms\":<ms>,\"completed_at_ms\":<ms>}]},\"cwd\":\"<ws>\",\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"tool_name\":\"browser\",\"tool_kind\":\"internal\",\"tool_ms\":<measured>,\"tool_args\":{\"action\":\"fill\",\"input\":{\"ref\":\"e2\",\"text\":\"[redacted]\",\"sensitive\":true}},\"tool_args_hash\":\"fb50f29a6e651113\",\"tool_args_summary\":{\"action\":\"fill\",\"input\":{\"ref\":\"e2\",\"text\":\"[redacted]\",\"sensitive\":true}},\"result_kind\":\"error\",\"result_error_first_line\":\"Error: the field e2 refused \\\"[redacted]\\\"\",\"result_error_category\":\"runtime/failure\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":40,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":<measured>,\"execution_ms\":<measured>,\"result_collection_wait_ms\":<measured>,\"postprocess_ms\":<measured>,\"total_ms\":<measured>},\"batch\":{\"batch_id\":\"<id:0>\",\"tool_call_id\":\"call_fill_bad\"},\"execution_intervals\":[{\"started_at_ms\":<ms>,\"completed_at_ms\":<ms>}]},\"cwd\":\"<ws>\",\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":1,\"batch_schema_version\":1,\"batch_id\":\"<id:1>\",\"iteration\":2,\"calls\":[{\"tool_call_id\":\"call_secret\",\"tool_name\":\"handoff_user\",\"array_lengths\":null}]},\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"iteration\":2,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"tool_name\":\"handoff_user\",\"tool_kind\":\"internal\",\"tool_ms\":<measured>,\"tool_args\":{\"handoff\":{\"kind\":\"secret\",\"surface\":\"browser\",\"target\":\"Portal password\",\"field\":\"password\"}},\"tool_args_hash\":\"c61deb85ada217ad\",\"tool_args_summary\":{\"handoff\":{\"kind\":\"secret\",\"surface\":\"browser\",\"target\":\"Portal password\",\"field\":\"password\"}},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":7,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":<measured>,\"execution_ms\":<measured>,\"result_collection_wait_ms\":<measured>,\"postprocess_ms\":<measured>,\"total_ms\":<measured>},\"batch\":{\"batch_id\":\"<id:1>\",\"tool_call_id\":\"call_secret\"},\"execution_intervals\":[{\"started_at_ms\":<ms>,\"completed_at_ms\":<ms>}]},\"cwd\":\"<ws>\",\"ts\":<ms>,\"session_id\":\"<session>\"}\n{\"ts\":<ms>,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"preset\":null,\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"duration\":<measured>,\"profileId\":null,\"inputTokens\":3,\"outputTokens\":3,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":0,\"prefixHash\":null,\"costUsd\":0,\"transportTiming\":null,\"payload\":{},\"session_id\":\"<session>\"}\n{\"kind\":\"context\",\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"totalBytes\":<measured>,\"breakdown\":{\"contextBytes\":0,\"prefetchBytes\":0,\"promptBytes\":20,\"userTurnBytes\":20,\"messagesBytes\":<measured>,\"messagesCount\":11},\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"ts\":<ms>,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"preset\":null,\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"duration\":<measured>,\"profileId\":null,\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":0,\"prefixHash\":null,\"costUsd\":0,\"transportTiming\":null,\"payload\":{},\"session_id\":\"<session>\"}\n{\"kind\":\"compact_meta\",\"stage\":\"manual\",\"trigger\":\"manual\",\"compact_changed\":false,\"input_prefix_hash\":\"f409568408f5\",\"before_count\":13,\"after_count\":13,\"before_bytes\":<measured>,\"after_bytes\":<measured>,\"context_window\":128000,\"budget_tokens\":128000,\"boundary_tokens\":128000,\"target_budget_tokens\":32000,\"reserve_tokens\":11957,\"pressure_tokens\":16863,\"trigger_tokens\":128000,\"message_tokens_est\":4906,\"duration_ms\":<measured>,\"provider\":\"sensitive-writes\",\"model\":\"sensitive-writes-model\",\"error\":null,\"error_code\":null,\"recovered_error\":null,\"details\":null,\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"kind\":\"context\",\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"totalBytes\":<measured>,\"breakdown\":{\"contextBytes\":0,\"prefetchBytes\":0,\"promptBytes\":23,\"userTurnBytes\":23,\"messagesBytes\":<measured>,\"messagesCount\":13},\"ts\":<ms>,\"session_id\":\"<session>\",\"payload\":{}}\n{\"ts\":<ms>,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":\"main\",\"preset\":null,\"model\":\"sensitive-writes-model\",\"provider\":\"sensitive-writes\",\"duration\":<measured>,\"profileId\":null,\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"promptTokens\":0,\"prefixHash\":null,\"costUsd\":0,\"transportTiming\":null,\"payload\":{},\"session_id\":\"<session>\"}\n",
+    "mixdog_data_dir/history/tool-failures.jsonl": "{\"ts\":<ms>,\"session_id\":\"<session>\",\"iteration\":1,\"tool_name\":\"browser\",\"tool_kind\":\"internal\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":\"lead\",\"model\":\"sensitive-writes-model\",\"cwd\":\"<ws>\",\"tool_ms\":<measured>,\"tool_args\":{\"action\":\"fill\",\"input\":{\"ref\":\"e2\",\"text\":\"[redacted]\",\"sensitive\":true}},\"error_first_line\":\"Error: the field e2 refused \\\"[redacted]\\\"\",\"error_preview\":\"Error: the field e2 refused \\\"[redacted]\\\"\",\"result_bytes_est\":40,\"result_lines_est\":1}\n",
     "mixdog_data_dir/human-gate/audit.jsonl": "{\"at\":<ms>,\"agentId\":\"lead\",\"kind\":\"secret\",\"action\":\"\",\"tool\":\"handoff_user:browser\",\"target\":\"Portal password\",\"decision\":\"entered\",\"device\":\"\"}\n",
     "mixdog_data_dir/patch-bin/mixdog-patch-0.7.34.exe": {
       "program": true
@@ -6177,10 +6177,10 @@
         "bufferRatio": 0,
         "handoffTimeoutMs": "<measured>",
         "lastCheckedAt": "<ms>",
-        "lastBeforeTokens": 16877,
-        "lastAfterTokens": 16877,
-        "lastPressureTokens": 16877,
-        "currentEstimatedTokens": 16877,
+        "lastBeforeTokens": 16879,
+        "lastAfterTokens": 16879,
+        "lastPressureTokens": 16879,
+        "currentEstimatedTokens": 16879,
         "lastApiRequestTokens": 1,
         "lastStage": "pre_send_check",
         "lastChanged": false,
@@ -6205,8 +6205,8 @@
           {
             "at": "<ms>",
             "stage": "pre_send_check",
-            "pressure": 28,
-            "est": 4770,
+            "pressure": 30,
+            "est": 4772,
             "trigger": 128000,
             "baseline": 2,
             "baselineAt": "<ms>"
@@ -6215,7 +6215,7 @@
             "at": "<ms>",
             "stage": "pre_send_check",
             "pressure": 11,
-            "est": 4877,
+            "est": 4879,
             "trigger": 128000,
             "baseline": 2,
             "baselineAt": "<ms>"
@@ -6224,7 +6224,7 @@
             "at": "<ms>",
             "stage": "pre_send_check",
             "pressure": 11,
-            "est": 4893,
+            "est": 4895,
             "trigger": 128000,
             "baseline": 2,
             "baselineAt": "<ms>"
@@ -6232,15 +6232,15 @@
           {
             "at": "<ms>",
             "stage": "pre_send_check",
-            "pressure": 16877,
-            "est": 4920,
+            "pressure": 16879,
+            "est": 4922,
             "trigger": 128000,
             "baseline": 2,
             "baselineAt": "<ms>"
           }
         ],
-        "lastBeforeMessageTokens": 4904,
-        "lastAfterMessageTokens": 4904,
+        "lastBeforeMessageTokens": 4906,
+        "lastAfterMessageTokens": 4906,
         "lastChangedAt": null,
         "lastCompactAt": null,
         "lastSummaryProvider": null,
@@ -8149,7 +8149,7 @@
         },
         {
           "role": "tool",
-          "content": "Error: no element e2 on the page",
+          "content": "Error: the field e2 refused \"[redacted]\"",
           "toolCallId": "call_fill_bad",
           "toolKind": "error",
           "toolTiming": {
@@ -8390,7 +8390,7 @@
         },
         {
           "role": "tool",
-          "content": "Error: no element e2 on the page",
+          "content": "Error: the field e2 refused \"Q7-551902\"",
           "toolCallId": "call_fill_bad",
           "toolKind": "error",
           "toolTiming": {
@@ -8474,7 +8474,7 @@
         },
         {
           "role": "tool",
-          "content": "Error: no element e2 on the page",
+          "content": "Error: the field e2 refused \"Q7-551902\"",
           "toolCallId": "call_fill_bad",
           "toolKind": "error",
           "toolTiming": {
@@ -8590,7 +8590,7 @@
         },
         {
           "role": "tool",
-          "content": "Error: no element e2 on the page",
+          "content": "Error: the field e2 refused \"Q7-551902\"",
           "toolCallId": "call_fill_bad",
           "toolKind": "error",
           "toolTiming": {
@@ -8760,7 +8760,7 @@
         },
         {
           "role": "tool",
-          "content": "Error: no element e2 on the page",
+          "content": "Error: the field e2 refused \"[redacted]\"",
           "toolCallId": "call_fill_bad",
           "toolKind": "error",
           "toolTiming": {
@@ -9061,7 +9061,7 @@
           },
           {
             "role": "tool",
-            "content": "Error: no element e2 on the page",
+            "content": "Error: the field e2 refused \"[redacted]\"",
             "toolCallId": "call_fill_bad",
             "toolKind": "error",
             "toolTiming": {
