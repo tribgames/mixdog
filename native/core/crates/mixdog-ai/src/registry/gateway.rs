@@ -333,6 +333,7 @@ impl ProviderAdapter for GatewayAdapter {
                 before_recovery: true,
                 reconnecting: true,
                 ladder_by_connection: true,
+                model_thinking: false,
             };
         }
         Default::default()

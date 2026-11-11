@@ -423,9 +423,11 @@ impl ProviderAdapter for GoogleAdapter {
             && self.codec.maas_model(model).is_none()
             && self.codec.claude_model(model).is_none();
         if !self.direct_gemini(model) {
-            return SendStages { ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, ..SendStages::default() };
+            // Antigravity's attempt notes `model_thinking` once its request is on the wire (antigravity-transport.mjs:236).
+            let model_thinking = matches!(self.codec.target(), Target::Antigravity { .. });
+            return SendStages { ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, model_thinking, ..SendStages::default() };
         }
-        SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true }
+        SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true, model_thinking: false }
     }
 
     /// `geminiRetryLogger(opts, '[gemini]')` of a send without a cached prefix (`_streamViaRest`'s label).

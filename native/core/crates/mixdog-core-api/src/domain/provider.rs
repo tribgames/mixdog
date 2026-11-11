@@ -1317,11 +1317,14 @@ pub struct SendStages {
     /// stream attempt opens under a fresh connection ladder (`runGeminiStreamAttempts`' `connected()`); otherwise by
     /// whether the attempt produced an event.
     pub ladder_by_connection: bool,
+    /// The provider's note that the request is on the wire, raised after each attempt's request is sent
+    /// (`MODEL_THINKING_STAGE`, antigravity-transport.mjs:236), which the run's liveness reads.
+    pub model_thinking: bool,
 }
 
 impl Default for SendStages {
     fn default() -> Self {
-        Self { preparing: 0, each_attempt: false, before_recovery: false, reconnecting: true, ladder_by_connection: false }
+        Self { preparing: 0, each_attempt: false, before_recovery: false, reconnecting: true, ladder_by_connection: false, model_thinking: false }
     }
 }
 

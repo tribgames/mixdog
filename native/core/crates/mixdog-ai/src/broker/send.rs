@@ -116,6 +116,9 @@ impl ModelBroker {
             if stages.each_attempt {
                 sink.stage("requesting", None);
             }
+            if stages.model_thinking {
+                sink.stage("model_thinking", None);
+            }
             // A request beginning is the run's doing: the lease measures the
             // silence after it.
             if let Some(liveness) = &liveness {
