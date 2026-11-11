@@ -1,0 +1,914 @@
+{
+  "domain": "memory-light-ko-morph",
+  "source": "src/runtime/memory/lib/light-ko-morph.test.mjs",
+  "cases": [
+    {
+      "name": "light Korean normalization strips particles and high-confidence predicate endings",
+      "tokens": [
+        {
+          "token": "메모리를",
+          "strip": {
+            "result": "메모리"
+          },
+          "normalize": {
+            "result": "메모리"
+          }
+        },
+        {
+          "token": "code_graph에",
+          "strip": {
+            "result": "code_graph"
+          },
+          "normalize": {
+            "result": "code_graph"
+          }
+        },
+        {
+          "token": "분리했던",
+          "strip": {
+            "result": "분리했던"
+          },
+          "normalize": {
+            "result": "분리"
+          }
+        },
+        {
+          "token": "가져왔던",
+          "strip": {
+            "result": "가져왔던"
+          },
+          "normalize": {
+            "result": "가져오"
+          }
+        },
+        {
+          "token": "숨겼던",
+          "strip": {
+            "result": "숨겼던"
+          },
+          "normalize": {
+            "result": "숨기"
+          }
+        },
+        {
+          "token": "메모리",
+          "strip": {
+            "result": "메모리"
+          },
+          "normalize": {
+            "result": "메모리"
+          }
+        }
+      ],
+      "stems": {
+        "text": "메모리를 최적화했던 계획",
+        "stems": {
+          "result": [
+            "메모리",
+            "최적화",
+            "계획"
+          ]
+        },
+        "tokens": {
+          "result": [
+            "메모리",
+            "최적화",
+            "계획"
+          ]
+        },
+        "fts": {
+          "result": {
+            "query": "메모리:* | 최적화:* | 계획:*",
+            "prefix": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a query with several product names keeps its Korean content words",
+      "phrase": {
+        "text": "웹 검색을 적게 하는 원인 Claude Code Codex Hermes 비교",
+        "stems": {
+          "result": [
+            "웹",
+            "검색",
+            "적게",
+            "하는",
+            "원인",
+            "claude",
+            "code",
+            "codex",
+            "hermes",
+            "비교"
+          ]
+        },
+        "tokens": {
+          "result": [
+            "claude",
+            "code",
+            "codex",
+            "herm",
+            "검색",
+            "적게",
+            "하는",
+            "원인",
+            "비교"
+          ]
+        },
+        "fts": {
+          "result": {
+            "query": "claude:* | code:* | codex:* | herm:* | 검색:* | 적게:* | 하는:* | 원인:* | 비교:*",
+            "prefix": true
+          }
+        }
+      }
+    },
+    {
+      "name": "production recall uses light stems in prefix queries by default",
+      "phrases": [
+        {
+          "text": "PowerShell 코드를 분리했던 작업",
+          "stems": {
+            "result": [
+              "powershell",
+              "코드",
+              "분리",
+              "작업"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "powershell",
+              "코드",
+              "분리",
+              "작업"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "powershell:* | 코드:* | 분리:* | 작업:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "임베딩 모델을 해제했던 결과",
+          "stems": {
+            "result": [
+              "임베딩",
+              "모델",
+              "해제",
+              "결과"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "임베딩",
+              "모델",
+              "해제",
+              "결과"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "임베딩:* | 모델:* | 해제:* | 결과:*",
+              "prefix": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "further tokens and phrases (beyond the test file)",
+      "tokens": [
+        {
+          "token": "메모리를",
+          "strip": {
+            "result": "메모리"
+          },
+          "normalize": {
+            "result": "메모리"
+          }
+        },
+        {
+          "token": "code_graph에",
+          "strip": {
+            "result": "code_graph"
+          },
+          "normalize": {
+            "result": "code_graph"
+          }
+        },
+        {
+          "token": "분리했던",
+          "strip": {
+            "result": "분리했던"
+          },
+          "normalize": {
+            "result": "분리"
+          }
+        },
+        {
+          "token": "가져왔던",
+          "strip": {
+            "result": "가져왔던"
+          },
+          "normalize": {
+            "result": "가져오"
+          }
+        },
+        {
+          "token": "숨겼던",
+          "strip": {
+            "result": "숨겼던"
+          },
+          "normalize": {
+            "result": "숨기"
+          }
+        },
+        {
+          "token": "메모리",
+          "strip": {
+            "result": "메모리"
+          },
+          "normalize": {
+            "result": "메모리"
+          }
+        },
+        {
+          "token": "최적화했던",
+          "strip": {
+            "result": "최적화했던"
+          },
+          "normalize": {
+            "result": "최적화"
+          }
+        },
+        {
+          "token": "계획",
+          "strip": {
+            "result": "계획"
+          },
+          "normalize": {
+            "result": "계획"
+          }
+        },
+        {
+          "token": "검색을",
+          "strip": {
+            "result": "검색"
+          },
+          "normalize": {
+            "result": "검색"
+          }
+        },
+        {
+          "token": "원인",
+          "strip": {
+            "result": "원인"
+          },
+          "normalize": {
+            "result": "원인"
+          }
+        },
+        {
+          "token": "비교",
+          "strip": {
+            "result": "비교"
+          },
+          "normalize": {
+            "result": "비교"
+          }
+        },
+        {
+          "token": "코드를",
+          "strip": {
+            "result": "코드"
+          },
+          "normalize": {
+            "result": "코드"
+          }
+        },
+        {
+          "token": "작업",
+          "strip": {
+            "result": "작업"
+          },
+          "normalize": {
+            "result": "작업"
+          }
+        },
+        {
+          "token": "임베딩",
+          "strip": {
+            "result": "임베딩"
+          },
+          "normalize": {
+            "result": "임베딩"
+          }
+        },
+        {
+          "token": "모델을",
+          "strip": {
+            "result": "모델"
+          },
+          "normalize": {
+            "result": "모델"
+          }
+        },
+        {
+          "token": "해제했던",
+          "strip": {
+            "result": "해제했던"
+          },
+          "normalize": {
+            "result": "해제"
+          }
+        },
+        {
+          "token": "결과",
+          "strip": {
+            "result": "결과"
+          },
+          "normalize": {
+            "result": "결과"
+          }
+        },
+        {
+          "token": "하는",
+          "strip": {
+            "result": "하는"
+          },
+          "normalize": {
+            "result": "하는"
+          }
+        },
+        {
+          "token": "적게",
+          "strip": {
+            "result": "적게"
+          },
+          "normalize": {
+            "result": "적게"
+          }
+        },
+        {
+          "token": "웹",
+          "strip": {
+            "result": "웹"
+          },
+          "normalize": {
+            "result": "웹"
+          }
+        },
+        {
+          "token": "는",
+          "strip": {
+            "result": "는"
+          },
+          "normalize": {
+            "result": "는"
+          }
+        },
+        {
+          "token": "을",
+          "strip": {
+            "result": "을"
+          },
+          "normalize": {
+            "result": "을"
+          }
+        },
+        {
+          "token": "에서",
+          "strip": {
+            "result": "에서"
+          },
+          "normalize": {
+            "result": "에서"
+          }
+        },
+        {
+          "token": "으로",
+          "strip": {
+            "result": "으로"
+          },
+          "normalize": {
+            "result": "으로"
+          }
+        },
+        {
+          "token": "에게",
+          "strip": {
+            "result": "에게"
+          },
+          "normalize": {
+            "result": "에게"
+          }
+        },
+        {
+          "token": "합니다",
+          "strip": {
+            "result": "합니다"
+          },
+          "normalize": {
+            "result": "합니다"
+          }
+        },
+        {
+          "token": "했다",
+          "strip": {
+            "result": "했다"
+          },
+          "normalize": {
+            "result": "했다"
+          }
+        },
+        {
+          "token": "됩니다",
+          "strip": {
+            "result": "됩니다"
+          },
+          "normalize": {
+            "result": "됩니다"
+          }
+        },
+        {
+          "token": "있는",
+          "strip": {
+            "result": "있는"
+          },
+          "normalize": {
+            "result": "있는"
+          }
+        },
+        {
+          "token": "없던",
+          "strip": {
+            "result": "없던"
+          },
+          "normalize": {
+            "result": "없던"
+          }
+        },
+        {
+          "token": "만들었던",
+          "strip": {
+            "result": "만들었던"
+          },
+          "normalize": {
+            "result": "만들었던"
+          }
+        },
+        {
+          "token": "읽었던",
+          "strip": {
+            "result": "읽었던"
+          },
+          "normalize": {
+            "result": "읽었던"
+          }
+        },
+        {
+          "token": "쓰던",
+          "strip": {
+            "result": "쓰던"
+          },
+          "normalize": {
+            "result": "쓰던"
+          }
+        },
+        {
+          "token": "먹었던",
+          "strip": {
+            "result": "먹었던"
+          },
+          "normalize": {
+            "result": "먹었던"
+          }
+        },
+        {
+          "token": "와",
+          "strip": {
+            "result": "와"
+          },
+          "normalize": {
+            "result": "와"
+          }
+        },
+        {
+          "token": "과",
+          "strip": {
+            "result": "과"
+          },
+          "normalize": {
+            "result": "과"
+          }
+        },
+        {
+          "token": "의",
+          "strip": {
+            "result": "의"
+          },
+          "normalize": {
+            "result": "의"
+          }
+        },
+        {
+          "token": "도",
+          "strip": {
+            "result": "도"
+          },
+          "normalize": {
+            "result": "도"
+          }
+        },
+        {
+          "token": "만",
+          "strip": {
+            "result": "만"
+          },
+          "normalize": {
+            "result": "만"
+          }
+        },
+        {
+          "token": "Claude",
+          "strip": {
+            "result": "Claude"
+          },
+          "normalize": {
+            "result": "claude"
+          }
+        },
+        {
+          "token": "codex",
+          "strip": {
+            "result": "codex"
+          },
+          "normalize": {
+            "result": "codex"
+          }
+        },
+        {
+          "token": "Hermes",
+          "strip": {
+            "result": "Hermes"
+          },
+          "normalize": {
+            "result": "hermes"
+          }
+        },
+        {
+          "token": "PowerShell",
+          "strip": {
+            "result": "PowerShell"
+          },
+          "normalize": {
+            "result": "powershell"
+          }
+        },
+        {
+          "token": "abc123",
+          "strip": {
+            "result": "abc123"
+          },
+          "normalize": {
+            "result": "abc123"
+          }
+        },
+        {
+          "token": "한글abc",
+          "strip": {
+            "result": "한글abc"
+          },
+          "normalize": {
+            "result": "한글abc"
+          }
+        },
+        {
+          "token": "ㅎ",
+          "strip": {
+            "result": "ㅎ"
+          },
+          "normalize": {
+            "result": "ㅎ"
+          }
+        },
+        {
+          "token": "",
+          "strip": {
+            "result": ""
+          },
+          "normalize": {
+            "result": ""
+          }
+        },
+        {
+          "token": " ",
+          "strip": {
+            "result": ""
+          },
+          "normalize": {
+            "result": ""
+          }
+        },
+        {
+          "token": "메모리를,",
+          "strip": {
+            "result": "메모리를,"
+          },
+          "normalize": {
+            "result": "메모리를,"
+          }
+        },
+        {
+          "token": "메모리를.",
+          "strip": {
+            "result": "메모리를."
+          },
+          "normalize": {
+            "result": "메모리를."
+          }
+        },
+        {
+          "token": "가",
+          "strip": {
+            "result": "가"
+          },
+          "normalize": {
+            "result": "가"
+          }
+        },
+        {
+          "token": "이",
+          "strip": {
+            "result": "이"
+          },
+          "normalize": {
+            "result": "이"
+          }
+        },
+        {
+          "token": "은",
+          "strip": {
+            "result": "은"
+          },
+          "normalize": {
+            "result": "은"
+          }
+        }
+      ],
+      "phrases": [
+        {
+          "text": "메모리를 최적화했던 계획",
+          "stems": {
+            "result": [
+              "메모리",
+              "최적화",
+              "계획"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "메모리",
+              "최적화",
+              "계획"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "메모리:* | 최적화:* | 계획:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "웹 검색을 적게 하는 원인 Claude Code Codex Hermes 비교",
+          "stems": {
+            "result": [
+              "웹",
+              "검색",
+              "적게",
+              "하는",
+              "원인",
+              "claude",
+              "code",
+              "codex",
+              "hermes",
+              "비교"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "claude",
+              "code",
+              "codex",
+              "herm",
+              "검색",
+              "적게",
+              "하는",
+              "원인",
+              "비교"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "claude:* | code:* | codex:* | herm:* | 검색:* | 적게:* | 하는:* | 원인:* | 비교:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "PowerShell 코드를 분리했던 작업",
+          "stems": {
+            "result": [
+              "powershell",
+              "코드",
+              "분리",
+              "작업"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "powershell",
+              "코드",
+              "분리",
+              "작업"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "powershell:* | 코드:* | 분리:* | 작업:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "임베딩 모델을 해제했던 결과",
+          "stems": {
+            "result": [
+              "임베딩",
+              "모델",
+              "해제",
+              "결과"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "임베딩",
+              "모델",
+              "해제",
+              "결과"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "임베딩:* | 모델:* | 해제:* | 결과:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "",
+          "stems": {
+            "result": []
+          },
+          "tokens": {
+            "result": []
+          },
+          "fts": {
+            "result": null
+          }
+        },
+        {
+          "text": "   ",
+          "stems": {
+            "result": []
+          },
+          "tokens": {
+            "result": []
+          },
+          "fts": {
+            "result": null
+          }
+        },
+        {
+          "text": "hello world",
+          "stems": {
+            "result": [
+              "hello",
+              "world"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "hello",
+              "world"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "hello:* & world:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "한글만 있는 질의입니다",
+          "stems": {
+            "result": [
+              "한글만",
+              "있는",
+              "질의입니다"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "한글만",
+              "있는",
+              "질의입니다"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "한글만:* | 있는:* | 질의입니다:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "code_graph에 대한 메모리를 가져왔던 이유",
+          "stems": {
+            "result": [
+              "code_graph",
+              "대한",
+              "메모리",
+              "가져오",
+              "이유"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "code_graph",
+              "대한",
+              "메모리",
+              "가져오",
+              "이유"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "code_graph:* | 대한:* | 메모리:* | 가져오:* | 이유:*",
+              "prefix": true
+            }
+          }
+        },
+        {
+          "text": "a b c",
+          "stems": {
+            "result": [
+              "a",
+              "b",
+              "c"
+            ]
+          },
+          "tokens": {
+            "result": []
+          },
+          "fts": {
+            "result": null
+          }
+        },
+        {
+          "text": "the quick brown fox 그리고 메모리",
+          "stems": {
+            "result": [
+              "the",
+              "quick",
+              "brown",
+              "fox",
+              "그리고",
+              "메모리"
+            ]
+          },
+          "tokens": {
+            "result": [
+              "quick",
+              "brown",
+              "fox",
+              "그리고",
+              "메모리"
+            ]
+          },
+          "fts": {
+            "result": {
+              "query": "quick:* | brown:* | fox:* | 그리고:* | 메모리:*",
+              "prefix": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

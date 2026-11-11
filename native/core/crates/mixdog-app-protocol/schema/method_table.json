@@ -10702,6 +10702,11 @@
       "delivery": null,
       "method": "ui/screenSessions/changed",
       "params": "UiScreenSessionsChangedParams"
+    },
+    {
+      "delivery": null,
+      "method": "remote/connectionTimeline",
+      "params": "RemoteConnectionTimelineParams"
     }
   ],
   "serverNotifications": [
