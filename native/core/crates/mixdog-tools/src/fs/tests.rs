@@ -1866,16 +1866,26 @@ sequence_tests! {
     no_session => "no-session",
 }
 
-/// The local file service, except that stating a file with one of `names` fails, and one with a name of the
-/// third list never answers (a dead mount).
-struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str], Arc<std::sync::atomic::AtomicUsize>);
+/// The local file service, except that stating a file with one of `names` fails, one with a name of the third list
+/// never answers (a dead mount) and one named in the control's `delays` answers after that many virtual milliseconds.
+struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str], Arc<StatControl>);
+
+#[derive(Default)]
+struct StatControl {
+    /// Signalled as a stat that never answers starts.
+    hung: tokio::sync::Notify,
+    delays: &'static [(&'static str, u64)],
+}
 
 #[async_trait::async_trait]
 impl FileService for StatFails {
     async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         if self.2.iter().any(|name| path.as_path().ends_with(name)) {
-            self.3.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.3.hung.notify_one();
             std::future::pending::<()>().await;
+        }
+        if let Some((_, ms)) = self.3.delays.iter().find(|(name, _)| path.as_path().ends_with(name)) {
+            tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
         }
         if self.1.iter().any(|name| path.as_path().ends_with(name)) {
             return Err(mixdog_core_api::domain::fs::FsError::new(mixdog_core_api::domain::fs::FsErrorKind::PermissionDenied, Some(path)));
@@ -1931,45 +1941,48 @@ async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
     assert_eq!(text.lines().collect::<Vec<_>>(), ["d.txt", "b.txt", "C.txt", "a.txt"]);
 }
 
-/// A glob-shaped `list` path awaits each candidate's metadata for at most 1 000 ms (Node
-/// `collectFindMatches` with `FIND_STAT_DEADLINE_MS`): a stat that never answers leaves its row with `-`
-/// once that much virtual time has passed, and not before.
+/// A glob-shaped `list` path bounds each candidate's stat by 1 000 ms, 64 at a time (Node `collectFindMatches`,
+/// `statPathsForMtime(…, 64, { deadlineMs: FIND_STAT_DEADLINE_MS })`), not the whole pass: a stat that never answers
+/// leaves its row with `-` at its own deadline, a stat that starts late (the 65th, once a slow one ends at 900 ms)
+/// still answers 600 ms into its own bound, past 1 000 ms of the pass, and every metadata read stays in the answer.
+/// Virtual time moves only by the advances below.
 #[tokio::test]
-async fn a_glob_shaped_list_bounds_its_metadata_pass() {
+async fn a_glob_shaped_list_bounds_each_stat_and_keeps_what_it_read() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-list-stat").join("ws")).unwrap();
-    let seeds = ["a.ts", "hang.ts", "b.ts"].iter().map(|n| (n.to_string(), b"x\n".to_vec())).collect();
-    let hung = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let ctx = context_seeded(&root, Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &["hang.ts"], hung.clone())), seeds).await;
+    let mut names = vec!["a-slow.ts".to_owned()];
+    names.extend((0..62).map(|i| format!("f{i:02}.ts")));
+    names.extend(["hang.ts".to_owned(), "z-late.ts".to_owned()]);
+    let seeds = names.iter().map(|n| (n.clone(), b"x\n".to_vec())).collect();
+    let control = Arc::new(StatControl { delays: &[("a-slow.ts", 900), ("z-late.ts", 600)], ..StatControl::default() });
+    let ctx = context_seeded(&root, Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &["hang.ts"], control.clone())), seeds).await;
     tokio::time::pause();
     let tool = ListTool::new();
-    let mut call = Box::pin(tool.call(&ctx, serde_json::json!({ "path": "*.ts", "limit": 1 })));
-    async fn poll_a_while<F: std::future::Future + Unpin>(f: &mut F, until: impl Fn() -> bool) -> Option<F::Output> {
-        // The walk runs on an I/O lane's thread; real time lets it finish while the virtual clock stands still.
-        for _ in 0..2_000 {
-            if let std::task::Poll::Ready(out) = futures::poll!(&mut *f) {
-                return Some(out);
-            }
-            if until() {
-                return None;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(2));
-            tokio::task::yield_now().await;
-        }
-        None
+    let mut call = Box::pin(tool.call(&ctx, serde_json::json!({ "path": "*.ts", "limit": 0 })));
+    // No timer is pending until the stats start, so the clock stands still while the walk runs on its lane.
+    tokio::select! {
+        biased;
+        () = control.hung.notified() => {}
+        out = &mut call => panic!("answered before the never-answering stat started: {out:?}"),
     }
-    let entered = || hung.load(std::sync::atomic::Ordering::SeqCst) == 1;
-    assert!(poll_a_while(&mut call, entered).await.is_none(), "answered before the metadata deadline");
-    assert!(entered(), "the hung stat was never started");
-    tokio::time::advance(std::time::Duration::from_millis(999)).await;
-    assert!(poll_a_while(&mut call, || false).await.is_none(), "answered before the metadata deadline");
-    // tokio rounds a timer up to its next whole millisecond tick.
+    let pending = |poll: std::task::Poll<_>, what: &str| assert!(poll.is_pending(), "answered {what}");
+    pending(futures::poll!(&mut call), "with the stats just started");
+    tokio::time::advance(std::time::Duration::from_millis(899)).await;
+    pending(futures::poll!(&mut call), "before the slow stat ended");
+    // tokio rounds a timer up to its next whole millisecond tick; the 65th stat starts here.
     tokio::time::advance(std::time::Duration::from_millis(2)).await;
-    let (is_error, text) = text_of(poll_a_while(&mut call, || false).await.expect("no answer once the deadline passed"));
+    pending(futures::poll!(&mut call), "before the late stat started");
+    tokio::time::advance(std::time::Duration::from_millis(100)).await;
+    pending(futures::poll!(&mut call), "when the never-answering stat reached its deadline, with a later stat in its own bound");
+    tokio::time::advance(std::time::Duration::from_millis(501)).await;
+    let std::task::Poll::Ready(outcome) = futures::poll!(&mut call) else { panic!("no answer once the late stat answered") };
+    let (is_error, text) = text_of(outcome);
     assert!(!is_error, "{text}");
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 3, "{text}");
-    assert!(lines[1].starts_with("[entries 1-1 of 3;"), "{text}");
-    assert_eq!(lines[2], "... 1 path(s) had no metadata within 1000ms; listed with \"-\" for size/date");
+    assert_eq!(lines.len(), 66, "{text}");
+    assert_eq!(lines.iter().filter(|l| l.ends_with("\t-\t-")).copied().collect::<Vec<_>>(), ["hang.ts\t-\t-"], "{text}");
+    assert!(lines.iter().any(|l| l.starts_with("z-late.ts\t") && !l.ends_with("\t-\t-")), "{text}");
+    assert!(lines.iter().any(|l| l.starts_with("a-slow.ts\t") && !l.ends_with("\t-\t-")), "{text}");
+    assert_eq!(lines[65], "... 1 path(s) had no metadata within 1000ms; listed with \"-\" for size/date");
 }
 
 /// A glob or find rooted at a POSIX filesystem root walks neither `/proc`, `/sys` nor `/dev`;
