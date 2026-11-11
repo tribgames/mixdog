@@ -197,9 +197,9 @@
       "sha256": "2b3b3f02f5f3af227444e4f883542bf10df9c579f9e4ef7f1404aa93401b679c"
     },
     {
-      "bytes": 2103425,
+      "bytes": 2106052,
       "path": "golden.json",
-      "sha256": "a29a594dcd3f02362a894ef61b79864ca9536e30841de0ef42ddf25b1ecd182a"
+      "sha256": "4f205bf3cf36cede1a6e4920c3f6c822fafb464a5f989e61ec11a0c1dc4c5038"
     }
   ],
   "inputs": [
@@ -218,6 +218,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
@@ -247,10 +251,18 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs",
-  "recorderSha256": "9327d40db70903b113fbad5fb2695a76da266562bf5b53e5348f672561d79c0d",
+  "recorderSha256": "46152581ab7cc54b5deeba785d7c9d335a0b7ed99c1edea76d4106d5fddf7687",
   "replay": {
-    "entry": "mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
+    "compare": "Rust compaction archive (see rustTargets, existsButNotPublicOnO1 and missingOnO1 for what exists on o1): replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
+    "entry": "Drive these public items on o1: mixdog-store/src/compaction_view.rs:203 archive_items_for_compaction.",
+    "existsButNotPublicOnO1": [
+      "serialize_archive / ensure_archive (mixdog-agent compact/execution_tail.rs:160, :317) are private",
+      "message-id stamping of reference files: mixdog-agent/src/compact/messages.rs:124 inside the private `reference_files_manifest` (:93)"
+    ],
     "faults": "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
+    "missingOnO1": [
+      "the segment writer, the .compaction-archive.pending sidecar, the delete fences and the startup scan: no counterpart found"
+    ],
     "normalised": {
       "paths": [
         "$.cases[6].observed.after[3].message.content",
@@ -283,9 +295,18 @@
         "toolResultsName": "the execution-recovery message names a tool-results file by the sha256 of a text that holds the per-run data dir: the sha256 digits are written <sha256 of the text> (name and sha256: form)"
       }
     },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 203,
+        "name": "archive_items_for_compaction",
+        "path": "native/core/crates/mixdog-store/src/compaction_view.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
     "timers": "the parked-publication case runs on a virtual clock for setTimeout/setInterval (every arming and firing is recorded) and counts setImmediate armings",
     "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
   },
   "set": "compaction-archive-cases",
-  "totalBytes": 3745318
+  "totalBytes": 3747945
 }

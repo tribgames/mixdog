@@ -638,6 +638,101 @@
     ]
   },
   "summary": "## Goal\n- keep the archived conversation visible\n\n## Progress\n### Done\n- older turns summarized\n\n## Next Steps\n- continue",
+  "summaryGateReleases": {
+    "note": "every release of the scripted summary provider, in order: the recorder releases it after the request arrived",
+    "releases": [
+      {
+        "release": 1,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 0
+      },
+      {
+        "release": 2,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 1
+      },
+      {
+        "release": 3,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 2
+      },
+      {
+        "release": 4,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 2
+      },
+      {
+        "release": 5,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 2
+      },
+      {
+        "release": 6,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 3
+      },
+      {
+        "release": 7,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 4
+      },
+      {
+        "release": 8,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 8
+      },
+      {
+        "release": 9,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 9
+      },
+      {
+        "release": 10,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 10
+      },
+      {
+        "release": 11,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 11
+      },
+      {
+        "release": 12,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 12
+      },
+      {
+        "release": 13,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 13
+      },
+      {
+        "release": 14,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 14
+      },
+      {
+        "release": 15,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 15
+      },
+      {
+        "release": 16,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 16
+      },
+      {
+        "release": 17,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 17
+      },
+      {
+        "release": 18,
+        "after": "the provider received the summary request",
+        "summaryRequestsSoFar": 18
+      }
+    ]
+  },
   "cases": [
     {
       "case": "dropped messages are exactly the ids the compacted transcript no longer holds",

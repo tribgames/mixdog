@@ -19,6 +19,7 @@ import { scriptUuids } from './lib/scripted-uuid.mjs';
 import { normalisePaths } from './lib/normalise-paths.mjs';
 import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
+import { replayFor } from './lib/replay-targets.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs';
@@ -83,19 +84,39 @@ function storedSession(tag) {
   return { id, provider: 'anthropic-oauth', model: 'fake-model', owner: 'agent', contextWindow: 100_000, compactBoundaryTokens: 100_000, messages: storedMessages(), tools: [], compaction: { conversationThresholdTokens: 1 } };
 }
 const sentLog = [];
+// The scripted provider answers when the recorder releases it. The Node test's provider yields one event-loop turn before answering
+// (compaction-archive.test.mjs:115); here that yield is a gate: the provider reports that its request arrived (`sent`), and answers when
+// `release` is called, which the recorder does once it has observed that arrival (with a deadline). Each release is an ordered input,
+// listed in golden.summaryGateReleases.
+const gateReleases = [];
 function summaryProvider(onSend = null) {
+  let sentSeen;
+  let released;
+  const sent = new Promise((resolve) => { sentSeen = resolve; });
+  const gate = new Promise((resolve) => { released = resolve; });
   return {
     name: 'anthropic-oauth',
+    sent,
+    release: () => { gateReleases.push({ release: gateReleases.length + 1, after: 'the provider received the summary request', summaryRequestsSoFar: sentTotal }); released(); },
     async send(messages) {
       sentLog.push(JSON.stringify(messages));
+      sentTotal += 1;
       onSend?.();
-      // The Node test's own scripted provider yields one turn here (compaction-archive.test.mjs:115); it is part of the recorded input, not a wait of the recorder.
-      await new Promise((resolve) => setImmediate(resolve));
+      sentSeen();
+      await gate;
       return { content: SUMMARY };
     },
   };
 }
-const compact = (session, provider) => runSessionCompaction(session, { mode: 'manual', force: true, config: {}, provider, model: 'fake-model' });
+let sentTotal = 0;
+// Runs `start()` (a compaction) and releases its provider once the summary request has arrived, or the run ended without sending one.
+async function gated(provider, start) {
+  const run = start();
+  await within('the summary request to reach the provider', Promise.race([provider.sent, run.then(() => {}, () => {})]));
+  provider.release();
+  return run;
+}
+const compact = (session, provider) => gated(provider, () => runSessionCompaction(session, { mode: 'manual', force: true, config: {}, provider, model: 'fake-model' }));
 const archiveLines = (id) => {
   const path = compactionArchivePath(sessionsDir, id);
   return existsSync(path) ? readFileSync(path, 'utf8').split('\n').filter(Boolean) : [];
@@ -405,11 +426,12 @@ await runCase('an automatic pre-send compaction archives what it dropped once it
     ],
     tools: [], compaction: { auto: true },
   };
-  const result = await runPreSendCompactPass({
-    compactionConfig: {}, provider: { ...summaryProvider(), name: 'compact-archive-auto' }, messages: session.messages, model: session.model, requestTools: [], sessionRef: session,
+  const autoProvider = summaryProvider();
+  const result = await gated(autoProvider, () => runPreSendCompactPass({
+    compactionConfig: {}, provider: { ...autoProvider, name: 'compact-archive-auto' }, messages: session.messages, model: session.model, requestTools: [], sessionRef: session,
     sessionId: id, opts: {}, signal: null, iterations: 1, lastUsage: null, firstTurnUsage: null, providerState: null, reactiveOverflowRetryPending: false,
     loopUsageMetricsTurnId: () => 'test-turn', loopUsageMetricsEpoch: () => 0,
-  });
+  }));
   const nextSeq = session.compaction.archive.nextSeq;
   await flush('presend');
   const [line] = archiveLines(id);
@@ -824,6 +846,7 @@ writeJson(join(stage, 'golden.json'), {
   clock: { dateNow: NOW, note: 'Date.now is held at this value for the whole run (segment "at", sweep age)' },
   storedSessionMessages: { turns: 24, messages: storedMessagesJson },
   summary: SUMMARY,
+  summaryGateReleases: { note: 'every release of the scripted summary provider, in order: the recorder releases it after the request arrived', releases: gateReleases },
   cases,
 });
 for (const name of sorted) writeText(join(stage, name), files.get(name).toString('utf8'));
@@ -840,11 +863,11 @@ writeSetManifest(stage, {
       notRun: 'the scripted provider answers one fixed summary; no real model',
       scripted: { source: scriptedUuids.source, perCase: 'the counter restarts at 1 for every case' },
     },
-    replay: {
-      entry: 'mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values',
+    replay: replayFor('compaction-archive-cases', {
+      entry: 'Rust compaction archive (see rustTargets, existsButNotPublicOnO1 and missingOnO1 for what exists on o1): replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values',
       faults: "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
       normalised: { reasons: { corruptName: 'the kept-aside sidecar name carries a time (.corrupt-<n>)', tmpName: 'the writer\'s temp file names end in mixdog-tmp-<random hex>', toolResultsName: 'the execution-recovery message names a tool-results file by the sha256 of a text that holds the per-run data dir: the sha256 digits are written <sha256 of the text> (name and sha256: form)', dataDir: 'the temp data dir is <data>' }, paths: normalised.paths }, values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)', timers: 'the parked-publication case runs on a virtual clock for setTimeout/setInterval (every arming and firing is recorded) and counts setImmediate armings'
-    },
+    }),
   },
 });
 commitStage(stage, finalDir);
