@@ -1,6 +1,7 @@
 {
   "set": "provider-openai-ws-handshake",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "unexpected-response-preserves-status-headers-body",
@@ -30,7 +31,17 @@
         "httpBody": "{\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\",\"resets_at\":1893456000}}",
         "message": "OpenAI WS handshake 429: You’ve hit your usage limit. Try again at Jan 1st, 2030 12:00 AM.",
         "messageLength": 90
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs.attachHandshakeFailureHandlers",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "non-json-body-keeps-status-and-headers",
@@ -51,10 +62,29 @@
         "headers": {
           "server": "cloudflare"
         },
+        "code": {
+          "$exact": "undefined"
+        },
+        "retryAfterMs": {
+          "$exact": "undefined"
+        },
+        "resetAt": {
+          "$exact": "undefined"
+        },
         "httpBody": "<html>blocked</html>",
         "message": "OpenAI WS handshake 403: <html>blocked</html>",
         "messageLength": 45
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs.attachHandshakeFailureHandlers",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
