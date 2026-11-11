@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use mixdog_agent::boundary::CompactSettings;
 use mixdog_agent::compact::compactor::{HandoffSource, PlannedHandoff};
 use mixdog_agent::compact::summary_run::{
-    ForkSource, RouteStep, SummaryFailure, SummaryMode, SummaryResponse, SummaryRoute, SummarySender, plan_steps,
+    ForkSource, RouteStep, SummaryFailure, SummaryMode, SummaryResponse, SummaryRoute, SummarySender, plan_steps, route_failure,
 };
 use mixdog_agent::env::{Clock, CompactError};
 use mixdog_agent::one_shot::OneShot;
@@ -54,10 +54,7 @@ use super::summary_routes::{ForkSender, MaintainerRoute, SessionFork, SessionRou
 const GOLDEN: &str = include_str!("../../../../fixtures/summary-mode-routing/golden.json");
 
 /// Recorded cases the core does not reproduce; each is a reported difference, not replayed.
-const DIFFERENCES: &[(&str, &str)] = &[
-    (":319", "a quota or availability failure of provider init fails the compaction instead of moving to the next route"),
-    (":372", "a failed summary carries no `compactRoute` naming the route that failed"),
-];
+const DIFFERENCES: &[(&str, &str)] = &[];
 
 struct At(AtomicI64);
 impl Clock for At {
@@ -255,11 +252,16 @@ impl SummaryHost for Host {
     fn maintainer_route(&self) -> Option<MaintainerRoute> {
         self.process.maintainer_route()
     }
-    async fn provider_ready(&self, _: &str) -> Result<bool, SummaryFailure> {
+    async fn provider_ready(&self, _: &str, init: bool) -> Result<bool, SummaryFailure> {
         match &self.init {
+            _ if !init => Ok(true),
             Value::Null => Ok(true),
             init if init["abort"] == json!(true) => Err(SummaryFailure::Aborted),
-            init => Err(SummaryFailure::Failed(init["failure"]["message"].as_str().unwrap().to_owned())),
+            init => {
+                let failure = &init["failure"];
+                let status = failure["status"].as_u64().map(|s| s as u16);
+                Err(route_failure(failure["message"].as_str().unwrap().to_owned(), failure["code"].as_str(), status, false))
+            }
         }
     }
     fn whole_window(&self, provider: &str, model: &str) -> u64 {
@@ -490,6 +492,9 @@ async fn the_compactions_equal_node() {
             Err(CompactError::Failed(message) | CompactError::Overflow(message)) => {
                 json!({ "error": { "message": message, "aborted": false, "compactRoute": null } })
             }
+            Err(CompactError::RouteFailed(message, route)) => {
+                json!({ "error": { "message": message, "aborted": false, "compactRoute": { "provider": route.provider, "model": route.model } } })
+            }
         };
         got["calls"] = Value::Array(case.sends.lock().unwrap().clone());
         let mut want = compact["out"].clone();
@@ -504,5 +509,5 @@ async fn the_compactions_equal_node() {
         assert_eq!(got, want, "{test} {}", compact["sessionId"]);
         replayed += 1;
     }
-    assert_eq!((replayed, differing.values().sum::<usize>()), (7, 4));
+    assert_eq!((replayed, differing.values().sum::<usize>()), (11, 0));
 }

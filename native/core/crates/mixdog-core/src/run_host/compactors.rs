@@ -217,7 +217,7 @@ mod tests {
         fn maintainer_route(&self) -> Option<MaintainerRoute> {
             None
         }
-        async fn provider_ready(&self, _: &str) -> Result<bool, SummaryFailure> {
+        async fn provider_ready(&self, _: &str, _: bool) -> Result<bool, SummaryFailure> {
             Ok(true)
         }
         fn whole_window(&self, _: &str, _: &str) -> u64 {
