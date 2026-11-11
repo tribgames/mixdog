@@ -14,7 +14,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
 import { CASES, loneRefusal } from './lone-surrogate-wire-cases.mjs';
 import { mapAt } from './lone-mapping.mjs';
-import { NoAnswer, answered, killTree, startCore } from './phone-files-replay.mjs';
+import { endCore } from './core-stop.mjs';
+import { NoAnswer, answered, startCore } from './phone-files-replay.mjs';
 
 const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-lone-surrogate-wire-replay`);
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
@@ -100,7 +101,8 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
     return unexpected.length ? 1 : 0;
   } finally {
     client?.close?.();
-    await killTree(core.child);
+    // Stopped as the app's quit stops it, its job included (a kill of the core alone left the world's daemon-owner claim lock busy at the removal below).
+    await endCore(core);
     await server.close();
     rmSync(WORLDS, { recursive: true, force: true });
   }

@@ -18,7 +18,8 @@ import { frame } from './raw-frame-bytes.mjs';
 import { PROJECT, loneRefusal, STEPS, buildWorld } from './inbound-lone-surrogate-cases.mjs';
 import { mapAt } from './lone-mapping.mjs';
 import { startRelay } from './phone-relay-core.mjs';
-import { killTree, startCore } from './phone-files-replay.mjs';
+import { endCore } from './core-stop.mjs';
+import { startCore } from './phone-files-replay.mjs';
 
 const WORLDS = join('D:\\mixdog-build\\tmp', `${basename(REPO_ROOT)}-inbound-lone-surrogate-replay`);
 const PHONE_ID = '0123456789abcdef0123456789abcdef';
@@ -236,8 +237,9 @@ export async function replay({ exe, golden, manifest, only }) {
     return unexpected.length ? 1 : 0;
   } finally {
     for (const client of clients) client.close?.();
-    // killTree waits, with its own deadline and message, for the core to exit.
-    await killTree(core.child);
+    // Stopped as the app's quit stops it, its job included (endCore: its own deadline and message); a kill of the core alone left
+    // the world's daemon-owner claim lock busy at the removal below.
+    await endCore(core);
     relay.close();
     rmSync(WORLDS, { recursive: true, force: true });
   }
