@@ -10,14 +10,12 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { setFlagsFromString } from 'node:v8';
-import { runInNewContext } from 'node:vm';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-turn-journal-resume-'));
 process.env.MIXDOG_DATA_DIR = root;
 test.after(() => rmSync(root, { recursive: true, force: true }));
 
-const { createTurnJournalEncoder, replayTurnJournal } = await import('./turn-checkpoint-journal.mjs');
+const { createTurnJournalEncoder, replayTurnJournal, _journalReplayGuardBackingForTest } = await import('./turn-checkpoint-journal.mjs');
 
 const header = () => ({
   sessionId: 'sess-resume',
@@ -191,11 +189,11 @@ test('a journal opened again in place under the same turn and epoch is replayed 
 // A view of the buffer the replay was concatenated in would keep the journal's
 // whole bytes alive for as long as the entry lives (a 20 MB buffer per journal,
 // up to 16).
+// Asserted on what each guard is a view of, not on the process's memory after
+// a collection: when the collector frees a 10 MB buffer is its own business,
+// and a test of that failed three runs in four.
 test('the replays a table keeps hold no journal buffer alive', () => {
-  setFlagsFromString('--expose-gc');
-  const collect = runInNewContext('gc');
   const journals = 6;
-  const before = (collect(), process.memoryUsage().arrayBuffers);
   for (let n = 0; n < journals; n += 1) {
     const path = join(root, `retain-${n}.jsonl`);
     let text = head();
@@ -203,7 +201,12 @@ test('the replays a table keeps hold no journal buffer alive', () => {
     writeFileSync(path, text);
     replayTurnJournal(header(), path);
   }
-  collect();
-  const kept = process.memoryUsage().arrayBuffers - before;
-  assert.ok(kept < 10_000_000, `${kept} bytes of buffers stay alive after replaying ${journals} journals of 10 MB`);
+  const kept = _journalReplayGuardBackingForTest();
+  assert.ok(kept.length >= journals, `${kept.length} replays kept`);
+  // A copied guard lives in Node's small-buffer pool (Buffer.poolSize) or in
+  // memory of its own size; a view of the read would be of 10 MB.
+  for (const { first, last } of kept) {
+    assert.ok(first <= Buffer.poolSize, `a first guard keeps ${first} bytes alive`);
+    assert.ok(last <= Buffer.poolSize, `a last guard keeps ${last} bytes alive`);
+  }
 });
