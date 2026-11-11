@@ -120,6 +120,7 @@ fn rig() -> Rig {
     let services = Arc::new(Services { log: log.clone(), running: AtomicBool::new(false) });
     let runtime = ChannelRuntime::new(scheduler, store, services.clone(), agent.clone());
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(ToolDispatch::new(runtime.clone(), work.clone(), Box::new(|| false)))), work);
+    calls.hear_bridge(&runtime);
     let observed = log.clone();
     calls.observe_binding(Arc::new(move |remote| {
         observed.lock().unwrap().push(json!(["remote", if remote.acquired { "acquired" } else { "released" }, remote.pinned_session_id]));
@@ -167,6 +168,26 @@ fn client() -> ChannelClient {
 
 fn activate_request() -> CallRequest {
     CallRequest { name: ACTIVATE_TOOL.into(), args: json!({"active": true, "sessionId": SESSION}), call_id: None }
+}
+
+/// `notifyRemoteAcquired` is called from `activateBridge` once the bridge connected (owned-start.mjs:53-56): an
+/// activation that fails before the bridge connects is never announced as acquired, not even for a moment.
+#[tokio::test]
+async fn an_activation_that_fails_before_the_bridge_connects_is_never_announced() {
+    struct Failing;
+    #[async_trait]
+    impl super::call::ChannelCallHandler for Failing {
+        async fn call(&self, _name: &str, _args: &Value, _client: &ChannelClient) -> Result<Value, String> {
+            Err("bridge start failed".into())
+        }
+    }
+    let calls = CallDispatch::new(Arc::new(Failing), RunningWork::new());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    calls.observe_binding(Arc::new(move |remote| sink.lock().unwrap().push((remote.acquired, remote.pinned_session_id.map(str::to_owned)))));
+    let answered = within("the failed activation", calls.dispatch(client(), activate_request())).await;
+    assert!(answered.is_err(), "the activation failed: {answered:?}");
+    assert_eq!(seen.lock().unwrap().clone(), [(false, None)], "only the binding at registration was announced");
 }
 
 async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {

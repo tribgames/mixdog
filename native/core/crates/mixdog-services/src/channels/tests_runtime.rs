@@ -669,6 +669,7 @@ fn request(method: &'static str, params: Value, op: Option<&str>) -> CoreRequest
 fn service(e: &Env) -> ChannelService {
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(tools)), e.work.clone());
+    calls.hear_bridge(&e.runtime);
     ChannelService::new(e.admin.clone(), calls)
 }
 
@@ -704,6 +705,7 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
         std::fs::write(&path, case["checkpoints"][0]["file"]["text"].as_str().unwrap()).unwrap();
         let handler = Arc::new(Observed { inner: BridgeCalls::new(ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false))), calls: Mutex::new(Vec::new()) });
         let calls = CallDispatch::new(handler.clone(), e.work.clone());
+        calls.hear_bridge(&e.runtime);
         // The record the recorder left for the pinned session, as the store's lookup reads it: there, removed, or torn.
         let known = match case["record"].as_str().unwrap() {
             "live" => Some(true),
