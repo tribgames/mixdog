@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs acquireWebSocket (the real ws client, real upgrade request) + _sendFrame + openai-ws-stream.mjs _streamResponse({ entry, externalSignal, onStreamDelta, onToolCall, onTextDelta, state, knownToolNames }) reading a real WebSocket served by a loopback server (lib/ws-world.mjs); the watchdog cases advance the virtual clock (`rec.clock`). Not run: the provider send around it (openai-oauth-ws.mjs sendViaWebSocket) and a live chatgpt.com.",
+  "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the watchdog cases advance the virtual clock (`rec.clock`) with the product's real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 172938,
+      "bytes": 179422,
       "path": "cases.json",
-      "sha256": "3e89158bbf4ef4b423486fcb6177d2b72cc76799dd5b924a37ad8f4f46b74a4e"
+      "sha256": "c06ad26b55e2e29a5a1bb6f49006f0116903999569495c7e952a4e20b9768463"
     }
   ],
   "inputs": [
@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "9ea2970d4d50044ee08cd2fa91c7d0d6981a8450af0eae081b42981830208edc"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -67,9 +67,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "41664a799afbeaecc55907b4aa5ad6694efaaaea3a4eeec341127b9afebf7a18",
+  "recorderSha256": "8ddea8744f08880c11d70d4ad3a13282ec45493fbcd6aeccfdc943ed3a41b1cc",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "set": "provider-openai-ws-stream",
-  "totalBytes": 172938,
+  "totalBytes": 179422,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
