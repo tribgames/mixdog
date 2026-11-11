@@ -177,7 +177,7 @@ struct Gates(Vec<String>);
 
 #[async_trait]
 impl FeatureDenied for Gates {
-    async fn denied(&self) -> Result<Vec<String>, String> {
+    async fn denied(&self, _: Option<&Header>) -> Result<Vec<String>, String> {
         Ok(self.0.clone())
     }
 }
@@ -187,7 +187,7 @@ struct Moving(Mutex<Vec<String>>);
 
 #[async_trait]
 impl FeatureDenied for Moving {
-    async fn denied(&self) -> Result<Vec<String>, String> {
+    async fn denied(&self, _: Option<&Header>) -> Result<Vec<String>, String> {
         Ok(self.0.lock().unwrap().clone())
     }
 }

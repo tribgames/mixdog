@@ -186,9 +186,8 @@ impl Gate {
         answer.await.map_err(|_| DbError::Stopped)?
     }
 
-    /// Test teardown: the writer is told to stop at once and `join_writer` waits for it, then the pool closes. Not gated: a
-    /// teardown ends the store whatever the reconcile is doing.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The writer is told to stop at once and `join_writer` waits for it, then the pool closes. Not gated: a close ends the store
+    /// whatever the reconcile is doing.
     pub(super) fn close(&self, join_writer: impl FnOnce()) {
         let _ = self.sender.send(Command::Close);
         join_writer();
