@@ -4038,6 +4038,7 @@ dependencies = [
  "mixdog-app-server",
  "mixdog-app-server-client",
  "mixdog-app-server-daemon",
+ "mixdog-cli",
  "mixdog-core",
  "mixdog-core-api",
  "mixdog-core-base",

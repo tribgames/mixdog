@@ -70,6 +70,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 flate2 = { workspace = true }
 httparse = { workspace = true }
 mixdog-testkit = { workspace = true }
+# The crash record replay's boot faults (tests/crash_record_replay.rs, src/boot_fault.rs): in the test build of `mixdogd` only.
+mixdog-cli = { path = ".", features = ["crash-gates", "mixdog-core-session"] }
 tokio = { workspace = true, features = ["net", "io-util"] }
 # The CLI replay (tests/exec_cli_replay.rs): the stand-in serves TLS under a throwaway certificate the binary is pinned to.
 rcgen = { workspace = true }

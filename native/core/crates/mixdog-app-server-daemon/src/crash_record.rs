@@ -264,6 +264,14 @@ pub fn install(data_dir: &Path, alive: &dyn Fn(u32) -> bool) {
     }));
 }
 
+/// The install the process makes before anything of its start-up can fail (Node: daemon.mjs:157, at module load; a fatal
+/// boot error is recorded at :1347). The data folder is `resolvePluginData()`'s, which does not read the JS runtime, so
+/// even a start whose runtime cannot be resolved leaves its record. No data folder, no record.
+pub fn install_for_process() {
+    let Some(paths) = mixdog_store::paths::Paths::from_process(Path::new("")) else { return };
+    install(&paths.data_dir, &|pid| crate::verdict::ProcessTable::query(&crate::verdict::OsProcessTable, u64::from(pid)).is_ok_and(|info| info.is_some()));
+}
+
 /// `uncaughtExceptionMonitor(error, 'uncaughtException')`: the panic is the pending reason and is written at once.
 fn note_panic(text: &str) {
     *lock(&FATAL) = Some(text.to_owned());

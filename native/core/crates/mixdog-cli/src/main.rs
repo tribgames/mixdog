@@ -1,6 +1,8 @@
 //! `mixdogd serve | ctl | migrate | server-ensure` (SPEC §3.2). Argument parsing only; every
 //! subcommand body lives in the daemon, migrate or client crate it names.
 
+#[cfg(feature = "crash-gates")]
+mod boot_fault;
 mod projector;
 
 use mixdog_cli::exec;
@@ -364,7 +366,18 @@ fn serve() -> ExitCode {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
-    ExitCode::from(mixdog_app_server_daemon::crash_record::serve_recorded(mixdog_app_server_daemon::run) as u8)
+    #[cfg(feature = "crash-gates")]
+    boot_fault::wait_for_launcher();
+    // Node installs its recorder at module load: a start that fails on its way up (no JS runtime, no executors) is recorded too.
+    mixdog_app_server_daemon::crash_record::install_for_process();
+    let start = || -> Result<(), String> {
+        #[cfg(feature = "crash-gates")]
+        if let Some(ended) = boot_fault::run() {
+            return ended;
+        }
+        mixdog_app_server_daemon::run().map_err(|error| error.to_string())
+    };
+    ExitCode::from(mixdog_app_server_daemon::crash_record::serve_recorded(start) as u8)
 }
 
 #[cfg(test)]
