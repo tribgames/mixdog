@@ -9,7 +9,7 @@
     {
       "name": "full quoted input retains code, URLs, pipes and a condition after character 400",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "text": "앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 \n```js\nx = 42\n```\nhttps://example.com/a|b\n조건: 296건은 실패입니다.",
       "prompt": "Length target: about 198 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 앞부분 \\n```js\\nx = 42\\n```\\nhttps://example.com/a|b\\n조건: 296건은 실패입니다.\"}",
@@ -25,13 +25,13 @@
         }
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "source topic keys stay quoted data alongside their complete bodies",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "input": {
         "id": 1,
@@ -52,13 +52,13 @@
         }
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "a request carries only its own length target and session-grouped rows",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "rows": [
         {
@@ -95,13 +95,13 @@
       "anyQuotedRowHasSession": false,
       "containsGroupRowsByTask": false,
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "invalid indexes and malformed extra lines cannot silently lose source membership",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "probes": [
         {
@@ -362,13 +362,13 @@
         }
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "ascending index ranges expand; reversed or overlapping ranges stay invalid",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "text": "1-3,5|request|task|The request remains pending.\n4|request|task|The request remains pending.\n6 - 8|request|task|The request remains pending.",
       "parsed": [
@@ -624,13 +624,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "indexes past the safe-integer range are rejected without hanging the parser",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "probes": [
         {
@@ -766,13 +766,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "any omission, duplicate, mixed session or incomplete field fails the entire partition",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "rowCount": 10,
       "probes": [
@@ -1009,13 +1009,13 @@
         }
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "one call keeps the good chunk and fills omitted rows from the source without retry",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "one call keeps the good chunk",
@@ -1037,13 +1037,15 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -1112,13 +1114,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "bad lines and duplicate chunks do not discard independent good chunks",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "bad lines and duplicate chunks",
@@ -1156,13 +1158,15 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 70 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@3 {\"ts\":3000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@4 {\"ts\":4000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -1277,13 +1281,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "overlapping chunks are both rejected while unaffected rows can still be compressed",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "overlapping chunks",
@@ -1321,13 +1325,15 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 70 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@3 {\"ts\":3000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@4 {\"ts\":4000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -1411,13 +1417,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "a source too short to summarize stays RAW without an AI call",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "short source",
@@ -1439,7 +1445,9 @@
             "content": "OK"
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [],
         "result": {
           "chunks": [],
@@ -1464,13 +1472,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "a shorter summary above half the source is accepted in one call",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "summary": "b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b b",
       "summaryTokens": 150,
@@ -1487,13 +1495,15 @@
             "content": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 83 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a \"}"
@@ -1550,13 +1560,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "an expanded summary gets one rewrite of its rows and stays RAW when still longer",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "expanded summary, rewrite still longer",
@@ -1578,13 +1588,15 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -1593,7 +1605,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Rewrite: the previous summary of these rows was longer than the rows themselves (106 runtime-estimated tokens). Keep it under 53 tokens: the request, the final answer or decision and any verified result, nothing else.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -1622,13 +1634,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "a shorter rewrite replaces only the expanded grouping and maps back to the original rows",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "brief": [
         "What does the omitted marker mean in the preview?",
@@ -1670,13 +1682,15 @@
             "content": "It hides non-text blocks in the preview only."
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@3 {\"ts\":3000,\"role\":\"user\",\"content\":\"What does the omitted marker mean in the preview?\"}\n@4 {\"ts\":4000,\"role\":\"assistant\",\"content\":\"It hides non-text blocks in the preview only.\"}"
@@ -1685,7 +1699,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Rewrite: the previous summary of these rows was longer than the rows themselves (24 runtime-estimated tokens). Keep it under 20 tokens: the request, the final answer or decision and any verified result, nothing else.\n\n# session s\n@1 {\"ts\":3000,\"role\":\"user\",\"content\":\"What does the omitted marker mean in the preview?\"}\n@2 {\"ts\":4000,\"role\":\"assistant\",\"content\":\"It hides non-text blocks in the preview only.\"}"
@@ -1796,13 +1810,13 @@
         "It hides non-text blocks in the preview only."
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "legitimate isolated topics do not trigger a singleton quota",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "eight isolated topics",
@@ -1872,13 +1886,15 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 140 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@3 {\"ts\":3000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@4 {\"ts\":4000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@5 {\"ts\":5000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@6 {\"ts\":6000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@7 {\"ts\":7000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}\n@8 {\"ts\":8000,\"role\":\"assistant\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2145,13 +2161,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "malformed responses keep source rows without another AI call",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "runs": [
         {
@@ -2167,13 +2183,15 @@
               "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
             }
           ],
-          "inputTokenBudget": null,
+          "inputTokenBudget": {
+            "$exact": "undefined"
+          },
           "calls": [
             {
               "request": {
                 "mode": "cycle1",
                 "signal": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 }
               },
               "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2220,13 +2238,15 @@
               "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
             }
           ],
-          "inputTokenBudget": null,
+          "inputTokenBudget": {
+            "$exact": "undefined"
+          },
           "calls": [
             {
               "request": {
                 "mode": "cycle1",
                 "signal": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 }
               },
               "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2272,13 +2292,15 @@
               "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
             }
           ],
-          "inputTokenBudget": null,
+          "inputTokenBudget": {
+            "$exact": "undefined"
+          },
           "calls": [
             {
               "request": {
                 "mode": "cycle1",
                 "signal": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 }
               },
               "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2329,13 +2351,15 @@
               "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
             }
           ],
-          "inputTokenBudget": null,
+          "inputTokenBudget": {
+            "$exact": "undefined"
+          },
           "calls": [
             {
               "request": {
                 "mode": "cycle1",
                 "signal": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 }
               },
               "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2381,13 +2405,15 @@
               "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
             }
           ],
-          "inputTokenBudget": null,
+          "inputTokenBudget": {
+            "$exact": "undefined"
+          },
           "calls": [
             {
               "request": {
                 "mode": "cycle1",
                 "signal": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 }
               },
               "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2433,13 +2459,15 @@
               "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
             }
           ],
-          "inputTokenBudget": null,
+          "inputTokenBudget": {
+            "$exact": "undefined"
+          },
           "calls": [
             {
               "request": {
                 "mode": "cycle1",
                 "signal": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 }
               },
               "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2474,13 +2502,13 @@
         }
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "transport failure is not a negative quality verdict or a silent retry",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "transport failure",
@@ -2494,13 +2522,15 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 60 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. \"}"
@@ -2536,13 +2566,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "cancellation is propagated and never converted to a quality verdict",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "cancellation during the call",
@@ -2556,7 +2586,9 @@
             "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
           }
         ],
-        "inputTokenBudget": null,
+        "inputTokenBudget": {
+          "$exact": "undefined"
+        },
         "calls": [
           {
             "request": {
@@ -2569,19 +2601,20 @@
           }
         ],
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "cancelled",
-          "code": null
+          "props": {}
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "large rows split reversibly, within budget, without broken surrogate pairs",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "budget": 2048,
       "original": {
@@ -2708,13 +2741,13 @@
       ],
       "originalEndsWith42": true,
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "all fragments including the short final condition are represented before a row is committed",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "every fragment is represented",
@@ -2734,7 +2767,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated fill\"}"
@@ -2743,7 +2776,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"er. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated \"}"
@@ -2752,7 +2785,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repea\"}"
@@ -2761,7 +2794,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"ted filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. R\"}"
@@ -2770,7 +2803,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"epeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated fille\"}"
@@ -2779,7 +2812,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 152 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"r. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. FINAL-CONDITION-296\"}"
@@ -2845,13 +2878,13 @@
       ],
       "observedJoinedEqualsOriginal": true,
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "failure in a later fragment rejects the whole original row, not just that fragment",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "run": {
         "label": "the second fragment call fails",
@@ -2871,7 +2904,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated fill\"}"
@@ -2880,7 +2913,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 678 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"er. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated filler. Repeated \"}"
@@ -2916,13 +2949,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "large multi-row input partitions without loss and maps local indexes back to originals",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "packets": [
         [
@@ -3017,7 +3050,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 575 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":1000,\"role\":\"user\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}\n@2 {\"ts\":2000,\"role\":\"assistant\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}"
@@ -3026,7 +3059,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 575 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":3000,\"role\":\"user\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}\n@2 {\"ts\":4000,\"role\":\"assistant\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}"
@@ -3035,7 +3068,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 575 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":5000,\"role\":\"user\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}\n@2 {\"ts\":6000,\"role\":\"assistant\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}"
@@ -3044,7 +3077,7 @@
             "request": {
               "mode": "cycle1",
               "signal": {
-                "$undefined": true
+                "$exact": "undefined"
               }
             },
             "prompt": "Length target: about 575 runtime-estimated tokens in total, roughly one third of the source. A short source needs no filler; its summary must still be shorter than the source.\n\n# session s\n@1 {\"ts\":7000,\"role\":\"user\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}\n@2 {\"ts\":8000,\"role\":\"assistant\",\"content\":\"Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. Long repeated content. \"}"
@@ -3231,13 +3264,13 @@
         }
       },
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
       "name": "legacy chunks are reusable while expanded, altered and incomplete known chunks are rejected",
       "testLine": {
-        "$undefined": true
+        "$exact": "undefined"
       },
       "members": [
         {
@@ -3305,7 +3338,7 @@
             "shorter": true
           },
           "chunkQualityAfter": {
-            "$undefined": true
+            "$exact": "undefined"
           }
         },
         {
@@ -3388,7 +3421,7 @@
         }
       ],
       "name_": {
-        "$undefined": true
+        "$exact": "undefined"
       }
     },
     {
@@ -3526,7 +3559,9 @@
         "rendered": {
           "result": "Pending request."
         },
-        "renderOptions": null,
+        "renderOptions": {
+          "$exact": "undefined"
+        },
         "rootsUnchanged": true
       }
     },
@@ -3637,7 +3672,9 @@
         "rendered": {
           "result": "[2000] a: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #2\n[1000] u: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #1"
         },
-        "renderOptions": null,
+        "renderOptions": {
+          "$exact": "undefined"
+        },
         "rootsUnchanged": true
       }
     },
@@ -3715,7 +3752,9 @@
           "rendered": {
             "result": "Pending request."
           },
-          "renderOptions": null,
+          "renderOptions": {
+            "$exact": "undefined"
+          },
           "rootsUnchanged": true
         },
         {
@@ -3863,7 +3902,9 @@
           "rendered": {
             "result": "[2000] a: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #2\n[1000] u: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #1"
           },
-          "renderOptions": null,
+          "renderOptions": {
+            "$exact": "undefined"
+          },
           "rootsUnchanged": true
         },
         {
@@ -3892,7 +3933,9 @@
           "rendered": {
             "result": "[9000] original alone [pending] #9"
           },
-          "renderOptions": null,
+          "renderOptions": {
+            "$exact": "undefined"
+          },
           "rootsUnchanged": true
         },
         {
@@ -3979,7 +4022,9 @@
           "rendered": {
             "result": "Second request.\nPending request."
           },
-          "renderOptions": null,
+          "renderOptions": {
+            "$exact": "undefined"
+          },
           "rootsUnchanged": true
         },
         {
@@ -3991,14 +4036,18 @@
           "rendered": {
             "result": "(no results)"
           },
-          "renderOptions": null,
+          "renderOptions": {
+            "$exact": "undefined"
+          },
           "rootsUnchanged": true
         }
       ],
       "quality": [
         {
           "label": "legacy root with members",
-          "expectedMembers": null,
+          "expectedMembers": {
+            "$exact": "undefined"
+          },
           "result": {
             "usable": true,
             "reasons": [],
@@ -4010,7 +4059,9 @@
         },
         {
           "label": "verified root",
-          "expectedMembers": null,
+          "expectedMembers": {
+            "$exact": "undefined"
+          },
           "result": {
             "usable": true,
             "reasons": [],
@@ -4116,7 +4167,9 @@
         },
         {
           "label": "expanded summary",
-          "expectedMembers": null,
+          "expectedMembers": {
+            "$exact": "undefined"
+          },
           "result": {
             "usable": false,
             "reasons": [
