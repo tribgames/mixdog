@@ -47,8 +47,11 @@ pub fn reset_process_state() {
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
     providers::grok::reset_process_state();
+    // This thread's scripts (the seams are per thread).
     random::script(Vec::new());
+    random::script_jitter(Vec::new());
     wall::set(None);
+    wall::follow(None);
     providers::openai::adapter::reset_zstd_latch();
     providers::google::adapter::reset_announced();
     providers::google::cache::registry::Registry::reset_shared();
