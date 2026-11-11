@@ -6,14 +6,15 @@
     "Room sends, members and asks are not recorded (out of scope).",
     "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
     "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded.",
+    "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above plus: `listProjects` (`create.projects`), `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
     "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered."
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7474558,
+      "bytes": 10414368,
       "path": "golden.json",
-      "sha256": "2a5ec939512210b15d4c9246647c92f4aaa96a7a9a55ad87afb0349354662240"
+      "sha256": "0dbfef20c824b7a9330042ec0b73cf7c7604435a1b239093f7fa4c531245ed83"
     }
   ],
   "product": {
@@ -42,10 +43,10 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-    "recorderSha256": "6b27ba4ac1066a4fa269f078a7401ab9fd8c8cefcc61910f51ee285a2c9e830b"
+    "recorderSha256": "06c1e82d8c2f7fb770b0b0cdd6782c251b584344e4796c5b78b435e94dab65c7"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-  "scenarios": 105,
+  "scenarios": 146,
   "set": "session-tool-control",
-  "totalBytes": 7474558
+  "totalBytes": 10414368
 }

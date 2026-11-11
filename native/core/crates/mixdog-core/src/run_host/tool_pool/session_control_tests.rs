@@ -398,6 +398,83 @@ impl super::super::session_send::Rebind for NoRebind {
     }
 }
 
+/// What create reads of the process, stood in as Node's recorder stands it in (`golden.create`
+/// and the scenario's `create`): the session it creates is a real one in the directory under the
+/// recorded id, watched from its creation; the worktree requests and deletions are kept as given.
+struct CreateRecords {
+    directory: Arc<mixdog_core_session::session::SessionDirectory>,
+    golden: Value,
+    scenario: Value,
+    created: Mutex<Vec<Value>>,
+    configured: Mutex<Vec<Value>>,
+    watched: Mutex<Option<(Arc<dyn mixdog_services::task_reports::follow::RuntimeView>, tokio::sync::mpsc::UnboundedReceiver<()>)>>,
+}
+
+#[async_trait]
+impl super::super::session_create::CreateHost for CreateRecords {
+    async fn projects(&self) -> Vec<mixdog_tools::orch::session::ProjectRow> {
+        let rows = self.golden["projects"].as_array().expect("projects");
+        rows.iter().map(|p| mixdog_tools::orch::session::ProjectRow { name: p["name"].as_str().expect("name").to_owned(), path: p["path"].as_str().expect("path").to_owned() }).collect()
+    }
+    async fn directory(&self, path: &str) -> Option<String> {
+        std::path::Path::new(path).is_dir().then(|| path.to_owned())
+    }
+    async fn new_task_default(&self) -> Option<String> {
+        self.scenario["newTaskDefault"].as_str().map(str::to_owned)
+    }
+    async fn presets(&self) -> Vec<Value> {
+        Vec::new()
+    }
+    async fn lead_route(&self) -> Result<Option<Value>, String> {
+        Ok(match self.scenario.get("lead") {
+            None => Some(self.golden["lead"].clone()),
+            Some(Value::Null) => None,
+            Some(lead) => Some(lead.clone()),
+        })
+    }
+    async fn catalog_page(&self, _: usize, cursor: Option<String>) -> Result<(Vec<Value>, Option<String>), String> {
+        let rows = if cursor.is_some() { Vec::new() } else { self.scenario["catalog"].as_array().cloned().unwrap_or_default() };
+        Ok((rows, None))
+    }
+    async fn create_session(&self, params: Value) -> Result<String, String> {
+        self.created.lock().expect("created").push(masked_value(&params));
+        let id = ThreadId::from(self.golden["sessionId"].as_str().expect("created id"));
+        let mut header = Map::new();
+        for key in ["provider", "model", "effort", "autoEffort", "fast"] {
+            if let Some(value) = params.get(key) {
+                header.insert(key.into(), value.clone());
+            }
+        }
+        header.insert("cwd".into(), json!("/ws"));
+        header.insert("taskOrigin".into(), params["sessionProfile"]["taskOrigin"].clone());
+        self.directory.create_with_id(id.clone(), header, json!({})).await.map_err(|e| format!("{e:?}"))?;
+        let runtime = self.directory.report_runtime(&id).await.map_err(|e| format!("{e:?}"))?;
+        let changes = runtime.subscribe();
+        *self.watched.lock().expect("watched") = Some((runtime, changes));
+        Ok(id.as_str().to_owned())
+    }
+    async fn request_worktree(&self, session_id: &str, input: Value) -> Result<Value, super::super::session_create::CreateFailure> {
+        self.configured.lock().expect("configured").push(masked_value(&json!({ "sessionId": session_id, "action": "requestWorktree", "args": [input] })));
+        let outcome = &self.golden["worktree"][self.scenario["worktree"].as_str().expect("a worktree outcome")];
+        if let Some(value) = outcome.get("value") {
+            return Ok(value.clone());
+        }
+        Err(super::super::session_create::CreateFailure {
+            code: outcome["code"].as_str().map(str::to_owned),
+            message: outcome["message"].as_str().expect("message").to_owned(),
+            details: outcome.get("details").cloned(),
+        })
+    }
+    async fn delete_session(&self, session_id: &str) -> Result<Value, String> {
+        self.configured.lock().expect("configured").push(json!({ "sessionId": session_id, "action": "deleteSession", "args": [session_id] }));
+        match self.scenario["drop"].as_str() {
+            Some("fails") => Err(self.golden["dropFailure"].as_str().expect("drop failure").to_owned()),
+            Some("refused") => Ok(json!(false)),
+            _ => Ok(json!(true)),
+        }
+    }
+}
+
 /// `session action=send` over the real session directory, the real report host and the real send
 /// path (`TaskSends`, `DirectorySubmit`): the target sessions hold the recorded records, a turn
 /// ends with the recorded answer, and the stores Node's recorder stood in are stood in the same
@@ -406,6 +483,19 @@ impl super::super::session_send::Rebind for NoRebind {
 /// reports delivered are Node's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn session_send_answers_as_node() {
+    replay_sends("send-").await;
+}
+
+/// `session action=create` over the same send path as [`session_send_answers_as_node`], its
+/// process reads stood in by [`CreateRecords`]: the answer, the session it created (its route,
+/// place and task origin), the worktree requests and deletions, the brief's turn and the reports
+/// ("Started" first) are Node's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_create_answers_as_node() {
+    replay_sends("create-").await;
+}
+
+async fn replay_sends(prefix: &str) {
     use mixdog_core_session::session::SessionDirectory;
     use mixdog_core_session::session::testing::Rig;
     use mixdog_core_session::session::thread_state::SessionThreads;
@@ -416,7 +506,7 @@ async fn session_send_answers_as_node() {
     let send = &golden["send"];
     let final_text = send["final"].as_str().expect("final").to_owned();
     let mut replayed = 0;
-    for scenario in golden["scenarios"].as_array().expect("scenarios").iter().filter(|s| s["name"].as_str().expect("name").starts_with("send-")) {
+    for scenario in golden["scenarios"].as_array().expect("scenarios").iter().filter(|s| s["name"].as_str().expect("name").starts_with(prefix)) {
         let name = scenario["name"].as_str().expect("name");
         let rig = Rig::new();
         let answer = final_text.clone();
@@ -484,6 +574,14 @@ async fn session_send_answers_as_node() {
         let (record, turn_of) = (Value::Object(caller.clone()), caller_id.clone());
         let record_of = caller_id.clone();
         let efforts = Arc::new(Efforts::default());
+        let create = Arc::new(CreateRecords {
+            directory: directory.clone(),
+            golden: golden["create"].clone(),
+            scenario: scenario.get("create").cloned().unwrap_or(Value::Null),
+            created: Mutex::default(),
+            configured: Mutex::default(),
+            watched: Mutex::default(),
+        });
         let late = Arc::new(super::super::session_send::LateSend::default());
         late.bind(Arc::new(super::super::session_send::SessionSend {
             directory: directory.clone(),
@@ -496,6 +594,7 @@ async fn session_send_answers_as_node() {
             catalog: Arc::new(Rows(send["modelRows"].as_array().expect("rows").clone())),
             effort: efforts.clone(),
             rebind: Arc::new(NoRebind),
+            create: create.clone(),
         }))
         .expect("bind");
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
@@ -503,16 +602,38 @@ async fn session_send_answers_as_node() {
         let tool = tool_over(threads, &bots, Arc::new(Fixture::default()), directory.clone(), late);
         let expected = &scenario["expected"];
         let recorded = &expected["send"];
-        // Each submitted turn is watched to its end before its rows are read.
+        // Each submitted turn is watched to its end before its rows are read (a created session from its creation).
+        let created_id = golden["create"]["sessionId"].as_str().expect("created id");
         let mut runtimes = Vec::new();
         for submitted in recorded["submitted"].as_array().expect("submitted") {
             let target = ThreadId::from(submitted["sessionId"].as_str().expect("target"));
+            if target.as_str() == created_id {
+                continue;
+            }
             let runtime = directory.report_runtime(&target).await.expect("the target's runtime");
             let changes = runtime.subscribe();
             runtimes.push((target, runtime, changes));
         }
-        let (ok, text) = call_on(&tool, &caller_id, SurfaceKind::Lead, scenario["args"].clone()).await;
+        // Node's caller works in `C:/proj` (`callerCwd`).
+        let cwd = AbsPath::new("C:/proj").unwrap_or_else(|| AbsPath::new(std::env::temp_dir()).expect("absolute"));
+        let ctx = ToolContext { thread_id: ThreadId::from(caller_id.as_str()), tool: "session".into(), surface: SurfaceKind::Lead, cwd, ..ctx() };
+        let (ok, text) = match tool.call(&ctx, scenario["args"].clone()).await {
+            Ok(out) => match &out.parts[..] {
+                [ToolPart::Text(text)] => (true, text.clone()),
+                other => panic!("{other:?}"),
+            },
+            Err(error) => (false, error.message_for_model),
+        };
         assert_eq!((ok, masked(&text).as_str()), (expected["ok"].as_bool().expect("ok"), expected["text"].as_str().expect("text")), "{name}");
+        if let Some(created) = recorded.get("created") {
+            assert_eq!(json!(*create.created.lock().expect("created")), *created, "{name}: the session created");
+            assert_eq!(json!(*create.configured.lock().expect("configured")), recorded["configured"], "{name}: the worktree asked of it");
+            if let Some((runtime, changes)) = create.watched.lock().expect("watched").take()
+                && recorded["submitted"].as_array().is_some_and(|s| !s.is_empty())
+            {
+                runtimes.push((ThreadId::from(created_id), runtime, changes));
+            }
+        }
         for ((target, runtime, mut changes), submitted) in runtimes.into_iter().zip(recorded["submitted"].as_array().expect("submitted")) {
             // The turn's start and its end, each one change.
             tokio::time::timeout(std::time::Duration::from_secs(10), async {

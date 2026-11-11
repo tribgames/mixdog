@@ -208,6 +208,11 @@ impl DirectorySessionPort {
     /// `targetRequest` checks it.
     async fn cross_session(&self, call: &ControlCall) -> Result<Value, PortError> {
         let action = call.action.as_str();
+        // `agentTasks.create(args, context)`: no target to check.
+        if action == "create" {
+            let attended = matches!(self.parts.callers.scope(&call.caller_thread).await, CallerScope::Human | CallerScope::Agent { unattended: false, .. });
+            return self.parts.send.get().map_err(failed)?.create(call, attended).await.map_err(failed);
+        }
         if !matches!(action, "list" | "read" | "send" | "cancel" | "delete") {
             return Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
