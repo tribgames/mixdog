@@ -53,10 +53,101 @@ impl SessionProjectWorkspaces {
     }
 }
 
+/// The states a recovery call may still reach a managed worktree in (`projectRecoveryDirectory`).
+const RECOVERY_STATES: [&str; 3] = ["ready", "deleting", "recovery"];
+
+/// The folder `requested` names inside the checkout `entry_path` (Node's `projectRecoveryDirectory` worktree branch, after the
+/// registry lookup): spelled from the checkout's real parent (the checkout itself is not resolved, it may be a replacement link),
+/// then its real path if that stays in the checkout. A lane job.
+fn recovery_folder(entry_path: &Path, requested: &Path) -> Option<PathBuf> {
+    use mixdog_workspace::pathguard::{canonical, canonical_path, is_within, resolve};
+    let stable = canonical_path(entry_path.parent()?).join(entry_path.file_name()?);
+    let lexical_within = |base: &Path| is_within(&resolve(base), requested);
+    let spelling = [resolve(entry_path), stable.clone()].into_iter().find(|base| lexical_within(base))?;
+    // `relative(spelling, requested)`: the components of `requested` past the checkout (compared case-folded on Windows).
+    let target = stable.join(requested.components().skip(spelling.components().count()).collect::<PathBuf>());
+    match canonical(&target) {
+        Ok(real) => Some(if is_within(&stable, &real) { real } else { target }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(target),
+        Err(_) => None,
+    }
+}
+
 #[async_trait]
 impl mixdog_workspace::service::ManagedProjects for SessionProjectWorkspaces {
     async fn owner(&self, path: &str) -> Option<(String, String)> {
         self.managed(path).await
+    }
+
+    async fn recovery_root(&self, path: &str) -> Option<PathBuf> {
+        if !Path::new(path).is_absolute() {
+            return None;
+        }
+        let requested = mixdog_workspace::pathguard::resolve(Path::new(path));
+        let registry = self.worktrees.registry().clone();
+        let probe = requested.clone();
+        let entry = on_lane(self.worktrees.scm().lane, &CancellationToken::new(), move || {
+            use mixdog_workspace::pathguard::{canonical_path, is_within};
+            let wanted = canonical_path(&probe);
+            registry.read().ok().and_then(|records| records.into_values().find(|record| is_within(&canonical_path(Path::new(&record.path)), &wanted)))
+        })
+        .await
+        .ok()??;
+        if !RECOVERY_STATES.contains(&entry.state.as_str()) {
+            return None;
+        }
+        self.projects.registered(&entry.project_path).await.ok()?;
+        let entry_path = PathBuf::from(&entry.path);
+        on_lane(self.worktrees.scm().lane, &CancellationToken::new(), move || recovery_folder(&entry_path, &requested)).await.ok()?
+    }
+
+    async fn recovery_store(
+        &self,
+        root: &Path,
+        directory: &Path,
+        action: mixdog_workspace::service::RecoveryUse,
+        run: std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_workspace::error::WsResult<serde_json::Value>> + Send>>,
+    ) -> mixdog_workspace::error::WsResult<serde_json::Value> {
+        use mixdog_scm::worktree::housekeeping::RecoveryAction;
+        use mixdog_workspace::service::RecoveryUse;
+        let action = match action {
+            RecoveryUse::Inspect => RecoveryAction::Inspect,
+            RecoveryUse::Restore => RecoveryAction::Restore,
+            RecoveryUse::Discard => RecoveryAction::Discard,
+        };
+        // The run's own refusal passes through the worktree manager untouched.
+        let mut refused = None;
+        let outcome = self
+            .worktrees
+            .with_recovery_store(
+                root,
+                directory,
+                action,
+                || async {
+                    run.await.map_err(|error| {
+                        refused = Some(error);
+                        mixdog_scm::error::ScmFailure::Cancelled
+                    })
+                },
+                &CancellationToken::new(),
+            )
+            .await;
+        match outcome {
+            Ok(value) => Ok(value),
+            Err(_) if refused.is_some() => Err(refused.expect("checked")),
+            Err(failure) => Err(worktree_refusal(&failure)),
+        }
+    }
+}
+
+/// A worktree manager refusal as Node's `WorktreeError` reached the caller: its code with its text.
+fn worktree_refusal(failure: &mixdog_scm::error::ScmFailure) -> mixdog_workspace::error::WsError {
+    match failure.code() {
+        Some(code) => {
+            let text = failure.message().or_else(|| mixdog_scm::worktree::texts::contract_message(code, failure.detail())).map_or_else(|| failure.to_string(), str::to_owned);
+            mixdog_workspace::error::WsError::coded(code, text)
+        }
+        None => mixdog_workspace::error::WsError::plain(failure.to_string()),
     }
 }
 

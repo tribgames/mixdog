@@ -846,6 +846,19 @@ pub struct ThreadStatusChangedParams {
     pub status: ThreadStatus,
 }
 
+/// `thread/stage/updated`: a run stage a client shows as its status, not a transcript row (Node's `onStageChange`
+/// relayed to the turn's `applyStageChange`: the spinner's mode and verb), with the stage's detail.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadStageUpdatedParams {
+    pub thread_id: ThreadId,
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<JsonValue>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
