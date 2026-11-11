@@ -147,8 +147,9 @@ pub fn ticker() -> &'static Ticker {
 /// every other test's callbacks inside that runtime, with their deadlines converted on one clock
 /// and fired on another (a paused test's on a real one). So with `test-support` the ticker is per
 /// runtime: started inside the calling runtime, on its clock (paused or not), and gone with it.
-/// Outside a runtime it is the one process-wide ticker, as in production. A process whose executors
-/// came from [`crate::exec::boot`] (the daemon, also when built with `test-support`) has process-long
+/// Outside a runtime it is the one process-wide ticker, as in production. Only a process in which a
+/// test installed its own backend ([`crate::install`]) gets this: one whose executors came from
+/// [`crate::exec::boot`] (every product process, also when built with `test-support`) has process-long
 /// runtimes and keeps the one production ticker.
 #[cfg(feature = "test-support")]
 pub fn ticker() -> &'static Ticker {
@@ -156,7 +157,7 @@ pub fn ticker() -> &'static Ticker {
 
     static GLOBAL: OnceLock<Ticker> = OnceLock::new();
     static PER_RUNTIME: OnceLock<Mutex<HashMap<tokio::runtime::Id, &'static Ticker>>> = OnceLock::new();
-    if PRODUCTION_EXECUTORS.load(std::sync::atomic::Ordering::SeqCst) {
+    if !TEST_BACKEND.load(std::sync::atomic::Ordering::SeqCst) {
         return GLOBAL.get_or_init(Ticker::start);
     }
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
@@ -166,9 +167,9 @@ pub fn ticker() -> &'static Ticker {
     tickers.entry(runtime.id()).or_insert_with(|| Box::leak(Box::new(Ticker::start())))
 }
 
-/// Set by [`crate::exec::boot`]: the backend is the production executors, so [`ticker`] is the process-wide one.
+/// Set by [`crate::install`], which only a test calls itself: the backend is a test's, so [`ticker`] is per runtime.
 #[cfg(feature = "test-support")]
-pub(crate) static PRODUCTION_EXECUTORS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) static TEST_BACKEND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 async fn run(shared: Arc<Shared>) {
     loop {
