@@ -111,7 +111,17 @@ fn golden(set: &str) -> Exact {
     Exact::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures").join(set).join("golden.json"))
 }
 
+std::thread_local! {
+    /// The case being replayed, for a failure the comparison does not report (a test's runtime is one thread).
+    static CASE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+fn case_id() -> String {
+    CASE.with(|case| case.borrow().clone())
+}
+
 fn recorded(set: &str, index: usize, name: &str) -> (Exact, i64) {
+    CASE.with(|case| *case.borrow_mut() = format!("{set} case {index}"));
     let golden = golden(set);
     let case = &golden.get("cases").as_array()[index];
     assert_eq!(case.get("case").as_str(), name, "case {index} of {set}");
@@ -616,6 +626,12 @@ impl World {
             return None;
         };
         assert_eq!(outcome.is_ok(), decision.approved, "the answered call runs exactly when approved: {outcome:?}");
+        if let Ok(ran) = &outcome {
+            // What proves the decision `render` echoed for the card (the hook's own, gate.mjs:297/365): the approved call runs
+            // as that decision describes it.
+            let pending = self.pending.lock().unwrap().clone().expect("a decided call");
+            ran_as_decided(ran, &pending.hook, &pending.call);
+        }
         Some(serde_json::to_value(decision).expect("a decision serializes"))
     }
 
@@ -799,6 +815,18 @@ fn with(mut base: Map<String, Value>, key: &str, value: Value) -> Map<String, Va
 /// The pipeline's judgement as Node's `{ decision, request, gate, remembered }`: the gate's verdict the pipeline acted on, and for
 /// a call it let run, the call as the pipeline passed it on (`authorized`): an answered hook `ask` runs as `allow`, or as `modify`
 /// with the name and arguments the pipeline runs when they are not the call's own. The hook's reason is the hook's.
+///
+/// Inputs that reach the result, each only where Node's `humanGateDecision`
+/// (`src/runtime/agent/orchestrator/session/human-gate/gate.mjs`, b6f10295a) passes them through untouched:
+/// - a run the hook did not ask about: the hook's decision as given (`:267` no outbound rule, `:341` a remembered grant);
+///   the pipeline's `authorized` must be the call that decision describes ([`ran_as_decided`]);
+/// - an answered or skipped hook ask: the hook's fields but `action`/`name`/`args`, which come from `authorized` (`:179`);
+/// - a deny: the hook's fields with `action`/`reason` set (`:258`, `:328`);
+/// - an approval card: the hook's decision as given (`:297`), or with the automation reason (`:297`); proved by the
+///   answered call running as it describes (`World::answer`);
+/// - an outbound card: the hook's fields, without `name`/`args` unless the hook rewrites or asks (`:365`); proved likewise.
+///
+/// The session id in the gate is the decided call's (`:299`, `:368`).
 fn render(verdict: &GateVerdict, hook: &Value, session: &str, call: &Value, authorized: Option<&Authorized>) -> Value {
     let base = hook.as_object().cloned().unwrap_or_default();
     let asked = hook.get("action").and_then(Value::as_str) == Some("ask");
@@ -821,6 +849,7 @@ fn render(verdict: &GateVerdict, hook: &Value, session: &str, call: &Value, auth
                 }
                 Value::Object(decision)
             } else {
+                ran_as_decided(authorized.expect("a call the gate let run ran through the pipeline"), hook, call);
                 hook.clone()
             };
             out.insert("decision".into(), decision);
@@ -854,6 +883,21 @@ fn render(verdict: &GateVerdict, hook: &Value, session: &str, call: &Value, auth
         }
     }
     Value::Object(out)
+}
+
+/// The pipeline ran the call the hook's decision describes: the hook's `name`/`args` where it rewrites (`modify`, `rewrite`, or an
+/// `ask` carrying them, gate.mjs:179), else the call's own. Fails naming the case.
+fn ran_as_decided(ran: &Authorized, hook: &Value, call: &Value) {
+    let rewrites = matches!(hook.get("action").and_then(Value::as_str), Some("modify" | "rewrite" | "ask"));
+    let field = |key: &str| (if rewrites { hook.get(key).filter(|v| !v.is_null()).unwrap_or(&call[key]) } else { &call[key] }).clone();
+    let (name, args) = (field("name"), field("args"));
+    assert!(
+        name.as_str() == Some(ran.name.as_str()) && args == ran.args,
+        "{}: the pipeline ran {} {} where the hook's decision describes {name} {args}",
+        case_id(),
+        ran.name,
+        ran.args
+    );
 }
 
 fn names(remember: &[ApprovalRemember]) -> Value {
@@ -915,6 +959,14 @@ async fn log_only(set: &str, index: usize, name: &str, ttl: bool) {
         entries.push(("sessionGrantTtlMs", ex(json!(SESSION_GRANT_TTL.as_millis() as u64))));
     }
     compare(&obj(entries), &expected, &format!("{set} case {index}"));
+}
+
+#[test]
+#[should_panic(expected = "hook-ask-grants case 3: the pipeline ran shell {\"command\":\"rm -rf /\"}")]
+fn a_run_the_hook_did_not_ask_about_fails_naming_the_case_when_the_pipeline_ran_another_call() {
+    CASE.with(|case| *case.borrow_mut() = "hook-ask-grants case 3".to_owned());
+    let ran = Authorized { name: "shell".into(), args: json!({"command": "rm -rf /"}), allow_not_saved: false };
+    render(&GateVerdict::Run { remembered: false }, &json!({"action": "allow"}), LEAD, &json!({"name": "shell", "args": {"command": "ls"}}), Some(&ran));
 }
 
 #[tokio::test]
