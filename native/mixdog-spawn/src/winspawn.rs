@@ -225,7 +225,8 @@ fn resolve_program(program: &str, env: Option<&[(OsString, OsString)]>) -> io::R
     }
     let exists = |path: &Path| std::fs::symlink_metadata(path).is_ok();
     // Absolute at lookup, as std's `to_user_path` does, so a later change of this process's current
-    // directory cannot make `CreateProcessW` pick another file; a failure to do so is the error.
+    // directory cannot make `CreateProcessW` pick another file. For a path the caller named, a failure
+    // to do so is the error; a searched candidate that cannot be made absolute is passed over.
     let absolute = |path: &Path| std::path::absolute(path).map(wide);
     if program.contains(['/', '\\']) {
         if program.len() >= 4 && program.as_bytes()[program.len() - 4..].eq_ignore_ascii_case(b".exe") {
@@ -250,10 +251,11 @@ fn resolve_program(program: &str, env: Option<&[(OsString, OsString)]>) -> io::R
                 .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
                 .filter(|dir| !dir.as_os_str().is_empty()),
         );
-    match directories.map(|dir| dir.join(&file)).find(|candidate| exists(candidate)) {
-        Some(found) => absolute(&found),
-        None => Err(io::Error::new(io::ErrorKind::NotFound, "program not found")),
-    }
+    directories
+        .map(|dir| dir.join(&file))
+        .filter(|candidate| exists(candidate))
+        .find_map(|candidate| absolute(&candidate).ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "program not found"))
 }
 
 /// A handle the child may inherit, closed on drop.
@@ -477,37 +479,41 @@ mod tests {
     /// never searched it, and a null application name makes `CreateProcessW` do so.
     #[test]
     fn a_program_only_in_the_current_directory_is_not_found() {
-        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
         let name = format!("mixdog-cwd-only-{}", std::process::id());
         let dir = std::env::temp_dir().join(&name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::copy(ping(), dir.join(format!("{name}.exe"))).unwrap();
-        // A process of its own, started in that directory, so no other test sees it as current.
-        let child = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "winspawn::tests::cwd_only_child", "--nocapture"])
-            .env("MIXDOG_CWD_ONLY", &name)
-            .current_dir(&dir)
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let mut child = child;
-            let _ = sender.send(child.wait());
-        });
-        let status = receiver.recv_timeout(std::time::Duration::from_secs(60));
-        if status.is_err() {
-            // The deadline passed: end the child and anything it started.
-            let _ = std::process::Command::new("taskkill")
-                .args(["/T", "/F", "/PID", &pid.to_string()])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
+        // A process of its own, started in that directory, so no other test sees it as current. It is
+        // created inside `job`: ending the job ends it and anything it started, on every path below.
+        let exe = std::env::current_exe().unwrap().to_string_lossy().into_owned();
+        let line = format!("\"{exe}\" --exact winspawn::tests::cwd_only_child --nocapture");
+        let mut env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        env.push((OsString::from("MIXDOG_CWD_ONLY"), OsString::from(&name)));
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        assert!(!job.is_null());
+        let started = spawn(
+            job,
+            &Spawn {
+                program: &exe,
+                command_line: &line,
+                cwd: Some(&dir),
+                env: Some(&env),
+                stdio: Stdio::Handles { stdin: None, stdout: None, stderr: None },
+            },
+        );
+        let outcome = match &started {
+            Ok(child) => child.wait_for(60_000).map_err(|error| error.to_string()),
+            Err(error) => Err(error.to_string()),
+        };
+        unsafe { TerminateJobObject(job, 1) };
+        if let Ok(child) = &started {
+            // Ended above if it had not ended by itself: its directory is free once it is gone.
+            let _ = child.wait_for(10_000);
         }
+        unsafe { CloseHandle(job) };
         let _ = std::fs::remove_dir_all(&dir);
-        let status = status.expect("the child did not finish within 60 s").unwrap();
+        let status = outcome.expect("the child check could not be started or waited for").expect("the child check did not finish within 60 s");
         assert!(status.success(), "the child check failed: {status}");
     }
 
