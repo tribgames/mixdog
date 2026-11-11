@@ -56,6 +56,8 @@ struct Spy {
     hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
     /// Per continuation call in order: `Some(run)` replaces the runtime's `run`.
     runs: Mutex<std::collections::VecDeque<Option<bool>>>,
+    /// While set, no continuation runs: the Goal stays active and starts no turn of its own.
+    no_runs: std::sync::atomic::AtomicBool,
     /// Wakes after each continuation call and reminder reset.
     called: tokio::sync::Notify,
 }
@@ -69,6 +71,7 @@ impl Spy {
             pinned: Mutex::new(None),
             hold: Mutex::new(None),
             runs: Mutex::default(),
+            no_runs: std::sync::atomic::AtomicBool::new(false),
             called: tokio::sync::Notify::new(),
         })
     }
@@ -111,6 +114,9 @@ impl GoalContinuationHooks for Spy {
         let mut decision = GoalContinuationHooks::continuation(&self.inner, thread, input).await?;
         if let Some(Some(run)) = lock(&self.runs).pop_front() {
             decision.run = run;
+        }
+        if self.no_runs.load(std::sync::atomic::Ordering::SeqCst) {
+            decision.run = false;
         }
         Ok(decision)
     }
@@ -515,13 +521,18 @@ async fn a_completed_turn_carries_the_pending_reminder_and_clears_it() {
         })
     }));
     let spy = Spy::new(&rig);
+    // The Goal starts no turn of its own here: whether its continuation turn reads the reminder before or after the
+    // edit marks it is the lane's scheduling (decided first under load, that turn started without the mark and, held
+    // open, kept it from ever being carried). The turn that carries the mark is started below, after the edit.
+    spy.no_runs.store(true, std::sync::atomic::Ordering::SeqCst);
     let directory = directory(&rig, &spy);
     let handle = start_thread(&directory).await;
     handle.request(request("thread/goal/set", json!({ "threadId": handle.id, "opId": "g-1", "goal": "Ship the feature" }), "g-1")).await.expect("set");
     let edit = request("thread/goal/control", json!({ "threadId": handle.id, "opId": "g-2", "action": "edit", "args": { "objective": "Ship it" } }), "g-2");
     handle.request(edit).await.expect("edit");
-    // The edit marks the reminder and the active Goal's continuation turn takes it; the turn is
-    // held open, so the marker stays until the turn is accepted.
+    turn(&handle, "work", "op-1").await;
+    // The edit marked the reminder and the next turn takes it; the turn is held open, so the marker stays
+    // until the turn is accepted.
     let carried = eventually_on!(&[&pushed, &handle.cell.stepped], || lock(&seen).iter().flatten().next().cloned()).await;
     assert_eq!(carried.0, 1);
     assert!(carried.1.contains("The user changed this Goal's objective."), "{}", carried.1);
