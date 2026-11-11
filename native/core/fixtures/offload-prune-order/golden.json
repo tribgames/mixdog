@@ -1,0 +1,34 @@
+{
+  "note": "Node's compaction offload prune around a queued message and a turn, at b6f10295a2f698afc85332467192de28500bd146 with the prune-after-save fix",
+  "cases": [
+    {
+      "name": "queued-at-listing",
+      "changed": true,
+      "left": [
+        "kept",
+        "queued"
+      ]
+    },
+    {
+      "name": "turn-before-save",
+      "changed": true,
+      "left": [
+        "kept",
+        "queued",
+        "stray"
+      ],
+      "nextError": null,
+      "afterNext": [
+        "kept"
+      ]
+    },
+    {
+      "name": "queued-before-save",
+      "changed": true,
+      "left": [
+        "kept",
+        "queued"
+      ]
+    }
+  ]
+}
