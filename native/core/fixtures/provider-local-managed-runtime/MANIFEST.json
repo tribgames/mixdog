@@ -42,7 +42,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
