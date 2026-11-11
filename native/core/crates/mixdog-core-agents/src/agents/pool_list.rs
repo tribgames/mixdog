@@ -16,6 +16,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mixdog_core_base::rooms::ids::SESSION_ID_PATTERN;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_js::JsRegex;
 use mixdog_js::time::date_parse;
@@ -30,6 +31,10 @@ use serde_json::Value;
 use serde_json::json;
 
 type Row = Map<String, Value>;
+
+#[cfg(test)]
+#[path = "pool_list_quiet_replay.rs"]
+mod quiet_replay;
 
 const TAG_TOMBSTONE_TTL_MS: f64 = 7.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const AGENT_PANE_VISIBLE_MS: f64 = 60.0 * 60.0 * 1000.0;
@@ -47,7 +52,7 @@ static FAILED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:er
 static COMPLETED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:idle|done|complete|completed|success)$", "i"));
 static CANCEL_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^cancel", "i"));
 static YEAR_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d{4}-", ""));
-static STORED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[A-Za-z0-9_-]+$", ""));
+static STORED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(SESSION_ID_PATTERN.0, SESSION_ID_PATTERN.1));
 
 /// The header fields the pool reads of a worker session record (`WORKER_HEADER_FIELDS`).
 pub const HEADER_FIELDS: [&str; 33] = [
