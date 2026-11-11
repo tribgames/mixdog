@@ -77,8 +77,15 @@ fn calls_turn(calls: &JsonValue) -> Vec<Attempt> {
     vec![turn(steps), turn(vec![text("done"), done(StopReason::EndTurn)])]
 }
 
-/// What the tools recorded once nothing more happens (Node's `setImmediate` point).
-async fn quiet(events: &Mutex<Vec<String>>, sorted: bool) -> Vec<String> {
+/// What the tools recorded once nothing more happens (Node's `setImmediate` point). On a loaded machine the spawned
+/// calls may not have begun within the quiet window, so it first waits (bounded) for as many events as Node saw.
+async fn quiet(events: &Mutex<Vec<String>>, sorted: bool, at_least: usize) -> Vec<String> {
+    for _ in 0..250 {
+        if events.lock().unwrap().len() >= at_least {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
     let mut last = events.lock().unwrap().clone();
     let mut still = 0;
     for _ in 0..250 {
@@ -145,7 +152,7 @@ async fn replay_gated(case: &JsonValue) -> JsonValue {
         gates.push((released.to_owned(), open_tx));
         tools.push(Arc::new(Gated { spec: tool_spec(name), events: events.clone(), start, end, gated, open }));
     }
-    let sorted = kind == "computer";
+    let sorted = kind == "computer" || kind == "edits";
     let h = Harness::new(calls_turn(&case["calls"]));
     let run = tokio::spawn(finish(h.run(config(), tools, vec![AgentMessage::user("go")])));
     let mut checkpoints = Vec::new();
@@ -167,7 +174,8 @@ async fn replay_gated(case: &JsonValue) -> JsonValue {
             checkpoints.push(json!({"released": released, "events": all}));
             break;
         }
-        checkpoints.push(json!({"released": released, "events": quiet(&events, sorted).await}));
+        let seen = case["checkpoints"][i]["events"].as_array().map_or(0, Vec::len);
+        checkpoints.push(json!({"released": released, "events": quiet(&events, sorted, seen).await}));
     }
     // A run waiting on a gate the case never opens stays open; drop it with the test.
     for (_, gate) in gates {

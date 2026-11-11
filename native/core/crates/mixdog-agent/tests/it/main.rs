@@ -24,6 +24,7 @@ mod native_search;
 mod nested;
 mod policy_gate;
 mod preset_node_cases;
+mod reconcile_node_cases;
 mod result_kind;
 mod run_loop;
 mod settings_service;

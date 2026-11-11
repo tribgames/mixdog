@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-eager-dispatch-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compared": "order cases: every start and end at each point the test checks (the Computer Use case: the calls that ran, sorted); the batch: the calls that ran and every answer (id, kind, text); the repeat cases: every tool answer (id, kind, text with the cwd as <cwd>) and the final text",
+  "compared": "order cases: every start and end at each point the test checks (the parallel-edits and Computer Use cases: sorted, as their parallel calls' order is scheduling); the batch: the calls that ran and every answer (id, kind, text); the repeat cases: every tool answer (id, kind, text with the cwd as <cwd>) and the final text",
   "excluded": {
     "src/runtime/agent/orchestrator/session/eager-dispatch.test.mjs :: structured explicit failure reaches the transcript as an error with media intact": "difference: Node answers a tool's explicit failure with its structured content, text and image, as an error result; a Rust tool failure is a ToolError whose model text is the whole answer, so the image cannot reach the transcript"
   },
@@ -9,7 +9,7 @@
     {
       "bytes": 10294,
       "path": "golden.json",
-      "sha256": "d27acd1c037b95e536ace97ac369b0fd61788a1f36dea36ca5f9d6ebf3a0a96f"
+      "sha256": "8c9385c3c5e653d42630ad55b443caf23ac00d000ff7fc0c136269b6f0a2b75a"
     }
   ],
   "inputs": [
@@ -41,7 +41,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-eager-dispatch-cases.mjs",
-  "recorderSha256": "2f5635fafae6098e48a0e26eae5d01c08138b3bef832fa4206931b69be434ac5",
+  "recorderSha256": "b7b3b4e3afd0cb1b0cb0dffc46a3977ceea82dff2b68cd36c41e66d0a0bc88b0",
   "set": "eager-dispatch-cases",
   "totalBytes": 10294
 }

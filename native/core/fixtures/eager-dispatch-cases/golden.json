@@ -92,20 +92,20 @@
         {
           "released": null,
           "events": [
+            "end:b.txt#b1",
             "start:a.txt#a1",
-            "start:b.txt#b1",
-            "end:b.txt#b1"
+            "start:b.txt#b1"
           ]
         },
         {
           "released": "e1",
           "events": [
-            "start:a.txt#a1",
-            "start:b.txt#b1",
-            "end:b.txt#b1",
+            "end:A.TXT#a2",
             "end:a.txt#a1",
+            "end:b.txt#b1",
             "start:A.TXT#a2",
-            "end:A.TXT#a2"
+            "start:a.txt#a1",
+            "start:b.txt#b1"
           ]
         }
       ]
