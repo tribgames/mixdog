@@ -1,7 +1,7 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-core-domains ai_admin provider list (admin_providers): per step, apply the `developer` flags and compare `oauthIds`, `known` and `statusDevIds`; `listAccountsError` is the error text for an unknown OAuth provider.",
+  "compare": "per step, apply the `developer` flags (stored `agent.developer`) and compare `provider_available(name, client_mode=false, stored_developer)` for each name in `known`, and the whole `setup` (providerSetup result: the `oauth` rows) and `status` (providerStatus rows) the product listed; `listAccountsError` is the whole error for an unknown OAuth provider.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-admin-dev-providers.mjs",
-  "recorderSha256": "c0b57b384d35462d92fcedd36c096730ae8b1a7223f45a482e52e30f322e8bed",
+  "recorderSha256": "e20fc621a02aaa7aa2a1372e39aaae27de9064bc643347eab9c2b040cd7e5e28",
   "replay": "Rust entry (pub, on o1): mixdog_ai::service::admin_models developer_option_for_provider (service/admin_models.rs:427), developer_option_enabled (:438) and provider_available (:445) over the stored `developer` section (`pub mod admin_models`, service/mod.rs:5): replay `provider_available(name, client_mode, stored_developer)` per option state; the provider setup list that the Node test also reads (`oauth` rows) is the registry listing built over it (registry/effective.rs:31-33).",
   "set": "provider-admin-dev-providers",
   "totalBytes": 116882,
