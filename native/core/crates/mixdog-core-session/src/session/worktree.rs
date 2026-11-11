@@ -45,7 +45,7 @@ pub mod worktree_consumers;
 #[path = "worktree_ops.rs"]
 mod worktree_ops;
 #[path = "worktree_state.rs"]
-pub(super) mod worktree_state;
+pub(crate) mod worktree_state;
 #[path = "worktree_intents.rs"]
 mod worktree_intents;
 #[path = "worktree_menu.rs"]
@@ -54,9 +54,6 @@ mod worktree_menu;
 mod worktree_merge;
 #[path = "worktree_service.rs"]
 pub mod worktree_service;
-#[cfg(test)]
-#[path = "worktree_service_tests.rs"]
-mod worktree_service_tests;
 #[path = "worktree_session.rs"]
 mod worktree_session;
 #[path = "worktree_maintenance.rs"]
@@ -68,26 +65,20 @@ mod worktree_snapshots;
 #[path = "worktree_setup.rs"]
 pub mod worktree_setup;
 #[path = "worktree_reroot.rs"]
-mod worktree_reroot;
+pub(crate) mod worktree_reroot;
 #[path = "worktree_setup_note.rs"]
 mod worktree_setup_note;
 #[path = "worktree_setup_run.rs"]
-mod worktree_setup_run;
-#[cfg(test)]
-#[path = "worktree_setup_tests.rs"]
-mod worktree_setup_tests;
-#[cfg(test)]
-#[path = "worktree_host_tests.rs"]
-mod worktree_host_tests;
+pub(crate) mod worktree_setup_run;
 #[path = "worktree_steps.rs"]
 mod worktree_steps;
 #[path = "worktree_project.rs"]
 mod worktree_project;
 #[path = "worktree_texts.rs"]
 mod worktree_texts;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[path = "worktree_tests.rs"]
-pub(crate) mod worktree_tests;
+pub mod worktree_tests;
 #[cfg(test)]
 #[path = "worktree_goldens.rs"]
 mod worktree_goldens;
@@ -369,7 +360,7 @@ struct Inner {
     gate: Arc<AdmissionGate>,
     intents: Mutex<HashMap<String, Intent>>,
     /// Test seam at the step boundary just before the worktree is removed.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     before_remove: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
@@ -398,7 +389,7 @@ impl SessionWorkspaces {
                 host,
                 gate,
                 intents: Mutex::new(HashMap::new()),
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 before_remove: Mutex::new(None),
             }),
         }
@@ -422,6 +413,29 @@ pub trait TurnAdmission: Send + Sync {
     async fn admit(&self, thread: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<Box<dyn Send>, ScmFailure>;
 }
 
+/// The workspace a session's status pass publishes (`baseRouteState().workspace`).
+#[async_trait]
+pub trait LiveWorkspace: Send + Sync {
+    async fn live(&self, session: &str) -> Option<JsonValue>;
+}
+
+#[async_trait]
+impl LiveWorkspace for SessionWorkspaces {
+    async fn live(&self, session: &str) -> Option<JsonValue> {
+        self.live_workspace(session).await
+    }
+}
+
+/// No workspace (a rig without worktrees).
+pub struct NoLiveWorkspace;
+
+#[async_trait]
+impl LiveWorkspace for NoLiveWorkspace {
+    async fn live(&self, _: &str) -> Option<JsonValue> {
+        None
+    }
+}
+
 #[async_trait]
 impl TurnAdmission for SessionWorkspaces {
     async fn admit(&self, thread: &str, cwd: Cwd, cancel: &CancellationToken) -> Result<Box<dyn Send>, ScmFailure> {
@@ -443,9 +457,21 @@ impl SessionWorkspaces {
         Ok(Box::new(self.inner.hold_project_folder(None, folder, true)?))
     }
 
+    /// Whether this runtime hosts `session`.
+    pub fn hosts(&self, session: &str) -> bool {
+        self.inner.host.session(session).is_some()
+    }
+
     /// The workspace `session` has now: the stored record, or the project folder (revision 0).
     pub fn workspace(&self, session: &str) -> Result<Workspace, ScmFailure> {
         self.inner.workspace(session)
+    }
+
+    /// `getLiveWorkspace()` (session-view.mjs:84-105): a worktree-bound record with its checkout's branch; else the stored record or
+    /// the project folder (revision 0) with the folder's `repoCommonDir`, branch and, detached, its commit as `baseCommit`; the stored
+    /// record (or null) outside a git repository.
+    pub async fn live_workspace(&self, session: &str) -> Option<JsonValue> {
+        self.inner.live_workspace(session).await
     }
 
     /// Arm the creation-time intent of a new task (`mode` `worktree`, `default` or `branch`).
@@ -631,6 +657,30 @@ impl Inner {
             view.branch = Some(branch);
         }
         Ok(())
+    }
+
+    /// `getLiveWorkspace()` (session-view.mjs:84-105): a worktree-bound record with its checkout's branch; else the stored record or
+    /// the project folder (revision 0) with the folder's `repoCommonDir`, branch and, detached, its commit as `baseCommit`; the stored
+    /// record (or null) outside a git repository.
+    pub(super) async fn live_workspace(&self, session: &str) -> Option<JsonValue> {
+        let stored = self.host.session(session)?.workspace;
+        let cancel = CancellationToken::new();
+        let mut view = self.workspace(session).ok()?;
+        if view.is_bound() {
+            self.follow_checkout_branch(&mut view, &cancel).await.ok()?;
+            return Some(view.to_value());
+        }
+        match self.ops.inspect(&view.cwd, &cancel).await {
+            Ok(project) => {
+                view.repo_common_dir = Some(text(&project.common_dir));
+                if project.current_branch.is_none() {
+                    view.base_commit = Some(project.head.clone());
+                }
+                view.branch = project.current_branch;
+                Some(view.to_value())
+            }
+            Err(_) => stored.filter(|stored| !stored.is_null()),
+        }
     }
 
     /// The workspace the branch menu shows: a bound record with its checkout's branch, a

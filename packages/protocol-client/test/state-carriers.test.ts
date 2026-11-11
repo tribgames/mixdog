@@ -18,8 +18,9 @@ const SECTION_FIELDS: Record<string, string[]> = {
   workflow: ['workflow', 'orchestrationMode', 'pendingWorkflowSwitch', 'pendingOrchestrationModeSwitch'],
   approvals: ['toolApprovalResult', 'handoffQuestions'],
 };
-// The fields the fold computes itself (rows, the streaming line, the paged window) or the product owns outside the thread feed.
-const OWN = new Set(['items', 'sessionId', 'streamingTail', 'streamingPartial', 'toolApproval', 'toolApprovalsWaiting', 'promptHistoryList', 'queued', 'structureRevision']);
+// The fields the fold computes itself (rows, the streaming line, the paged window and its spill state, which comes with the rows) or
+// the product owns outside the thread feed.
+const OWN = new Set(['items', 'sessionId', 'streamingTail', 'streamingPartial', 'transcriptSpilled', 'toolApproval', 'toolApprovalsWaiting', 'promptHistoryList', 'queued', 'structureRevision']);
 
 test('every field of the Node daemon state has a carrier in the fold', () => {
   const state: Obj = {};

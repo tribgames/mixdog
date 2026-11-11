@@ -100,7 +100,8 @@ impl Watchdog {
             // arming however soon the task first runs; taken inside the task, the period would count from its first poll.
             let first = tokio::time::Instant::now() + SWEEP;
             Self(mixdog_rt::spawn("agent-progress-watchdog", TaskClass::Control, async move {
-                let mut sweep = tokio::time::interval_at(first, SWEEP);
+                // Node's interval is `unref()`ed (`agent-dispatch/watchdog.mjs:37`).
+                let mut sweep = mixdog_rt::time::interval_at_unrefed(first, SWEEP);
                 loop {
                     sweep.tick().await;
                     if signal.is_aborted() {
@@ -150,7 +151,7 @@ mod tests {
     /// `last` ms after `T0`, at `now` ms after it (`benchmarks/rust-core/recorders/
     /// record-agent-watchdog.mjs`). The recorded policy is the one `POLICY` carries.
     fn node_verdict(last: i64, awaiting_user: bool, now: i64) -> Option<String> {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap();
         let found = golden["evaluations"].as_array().unwrap().iter().find(|case| {
             case["snapshot"]["lastProgressAt"].as_i64() == Some(T0 + last)
                 && case["snapshot"]["awaitingUser"].as_bool().unwrap_or(false) == awaiting_user
@@ -576,7 +577,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_stop_writes_the_stall_abort_rows_node_writes() {
         let _held = HeldClock::hold();
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
         let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/MANIFEST.json")).unwrap();
         assert!(manifest.to_string().contains("\"runOwnValues\":{\"registration_id\""), "the manifest declares the registration id as the run's own");
         let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1")], &["stall_abort"]).await;
@@ -589,7 +590,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_stop_with_the_trace_disabled_writes_what_node_writes() {
         let _held = HeldClock::hold();
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
         // The stop's append still runs before the abort, and queues nothing.
         let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1"), ("MIXDOG_AGENT_TRACE_DISABLE", "1")], &["stall_abort"]).await;
         assert_eq!(failures.as_deref(), golden["traceDisabled"]["failures"].as_str(), "history/tool-failures.jsonl");

@@ -46,8 +46,21 @@ pub(crate) struct Durable {
     pub class: Class,
     pub stage: Stage,
     pub bytes: usize,
-    /// Stored in one commit with the next durable record ([`Outbox::join_next`]).
-    pub joined: bool,
+    /// The unit this record is written in: every record of one request's plan, committed together or not at all.
+    pub unit: u64,
+    /// A failed write keeps the unit queued for the next one (Node's recorder keeps a failed batch's bytes).
+    pub retain: bool,
+    /// Whether the record still counts in the window (a retained one no longer does: it waits for the next write).
+    counted: bool,
+    /// The record's number on the outbox's [`mixdog_rt::WriteMarks`].
+    #[cfg(any(test, feature = "test-support"))]
+    pub mark: u64,
+}
+
+/// One unit handed to the durability task: its records in accept order.
+pub(crate) struct HandedUnit {
+    pub retain: bool,
+    pub records: Vec<(u64, CommitRecord, usize)>,
 }
 
 /// What happens when an entry is released, or fails.
@@ -98,6 +111,13 @@ pub(crate) struct Outbox {
     limits: SessionLimits,
     normal: Usage,
     reserve: Usage,
+    /// The unit records pushed now join ([`Self::begin_unit`]), and whether it is retained on a failed write.
+    unit: Option<(u64, bool)>,
+    /// Every durable record numbered as it is accepted ([`Self::push`]) and reported once: written when the store acked it
+    /// ([`Self::acked`]), failed when it left uncommitted ([`Self::note_failed`], or the outbox dropped with it still open).
+    /// The replay barrier reads these without the actor ([`super::SessionDirectory::durability_settled`]).
+    #[cfg(any(test, feature = "test-support"))]
+    marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 impl Outbox {
@@ -108,7 +128,38 @@ impl Outbox {
             limits,
             normal: Usage::default(),
             reserve: Usage::default(),
+            unit: None,
+            #[cfg(any(test, feature = "test-support"))]
+            marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         }
+    }
+
+    /// The records pushed until [`Self::end_unit`] are one unit (one request's plan): handed on and written together.
+    pub fn begin_unit(&mut self, retain: bool) {
+        self.unit = Some((self.next_id, retain));
+    }
+
+    pub fn end_unit(&mut self) {
+        self.unit = None;
+    }
+
+    /// Whether a unit kept from a failed write waits for the next one.
+    pub fn has_retained(&self) -> bool {
+        self.entries.iter().any(|entry| entry.durable.as_ref().is_some_and(|durable| durable.retain && !durable.counted))
+    }
+
+    /// An outbox numbering its durable records on `marks`: the thread's [`super::control::ControlCell::record_marks`].
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn numbered_on(limits: SessionLimits, marks: Arc<mixdog_rt::WriteMarks>) -> Self {
+        let mut outbox = Self::new(limits);
+        outbox.marks = marks;
+        outbox
+    }
+
+    /// The durable record of a removed entry left uncommitted.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn note_failed(&self, durable: &Durable, error: String) {
+        self.marks.failed(durable.mark, error);
     }
 
     /// A record of `class` fits the window now.
@@ -130,6 +181,12 @@ impl Outbox {
     /// Every accepted record is released (durable or failed).
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// The accepted records not yet acknowledged.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn unacked(&self) -> usize {
+        self.normal.records + self.reserve.records
     }
 
     pub fn producer_room(&self) -> bool {
@@ -161,12 +218,17 @@ impl Outbox {
                 class
             };
             self.usage(class).records += 1;
+            let (unit, retain) = self.unit.unwrap_or((id, false));
             Durable {
                 record,
                 class,
                 stage: Stage::Encoding,
                 bytes: 0,
-                joined: false,
+                unit,
+                retain,
+                counted: true,
+                #[cfg(any(test, feature = "test-support"))]
+                mark: self.marks.accept(),
             }
         });
         self.entries.push_back(Entry {
@@ -190,18 +252,6 @@ impl Outbox {
         id
     }
 
-    /// The durable records of `ids` (one step's, in accept order) are stored in one commit: a room post's rows and the `updatedAt`
-    /// it stamps land, and are projected, together, so nothing reads the one without the other. Only the step's own durable
-    /// records join: the last of them joins nothing, so a group never waits on a later step.
-    pub fn join(&mut self, ids: &[u64]) {
-        let durable: Vec<u64> = ids.iter().copied().filter(|id| self.get_mut(*id).is_some_and(|entry| entry.durable.is_some())).collect();
-        for id in durable.iter().take(durable.len().saturating_sub(1)) {
-            if let Some(durable) = self.get_mut(*id).and_then(|entry| entry.durable.as_mut()) {
-                durable.joined = true;
-            }
-        }
-    }
-
     fn index(&self, id: u64) -> Option<usize> {
         self.entries.binary_search_by_key(&id, |entry| entry.id).ok()
     }
@@ -211,8 +261,9 @@ impl Outbox {
         self.entries.get_mut(index)
     }
 
-    /// Records an encode result; the bytes now count in the window.
-    pub fn encoded(&mut self, id: u64, encoded: EncodedRecord) {
+    /// Records an encode result; the bytes now count in the window. `stored`: the record as the log holds it when that
+    /// differs from the one accepted, which the log is then handed.
+    pub fn encoded(&mut self, id: u64, encoded: EncodedRecord, stored: Option<Record>) {
         let bytes = encoded.bytes();
         let Some(entry) = self.get_mut(id) else {
             return;
@@ -220,59 +271,77 @@ impl Outbox {
         let Some(durable) = entry.durable.as_mut() else {
             return;
         };
+        if let Some(stored) = stored {
+            durable.record = Arc::new(stored);
+        }
         durable.bytes = bytes;
         durable.stage = Stage::Encoded(encoded);
         let class = durable.class;
         self.usage(class).bytes += bytes;
     }
 
-    /// The next encoded records in accept order, stopping at the first still encoding; a joined group goes only once every record
-    /// of it is encoded. Each with whether it is joined to the next.
-    pub fn handoff(&mut self) -> Vec<(u64, CommitRecord, usize, bool)> {
-        let (mut ready, mut seen) = (0, 0);
-        for entry in &self.entries {
-            let Some(durable) = &entry.durable else {
-                continue;
-            };
-            match durable.stage {
-                Stage::Encoding => break,
-                Stage::Encoded(_) => {
-                    seen += 1;
-                    if !durable.joined {
-                        ready = seen;
-                    }
-                }
-                Stage::Handed | Stage::Acked(_) => {}
-            }
-        }
-        let mut out = Vec::new();
-        for entry in &mut self.entries {
-            if out.len() == ready {
-                break;
-            }
-            let Some(durable) = entry.durable.as_mut() else {
+    /// The next whole units in accept order, every record of each encoded, at most `room` units (one message of the
+    /// durability lane each), stopping at the first unit still encoding. A unit is handed on whole, however many records it
+    /// holds (a whole inherited conversation), so the store writes it as one commit.
+    pub fn handoff(&mut self, room: usize) -> Vec<HandedUnit> {
+        // The units that can go: the entries up to `end` (exclusive) whose records are all encoded.
+        let mut end = 0;
+        let mut units = 0;
+        let mut current: Option<u64> = None;
+        let mut index = 0;
+        while index < self.entries.len() {
+            let Some(durable) = &self.entries[index].durable else {
+                index += 1;
                 continue;
             };
             match &durable.stage {
-                Stage::Encoding => break,
-                Stage::Encoded(_) => {
-                    let Stage::Encoded(encoded) =
-                        std::mem::replace(&mut durable.stage, Stage::Handed)
-                    else {
-                        unreachable!("matched Encoded");
-                    };
-                    out.push((
-                        entry.id,
-                        CommitRecord {
-                            record: durable.record.clone(),
-                            encoded,
-                        },
-                        durable.bytes,
-                        durable.joined,
-                    ));
+                Stage::Handed | Stage::Acked(_) => {
+                    index += 1;
+                    continue;
                 }
-                Stage::Handed | Stage::Acked(_) => {}
+                Stage::Encoding => break,
+                Stage::Encoded(_) => {}
             }
+            if current != Some(durable.unit) {
+                // The unit before this one is whole.
+                end = index;
+                if units == room {
+                    current = None;
+                    break;
+                }
+                units += 1;
+                current = Some(durable.unit);
+            }
+            index += 1;
+        }
+        // Reached the end with a unit whose records are all encoded (a unit never grows after its step).
+        if current.is_some() && index == self.entries.len() {
+            end = index;
+        }
+        let mut out: Vec<HandedUnit> = Vec::new();
+        let mut last_unit = None;
+        for entry in self.entries.iter_mut().take(end) {
+            let Some(durable) = entry.durable.as_mut() else {
+                continue;
+            };
+            if !matches!(durable.stage, Stage::Encoded(_)) {
+                continue;
+            }
+            let Stage::Encoded(encoded) = std::mem::replace(&mut durable.stage, Stage::Handed) else {
+                unreachable!("matched Encoded");
+            };
+            if last_unit != Some(durable.unit) {
+                out.push(HandedUnit { retain: durable.retain, records: Vec::new() });
+                last_unit = Some(durable.unit);
+            }
+            out.last_mut().expect("pushed").records.push((
+                entry.id,
+                CommitRecord {
+                    record: durable.record.clone(),
+                    encoded,
+                },
+                durable.bytes,
+            ));
         }
         out
     }
@@ -285,10 +354,48 @@ impl Outbox {
             return;
         };
         durable.stage = Stage::Acked(ordinal);
-        let (class, bytes) = (durable.class, durable.bytes);
-        let usage = self.usage(class);
-        usage.records -= 1;
-        usage.bytes -= bytes;
+        #[cfg(any(test, feature = "test-support"))]
+        let mark = durable.mark;
+        let (class, bytes, counted) = (durable.class, durable.bytes, std::mem::replace(&mut durable.counted, false));
+        #[cfg(any(test, feature = "test-support"))]
+        self.marks.written(mark);
+        if counted {
+            let usage = self.usage(class);
+            usage.records -= 1;
+            usage.bytes -= bytes;
+        }
+    }
+
+    /// A write failed and was rolled back: the entries of `retained` (handed units kept for the next write) stay, in order,
+    /// out of the window; every other unreleased entry is failed, as [`Self::fail_all`].
+    pub fn fail_all_but(&mut self, retained: &std::collections::HashSet<u64>) -> Vec<Entry> {
+        self.normal = Usage::default();
+        self.reserve = Usage::default();
+        let (kept, failed): (Vec<Entry>, Vec<Entry>) = self.entries.drain(..).partition(|entry| {
+            retained.contains(&entry.id) || entry.needs.is_some_and(|needs| retained.contains(&needs))
+        });
+        self.entries = kept.into();
+        for entry in &mut self.entries {
+            if let Some(durable) = entry.durable.as_mut() {
+                durable.counted = false;
+            }
+        }
+        failed
+    }
+
+    /// Removes the entries of the unit `id` belongs to, none of them handed off yet (one of its records could not be
+    /// encoded): a unit is written whole or not at all.
+    pub fn remove_unit(&mut self, id: u64) -> Vec<Entry> {
+        let Some(unit) = self.index(id).and_then(|index| self.entries[index].durable.as_ref()).map(|durable| durable.unit) else {
+            return self.remove(id).into_iter().collect();
+        };
+        let ids: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.durable.as_ref().is_some_and(|durable| durable.unit == unit))
+            .map(|entry| entry.id)
+            .collect();
+        ids.into_iter().filter_map(|id| self.remove(id)).collect()
     }
 
     /// The front entry if it can be released: view-only, or acked.
@@ -315,13 +422,9 @@ impl Outbox {
     pub fn remove(&mut self, id: u64) -> Option<Entry> {
         let index = self.index(id)?;
         let entry = self.entries.remove(index)?;
-        // The durable record before it, joined to it, now joins what this one joined.
-        if let Some(removed) = &entry.durable
-            && let Some(before) = self.entries.iter_mut().take(index).rev().find_map(|entry| entry.durable.as_mut())
+        if let Some(durable) = &entry.durable
+            && durable.counted
         {
-            before.joined = before.joined && removed.joined;
-        }
-        if let Some(durable) = &entry.durable {
             let (class, bytes) = (durable.class, durable.bytes);
             let usage = self.usage(class);
             usage.records -= 1;
@@ -337,8 +440,22 @@ impl Outbox {
         gone
     }
 
+    /// The records accepted and not yet released, stored or not, in accept order.
+    pub fn records(&self) -> impl Iterator<Item = &Record> {
+        self.entries.iter().filter_map(|entry| entry.durable.as_ref().map(|durable| &*durable.record))
+    }
+
     /// The unreleased changes in accept order.
     pub fn changes(&self) -> impl Iterator<Item = &Change> {
         self.entries.iter().map(|entry| &entry.change)
+    }
+}
+
+/// The actor ended (a shutdown, an unwind) with records it accepted not yet acked: they are not committed by anyone now.
+/// A clean unload ends only once the outbox is empty, so this fails nothing then.
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for Outbox {
+    fn drop(&mut self) {
+        self.marks.abandon("the thread ended before the record was committed");
     }
 }

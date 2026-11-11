@@ -268,18 +268,18 @@ impl Outgoing {
         }
     }
 
-    /// The owning thread of `id`, if `from` is a connection the request was delivered to
+    /// The owning thread and the method of `id`, if `from` is a connection the request was delivered to
     /// (P §8.4 step 1: only eligible connections decide).
     pub(crate) fn owner_for_response(
         &self,
         id: &ServerRequestId,
         from: ConnectionId,
-    ) -> Option<ThreadId> {
+    ) -> Option<(ThreadId, Method)> {
         self.pending
             .shard(id)
             .get(id)
             .filter(|pending| pending.delivered.contains(&from))
-            .map(|pending| pending.req.thread.clone())
+            .map(|pending| (pending.req.thread.clone(), pending.req.method.clone()))
     }
 
     /// Records `conn` as the newest host claimant for what it declared at `initialize`. A
@@ -345,7 +345,7 @@ impl Outgoing {
     ) -> Result<Value, HostError> {
         let id = self.next_host_id();
         let reply = claimant
-            .register_host_request(id.clone())
+            .register_host_request(id.clone(), method)
             .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
         let _forget = ForgetOnDrop {
             conn: Arc::clone(&claimant),
@@ -523,7 +523,7 @@ impl HostChannel for Outgoing {
         let claimant = self.claimant(capability)?;
         let id = self.next_host_id();
         let mut stream = claimant
-            .register_host_stream(id.clone())
+            .register_host_stream(id.clone(), method)
             .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
         let _forget = ForgetOnDrop {
             conn: Arc::clone(&claimant),

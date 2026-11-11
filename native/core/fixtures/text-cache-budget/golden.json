@@ -1,0 +1,161 @@
+{
+  "note": "Node's setBoundedTextCacheEntry at b6f10295a2f698afc85332467192de28500bd146 over its unit test's steps",
+  "scenarios": [
+    {
+      "name": "count and UTF-16 byte bounds",
+      "maxEntries": 2,
+      "maxBytes": 16,
+      "steps": [
+        {
+          "key": "a",
+          "content": "가가",
+          "stored": true,
+          "entries": [
+            {
+              "key": "a",
+              "content": "가가"
+            }
+          ],
+          "evicted": []
+        },
+        {
+          "key": "b",
+          "content": "bb",
+          "stored": true,
+          "entries": [
+            {
+              "key": "a",
+              "content": "가가"
+            },
+            {
+              "key": "b",
+              "content": "bb"
+            }
+          ],
+          "evicted": []
+        },
+        {
+          "key": "c",
+          "content": "cc",
+          "stored": true,
+          "entries": [
+            {
+              "key": "b",
+              "content": "bb"
+            },
+            {
+              "key": "c",
+              "content": "cc"
+            }
+          ],
+          "evicted": [
+            "a"
+          ]
+        },
+        {
+          "key": "b",
+          "content": "bbbb",
+          "stored": true,
+          "entries": [
+            {
+              "key": "c",
+              "content": "cc"
+            },
+            {
+              "key": "b",
+              "content": "bbbb"
+            }
+          ],
+          "evicted": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "key": "d",
+          "content": "dddd",
+          "stored": true,
+          "entries": [
+            {
+              "key": "d",
+              "content": "dddd"
+            }
+          ],
+          "evicted": [
+            "a",
+            "b",
+            "c",
+            "b"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an oversized replacement drops only its old value",
+      "maxEntries": 2,
+      "maxBytes": 12,
+      "steps": [
+        {
+          "key": "a",
+          "content": "aa",
+          "stored": true,
+          "entries": [
+            {
+              "key": "a",
+              "content": "aa"
+            }
+          ],
+          "evicted": []
+        },
+        {
+          "key": "b",
+          "content": "bb",
+          "stored": true,
+          "entries": [
+            {
+              "key": "a",
+              "content": "aa"
+            },
+            {
+              "key": "b",
+              "content": "bb"
+            }
+          ],
+          "evicted": []
+        },
+        {
+          "key": "a",
+          "content": "123456",
+          "stored": false,
+          "entries": [
+            {
+              "key": "b",
+              "content": "bb"
+            }
+          ],
+          "evicted": [
+            "a"
+          ]
+        },
+        {
+          "key": "c",
+          "content": "cc",
+          "stored": true,
+          "entries": [
+            {
+              "key": "b",
+              "content": "bb"
+            },
+            {
+              "key": "c",
+              "content": "cc"
+            }
+          ],
+          "evicted": [
+            "a"
+          ]
+        }
+      ]
+    }
+  ]
+}

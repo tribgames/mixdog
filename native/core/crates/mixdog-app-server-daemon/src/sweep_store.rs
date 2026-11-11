@@ -346,7 +346,7 @@ mod tests {
             }
         }
 
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/idle-sweep/golden.json")).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/idle-sweep/golden.json")).unwrap();
         let ids = |v: &serde_json::Value| v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect::<Vec<_>>();
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
         for (name, scenario) in golden["scenarios"].as_object().unwrap() {

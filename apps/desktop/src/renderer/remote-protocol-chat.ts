@@ -64,11 +64,16 @@ export interface ChatShared {
   normalizedProviderModels(rows: unknown): DesktopModelOption[];
   /** `sessionStateOf` (protocol-client): the `SessionSnapshot` of a thread this client folds. */
   sessionStateOf(threadId: string): SessionSnapshot | undefined;
-  /** `remoteToolOutput` (main/remote-transcript.ts) over a folded state. */
-  remoteToolOutput(
-    state: unknown,
-    itemId: string
-  ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null;
+  /** The phone's transcript window (main/remote-phone-transcript.ts `createPhoneTranscript`, kept out of this bundle's imports as
+   *  main code): the states the phone is shown pass through its `view`. */
+  transcript: {
+    page(threadId: string, state: unknown, limit: number): Promise<void>;
+    output(
+      threadId: string,
+      state: unknown,
+      itemId: string
+    ): { id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown } | null;
+  };
 }
 
 /** RemoteMethodDependencies['approvalNotifications'] (remote-methods.ts): the host's rules for a phone's bare Allow. */
@@ -153,7 +158,7 @@ export function createChatApi(
     readTranscriptItem: async (sessionId: string, itemId: string) => {
       const state = shared.sessionStateOf(sessionId);
       if (!state) throw new Error(READ_NOT_VIEWED);
-      const output = shared.remoteToolOutput(state, itemId);
+      const output = shared.transcript.output(sessionId, state, itemId);
       if (!output) throw new Error(READ_NOT_HELD);
       return output;
     },
@@ -176,6 +181,12 @@ export function createChatApi(
       return null as unknown as SessionSnapshot;
     },
     prefetchSession: async (sessionId: string, transcriptItemLimit?: number, _readTraceId?: string): Promise<boolean> => {
+      // A thread the phone follows pages its own window (Node: requestPhoneTranscriptPage); one it does not is resumed.
+      const state = shared.sessionStateOf(sessionId);
+      if (state && typeof transcriptItemLimit === 'number') {
+        await shared.transcript.page(sessionId, state, transcriptItemLimit);
+        return true;
+      }
       const [resume] = shared.routeService('prefetchSession', [sessionId, transcriptItemLimit]).requests;
       await client.resumeThread(sessionId, resume?.params.window);
       return true;

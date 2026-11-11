@@ -11,3 +11,8 @@ workspace = true
 base64 = { workspace = true }
 serde_json = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+# tests/native_mirrors.rs. The release the lock already had (through native/mixdog-*'s winresource), not the
+# workspace's 0.9 pin, which no crate uses: no version is added to the core's lock for a test.
+toml = "1.2"

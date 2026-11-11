@@ -104,7 +104,8 @@ impl<'a> RealSources<'a> {
     fn manifest(&self, agent: &str) -> serde_json::Map<String, Value> {
         let parse = |dir: &Path| {
             let text = read_safe(&dir.join("agent.json")).unwrap_or_else(|| "{}".to_owned());
-            serde_json::from_str::<Value>(&text).ok().and_then(|value| value.as_object().cloned()).unwrap_or_default()
+            // A name or job a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+            serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&text)).ok().and_then(|value| value.as_object().cloned()).unwrap_or_default()
         };
         if let Some(own) = self.store_bot_dir(agent) {
             return parse(&own);

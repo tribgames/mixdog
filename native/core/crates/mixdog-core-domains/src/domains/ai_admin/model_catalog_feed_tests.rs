@@ -20,7 +20,7 @@ use super::model_list_node_tests::{Rig, assert_rows, rig};
 use super::provider_sync::spawn_provider_sync;
 
 fn recording() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/model-lists-model-catalog/node-model-lists.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/model-lists-model-catalog/node-model-lists.json")).unwrap()
 }
 
 /// What the publisher was told, as rows.

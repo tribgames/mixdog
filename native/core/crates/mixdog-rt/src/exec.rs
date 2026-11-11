@@ -11,7 +11,7 @@
 //! | io-maintenance | 2, queue 256 | below normal |
 //! | io-spawn | 2, queue 64 | normal |
 //! | io-pty | one thread per job, 64 live per core | normal |
-//! | control / computer / webrtc-media / sqlite-writer | one thread per token spawn | above / normal / below / normal |
+//! | control / computer / webrtc-media / sqlite-writer / effort-judge | one thread per token spawn | above / normal / below / normal / normal |
 //!
 //! [`boot`] builds the executors, installs them and returns the process's tokens.
 
@@ -64,11 +64,12 @@ const LANES: [LaneKind; 7] = [
     LaneKind::PtyIo,
 ];
 
-const THREAD_KINDS: [ThreadKind; 4] = [
+const THREAD_KINDS: [ThreadKind; 5] = [
     ThreadKind::Control,
     ThreadKind::Computer,
     ThreadKind::WebrtcMedia,
     ThreadKind::SqliteWriter,
+    ThreadKind::EffortJudge,
 ];
 
 fn lane_index(kind: LaneKind) -> usize {
@@ -89,6 +90,7 @@ fn thread_index(kind: ThreadKind) -> usize {
         ThreadKind::Computer => 1,
         ThreadKind::WebrtcMedia => 2,
         ThreadKind::SqliteWriter => 3,
+        ThreadKind::EffortJudge => 4,
     }
 }
 
@@ -136,11 +138,13 @@ const fn lane_lease(kind: LaneKind) -> Duration {
 }
 
 /// OS priority of each dedicated-thread kind: the management listener answers while the async
-/// runtimes stall (above normal); video encoders yield to everything (below normal).
+/// runtimes stall (above normal); video encoders yield to everything (below normal). The effort
+/// judge runs at normal priority as Node's judge worker does: a judgment that waits behind bulk work
+/// misses its 500 ms deadline.
 const fn thread_priority(kind: ThreadKind) -> Priority {
     match kind {
         ThreadKind::Control => Priority::AboveNormal,
-        ThreadKind::Computer | ThreadKind::SqliteWriter => Priority::Normal,
+        ThreadKind::Computer | ThreadKind::SqliteWriter | ThreadKind::EffortJudge => Priority::Normal,
         ThreadKind::WebrtcMedia => Priority::BelowNormal,
     }
 }
@@ -226,25 +230,33 @@ pub struct Executors {
     work_runtime: Option<Runtime>,
     lanes: Vec<LaneExec>,
     tasks: TaskRegistry,
-    threads_entered: [AtomicU64; 4],
+    threads_entered: [AtomicU64; THREAD_KINDS.len()],
     priority_failures: Arc<AtomicU64>,
 }
 
 impl Executors {
     pub fn start(config: RtConfig) -> io::Result<Self> {
         let priority_failures = Arc::new(AtomicU64::new(0));
-        let control_runtime = runtime(
-            "mixdog-rt-c",
-            config.control_threads,
-            CONTROL_PRIORITY,
-            &priority_failures,
-        )?;
-        let work_runtime = runtime(
-            "mixdog-rt-w",
-            config.work_threads,
-            WORK_PRIORITY,
-            &priority_failures,
-        )?;
+        #[cfg(feature = "virtual-clock")]
+        let virtual_runtimes = if crate::virtual_clock::requested() {
+            let on = |priority: Priority| {
+                let failures = priority_failures.clone();
+                move || apply_priority(priority, &failures)
+            };
+            Some(crate::virtual_clock::start(on(CONTROL_PRIORITY), on(WORK_PRIORITY))?)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "virtual-clock"))]
+        let virtual_runtimes: Option<(Handle, Handle)> = None;
+        let (control, work, control_runtime, work_runtime) = match virtual_runtimes {
+            Some((control, work)) => (control, work, None, None),
+            None => {
+                let control_runtime = runtime("mixdog-rt-c", config.control_threads, CONTROL_PRIORITY, &priority_failures)?;
+                let work_runtime = runtime("mixdog-rt-w", config.work_threads, WORK_PRIORITY, &priority_failures)?;
+                (control_runtime.handle().clone(), work_runtime.handle().clone(), Some(control_runtime), Some(work_runtime))
+            }
+        };
         let pooled = |kind: LaneKind, params: PoolParams| {
             LaneExec::pooled(
                 kind,
@@ -271,10 +283,10 @@ impl Executors {
         ];
         debug_assert!(LANES.iter().all(|k| lanes[lane_index(*k)].kind() == *k));
         Ok(Self {
-            control: control_runtime.handle().clone(),
-            work: work_runtime.handle().clone(),
-            control_runtime: Some(control_runtime),
-            work_runtime: Some(work_runtime),
+            control,
+            work,
+            control_runtime,
+            work_runtime,
             lanes,
             tasks: TaskRegistry::new(),
             threads_entered: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -347,6 +359,8 @@ impl Backend for Executors {
     }
 
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
         self.lanes[lane_index(job.lane())].submit(job)
     }
 

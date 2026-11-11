@@ -264,7 +264,7 @@ impl NodeCache {
     fn arm(self: &Arc<Self>, delay: Duration) {
         let cache = self.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             locked(&cache.writer).timer_armed = false;
             cache.flush().await;
         });

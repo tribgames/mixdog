@@ -358,6 +358,11 @@ impl DomainService for ThreadScmService {
             GET_BRANCH_MENU => {
                 let params: ThreadGetBranchMenuParams = decode(&req)?;
                 let thread = thread_of(params.thread_id)?;
+                // A session that is not there is the thread's absence, as the workspace mutations answer it (Node's session read:
+                // `session <id> is not available`).
+                if !self.workspaces.hosts(thread.as_str()) {
+                    return Err(CoreError::ThreadNotFound { thread_id: thread });
+                }
                 let menu = self.workspaces.branch_menu(thread.as_str(), &req.ctx.cancel).await;
                 menu.map(Reply::Value).map_err(scm_error)
             }

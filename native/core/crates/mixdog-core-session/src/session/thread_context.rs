@@ -44,6 +44,12 @@ const DOMAIN: &str = "thread context";
 #[async_trait]
 pub trait ContextStatusHost: Send + Sync {
     async fn context_status(&self, thread: Option<ThreadId>, options: Option<Value>) -> Result<Value, CoreError>;
+
+    /// The status of `thread` as it will be once its header is `header`: a route move reads its new figures before the thread
+    /// shows the new route (Node's `setRoute` runs `syncContextStats` before `publishRoute`, routes-write.mjs:133-142).
+    async fn context_status_for(&self, thread: ThreadId, _header: Map<String, Value>) -> Result<Value, CoreError> {
+        self.context_status(Some(thread), None).await
+    }
 }
 
 pub struct ThreadContextService {
@@ -115,6 +121,11 @@ pub trait ContextWorld: Send + Sync {
     /// The snapshot of `thread` (`None` = the current session); `None` when no such session is loaded.
     async fn snapshot(&self, thread: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError>;
 
+    /// The snapshot of `thread` read with `header` in place of the one it holds now.
+    async fn snapshot_for(&self, thread: &ThreadId, _header: Map<String, Value>) -> Result<Option<ContextSnapshot>, CoreError> {
+        self.snapshot(Some(thread)).await
+    }
+
     /// The media meter and the image identities of `thread` on `provider` (the ones its snapshot carries).
     fn lowering(&self, thread: &ThreadId, provider: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>);
 }
@@ -134,29 +145,38 @@ impl LiveContextStatus {
 #[async_trait]
 impl ContextStatusHost for LiveContextStatus {
     async fn context_status(&self, thread: Option<ThreadId>, _options: Option<Value>) -> Result<Value, CoreError> {
-        let Some(snapshot) = self.world.snapshot(thread.as_ref()).await? else { return Ok(Value::Null) };
-        let meter = MessageMeter { media: &*snapshot.media, replay_owner: &snapshot.replay_owner };
-        let signer = TranscriptSigner { meter: &meter, images: &*snapshot.images, rows: &*snapshot.rows };
-        let request_tools = RequestTools { native: &snapshot.request_native, defined: &snapshot.request_defined };
-        let session_tools = RequestTools { native: &[], defined: &snapshot.session_defined };
-        let breakdown = tool_schema_breakdown(&request_tools, &|name| snapshot.annotations.get(name).cloned().unwrap_or_default());
-        let input = StatusInput {
-            session: &snapshot.header,
-            route: Route { provider: &snapshot.provider, model: &snapshot.model, context_window: snapshot.context_window.clone() },
-            cwd: snapshot.cwd.clone(),
-            mode: snapshot.mode.clone(),
-            messages: &snapshot.messages,
-            active: snapshot.active,
-            request_tools,
-            session_tools,
-            tool_breakdown: &breakdown,
-            agent_mode: snapshot.agent_mode,
-            meter: &meter,
-            signer: &signer,
-        };
-        Ok(context_status(&input))
+        Ok(self.world.snapshot(thread.as_ref()).await?.map_or(Value::Null, |snapshot| status_of(&snapshot)))
+    }
+
+    async fn context_status_for(&self, thread: ThreadId, header: Map<String, Value>) -> Result<Value, CoreError> {
+        Ok(self.world.snapshot_for(&thread, header).await?.map_or(Value::Null, |snapshot| status_of(&snapshot)))
     }
 }
+
+/// `context_status` over one snapshot.
+fn status_of(snapshot: &ContextSnapshot) -> Value {
+    let meter = MessageMeter { media: &*snapshot.media, replay_owner: &snapshot.replay_owner };
+    let signer = TranscriptSigner { meter: &meter, images: &*snapshot.images, rows: &*snapshot.rows };
+    let request_tools = RequestTools { native: &snapshot.request_native, defined: &snapshot.request_defined };
+    let session_tools = RequestTools { native: &[], defined: &snapshot.session_defined };
+    let breakdown = tool_schema_breakdown(&request_tools, &|name| snapshot.annotations.get(name).cloned().unwrap_or_default());
+    let input = StatusInput {
+        session: &snapshot.header,
+        route: Route { provider: &snapshot.provider, model: &snapshot.model, context_window: snapshot.context_window.clone() },
+        cwd: snapshot.cwd.clone(),
+        mode: snapshot.mode.clone(),
+        messages: &snapshot.messages,
+        active: snapshot.active,
+        request_tools,
+        session_tools,
+        tool_breakdown: &breakdown,
+        agent_mode: snapshot.agent_mode,
+        meter: &meter,
+        signer: &signer,
+    };
+    context_status(&input)
+}
+
 #[cfg(test)]
 mod tests {
     use mixdog_core_base::support::testing::request;
@@ -180,7 +200,7 @@ mod tests {
     /// Node's recorded statuses come back through the handler byte for byte.
     #[tokio::test]
     async fn answers_nodes_status() {
-        let text = include_str!("../../../../fixtures/context-status/golden.json");
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
         let golden: Value = serde_json::from_str(text).expect("golden json");
         let cases: Vec<(String, Value)> =
             golden["cases"].as_array().expect("cases").iter().map(|c| (c["name"].as_str().expect("name").to_owned(), c["status"].clone())).collect();
@@ -273,7 +293,7 @@ mod tests {
     /// a session that is not loaded is `null`.
     #[tokio::test]
     async fn live_gauge_equals_nodes_for_empty_transcripts() {
-        let text = include_str!("../../../../fixtures/context-status/golden.json");
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
         let golden: Value = serde_json::from_str(text).expect("golden json");
         let host = LiveContextStatus::new(Arc::new(GoldenWorld(golden.clone())));
         let mut compared = 0;
