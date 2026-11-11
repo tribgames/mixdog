@@ -66,8 +66,9 @@ const memory = await importFrom(ctx.tree, 'src/runtime/memory/index.mjs');
 const pgAdapter = await importFrom(ctx.tree, 'src/runtime/memory/lib/pg/adapter.mjs');
 const { openDatabase } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory.mjs');
 await memory.init();
-// The seed's source reference is given: Node's default carries the recorder's process id, which differs per run.
-const appended = await memory.appendEntry({ role: 'user', content: 'the kettle descaling schedule is every second sunday', sessionId: 'sess-cold', sourceRef: 'manual:1748736000000-57380' });
+// The seed's source reference is given (declared in the manifest's inputValues).
+const SOURCE_REF = 'manual:1748736000000-57380';
+const appended = await memory.appendEntry({ role: 'user', content: 'the kettle descaling schedule is every second sunday', sessionId: 'sess-cold', sourceRef: SOURCE_REF });
 
 const step = async (label, args) => {
   const at = { posted: posted.length };
@@ -96,6 +97,14 @@ finish(ctx, {
     replay: 'native/core/crates/mixdog-services/src/memory/tests/cold_recall.rs',
     exclusions: 'the embedding worker thread is a recorded seam (its warmup held, then answered with an error); no model is loaded',
     normalised: 'none',
+    inputValues: [
+      {
+        input: 'appendEntry({ sourceRef }) of the seed entry',
+        value: SOURCE_REF,
+        reason:
+          "supplied by the recorder through the argument Node accepts (src/runtime/memory/index.mjs:605 data.sourceRef); Node's default `manual:${Date.now()}-${process.pid}` carries the recorder's process id, which differs per run, so two recordings would not be byte-identical. The value has the default's form at the frozen clock",
+      },
+    ],
   },
 });
 await memory.stop().catch(() => {});

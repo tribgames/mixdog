@@ -10,6 +10,13 @@
       "sha256": "6b6474b94b03707f218418e7757dc77df87aa69b0564f93d937ef8ee694ae486"
     }
   ],
+  "inputValues": [
+    {
+      "input": "appendEntry({ sourceRef }) of the seed entry",
+      "reason": "supplied by the recorder through the argument Node accepts (src/runtime/memory/index.mjs:605 data.sourceRef); Node's default `manual:${Date.now()}-${process.pid}` carries the recorder's process id, which differs per run, so two recordings would not be byte-identical. The value has the default's form at the frozen clock",
+      "value": "manual:1748736000000-57380"
+    }
+  ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -48,7 +55,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-cold-recall.mjs",
-  "recorderSha256": "793762bb12865db70c368506729e08db1f86c6c4108caf26dd81b1df41183d78",
+  "recorderSha256": "e70ff2cc6ee92a103f1bd3f617401e948639413ee2ce701a0abf6eb36422bb4f",
   "replay": "native/core/crates/mixdog-services/src/memory/tests/cold_recall.rs",
   "set": "memory-cold-recall",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
