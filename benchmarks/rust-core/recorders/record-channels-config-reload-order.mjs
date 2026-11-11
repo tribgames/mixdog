@@ -53,8 +53,7 @@ const walk = (base) => {
 };
 // Backup directory names carry a hashed scope and a timestamp; they are labelled by order (declared in `normalised`).
 const backups = () => walk(backupRoot)
-  .map((file) => ({ ...file, path: file.path.replace(/^scope-[0-9a-f]+\//, '<scope>/').replace(/^<scope>\/\d{4}-[^/]*?Z-(\d+-[a-z-]+)\//, '<scope>/<time>-$1/') }))
-  .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.text < b.text ? -1 : 1));
+  .map((file) => ({ ...file, path: file.path.replace(/^scope-[0-9a-f]+\//, '<scope>/').replace(/^<scope>\/\d{4}-[^/]*?Z-(\d+-[a-z-]+)\//, '<scope>/<time>-$1/') }));
 const disk = () => ({ dataDir: walk(dataDir), backups: backups() });
 
 // Waits for the n-th reload callback.
@@ -165,9 +164,9 @@ finish(ctx, {
   golden: { domain: 'channels-config-reload-order', source: 'src/runtime/channels/lib/config-reload-watch.test.mjs', cases, finalDisk, afterRemoval },
   extra: {
     entry: { runs: 'createConfigReloadWatch (config-reload-watch.mjs) subscribed to the real shared config change feed (shared/config.mjs subscribeConfigChange, a real directory watcher) in a private data dir; writes by updateSection in-process and, for case 55, by a real child process; the real createConfigReloader (owned-runtime/config-reload.mjs) for case 92', notRun: 'the config loader of case 92 (scripted, settled by the recorder), the scheduler and the webhook/event services (call recorders)' },
-    replay: 'mixdog-services daemon: domain_seams/channel_stack.rs, the config.changes() subscription that calls ChannelRuntime::reload_runtime (reload_turn serialized by reload_gate); drive it with the real ConfigWatcher over a temp data dir: compares per step the reload count and, for case 92, the ordered effects (setConfig, scheduler.reloadConfig restart flag, sync/stop services) and the final config; the files on disk are Node\'s config.json bytes for the Rust writer to equal',
+    replay: "Rust: the config change feed is mixdog-core-config config/mod.rs:370 (pub fn changes), wired at mixdog-app-server-daemon compose_flip.rs:801; the reload is ChannelLifecycle::reload_config (mixdog-services channels/runtime.rs:393) -> ChannelRuntime::reload_runtime (:316). No consumer of config.changes() that reloads the channel runtime on an EXTERNAL write was found on o1 (gap item 4 of gaps-memory-channels): cases 55 and 75 (every external write reloads; only channels/voice sections reload) are work for the Rust side. Case 92 (a slower load of an older config never overwrites a newer one) is replayed through ChannelLifecycle::reload_config called twice with scripted loads settled in reverse order; compares the ordered effects (setConfig, scheduler.reloadConfig restart flag, sync/stop services) and the final config. The files recorded are Node's config.json bytes for the Rust writer to equal",
     exclusions: 'none. NOTE for the Rust side: cases 55 and 75 are not recorded by branch gaps-memory-channels (its channels fixtures are channel-remote-intent and webhook-late-reload), so this set holds them',
-    normalised: { 'private root': 'temp, not recorded; paths are relative to the data dir / backup root', 'file texts': 'the private data dir path, UUIDs (the instance id) and ISO timestamps inside the files are written <data-dir>, <instance-id>, <time>', 'backup directory names': 'scope-<hash> written <scope>, the ISO time in <time>-<sequence>-<kind> written <time>; the backup list is sorted by path then text (the order the files are listed in is not an order of the product)' },
+    normalised: { 'private root': 'temp, not recorded; paths are relative to the data dir / backup root', 'file texts': 'the private data dir path, UUIDs (the instance id) and ISO timestamps inside the files are written <data-dir>, <instance-id>, <time>', 'backup directory names': 'scope-<hash> written <scope>, the ISO time in <time>-<sequence>-<kind> written <time> (files are listed by path, the directory order)' },
   },
 });
 process.exit(0);

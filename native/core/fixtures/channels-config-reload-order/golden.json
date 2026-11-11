@@ -55,6 +55,14 @@
             ],
             "backups": [
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
@@ -65,14 +73,6 @@
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -97,8 +97,12 @@
             ],
             "backups": [
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -109,28 +113,24 @@
                 "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
                 "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -156,12 +156,12 @@
             ],
             "backups": [
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -172,8 +172,32 @@
                 "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
                 "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
@@ -182,30 +206,6 @@
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -235,12 +235,12 @@
             ],
             "backups": [
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -251,8 +251,32 @@
                 "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
                 "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
@@ -261,30 +285,6 @@
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -325,12 +325,12 @@
             ],
             "backups": [
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -341,8 +341,32 @@
                 "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
                 "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
@@ -351,30 +375,6 @@
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -441,12 +441,12 @@
             ],
             "backups": [
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -457,8 +457,32 @@
                 "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
                 "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
@@ -467,30 +491,6 @@
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -568,12 +568,12 @@
             ],
             "backups": [
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
-                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -584,8 +584,32 @@
                 "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
                 "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
+              },
+              {
+                "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
@@ -594,30 +618,6 @@
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
                 "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-                "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
-              },
-              {
-                "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-                "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
               },
               {
                 "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
@@ -741,12 +741,12 @@
     ],
     "backups": [
       {
-        "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+        "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
       },
       {
-        "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
-        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+        "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+        "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
       },
       {
         "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
@@ -757,8 +757,32 @@
         "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
       },
       {
+        "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+      },
+      {
+        "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+        "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+      },
+      {
+        "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+      },
+      {
         "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
         "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+      },
+      {
+        "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
+        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
+      },
+      {
+        "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
+        "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
+      },
+      {
+        "path": "<scope>/<time>-0000000000-pre-config-write/backup.json",
+        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
       },
       {
         "path": "<scope>/<time>-0000000000-pre-config-write/mixdog-config.json",
@@ -767,30 +791,6 @@
       {
         "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
         "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-      },
-      {
-        "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-      },
-      {
-        "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-      },
-      {
-        "path": "<scope>/<time>-0000000001-post-config-write/backup.json",
-        "text": "{\n  \"dataDir\": \"<data-dir>\",\n  \"instanceId\": \"<instance-id>\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"<time>\"\n}\n"
-      },
-      {
-        "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-        "text": "{\n  \"channels\": {\n    \"revision\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
-      },
-      {
-        "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-        "text": "{\n  \"channels\": {\n    \"revision\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
-      },
-      {
-        "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
-        "text": "{\n  \"channels\": {\n    \"revision\": 3\n  },\n  \"defaultsVersion\": 2\n}\n"
       },
       {
         "path": "<scope>/<time>-0000000001-post-config-write/mixdog-config.json",
