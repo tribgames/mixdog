@@ -41,12 +41,20 @@ use mixdog_store::schema::record::Header;
 pub trait IngestOffsets: Send + Sync {
     /// Drops the persisted position of each transcript; the number of entries removed.
     async fn forget_transcripts(&self, paths: &[PathBuf]) -> usize;
+
+    /// Replaces a transcript line for line with `rewrite` of its text, its read position kept on
+    /// the same line (`TranscriptIngest::rewrite_transcript`); whether the file changed.
+    async fn rewrite_transcript(&self, path: &Path, rewrite: mixdog_services::memory::transcript::LineRewrite) -> std::io::Result<bool>;
 }
 
 #[async_trait]
 impl IngestOffsets for TranscriptIngest {
     async fn forget_transcripts(&self, paths: &[PathBuf]) -> usize {
         TranscriptIngest::forget_transcripts(self, paths).await
+    }
+
+    async fn rewrite_transcript(&self, path: &Path, rewrite: mixdog_services::memory::transcript::LineRewrite) -> std::io::Result<bool> {
+        TranscriptIngest::rewrite_transcript(self, path, rewrite).await
     }
 }
 
@@ -64,6 +72,9 @@ pub struct PurgeOwners {
     /// The memory service's transcript ingest; `None` when memory is off (Node's
     /// `memoryRuntime?.forgetTranscripts`).
     pub ingest_offsets: Option<Arc<dyn IngestOffsets>>,
+    /// The process's transcript writers: a deleted session's writer is stopped, its queued lines
+    /// discarded and its later appends refused before its files go (`purgeSessionTranscripts`).
+    pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
     /// The provider registry: each provider's connections of the session.
     pub providers: Arc<mixdog_ai::registry::providers::ProviderRegistry>,
     /// The agent tool's worker-turn observer.
@@ -153,7 +164,7 @@ fn remove_all(lane: &InLane<MaintenanceIo>, targets: &[PathBuf]) {
 impl PurgeHooks {
     /// The hooks bound to `owners`, in a booted 1.4.5 daemon's order.
     pub fn new(owners: PurgeOwners) -> Self {
-        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, providers, worker_turns, agents, retention } = owners;
+        let PurgeOwners { data_dir, mixdog_home, maintenance, read_state, warm, ingest_offsets, transcripts: writers, providers, worker_turns, agents, retention } = owners;
         let lane = maintenance;
         let data = data_dir.clone();
         let transcript_export = hook(move |id, _| {
@@ -180,20 +191,29 @@ impl PurgeHooks {
                 return done();
             }
             let projects = mixdog_home.join("projects");
-            let mut paths: Vec<PathBuf> = Vec::new();
+            let mut cwd_paths: Vec<PathBuf> = Vec::new();
             for cwd in cwds.iter().filter(|cwd| !cwd.is_empty()) {
-                let path = projects.join(project_slug(cwd)).join(format!("{id}.jsonl"));
-                if !paths.contains(&path) {
-                    paths.push(path);
-                }
+                cwd_paths.push(projects.join(project_slug(cwd)).join(format!("{id}.jsonl")));
             }
-            let removal = on_lane(lane, {
-                let paths = paths.clone();
-                move |lane| remove_transcripts(lane, &paths)
-            });
-            let offsets = ingest_offsets.clone().filter(|_| !paths.is_empty());
+            let (writers, offsets, id) = (writers.clone(), ingest_offsets.clone(), id.to_owned());
             Box::pin(async move {
-                removal.await;
+                // The writers' own paths first, then the known cwds' (`knownPaths` and `cwds`): the
+                // writer is stopped and refused from here on, so nothing recreates a file below.
+                let mut paths = match &writers {
+                    Some(writers) => writers.purge(&id).await,
+                    None => Vec::new(),
+                };
+                for path in cwd_paths {
+                    if !paths.contains(&path) {
+                        paths.push(path);
+                    }
+                }
+                let offsets = offsets.filter(|_| !paths.is_empty());
+                on_lane(lane, {
+                    let paths = paths.clone();
+                    move |lane| remove_transcripts(lane, &paths)
+                })
+                .await;
                 // Not awaited: the position blob is a best-effort request to the memory service.
                 if let Some(offsets) = offsets {
                     drop(mixdog_rt::spawn("session-delete-offsets", mixdog_rt::TaskClass::Work, async move {

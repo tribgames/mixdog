@@ -57,12 +57,108 @@ fn conversation_text(content: &Value) -> String {
 
 /// The transcripts of the process's sessions.
 pub struct TranscriptFiles {
-    projects: PathBuf,
     lane: DurabilityIo,
     clock: Arc<dyn Clock>,
+    shared: Arc<Shared>,
+    /// Each session's writer, the session+cwd it was made for and its mark subscription, oldest first.
+    writers: Mutex<Vec<WriterEntry>>,
+}
+
+struct WriterEntry {
+    session: String,
+    made_for: String,
+    path: PathBuf,
+    tx: mpsc::UnboundedSender<Op>,
+    _marks: mixdog_services::memory::sensitive::Subscription,
+}
+
+/// What the writers and the purge and redaction entry points share.
+struct Shared {
+    projects: PathBuf,
+    lane: DurabilityIo,
     sensitive: Arc<SensitiveStore>,
-    /// Each session's writer and the session+cwd it was made for, oldest first.
-    writers: Mutex<Vec<(String, String, mpsc::UnboundedSender<Op>)>>,
+    /// The memory watcher's ingest, when memory runs: a rewrite goes through it so the watcher's
+    /// read position stays on the same line.
+    ingest: std::sync::OnceLock<Arc<dyn super::purge::IngestOffsets>>,
+    /// Deleted sessions (`purgedSessions`): their writers write nothing more, ids are never reused.
+    purged: Mutex<Vec<String>>,
+    /// The transcript paths this process's writers used per session (`knownPaths`).
+    known: Mutex<Vec<(String, PathBuf)>>,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl Shared {
+    fn is_purged(&self, session: &str) -> bool {
+        lock(&self.purged).iter().any(|id| id == session)
+    }
+
+    /// Every transcript of `session`: the paths its writers used, and `<id>.jsonl` in any project
+    /// folder (a file written before this process, under an earlier cwd), each with its `.1`.
+    async fn session_files(&self, session: &str) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = lock(&self.known).iter().filter(|(id, _)| id == session).map(|(_, path)| path.clone()).collect();
+        let (projects, name) = (self.projects.clone(), format!("{session}.jsonl"));
+        let listed = match self
+            .lane
+            .submit_wait(&mixdog_rt::CancellationToken::new(), move |lane| {
+                let folders = mixdog_statefile::list_dir(lane, &projects).unwrap_or_default();
+                folders.into_iter().map(|folder| projects.join(folder).join(&name)).filter(|path| mixdog_statefile::metadata(lane, path).is_ok()).collect::<Vec<_>>()
+            })
+            .await
+        {
+            Ok(job) => job.await.unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        for path in listed {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+        let mut all = Vec::new();
+        for path in paths {
+            let mut rotated = path.clone().into_os_string();
+            rotated.push(".1");
+            all.push(path);
+            all.push(PathBuf::from(rotated));
+        }
+        all
+    }
+
+    /// Every transcript of `session` rewritten with its sensitive values replaced, line for line.
+    async fn redact_files(&self, session: &str) {
+        for path in self.session_files(session).await {
+            let (sensitive, id) = (self.sensitive.clone(), session.to_owned());
+            let rewrite: mixdog_services::memory::transcript::LineRewrite = Box::new(move |text| redact_lines(&sensitive, &id, &text));
+            let rewritten = match self.ingest.get() {
+                Some(ingest) => ingest.rewrite_transcript(&path, rewrite).await,
+                None => mixdog_services::memory::transcript::rewrite_lines_file(self.lane, &path, rewrite).await.map(|done| done.is_some()),
+            };
+            if let Err(error) = rewritten {
+                tracing::warn!(?error, path = %path.display(), "transcript-writer: a marked value could not be redacted in the transcript");
+            }
+        }
+    }
+}
+
+/// The lines of a transcript with the session's sensitive values replaced in each line's
+/// `message` (what the writer would write for it now); every other line, and every byte between
+/// lines, as it was.
+fn redact_lines(sensitive: &SensitiveStore, session: &str, text: &str) -> String {
+    text.split('\n')
+        .map(|line| {
+            let Ok(Value::Object(mut entry)) = serde_json::from_str::<Value>(line) else { return line.to_owned() };
+            let Some(message) = entry.get("message") else { return line.to_owned() };
+            let redacted = sensitive.redact_message(session, message);
+            if &redacted == message {
+                return line.to_owned();
+            }
+            entry.insert("message".into(), redacted);
+            mixdog_js::json_stringify(&Value::Object(entry))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// What a session's writer task does next, in order.
@@ -75,6 +171,9 @@ enum Op {
     Assistant(String),
     /// `appendFinalAssistant`: written unless it is the last appended assistant text.
     Final(String),
+    /// A value was marked: the session's transcripts are rewritten redacted, after every line
+    /// queued before (each later line is redacted as it is written).
+    Redact(Option<oneshot::Sender<()>>),
     Flushed(oneshot::Sender<()>),
 }
 
@@ -86,6 +185,7 @@ struct Writer {
     memory_eligible: bool,
     clock: Arc<dyn Clock>,
     sensitive: Arc<SensitiveStore>,
+    shared: Arc<Shared>,
     /// `createRotationTracker`'s state.
     size_checked: bool,
     last_known: u64,
@@ -97,7 +197,78 @@ struct Writer {
 impl TranscriptFiles {
     /// The transcripts under `mixdog_home`'s `projects`.
     pub fn new(mixdog_home: &Path, lane: DurabilityIo, clock: Arc<dyn Clock>, sensitive: Arc<SensitiveStore>) -> Arc<Self> {
-        Arc::new(Self { projects: mixdog_home.join("projects"), lane, clock, sensitive, writers: Mutex::default() })
+        let shared = Arc::new(Shared {
+            projects: mixdog_home.join("projects"),
+            lane,
+            sensitive,
+            ingest: std::sync::OnceLock::new(),
+            purged: Mutex::default(),
+            known: Mutex::default(),
+        });
+        Arc::new(Self { lane, clock, shared, writers: Mutex::default() })
+    }
+
+    /// The memory watcher's ingest, through which a redaction rewrites a transcript.
+    pub fn attach_ingest(&self, ingest: Arc<dyn super::purge::IngestOffsets>) {
+        let _ = self.shared.ingest.set(ingest);
+    }
+
+    /// Every transcript of `thread` rewritten with the session's sensitive values replaced by the
+    /// marker later lines get, each line kept in place. Ordered after every line already queued
+    /// for the session's writer; a line queued later is redacted as it is written, so no append
+    /// brings a marked value back. With the memory service attached the rewrite holds the file's
+    /// ingest gate and moves the watcher's read position to the same line of the new file.
+    /// Resolves once the files are rewritten. A marked value calls this by itself; a caller that
+    /// must not acknowledge the mark before the files are clean awaits it.
+    pub async fn redact_session(&self, thread: &str) {
+        let live = lock(&self.writers).iter().find(|entry| entry.session == thread && !entry.tx.is_closed()).map(|entry| entry.tx.clone());
+        if let Some(tx) = live {
+            let (done, rx) = oneshot::channel();
+            if tx.send(Op::Redact(Some(done))).is_ok() && rx.await.is_ok() {
+                return;
+            }
+        }
+        self.shared.redact_files(thread).await;
+    }
+
+    /// `purgeSessionTranscripts`' writer half: `thread` is deleted, so its writers write nothing
+    /// more (their queued lines are discarded, a later append is refused) and no writer is made
+    /// for it again. Resolves once a write already running has ended; returns the paths the
+    /// writers used, for the caller to remove.
+    pub async fn purge(&self, thread: &str) -> Vec<PathBuf> {
+        {
+            let mut purged = lock(&self.shared.purged);
+            purged.retain(|id| id != thread);
+            purged.push(thread.to_owned());
+            if purged.len() > MAX_WRITERS {
+                purged.remove(0);
+            }
+        }
+        let stopped: Vec<WriterEntry> = {
+            let mut writers = lock(&self.writers);
+            let (gone, kept) = std::mem::take(&mut *writers).into_iter().partition(|entry| entry.session == thread);
+            *writers = kept;
+            gone
+        };
+        for entry in &stopped {
+            let (done, rx) = oneshot::channel();
+            if entry.tx.send(Op::Flushed(done)).is_ok() {
+                let _ = rx.await;
+            }
+        }
+        let mut paths: Vec<PathBuf> = Vec::new();
+        lock(&self.shared.known).retain(|(id, path)| {
+            if id == thread && !paths.contains(path) {
+                paths.push(path.clone());
+            }
+            id != thread
+        });
+        for entry in stopped {
+            if !paths.contains(&entry.path) {
+                paths.push(entry.path);
+            }
+        }
+        paths
     }
 
     /// `ensureSessionTranscriptWriter` at a turn's preparation: the writer of the session `header`
@@ -105,32 +276,44 @@ impl TranscriptFiles {
     /// conversation before the turn. `None` for a session whose memory is off: its conversation
     /// never reaches memory (Node runs it in a pristine home that is removed afterwards).
     pub fn turn(&self, thread: &str, header: &Header, prior: &[Value]) -> Option<TurnTranscript> {
-        if super::session_options::memory_off(header) || thread.is_empty() {
+        if super::session_options::memory_off(header) || thread.is_empty() || self.shared.is_purged(thread) {
             return None;
         }
         let cwd = header.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty())?;
         let cwd = super::user_cwd::node_resolve(cwd);
         let key = format!("{thread}\u{0}{cwd}");
-        let mut writers = self.writers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let found = writers.iter().position(|(id, made_for, tx)| id == thread && *made_for == key && !tx.is_closed());
+        let mut writers = lock(&self.writers);
+        let found = writers.iter().position(|entry| entry.session == thread && entry.made_for == key && !entry.tx.is_closed());
         let tx = match found {
-            Some(at) => writers[at].2.clone(),
+            Some(at) => writers[at].tx.clone(),
             None => {
-                writers.retain(|(id, _, _)| id != thread);
+                writers.retain(|entry| entry.session != thread);
+                let path = self.shared.projects.join(super::purge::project_slug(&cwd)).join(format!("{thread}.jsonl"));
+                {
+                    let mut known = lock(&self.shared.known);
+                    if !known.iter().any(|(id, known)| id == thread && *known == path) {
+                        known.push((thread.to_owned(), path.clone()));
+                    }
+                }
                 let writer = Writer {
-                    path: self.projects.join(super::purge::project_slug(&cwd)).join(format!("{thread}.jsonl")),
+                    path: path.clone(),
                     session: thread.to_owned(),
                     cwd,
                     memory_eligible: !super::thread_switches::agent_owner(header),
                     clock: self.clock.clone(),
-                    sensitive: self.sensitive.clone(),
+                    sensitive: self.shared.sensitive.clone(),
+                    shared: self.shared.clone(),
                     size_checked: false,
                     last_known: 0,
                     since_check: 0,
                     last_assistant: String::new(),
                 };
                 let tx = writer.spawn(self.lane);
-                writers.push((thread.to_owned(), key, tx.clone()));
+                let marked = tx.clone();
+                let marks = self.shared.sensitive.on_marked(thread, move |_| {
+                    let _ = marked.send(Op::Redact(None));
+                });
+                writers.push(WriterEntry { session: thread.to_owned(), made_for: key, path, tx: tx.clone(), _marks: marks });
                 if writers.len() > MAX_WRITERS {
                     writers.remove(0);
                 }
@@ -174,13 +357,29 @@ impl TurnTranscript {
 impl Writer {
     fn spawn(self, lane: DurabilityIo) -> mpsc::UnboundedSender<Op> {
         let (tx, mut rx) = mpsc::unbounded_channel::<Op>();
+        let (session, shared) = (self.session.clone(), self.shared.clone());
         drop(mixdog_rt::spawn("session-transcript", mixdog_rt::TaskClass::Work, async move {
             let mut writer = Some(self);
             while let Some(op) = rx.recv().await {
-                if let Op::Flushed(done) = op {
-                    let _ = done.send(());
-                    continue;
-                }
+                let op = match op {
+                    Op::Flushed(done) => {
+                        let _ = done.send(());
+                        continue;
+                    }
+                    Op::Redact(done) => {
+                        if !shared.is_purged(&session) {
+                            shared.redact_files(&session).await;
+                        }
+                        if let Some(done) = done {
+                            let _ = done.send(());
+                        }
+                        continue;
+                    }
+                    // A deleted session's queued lines are discarded (`discardBuffered`), and it
+                    // writes nothing more (`isSessionTranscriptPurged`).
+                    _ if shared.is_purged(&session) => continue,
+                    op => op,
+                };
                 let Some(mut current) = writer.take() else { break };
                 let job = lane.submit(&mixdog_rt::CancellationToken::new(), move |lane| {
                     current.apply(lane, op);
@@ -228,7 +427,7 @@ impl Writer {
                 self.append_text(lane, "assistant", &text);
                 self.last_assistant = text;
             }
-            Op::Flushed(_) => {}
+            Op::Redact(_) | Op::Flushed(_) => {}
         }
     }
 
@@ -416,6 +615,150 @@ mod tests {
             let rotated = std::fs::metadata(&rotated).ok().map(|meta| meta.len());
             assert_eq!(rotated, case["rotated"]["size"].as_u64(), "{name}: the rotated generation");
         }
+    }
+
+    /// A memory ingest whose rewrites wait for `release`: the writer is held inside a redaction
+    /// while lines and marks queue behind it.
+    struct HeldIngest(tokio::sync::Semaphore);
+
+    #[async_trait::async_trait]
+    impl super::super::purge::IngestOffsets for HeldIngest {
+        async fn forget_transcripts(&self, _: &[PathBuf]) -> usize {
+            0
+        }
+
+        async fn rewrite_transcript(&self, path: &Path, rewrite: mixdog_services::memory::transcript::LineRewrite) -> std::io::Result<bool> {
+            drop(self.0.acquire().await);
+            let done = mixdog_services::memory::transcript::rewrite_lines_file(mixdog_rt::testing::tokens().maintenance_io, path, rewrite).await?;
+            Ok(done.is_some())
+        }
+    }
+
+    struct Rig {
+        _home: tempfile::TempDir,
+        files: Arc<TranscriptFiles>,
+        sensitive: Arc<SensitiveStore>,
+        header: Header,
+        path: PathBuf,
+    }
+
+    const SESSION: &str = "sess_marks";
+
+    fn rig() -> Rig {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = home.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let cwd = cwd.to_string_lossy().into_owned();
+        let sensitive = Arc::new(SensitiveStore::default());
+        let files = TranscriptFiles::new(home.path(), mixdog_rt::testing::tokens().durability_io, Arc::new(Now), sensitive.clone());
+        let mut header = Header::new();
+        header.insert("cwd".into(), json!(cwd));
+        let path = home.path().join("projects").join(super::super::purge::project_slug(&cwd)).join(format!("{SESSION}.jsonl"));
+        Rig { _home: home, files, sensitive, header, path }
+    }
+
+    fn mark(sensitive: &SensitiveStore, value: &str) {
+        assert!(sensitive.remember(SESSION, &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "text": value, "sensitive": true } } })]));
+    }
+
+    /// The texts of the file's lines, in order.
+    fn texts(path: &Path) -> Vec<String> {
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap()["message"]["content"][0]["text"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    /// A value marked in the turn that wrote it: the line already on disk is rewritten, the
+    /// line written after the mark is redacted as it is written.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_value_marked_in_the_same_turn_leaves_no_plain_copy() {
+        let r = rig();
+        let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+        turn.user(&json!("the code is 4711"));
+        turn.flushed().await;
+        assert_eq!(texts(&r.path), ["the code is 4711"]);
+        mark(&r.sensitive, "4711");
+        turn.final_text("typed 4711");
+        turn.flushed().await;
+        assert_eq!(texts(&r.path), ["the code is [redacted]", "typed [redacted]"]);
+    }
+
+    /// A value marked two turns after the one that wrote it: every earlier line of every turn is
+    /// rewritten in place, the rest as they were.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_value_marked_two_turns_later_is_redacted_in_the_earlier_lines() {
+        let r = rig();
+        for (prompt, answer) in [("my pin is 4711", "noted 4711"), ("what now", "wait"), ("fill it", "filling")] {
+            let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+            turn.user(&json!(prompt));
+            turn.final_text(answer);
+            turn.flushed().await;
+        }
+        mark(&r.sensitive, "4711");
+        r.files.redact_session(SESSION).await;
+        assert_eq!(texts(&r.path), ["my pin is [redacted]", "noted [redacted]", "what now", "wait", "fill it", "filling"]);
+    }
+
+    /// A mark while lines are queued behind a held write: the queued line is redacted when it is
+    /// written, so no append brings the value back after the rewrite.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_mark_while_a_write_is_queued_reaches_the_queued_line() {
+        let r = rig();
+        let held = Arc::new(HeldIngest(tokio::sync::Semaphore::new(0)));
+        r.files.attach_ingest(held.clone());
+        let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+        turn.user(&json!("first a1b2"));
+        turn.flushed().await;
+        // The writer enters the rewrite of the first mark and waits there.
+        mark(&r.sensitive, "a1b2");
+        turn.final_text("then z9y8");
+        mark(&r.sensitive, "z9y8");
+        held.0.add_permits(16);
+        turn.flushed().await;
+        assert_eq!(texts(&r.path), ["first [redacted]", "then [redacted]"]);
+    }
+
+    /// A deleted session's writer, held mid-write with lines queued: the delete waits for the
+    /// running write, discards the queued lines and refuses every later one, so the removed file
+    /// never comes back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_deleted_sessions_writer_never_recreates_its_transcript() {
+        let r = rig();
+        let held = Arc::new(HeldIngest(tokio::sync::Semaphore::new(0)));
+        r.files.attach_ingest(held.clone());
+        let turn = r.files.turn(SESSION, &r.header, &[]).unwrap();
+        turn.user(&json!("one 4711"));
+        turn.flushed().await;
+        mark(&r.sensitive, "4711");
+        turn.final_text("queued behind the held write");
+        let purge = tokio::spawn({
+            let files = r.files.clone();
+            async move { files.purge(SESSION).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!purge.is_finished(), "the delete waits for the running write");
+        held.0.add_permits(16);
+        let paths = purge.await.unwrap();
+        assert_eq!(paths, [r.path.clone()]);
+        std::fs::remove_file(&r.path).unwrap();
+        turn.user(&json!("an append after the delete"));
+        turn.flushed().await;
+        assert!(r.files.turn(SESSION, &r.header, &[]).is_none(), "no writer is made for a deleted session");
+        assert!(!r.path.exists(), "nothing recreated the transcript");
+    }
+
+    /// The read position a rewrite carries over ends the same line in the new text.
+    #[test]
+    fn the_read_position_moves_to_the_same_line() {
+        use mixdog_services::memory::transcript::same_line_offset;
+        let old = b"{\"a\":\"4711\"}\n{\"b\":1}\n{\"c\":2}\n";
+        let new = b"{\"a\":\"[redacted]\"}\n{\"b\":1}\n{\"c\":2}\n";
+        assert_eq!(same_line_offset(old, new, 0.0), 0.0);
+        assert_eq!(same_line_offset(old, new, 13.0), 19.0);
+        assert_eq!(same_line_offset(old, new, 21.0), 27.0);
+        assert_eq!(same_line_offset(old, new, old.len() as f64), new.len() as f64);
     }
 
     #[test]
