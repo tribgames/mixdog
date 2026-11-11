@@ -5,7 +5,7 @@
 //! tool results), the requests outside the turn, the working folder, for a run interrupted by Ctrl+C or killed, what it
 //! left (pristine roots, live child processes), and for the case recorded beside a running daemon, whether that daemon
 //! still answers. What is left out of the output and the requests outside the turn is named, with its side and reason, in
-//! the manifest (`stderrNotCompared`, `othersNotCompared`); everything else is compared whole.
+//! the manifest (`stderrNotCompared`, `othersNotCompared`), each one exact line or request; everything else is compared whole.
 //!
 //! The binary reaches the stand-in through the `test-support` pin of its HTTP client (`REPLAY_PROVIDER_PIN`): every
 //! connect goes to the stand-in, which serves TLS under a throwaway certificate for the recorded hosts. Ctrl+C is a
@@ -79,6 +79,8 @@ fn normalize(text: &str, sandbox: &str) -> String {
     }
     let rules = [
         (r"\(node:\d+\)", "(node:<pid>)"),
+        (r"(\[atomic-file\] async lock wait )\d+ms: queueWaitMs=\d+ms osAcquireMs=\d+ms", "${1}<ms>: queueWaitMs=<ms> osAcquireMs=<ms>"),
+        (r"mixdog-headless-pristine-[A-Za-z0-9]+", "mixdog-headless-pristine-<id>"),
         (r"sess_[A-Za-z0-9_]+", "<session>"),
         (r"exec_[0-9a-f]{32}", "<thread>"),
         (r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", "<time>"),
@@ -103,30 +105,60 @@ fn ordered(chunks: &[(&'static str, Vec<u8>)], sandbox: &str) -> Value {
     Value::Array(joined.into_iter().map(|(stream, text)| json!({ "stream": stream, "text": normalize(&text, sandbox) })).collect())
 }
 
-/// The manifest's declared leave-outs: `stderrNotCompared` (patterns of Node's own diagnostic lines) and `othersNotCompared`
-/// (patterns of requests only one side makes, with the side).
+/// The manifest's declared leave-outs: `stderrNotCompared` (each an exact `line` of one side's stderr) and `othersNotCompared`
+/// (each an exact `request` only one side makes), every one with its side and reason. Each must be met by what it names, in some
+/// case: a leave-out that matches nothing hides nothing and is not declared.
 struct NotCompared {
-    stderr: Vec<(String, regex::Regex)>,
-    others: Vec<(String, regex::Regex)>,
+    stderr: Vec<Declared>,
+    others: Vec<Declared>,
+}
+
+struct Declared {
+    side: String,
+    name: String,
+    text: String,
+    /// What it names is a timing fact (it may or may not occur in a recording): it need not be met.
+    timing: bool,
+    met: std::cell::Cell<bool>,
 }
 
 impl NotCompared {
     fn from_manifest() -> Self {
         let manifest: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/exec-cli/MANIFEST.json")).unwrap();
-        let declared = |key: &str| -> Vec<(String, regex::Regex)> {
-            manifest[key].as_array().unwrap().iter().map(|entry| (entry["side"].as_str().unwrap().to_owned(), regex::Regex::new(entry["pattern"].as_str().unwrap()).unwrap())).collect()
+        let declared = |key: &str, text: &str| -> Vec<Declared> {
+            manifest[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| {
+                    assert!(!entry["reason"].as_str().unwrap().is_empty(), "{key}: {} has no reason", entry["name"]);
+                    Declared { side: entry["side"].as_str().unwrap().to_owned(), name: entry["name"].as_str().unwrap().to_owned(), text: entry[text].as_str().unwrap().to_owned(), timing: entry["timing"] == true, met: std::cell::Cell::new(false) }
+                })
+                .collect()
         };
-        Self { stderr: declared("stderrNotCompared"), others: declared("othersNotCompared") }
+        Self { stderr: declared("stderrNotCompared", "line"), others: declared("othersNotCompared", "request") }
     }
 
-    /// `output` of `side` (`node` or `core`) without the stderr lines matching a pattern declared for that side; runs the
-    /// leave-out empties are joined again.
+    /// The names of the declared leave-outs that no compared data of their side held.
+    fn unmet(&self) -> Vec<&str> {
+        self.stderr.iter().chain(&self.others).filter(|declared| !declared.timing && !declared.met.get()).map(|declared| declared.name.as_str()).collect()
+    }
+
+    /// Whether a leave-out of `side` names exactly `text`; the ones that do are met.
+    fn names(declared: &[Declared], side: &str, text: &str) -> bool {
+        let named: Vec<&Declared> = declared.iter().filter(|declared| declared.side == side && declared.text == text).collect();
+        named.iter().for_each(|declared| declared.met.set(true));
+        !named.is_empty()
+    }
+
+    /// `output` of `side` (`node` or `core`) without the stderr lines declared for that side; runs the leave-out empties are
+    /// joined again.
     fn output(&self, output: &Value, side: &str) -> Value {
         let mut joined: Vec<(String, String)> = Vec::new();
         for chunk in output.as_array().unwrap() {
             let stream = chunk["stream"].as_str().unwrap();
             let text = chunk["text"].as_str().unwrap();
-            let left_out = |line: &str| self.stderr.iter().any(|(owner, pattern)| owner == side && pattern.is_match(line.trim_end_matches(['\r', '\n'])));
+            let left_out = |line: &str| Self::names(&self.stderr, side, line.trim_end_matches(['\r', '\n']));
             let kept: String = if stream == "stderr" { text.split_inclusive('\n').filter(|line| !left_out(line)).collect() } else { text.to_owned() };
             if kept.is_empty() {
                 continue;
@@ -141,7 +173,7 @@ impl NotCompared {
 
     /// The requests outside the turn that `side` (`node` or `core`) makes, without those declared for that side only.
     fn others(&self, others: &Value, side: &str) -> Value {
-        Value::Array(others.as_array().unwrap().iter().filter(|request| !self.others.iter().any(|(owner, pattern)| owner == side && pattern.is_match(request.as_str().unwrap()))).cloned().collect())
+        Value::Array(others.as_array().unwrap().iter().filter(|request| !Self::names(&self.others, side, request.as_str().unwrap())).cloned().collect())
     }
 }
 
@@ -519,4 +551,5 @@ fn the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case() {
         }
     }
     assert!(differences.is_empty(), "{} difference(s) from Node's CLI:\n{}", differences.len(), differences.join("\n"));
+    assert!(declared.unmet().is_empty(), "declared leave-outs that no compared data of their side held: {:?}", declared.unmet());
 }
