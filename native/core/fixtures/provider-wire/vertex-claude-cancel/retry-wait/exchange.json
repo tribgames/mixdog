@@ -28,7 +28,11 @@
         "content-length"
       ],
       "bodyText": "grant_type=refresh_token&client_id=fixture-client&client_secret=fixture-secret&refresh_token=fixture-refresh-token",
-      "served": "{\"access_token\":\"fixture-token-1\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+      "served": "{\"access_token\":\"fixture-token-1\",\"expires_in\":3600,\"token_type\":\"Bearer\"}",
+      "status": 200,
+      "answerHeaders": {
+        "content-type": "application/json"
+      }
     },
     {
       "transport": "http",
@@ -60,7 +64,12 @@
         "content-length"
       ],
       "bodyText": "{\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Hello\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true,\"anthropic_version\":\"vertex-2023-10-16\"}",
-      "served": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+      "served": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+      "status": 529,
+      "answerHeaders": {
+        "content-type": "application/json",
+        "retry-after-ms": "600000"
+      }
     }
   ],
   "determinism": {
@@ -77,7 +86,20 @@
       "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
       "samples": []
     },
-    "retrySleeps": [],
+    "retrySleeps": [
+      {
+        "seq": 1,
+        "delayMs": 600000,
+        "precedesAttempt": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#timerSleepWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_sleepChunkWithAbort",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ]
+      }
+    ],
     "otherProductTimerSites": [],
     "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
   }

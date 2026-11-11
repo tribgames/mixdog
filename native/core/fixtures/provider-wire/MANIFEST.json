@@ -21,7 +21,7 @@
     "Codex identity (installation id, user agent OS, beta features): the recording machine's, given to the replay as the recorder had it",
     "HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude, vertex-claude-cancel groups) states it; records keep the body served",
     "vertex-claude-cancel error name, message and code: the DOMException AbortError Node's fetch and withRetry throw; the core's send ends as Cancelled, compared as that pairing",
-    "vertex-claude-cancel/retry-wait retrySleeps: empty in Node (the abort lands before its sleep starts); the core's wait is likewise never entered, shown by no further request"
+    "vertex-claude-cancel/retry-wait retrySleeps delayMs: the jittered wait Node armed; the core's wait is shown entered (its send pending after the retry's discard, under a paused clock) and ended by the cancel before the clock moves, not measured"
   ],
   "fileCount": 177,
   "files": [
@@ -776,9 +776,9 @@
       "sha256": "b6e0fc162300b55154f933f1ec3da254fd263b823307d85364857a9f2ef74fc5"
     },
     {
-      "bytes": 3332,
+      "bytes": 3529,
       "path": "vertex-claude-cancel/before-first-byte/exchange.json",
-      "sha256": "36c95e0fc08847b0a638d29aa065a4b6a70a17fb23cb5322eb990e764d925fa1"
+      "sha256": "de39557f7627eda0f512771a6b064adb2203b5615f39369e46748272398d13ac"
     },
     {
       "bytes": 790,
@@ -791,9 +791,9 @@
       "sha256": "96112f7594bd3db4adc5559f60f64bcdd2255bb29efc0fa4795259c98eeef42c"
     },
     {
-      "bytes": 4049,
+      "bytes": 4246,
       "path": "vertex-claude-cancel/mid-stream/exchange.json",
-      "sha256": "6a758d900cf69e5960fc7c4202f02b19cb4dcb0c6c5b377cd0918207687ef0ef"
+      "sha256": "93847d06e7ed7c0340a5fc41fd51f84a535aa153ca2a17dc380adebd0aef9f16"
     },
     {
       "bytes": 790,
@@ -806,9 +806,9 @@
       "sha256": "994fa1478421b8d59ce9a82678b2136e280a422998da02d9923187558d73311a"
     },
     {
-      "bytes": 3362,
+      "bytes": 4164,
       "path": "vertex-claude-cancel/retry-wait/exchange.json",
-      "sha256": "967d08b2731ab09afce183ec26795b43eaac137493216981beca65c426b75035"
+      "sha256": "2ff657b292ae85a4fc5d8fdbe959704007b55e431afc81eba58683c84aface6e"
     },
     {
       "bytes": 790,
@@ -944,7 +944,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "f037b888c3c674c0275a331d6bcdb2b6f8c8e1a7a66e22cdbbe96fa22ce59eaa",
+  "recorderSha256": "b489705e79ebe883df3c74ddc51ae2fa45a869b577af8b62978ceb90b7d594ba",
   "set": "provider-wire",
-  "totalBytes": 394390
+  "totalBytes": 395586
 }
