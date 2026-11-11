@@ -278,8 +278,28 @@ pub fn make_chunk_quality(summary: &str, members: &[Row], verified_at: i64) -> V
     })
 }
 
-/// `assessChunkQuality`: `(usable, reasons)`.
-pub fn assess_chunk_quality(summary: &str, quality: Option<&Value>, members: &[Row]) -> (bool, Vec<&'static str>) {
+/// What `assessChunkQuality` answers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Assessment {
+    pub usable: bool,
+    pub reasons: Vec<&'static str>,
+    /// The record's `verification`, or `"legacy"` for a root without one.
+    pub provenance: Value,
+    pub source_tokens: u64,
+    pub summary_tokens: u64,
+    pub shorter: bool,
+}
+
+/// `assessChunkQuality`.
+pub fn assess_chunk_quality(summary: &str, quality: Option<&Value>, members: &[Row]) -> Assessment {
+    let quality = quality.filter(|q| !q.is_null());
+    let (usable, reasons) = assessment_reasons(summary, quality, members);
+    let (source_tokens, summary_tokens, shorter) = chunk_compression(summary, members);
+    let provenance = quality.and_then(|q| q.get("verification")).filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!("legacy"));
+    Assessment { usable, reasons, provenance, source_tokens, summary_tokens, shorter }
+}
+
+fn assessment_reasons(summary: &str, quality: Option<&Value>, members: &[Row]) -> (bool, Vec<&'static str>) {
     let mut reasons = Vec::new();
     if members.is_empty() {
         reasons.push("missing_source");

@@ -77,212 +77,6 @@ async fn the_receivers_secret_and_opt_in_come_from_the_section() {
     assert_eq!(settings.webhook().await.unwrap(), WebhookSettings { enabled: true, port: json!(5000), domain: None });
 }
 
-/// The reload calls the composition's watch makes (compose_flip.rs passes `ChannelRuntime::reload_runtime`), counted as
-/// Node's recorder counts its reload callback.
-/// Each call carries the `voice` section as it stood when the reload was made.
-struct Reloads {
-    calls: tokio::sync::mpsc::UnboundedReceiver<Value>,
-    seen: Vec<Value>,
-}
-
-impl Reloads {
-    /// Every reload already made, without waiting.
-    fn now(&mut self) -> usize {
-        while let Ok(voice) = self.calls.try_recv() {
-            self.seen.push(voice);
-        }
-        self.seen.len()
-    }
-
-    /// Waits for the `n`-th reload; the deadline only bounds a run that never hears it.
-    async fn reached(&mut self, n: usize, label: &str) -> usize {
-        while self.now() < n {
-            let voice = tokio::time::timeout(std::time::Duration::from_secs(30), self.calls.recv()).await.unwrap_or_else(|_| panic!("{label}: no reload {n}")).unwrap();
-            self.seen.push(voice);
-        }
-        self.seen.len()
-    }
-}
-
-fn watched(config: &Config, cancel: &CancellationToken) -> (tokio::task::JoinHandle<()>, Reloads) {
-    let (tx, calls) = tokio::sync::mpsc::unbounded_channel();
-    let read = config.clone();
-    let watch = watch_channels_config(
-        config.clone(),
-        move || {
-            let _ = tx.send(read.get("voice").unwrap_or(Value::Null));
-            async { Ok(()) }
-        },
-        cancel.clone(),
-    );
-    (watch, Reloads { calls, seen: Vec::new() })
-}
-
-/// The instance id every guard of the replay creates (a UUID, as Node's `randomUUID`; written <instance-id> as Node's).
-const INSTANCE: &str = "00000000-0000-4000-8000-000000000000";
-
-/// One process's user-data guard over the replay's backup root: its own sequence, as each Node process has; the clock is
-/// the replay's one virtual clock, a millisecond further at every read (Node's backups were named by a clock that moved).
-fn guard_of(root: &std::path::Path, clock: &Arc<std::sync::atomic::AtomicI64>) -> Arc<mixdog_core_config::user_data::UserData> {
-    use mixdog_core_config::user_data::{Env, UserData};
-    let backups = root.join("backups").display().to_string();
-    let clock = clock.clone();
-    Arc::new(UserData::new(
-        Env::new(move |name| (name == "MIXDOG_USER_DATA_BACKUP_ROOT").then(|| backups.clone()), Some(root.join("home"))),
-        move || clock.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-        || INSTANCE.to_owned(),
-        |_| {},
-    ))
-}
-
-/// `text` with what Node's recorder normalised: the data dir (as JSON writes it), UUIDs, ISO timestamps.
-fn normalised(text: &str, data_dir: &str) -> String {
-    let escaped = serde_json::to_string(data_dir).unwrap();
-    let text = text.replace(&escaped[1..escaped.len() - 1], "<data-dir>");
-    let (bytes, mut out, mut i) = (text.as_bytes(), String::new(), 0);
-    let shape = |at: usize, pattern: &str| -> bool {
-        bytes.len() >= at + pattern.len()
-            && pattern.bytes().zip(&bytes[at..at + pattern.len()]).all(|(p, b)| match p {
-                b'h' => b.is_ascii_digit() || (b'a'..=b'f').contains(b),
-                b'd' => b.is_ascii_digit(),
-                literal => literal == *b,
-            })
-    };
-    while i < bytes.len() {
-        if shape(i, "hhhhhhhh-hhhh-hhhh-hhhh-hhhhhhhhhhhh") {
-            out.push_str("<instance-id>");
-            i += 36;
-        } else if shape(i, "dddd-dd-ddTdd:dd:dd.dddZ") {
-            out.push_str("<time>");
-            i += 24;
-        } else {
-            let c = text[i..].chars().next().unwrap();
-            out.push(c);
-            i += c.len_utf8();
-        }
-    }
-    out
-}
-
-/// Every file under `base` (names sorted, folders walked in place), paths `/`-joined, texts normalised: Node's `walk`.
-#[allow(clippy::disallowed_methods, reason = "test: reads the replay's own temp directory")]
-fn walk(base: &std::path::Path, data_dir: &str) -> Vec<Value> {
-    fn visit(dir: &std::path::Path, base: &std::path::Path, data_dir: &str, out: &mut Vec<Value>) {
-        let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
-        names.sort();
-        for name in names {
-            let full = dir.join(&name);
-            if std::fs::metadata(&full).unwrap().is_dir() {
-                visit(&full, base, data_dir, out);
-            } else {
-                let path = full.strip_prefix(base).unwrap().components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
-                out.push(json!({ "path": path, "text": normalised(&String::from_utf8(std::fs::read(&full).unwrap()).unwrap(), data_dir) }));
-            }
-        }
-    }
-    let mut out = Vec::new();
-    if std::fs::metadata(base).is_ok() {
-        visit(base, base, data_dir, &mut out);
-    }
-    out
-}
-
-/// The data dir and the backups, as Node's recorder lists them (backup folders: `scope-<hash>` as <scope>, the time in
-/// `<time>-<seq>-<kind>` as <time>).
-fn disk(root: &std::path::Path) -> Value {
-    let data = root.join("data");
-    let shown = data.display().to_string();
-    let backups: Vec<Value> = walk(&root.join("backups"), &shown)
-        .into_iter()
-        .map(|mut file| {
-            let path = file["path"].as_str().unwrap().to_owned();
-            let mut parts: Vec<String> = path.split('/').map(str::to_owned).collect();
-            if parts[0].starts_with("scope-") {
-                parts[0] = "<scope>".into();
-                if let Some(at) = parts.get(1).and_then(|name| name.find("Z-")) {
-                    parts[1] = format!("<time>-{}", &parts[1][at + 2..]);
-                }
-            }
-            file["path"] = json!(parts.join("/"));
-            file
-        })
-        .collect();
-    json!({ "dataDir": walk(&data, &shown), "backups": backups })
-}
-
-/// Node's config reload watch (config-reload-watch.mjs over the shared config change feed), recorded by
-/// `record-channels-config-reload-order.mjs` (`fixtures/channels-config-reload-order`, cases 55 and 75), compared whole
-/// after every step: the reload count and the files on disk (the data dir and the user-data backups). Another process's
-/// write is another core's `Config` (its own opening and guard, as Node's child process had), heard through the real file
-/// watch; the in-process writes go through the watched `Config`. Node's absences are proven as Node's recorder proves them:
-/// the agent write's step is read before the voice write, whose reload is then the first, and the stopped watch is read
-/// right after the write.
-///
-/// One thread: the lane jobs run inline, so the other process's whole write (file and snapshots) ends before the watch's
-/// reload reads, as Node's parent, which never read, could not see a write half done.
-#[tokio::test(flavor = "current_thread")]
-async fn a_config_edit_reloads_the_channels_runtime_as_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/channels-config-reload-order/golden.json")).unwrap();
-    let cases = golden["cases"].as_array().unwrap();
-    let set = |config: &Config, section: &'static str, key: &'static str, value: Value| {
-        let config = config.clone();
-        async move {
-            config
-                .update(move |doc: &mut Map<String, Value>| {
-                    let entry = doc.entry(section).or_insert_with(|| json!({}));
-                    entry.as_object_mut().unwrap().insert(key.into(), value);
-                    Ok::<(), ConfigError>(())
-                })
-                .await
-                .unwrap();
-        }
-    };
-    let root = tempfile::tempdir().unwrap();
-    let data = root.path().join("data");
-    std::fs::create_dir(&data).unwrap();
-    let clock = Arc::new(std::sync::atomic::AtomicI64::new(1_700_000_000_000));
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let core = guard_of(root.path(), &clock);
-    let (config, _) = Config::open_guarded(data.join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes, core).await.unwrap();
-    let _file_watch = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
-
-    // Case 55.
-    let steps = cases[0]["steps"].as_array().unwrap();
-    let cancel = CancellationToken::new();
-    let (watch, mut reloads) = watched(&config, &cancel);
-    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now(), "disk": disk(root.path())}), steps[0]);
-    for (write, step) in steps[1..4].iter().enumerate() {
-        // Another process: its own opening and guard, one write of the section, then gone.
-        let other = guard_of(root.path(), &clock);
-        let (writer, _) = Config::open_guarded(data.join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes, other).await.unwrap();
-        set(&writer, "channels", "revision", json!(write + 1)).await;
-        drop(writer);
-        let got = reloads.reached(write + 1, step["step"].as_str().unwrap()).await;
-        assert_eq!(json!({"step": step["step"], "reloads": got, "disk": disk(root.path())}), *step);
-    }
-    cancel.cancel();
-    watch.await.unwrap();
-    let before_stop = reloads.now();
-    set(&config, "channels", "revision", json!(4)).await;
-    let step = &steps[4];
-    assert_eq!(json!({"step": step["step"], "reloadsBeforeStop": before_stop, "reloadsAfterTheWrite": reloads.now(), "disk": disk(root.path())}), *step);
-
-    // Case 75, on the same file.
-    let steps = cases[1]["steps"].as_array().unwrap();
-    let cancel = CancellationToken::new();
-    let (watch, mut reloads) = watched(&config, &cancel);
-    set(&config, "agent", "promptCacheWarming", json!(false)).await;
-    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now(), "disk": disk(root.path())}), steps[0]);
-    set(&config, "voice", "language", json!("ko")).await;
-    let got = reloads.reached(1, "the reload after the voice change").await;
-    assert_eq!(json!({"step": steps[1]["step"], "reloads": got, "disk": disk(root.path())}), steps[1]);
-    // A reload the agent write had made would have run before the voice write and read no voice section.
-    assert_eq!(reloads.seen, vec![json!({"language": "ko"})], "the first reload is the voice write's");
-    cancel.cancel();
-    watch.await.unwrap();
-}
-
 /// The session service's routine boundary (Node: the live surface's `submit`, daemon.mjs:1199-1201): every routine turn
 /// is accepted and settles done; kept in order as Node's recorder keeps the submits.
 #[derive(Default)]
@@ -399,12 +193,6 @@ async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> 
     tokio::time::timeout(std::time::Duration::from_secs(30), future).await.unwrap_or_else(|_| panic!("never happened: {what}"))
 }
 
-/// `record-webhook-late-reload.mjs` (`fixtures/webhook-late-reload`, step `configEdit`, Node b6f10295a with
-/// node-fix-webhook-late-reload.patch): with the receiver listening and the session service running, another process
-/// edits the channels section of the config file on disk (port kept). The composition's watch (`watch_channels_config`
-/// over the real file watch) hears it and reloads the runtime; a delivery not seen before, sent as the reload syncs the
-/// receiver, is answered and runs one routine turn in the owner's home thread. Compared whole: the reply, the reload
-/// count, the receiver still listening, and the turns the session boundary received.
 /// The composition's channel stack (compose_flip.rs) over a real store and config in `root`: the admin, the runtime, the
 /// stores, the automation (reload syncs counted, a delivery armable) and the session boundary's routine turns.
 struct Stack {
@@ -462,6 +250,12 @@ fn channel_stack(root: &std::path::Path, config: &Config, wall: Arc<dyn mixdog_s
     Stack { admin, runtime, schedules, webhooks, automation, host }
 }
 
+/// `record-webhook-late-reload.mjs` (`fixtures/webhook-late-reload`, step `configEdit`, Node b6f10295a with
+/// node-fix-webhook-late-reload.patch): with the receiver listening and the session service running, another process
+/// edits the channels section of the config file on disk (port kept). The composition's follow (`ChannelConfigFollow`
+/// over the real file watch) hears it and reloads the runtime; a delivery not seen before, sent as the reload syncs the
+/// receiver, is answered and runs one routine turn in the owner's home thread. Compared whole: the reply, the reload
+/// count, the receiver still listening, and the turns the session boundary received.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_node() {
     use mixdog_services::channels::{ChannelSettings, WebhookPatch};
@@ -478,16 +272,8 @@ async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_nod
     ConfigChannelSettings::new(config.clone()).update_webhook(&WebhookPatch::from_params(&json!({ "port": port }))).await.unwrap();
     let Stack { admin, runtime, automation, host, .. } = channel_stack(root.path(), &config, wall, tz);
     let reloaded = automation.reloaded.clone();
-    let cancel = CancellationToken::new();
-    let reloading = runtime.clone();
-    let watch = watch_channels_config(
-        config.clone(),
-        move || {
-            let runtime = reloading.clone();
-            async move { runtime.reload_runtime().await }
-        },
-        cancel.clone(),
-    );
+    // The composition's follow, as compose_flip.rs starts it.
+    let _follow = mixdog_core_config::config::ChannelConfigFollow::start(config.clone(), runtime.clone());
 
     // The save starts the runtime, the edit reloads it: the receiver listens with the edited instructions.
     assert_eq!(admin.save_webhook(&rec["entry"]).await.unwrap(), rec["saveReply"]);
@@ -536,8 +322,6 @@ async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_nod
         json!({"delivery": delivery, "reloads": *reloads.borrow() - before, "listeningAfter": listening, "turns": turns}),
         json!({"delivery": step["delivery"], "reloads": step["reloads"], "listeningAfter": step["listeningAfter"], "turns": recorded_turns}),
     );
-    cancel.cancel();
-    watch.await.unwrap();
     mixdog_services::channels::ChannelLifecycle::stop_owned_runtime(&*runtime, "test").await.unwrap();
 }
 

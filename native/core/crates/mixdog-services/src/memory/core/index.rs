@@ -43,16 +43,45 @@ pub async fn sync(db: &Db) -> Result<Directory> {
     Ok(directory)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// When set, every core-memory statement sent on this thread, in order: text, parameters (None when the statement
+    /// is sent without any) and whether it runs inside a transaction.
+    pub(crate) static STATEMENTS: std::cell::RefCell<Option<Vec<(String, Option<Vec<serde_json::Value>>, bool)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn observe(sql: &str, params: Option<Vec<serde_json::Value>>, in_transaction: bool) {
+    STATEMENTS.with(|log| {
+        if let Some(log) = log.borrow_mut().as_mut() {
+            log.push((sql.to_owned(), params, in_transaction));
+        }
+    });
+}
+
+const LOCK_SQL: &str = "SELECT pg_advisory_xact_lock(hashtext($1))";
+const RECORDS_SQL: &str = "
+      SELECT id, project_id, agent_id FROM core_entries
+      WHERE status IS NULL OR status = 'active' ORDER BY id ASC
+    ";
+const SAVED_SQL: &str = "SELECT key, value FROM meta WHERE key LIKE $1";
+const SAVE_SQL: &str = "
+          INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
+        ";
+
 pub async fn sync_in(tx: &Transaction<'_>) -> Result<Directory> {
-    tx.execute("SELECT pg_advisory_xact_lock(hashtext($1))", &[&PREFIX]).await?;
-    let records = tx
-        .query(
-            "SELECT id, project_id, agent_id FROM core_entries
-              WHERE status IS NULL OR status = 'active' ORDER BY id ASC",
-            &[],
-        )
-        .await?;
-    let saved = tx.query("SELECT key, value FROM meta WHERE key LIKE $1", &[&format!("{PREFIX}%")]).await?;
+    #[cfg(test)]
+    observe(LOCK_SQL, Some(vec![PREFIX.into()]), true);
+    tx.execute(LOCK_SQL, &[&PREFIX]).await?;
+    #[cfg(test)]
+    observe(RECORDS_SQL, None, true);
+    let records = tx.query(RECORDS_SQL, &[]).await?;
+    let pattern = format!("{PREFIX}%");
+    #[cfg(test)]
+    observe(SAVED_SQL, Some(vec![pattern.clone().into()]), true);
+    let saved = tx.query(SAVED_SQL, &[&pattern]).await?;
     let mut previous: BTreeMap<String, IndexState> = BTreeMap::new();
     for row in &saved {
         let key: String = row.get(0);
@@ -92,12 +121,10 @@ pub async fn sync_in(tx: &Transaction<'_>) -> Result<Directory> {
             record_ids,
         };
         if changed {
-            tx.execute(
-                "INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-                 ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
-                &[&format!("{PREFIX}{key}"), &serde_json::to_value(&state)?],
-            )
-            .await?;
+            let meta_key = format!("{PREFIX}{key}");
+            #[cfg(test)]
+            observe(SAVE_SQL, Some(vec![meta_key.clone().into(), serde_json::to_string(&state)?.into()]), true);
+            tx.execute(SAVE_SQL, &[&meta_key, &serde_json::to_value(&state)?]).await?;
         }
         result.insert(key, state);
     }

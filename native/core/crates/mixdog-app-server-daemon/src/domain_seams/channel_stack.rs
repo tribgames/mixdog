@@ -240,17 +240,6 @@ impl mixdog_services::channels::WebhookListener for ServerListener {
     }
 }
 
-/// [`mixdog_services::channels::config_watch::watch_channels_config`] over the config's change feed. Ends with `cancel`.
-pub fn watch_channels_config<F, Fut>(config: Config, reload: F, cancel: CancellationToken) -> tokio::task::JoinHandle<()>
-where
-    F: Fn() -> Fut + Send + 'static,
-    Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
-{
-    let changes = config.changes();
-    let sections = move || serde_json::json!([config.get("channels"), config.get("voice")]);
-    mixdog_services::channels::config_watch::watch_channels_config(changes, sections, reload, cancel)
-}
-
 #[cfg(test)]
 #[path = "channel_stack_tests.rs"]
 mod tests;

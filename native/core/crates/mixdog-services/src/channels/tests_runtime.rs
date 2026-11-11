@@ -757,7 +757,15 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     assert_eq!(first, retried);
     assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     let conflict = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {"x": 1}})).await.unwrap_err();
-    assert_eq!(conflict, CoreError::DomainError { domain: "channel".into(), code: Some("ECALLIDCONFLICT".into()), message: None, detail: None });
+    assert_eq!(
+        conflict,
+        CoreError::DomainError {
+            domain: "channel".into(),
+            code: Some("ECALLIDCONFLICT".into()),
+            message: Some("callId 'op-1' was reused with a different payload".into()),
+            detail: None
+        }
+    );
     // A tool the core does not host answers as the worker's dispatch does for any unknown name.
     let reply = svc.call(request("channel/call", json!({"name": "reply", "args": {}}), Some("op-2"))).await.unwrap();
     let Reply::Value(unknown) = reply else { panic!("not a value") };

@@ -283,6 +283,9 @@ fn to_plain_at(value: &Exact, path: &str) -> Result<Value, String> {
     Ok(match value {
         Exact::Null => Value::Null,
         Exact::Bool(b) => Value::Bool(*b),
+        // An integral number within the safe range is written as JSON writes it (`1`, not `1.0`), so a reader that
+        // asks for an integer (`as_i64`) gets it as from `JSON.stringify` text.
+        Exact::Number(n) if n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0 => Value::from(*n as i64),
         Exact::Number(n) => serde_json::Number::from_f64(*n).map(Value::Number).ok_or_else(|| format!("{path}: {n}"))?,
         Exact::String(s) => Value::String(s.clone()),
         Exact::Array(items) => Value::Array(

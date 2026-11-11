@@ -48,6 +48,9 @@ pub struct ScheduleStatusRow {
 
 #[derive(Default)]
 struct State {
+    /// Test support: where `start`, `stop` and `reload_config` are written, under Node's scheduler call names.
+    #[cfg(any(test, feature = "test-support"))]
+    calls: Option<Arc<Mutex<Vec<serde_json::Value>>>>,
     schedules: Vec<Schedule>,
     running: HashSet<String>,
     renaming: HashSet<String>,
@@ -70,6 +73,21 @@ struct Inner {
 #[derive(Clone)]
 pub struct Scheduler {
     inner: Arc<Inner>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Scheduler {
+    /// Test support: writes each later `start`, `stop` and `reload_config` into `log`, in call order.
+    pub fn record_calls(&self, log: Arc<Mutex<Vec<serde_json::Value>>>) {
+        self.inner.state.lock().unwrap().calls = Some(log);
+    }
+
+    fn record(&self, call: serde_json::Value) {
+        let log = self.inner.state.lock().unwrap().calls.clone();
+        if let Some(log) = log {
+            log.lock().unwrap().push(call);
+        }
+    }
 }
 
 fn iso(t: Ts) -> String {
@@ -109,11 +127,21 @@ impl Scheduler {
 
     /// Arms every loaded schedule. A no-op when already started or when none is loaded.
     pub fn start(&self) {
+        #[cfg(any(test, feature = "test-support"))]
+        self.record(serde_json::json!(["scheduler.start"]));
         self.inner.start();
     }
 
     pub fn stop(&self) {
+        #[cfg(any(test, feature = "test-support"))]
+        self.record(serde_json::json!(["scheduler.stop"]));
         self.inner.stop();
+    }
+
+    /// Replaces the loaded schedules (enabled ones only) without touching what is armed: the config a
+    /// following `start` arms (Node's scheduler holds the config the worker loaded).
+    pub(crate) fn load(&self, schedules: Vec<Schedule>) {
+        self.inner.state.lock().unwrap().schedules = schedules.into_iter().filter(|s| s.enabled).collect();
     }
 
     pub fn restart(&self) {
@@ -124,6 +152,8 @@ impl Scheduler {
     /// Replaces the loaded schedules (enabled ones only) and re-arms them unless
     /// `restart` is false, in which case the stale jobs are only dropped.
     pub fn reload_config(&self, schedules: Vec<Schedule>, restart: bool) {
+        #[cfg(any(test, feature = "test-support"))]
+        self.record(serde_json::json!(["scheduler.reload", schedules, {"restart": restart}]));
         {
             let mut st = self.inner.state.lock().unwrap();
             st.schedules = schedules.into_iter().filter(|s| s.enabled).collect();
