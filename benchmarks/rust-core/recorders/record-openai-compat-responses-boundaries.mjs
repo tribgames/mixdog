@@ -16,6 +16,21 @@ const rec = await startRecording({
   compare: 'mixdog-ai providers::openai effort_retry.rs:22 and adapter.rs:756-761 (K1: tested for the OpenAI route, not the compat/custom Responses route), custom/reasoning.rs:149: feed each row\'s `input` (callbacks fired, flags, abort, replies) and compare `result` (attempts, received callbacks in order, thrown error identity flags, capability mode before/after) and `requests` in order.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The effort-update retry is mixdog_ai::providers::openai effort_retry (no pub item located for the compat route): work for the Rust side.",
 });
+// The declared header rule of lib/provider-case-recorder.mjs (the three SDK headers that carry the recording host are written as `<recording host <header name>>`) applies to every copy of a request the
+// manifest names, including the request records a case result holds: the record is normalised when the endpoint receives it, whatever the case does with it afterwards.
+{
+  let scripted = null;
+  Object.defineProperty(rec.net, 'reply', {
+    configurable: true,
+    get: () => scripted,
+    set: (fn) => {
+      scripted = fn && ((record, n) => {
+        for (const pair of record.headers) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
+        return fn(record, n);
+      });
+    },
+  });
+}
 const tree = rec.tree;
 // The SDK of the tree under test (not the recorder checkout's copy).
 const { default: OpenAI } = await rec.load('node_modules/openai/index.mjs');
