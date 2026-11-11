@@ -35,8 +35,8 @@ use tokio_util::sync::CancellationToken;
 use super::{assert_case_count, case, golden, int, object, render_options, rows, same, same_rows, string};
 use crate::memory::cycles::quality::{
     Assessment, CYCLE1_INPUT_TOKEN_BUDGET, Generation, InvalidChunk, Parsed, Row, Validity, assess_chunk_quality,
-    build_cycle1_chunk_prompt, chunk_source_text, cycle1_source_budget, generate_cycle1_chunks, make_chunk_quality,
-    parse_cycle1_line_format, partition_cycle1_rows, split_cycle1_row, validate_cycle1_grouping,
+    build_cycle1_chunk_prompt, cycle1_source_budget, generate_cycle1_chunks, make_chunk_quality,
+    parse_cycle1_line_format, partition_cycle1_rows, validate_cycle1_grouping,
 };
 use crate::memory::cycles::{Cycle1Llm, Cycle1Request};
 use crate::memory::recall::compact::compact_handoff_rows;
