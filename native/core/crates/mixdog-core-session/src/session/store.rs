@@ -273,10 +273,83 @@ struct Redaction {
     seen: u64,
     /// A rewrite of this log stopped in this process (its parts are on disk): settled before anything else.
     unfinished: bool,
+    /// Told each version the log was rewritten for, so a journaled mark is dropped once every session holding it is.
+    journal: Option<Arc<super::mark_journal::MarksOnDisk>>,
+    rewrites: Arc<Rewrites>,
+}
+
+/// The sensitive rewrites running now (each holds the projector and then the read gate): a read awaits none running
+/// ([`ThreadStore::unheld`]) before it takes an io-interactive thread, so reads issued meanwhile wait off the lane rather
+/// than holding its few threads blocked on the gate and filling its queue (where the next job, a row's commit included,
+/// would be refused).
+#[derive(Default)]
+struct Rewrites {
+    running: std::sync::atomic::AtomicUsize,
+    done: tokio::sync::Notify,
+}
+
+/// One running rewrite; ends when dropped.
+struct Rewriting(Arc<Rewrites>);
+
+impl Rewrites {
+    fn start(self: &Arc<Self>) -> Rewriting {
+        self.running.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Rewriting(self.clone())
+    }
+
+    /// Once none runs, or after `bound` (the read then waits inside its job, as before).
+    async fn idle(&self, bound: std::time::Duration) {
+        let wait = async {
+            loop {
+                let done = self.done.notified();
+                tokio::pin!(done);
+                done.as_mut().enable();
+                if self.running.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                    return;
+                }
+                done.await;
+            }
+        };
+        if tokio::time::timeout(bound, wait).await.is_err() {
+            tracing::warn!(bound_ms = bound.as_millis() as u64, "a read waited out its bound for a sensitive rewrite; it goes on and waits on the lane");
+        }
+    }
+}
+
+impl Drop for Rewriting {
+    fn drop(&mut self) {
+        self.0.running.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.0.done.notify_waiters();
+    }
 }
 
 fn writer_lost() -> BarrierError {
     BarrierError::Indeterminate { io_kind: "writerLost".into() }
+}
+
+/// A test build's hold at a named point of a sensitive rewrite, run on the rewrite's own lane thread: `planned` once the plan
+/// has read the log, `held` while the rewrite holds the reads. Compiled only into a build that asks for `crash-gates`.
+#[cfg(feature = "crash-gates")]
+pub mod rewrite_holds {
+    type Hold = std::sync::Arc<dyn Fn() + Send + Sync>;
+    static HOLDS: std::sync::Mutex<Vec<(&'static str, Hold)>> = std::sync::Mutex::new(Vec::new());
+
+    /// Runs `hold` whenever a rewrite reaches `point`.
+    pub fn set(point: &'static str, hold: impl Fn() + Send + Sync + 'static) {
+        HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((point, std::sync::Arc::new(hold)));
+    }
+
+    pub(super) fn at(point: &str) {
+        let holds: Vec<Hold> = HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|(p, _)| *p == point).map(|(_, h)| h.clone()).collect();
+        for hold in holds {
+            hold();
+        }
+    }
+}
+
+#[cfg(not(feature = "crash-gates"))]
+mod rewrite_holds {
+    pub(super) fn at(_point: &str) {}
 }
 
 impl Redaction {
@@ -294,6 +367,7 @@ impl Redaction {
         let gate = self.gate.clone();
         let mut generation = gate.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *generation += 1;
+        rewrite_holds::at("held");
         *writer = None;
         let session = self.thread.as_str().to_owned();
         let (index, blobs) = (self.index.clone(), self.deps.blobs.clone());
@@ -332,6 +406,7 @@ impl StoreLog {
         if version == redaction.seen && !redaction.unfinished {
             return;
         }
+        let _rewriting = redaction.rewrites.start();
         let (reached, release) = self.projector.hold();
         if redaction.wait(reached).is_err() {
             return;
@@ -346,6 +421,7 @@ impl StoreLog {
             let mut replace = redaction.marks.rewriter(&redaction.thread);
             let planned = mixdog_store::log_rewrite::plan(lane, &redaction.data, &session, &*redaction.deps.io, &redaction.deps.blobs, &mut *replace);
             drop(replace);
+            rewrite_holds::at("planned");
             match planned {
                 Ok(None) => redaction.seen = version,
                 // The new blobs' pins hold until the rebuilt rows name them.
@@ -357,6 +433,11 @@ impl StoreLog {
                 }
                 Err(error) => tracing::warn!(thread = %session, "the sensitive rewrite of the log could not be planned; it is tried again at the next barrier: {error}"),
             }
+        }
+        if redaction.seen == version
+            && let Some(journal) = &redaction.journal
+        {
+            journal.applied(redaction.thread.as_str(), version);
         }
         drop(release);
     }
@@ -415,7 +496,10 @@ pub struct StoreThreads {
     runtime: tokio::runtime::Handle,
     /// The marks whose values the logs keep out of what they wrote before (bound once, by the composition).
     sensitive: std::sync::OnceLock<Arc<dyn super::seams::SensitiveMarks>>,
+    /// The marks' journal, bound with them.
+    journal: std::sync::OnceLock<Arc<super::mark_journal::MarksOnDisk>>,
     gate: ReadGate,
+    rewrites: Arc<Rewrites>,
 }
 
 impl super::thread_list::ListFence for StoreThreads {
@@ -439,7 +523,9 @@ impl StoreThreads {
             maintenance,
             runtime: tokio::runtime::Handle::current(),
             sensitive: std::sync::OnceLock::new(),
+            journal: std::sync::OnceLock::new(),
             gate: ReadGate::default(),
+            rewrites: Arc::default(),
         }
     }
 
@@ -449,10 +535,68 @@ impl StoreThreads {
         self.gate.read().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// At start, before any thread is served: the marks this data dir saved are known again, and a thread that owes a rewrite
+    /// for one has it.
+    #[allow(clippy::disallowed_methods, reason = "the session folder is looked up inside the durability lane job")]
+    pub async fn settle_marks(&self, durability: DurabilityIo) -> Result<(), CoreError> {
+        let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else { return Ok(()) };
+        let refused = |what: &str| internal("sensitive-marks", &what);
+        let loaded = {
+            let journal = journal.clone();
+            mixdog_rt::LaneToken::submit(self.maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| journal.load())
+                .map_err(|_| refused("maintenance lane refused"))?
+                .await
+                .map_err(|_| refused("maintenance job dropped"))?
+        };
+        for (from, to) in loaded.carries {
+            marks.carry(&ThreadId::from(from.as_str()), &ThreadId::from(to.as_str()));
+        }
+        // Each pending mark is marked again (journaled anew, carried along the carries), and its old file goes.
+        for (n, origin, values, sessions) in loaded.pending {
+            for session in std::iter::once(origin).chain(sessions) {
+                marks.restore(&ThreadId::from(session.as_str()), &values);
+            }
+            let journal = journal.clone();
+            mixdog_rt::LaneToken::submit(self.maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| journal.forget(n))
+                .map_err(|_| refused("maintenance lane refused"))?
+                .await
+                .map_err(|_| refused("maintenance job dropped"))?;
+        }
+        for session in journal.owed() {
+            let (id, dir) = (ThreadId::from(session.as_str()), self.dir(&session));
+            let (deps, journal) = (self.writer.clone(), journal.clone());
+            let opened = mixdog_rt::LaneToken::submit(durability, &mixdog_rt::CancellationToken::new(), move |lane| {
+                if !dir.is_dir() {
+                    // A session deleted since holds nothing.
+                    journal.applied(&session, u64::MAX);
+                    return Ok(None);
+                }
+                let opened = log::open_log(lane, &dir, &deps.blobs, &*deps.index).map_err(|e| e.to_string())?;
+                LogWriter::open(lane, opened, deps).map(Some).map_err(|e| e.to_string())
+            })
+            .map_err(|_| refused("durability lane refused"))?
+            .await
+            .map_err(|_| refused("durability job dropped"))?
+            .map_err(|error| refused(&error))?;
+            let Some(writer) = opened else { continue };
+            let mut log = self.store_log(&id, writer);
+            mixdog_rt::LaneToken::submit(durability, &mixdog_rt::CancellationToken::new(), move |lane| log.redact(lane))
+                .map_err(|_| refused("durability lane refused"))?
+                .await
+                .map_err(|_| refused("durability job dropped"))?;
+        }
+        Ok(())
+    }
+
     /// The marks the session actors take (`SessionDeps::sensitive`, the same instance): a log rewrites what it wrote before
-    /// a mark at its next barrier. A second bind is refused.
+    /// a mark at its next barrier, and the marks are journaled under the data dir. A second bind is refused.
     pub fn redact_with(&self, marks: Arc<dyn super::seams::SensitiveMarks>) -> Result<(), Arc<dyn super::seams::SensitiveMarks>> {
-        self.sensitive.set(marks)
+        self.sensitive.set(marks.clone())?;
+        let journal = Arc::new(super::mark_journal::MarksOnDisk::new(&self.data));
+        if marks.journal_with(journal.clone()) {
+            let _ = self.journal.set(journal);
+        }
+        Ok(())
     }
 
     fn store_log(&self, id: &ThreadId, writer: LogWriter) -> Box<dyn SessionLog> {
@@ -466,6 +610,8 @@ impl StoreThreads {
             gate: self.gate.clone(),
             seen: 0,
             unfinished: false,
+            journal: self.journal.get().cloned(),
+            rewrites: self.rewrites.clone(),
         });
         Box::new(StoreLog { writer: Some(writer), projector: self.projector.clone(), redaction })
     }
@@ -963,6 +1109,14 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
         self.store.on_carried(move |session| listener(&ThreadId::from(session)))
     }
 
+    fn restore(&self, thread: &ThreadId, values: &[String]) -> bool {
+        self.store.restore(thread.as_str(), values)
+    }
+
+    fn journal_with(&self, journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {
+        self.store.journal_with(journal)
+    }
+
     fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
         let session = thread.as_str();
         // A thread with no marked value holds no redacted body either (both live for the process).
@@ -1367,6 +1521,11 @@ impl ThreadStore for StoreThreads {
             let title = index.title(&id).await.map_err(|e| internal("meta", &e))?;
             Ok(Some(super::seams::SessionMeta::of(title, &summary)))
         })
+    }
+
+    fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
+        let rewrites = self.rewrites.clone();
+        Box::pin(async move { rewrites.idle(super::thread_list::FENCE_BOUND).await })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {

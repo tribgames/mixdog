@@ -139,6 +139,7 @@ pub mod notices;
 mod seams;
 mod state;
 pub mod store;
+mod mark_journal;
 mod surface;
 pub mod terminal_host;
 mod turn_gate;
@@ -176,6 +177,8 @@ pub mod testing;
 mod tests;
 #[cfg(test)]
 mod sensitive_record_tests;
+#[cfg(test)]
+mod sensitive_carry_tests;
 #[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
