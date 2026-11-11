@@ -1691,6 +1691,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         clock_agent.clone(),
         { let activity = activity.clone(); Arc::new(move || activity.everyone()) },
     );
+    // The conversation transcripts' writers, one per process: the sessions append through them, a delete stops them, and a marked
+    // value is redacted in their files through memory's ingest (its read position kept on the same line).
+    let transcript_files = mixdog_core_session::session::transcript_writer::TranscriptFiles::new(&mixdog_home, b.tokens.durability_io, clock.clone(), sensitive.clone());
+    transcript_files.attach_ingest(memory.transcripts() as Arc<dyn mixdog_core_session::session::purge::IngestOffsets>);
     let purge = mixdog_core_session::session::delete::PurgeHooks::new(mixdog_core_session::session::purge::PurgeOwners {
         data_dir: b.data_dir.clone(),
         mixdog_home: mixdog_home.clone(),
@@ -1698,6 +1702,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         read_state: read_state.clone(),
         warm: warmer.clone(),
         ingest_offsets: Some(memory.transcripts() as Arc<dyn mixdog_core_session::session::purge::IngestOffsets>), // accessor in HEAD (hang-lanes)
+        transcripts: Some(transcript_files.clone()),
         providers: registry.clone(),
         worker_turns: worker_turns.clone(),
         retention: archive_retention.clone(), // wp-session-40: the SAME Arc as `ThreadSettingsParts.retention`
@@ -2018,6 +2023,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let session_surface = surface_generation.clone();
             let store_threads = store_threads.clone();
             let thread_deletions = thread_deletions.clone();
+            let transcript_files = transcript_files.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
@@ -2041,7 +2047,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 )),
                 search: session_search,
                 memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()), sensitive.clone())),
-                transcripts: Some(mixdog_core_session::session::transcript_writer::TranscriptFiles::new(&mixdog_home, tokens.durability_io, clock.clone(), sensitive.clone())),
+                transcripts: Some(transcript_files.clone()),
                 sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
