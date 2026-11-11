@@ -3,7 +3,8 @@
 //
 // The product is b6f10295a with `node-patches/node-fix-memory-sensitive.patch` applied (1.4.5 wrote a session's sensitive
 // values into the transcript, and so into memory, in plain text; the fix redacts them where the transcript is written,
-// both for an appended line and for the conversation backfill). The tree must be exactly that (`nodeTreeIdentity`).
+// both for an appended line and for the conversation backfill, and rewrites the lines already written when a value is
+// marked later). The tree must be exactly that (`nodeTreeIdentity`).
 //
 // Scenarios, each in its own process with its own home:
 //   turn-lead        `runHeadlessExec` (src/headless-exec.mjs) over the real session runtime (`createMixdogSessionRuntime`)
@@ -15,8 +16,9 @@
 //                    session): whether its transcript is written, and what the memory ingest stores of it.
 //   writer           `createSessionTranscript` + `createTurnTranscript` (the writer and the turn's appends the runtime wires,
 //                    boot/apis.mjs:754, turn-run.mjs:34) directly: the backfill of a session that already has a conversation,
-//                    an agent's conversation, a blank text, the final text equal to the last mid-turn text, and the rotation
-//                    of a file past 10 MiB.
+//                    an agent's conversation, a blank text, the final text equal to the last mid-turn text, the rotation
+//                    of a file past 10 MiB, a marked value streamed across two mid-turn texts, and a value marked after
+//                    the lines holding it were written (`mark`: `rememberSensitiveValues` with that value).
 //   restart          The ingest (`ingestTranscriptTail` over `createTranscriptOffsets`, the watcher's per-file ingest) of the
 //                    transcript the writer case `restart-source` left, the writing runtime gone before any ingest ran: a
 //                    first start whose ingest is killed between its inserts and the persist of its position (the persist
@@ -220,10 +222,12 @@ async function runTurn(tree, name, out) {
   // A line's `timestamp` is the wall clock when it was appended (`formatUtcTimestamp()`): kept by its form only.
   const { cwdToProjectSlug } = await at('src/runtime/shared/transcript-writer/transcript-file.mjs');
   const slug = cwdToProjectSlug(work);
+  // A session the exec made itself is named from the process id and the clock (`sess_<pid>_<ms>_<ms>_<hash>`): `<session>`.
+  const scrubSession = (text) => text.replace(/sess_\d+_\d+_\d+_[0-9a-f]{32}/g, '<session>');
   const scrubbed = Object.fromEntries(
     Object.entries(files).map(([path, text]) => [
-      scrubPlace(path, work, slug),
-      scrubPlace(text, work, slug).replace(/"timestamp":"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z"/g, '"timestamp":"<now>"'),
+      scrubSession(scrubPlace(path, work, slug)),
+      scrubSession(scrubPlace(text, work, slug)).replace(/"timestamp":"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z"/g, '"timestamp":"<now>"'),
     ])
   );
   writeFileSync(out, JSON.stringify({ name, code, memoryFeature: memory, cwd: '<cwd>', provider: { sends: sent }, prompt: lead ? PROMPT : 'go', atClose: { ...facts, files: scrubbed }, afterExec: { userProjects, pristineHomeLeft: pristineLeft } }));
@@ -265,6 +269,7 @@ async function writerCases(tree) {
     const transcript = createTurnTranscript({ getTranscriptWriter: () => remote.transcriptWriter, getLastAppendedAssistant: () => last, setLastAppendedAssistant: (v) => { last = v; } });
     for (const [method, text] of steps) {
       if (method === 'ensure') remote.ensureSessionTranscriptWriter();
+      else if (method === 'mark') rememberSensitiveValues(session.id, [{ ...SENSITIVE_CALL, arguments: { ...SENSITIVE_CALL.arguments, input: { ...SENSITIVE_CALL.arguments.input, text } } }]);
       else if (method === 'final') transcript.appendFinalAssistant({ content: text });
       else transcript[method](text);
     }
@@ -305,6 +310,10 @@ async function writerCases(tree) {
     first.ensureSessionTranscriptWriter();
     writeFileSync(first.transcriptWriter.transcriptPath, `${big}\n`);
   });
+  // A marked value the model streamed in two pieces, each its own mid-turn text: each line is redacted on its own.
+  run('split-across-deltas', { id: 'sess_split', messages: [] }, [['ensure'], ['mark', SECRET], ['appendAssistantText', `typing ${SECRET.slice(0, 5)}`], ['appendAssistantText', `${SECRET.slice(5)} done`], ['final', `typed ${SECRET}`]]);
+  // A value marked after the lines holding it were written: those lines are rewritten redacted, the rest kept.
+  run('marked-after-stored', { id: 'sess_marked_later', messages: [] }, [['ensure'], ['appendUser', 'my pin is 4711'], ['final', 'noted 4711'], ['appendUser', 'what now'], ['mark', '4711'], ['final', 'pin 4711 used']]);
   // The turn the restart scenario ingests: written, then the writing runtime is gone before any ingest ran.
   run('restart-source', { id: 'sess_restart', messages: [] }, [['ensure'], ['appendUser', `question ${SECRET}`], ['appendAssistantText', 'thinking aloud'], ['final', 'the answer']], () =>
     rememberSensitiveValues('sess_restart', [SENSITIVE_CALL])

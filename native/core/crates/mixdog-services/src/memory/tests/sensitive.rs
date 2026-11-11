@@ -56,6 +56,30 @@ fn a_growing_stream_settles_prefix_by_prefix() {
     }
 }
 
+/// The attached-files note keeps a record of each file beside its text (`attachedFilesNote`,
+/// `attachment-reference.mjs:184-197`): the row stores it and its clients receive it. A marked value in the file's
+/// name (and so in its path, which ends in the name) is stored redacted there as in the note's text, as the patched
+/// Node's `sensitive-projection.test.mjs` expects of the same message.
+#[test]
+fn a_marked_value_in_an_attached_files_name_and_path_is_stored_redacted() {
+    let session = "sess_sensitive_names";
+    let store = SensitiveStore::default();
+    assert!(store.remember(session, &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } } })]));
+    let path = "C:\\attachments\\ab\\hunter2-notes.pdf";
+    let note = json!({ "role": "user", "content": [{
+        "type": "text",
+        "text": format!("[Attached files on this PC:\n- {path}\n]"),
+        "attachmentReference": { "kind": "files", "files": [{ "attachmentRef": "a".repeat(64), "name": "hunter2-notes.pdf", "mimeType": "application/pdf", "sizeBytes": 4, "path": path }] },
+    }] });
+    let stored = store.redact_messages(session, &[note]);
+    let redacted = "C:\\attachments\\ab\\[redacted]-notes.pdf";
+    assert_eq!(stored[0]["content"], json!([{
+        "type": "text",
+        "text": format!("[Attached files on this PC:\n- {redacted}\n]"),
+        "attachmentReference": { "kind": "files", "files": [{ "attachmentRef": "a".repeat(64), "name": "[redacted]-notes.pdf", "mimeType": "application/pdf", "sizeBytes": 4, "path": redacted }] },
+    }]));
+}
+
 /// `fixtures/sensitive-feed` (`record-sensitive-feed.mjs`): a marked value in a tool call's arguments, a tool result, an
 /// attachment's name and a compaction summary. The messages as stored (and handed to the close and search ingests),
 /// what the close ingest feeds memory, and the session search rows, each whole as Node's.

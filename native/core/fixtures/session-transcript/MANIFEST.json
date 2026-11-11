@@ -8,9 +8,9 @@
       "sha256": "0ab12a8bdecabdca7f1daab51879ab3dbf3a1865614f6b07f16646817762c36c"
     },
     {
-      "bytes": 1428,
+      "bytes": 1184,
       "path": "turn-exec.json",
-      "sha256": "44221d34fd75aa5e47f5d2f48b79767dfe78e8a1addf518e9a71242ce950f06a"
+      "sha256": "bc6f36fe78175c866a29f481990db9827d79f9380cfe50306bc0a4f5c77bdf49"
     },
     {
       "bytes": 1301,
@@ -18,9 +18,9 @@
       "sha256": "fdb782adf342b42a918a733cb539059703b98833440929e24f7ab1e2868d2020"
     },
     {
-      "bytes": 7102,
+      "bytes": 9804,
       "path": "writer.json",
-      "sha256": "38fae062d8285f5552725a02974731b6b2566c6bc93da7c1e09d514de3d29c52"
+      "sha256": "dd892ab34d98cc3682a79b332b24deed427a9fba3198e9cf38c4c529b5033afd"
     }
   ],
   "inputs": [
@@ -46,7 +46,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
-      "sha256": "c374a1fb2484175e6fd98a9894a0d0984ea497ece69fec03df6d258b1852780a"
+      "sha256": "5075d7f52123860a79f33adc42d84f98622a7a9b82c90cb9efbfbd985d689cc9"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -56,29 +56,30 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9140,
     "patch": {
       "file": "benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
       "paths": [
-        "src/runtime/shared/transcript-writer/transcript-file.mjs",
+        "src/runtime/shared/transcript-writer-sensitive.test.mjs",
         "src/runtime/shared/transcript-writer.mjs",
+        "src/runtime/shared/transcript-writer/transcript-file.mjs",
         "src/session-runtime/lifecycle/memory-ingest.mjs"
       ],
-      "sha256": "c374a1fb2484175e6fd98a9894a0d0984ea497ece69fec03df6d258b1852780a"
+      "sha256": "5075d7f52123860a79f33adc42d84f98622a7a9b82c90cb9efbfbd985d689cc9"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 3
+      "filesDifferingFromCommit": 4
     },
-    "srcSha256": "1f9baeb2ba8e4003b3cac72ed2cc15d8e4aceca2a662df8b837b73f86b1cfccc",
+    "srcSha256": "7e5cedbd302f07e8635f37183928c63ff0e5f9c15000e10dd7126548f0c83125",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transcript.mjs",
-  "recorderSha256": "d8e23d6e0b708502d3ec3f4c5cfeeed4df4328cac0275c6ab102bcd82d96640b",
+  "recorderSha256": "07f2aba9626408eb546e75b3673cdfe5d52a5fb4ef21b8c13106ba0f9363abf6",
   "scenarios": [
     "turn-lead",
     "turn-exec",
@@ -86,5 +87,5 @@
     "restart"
   ],
   "set": "session-transcript",
-  "totalBytes": 12649
+  "totalBytes": 15107
 }

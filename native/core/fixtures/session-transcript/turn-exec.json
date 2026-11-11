@@ -31,7 +31,7 @@
     "memoryIngestDisabled": "1",
     "daemonSkipMemory": "1",
     "files": {
-      "<slug>/sess_8060_1794366957222_1794366957626_0e4f3757ec3df9d415687cf3bc8e634b.jsonl": "{\"type\":\"user\",\"sessionId\":\"sess_8060_1794366957222_1794366957626_0e4f3757ec3df9d415687cf3bc8e634b\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"go\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_8060_1794366957222_1794366957626_0e4f3757ec3df9d415687cf3bc8e634b\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"looking with swordfish42\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_8060_1794366957222_1794366957626_0e4f3757ec3df9d415687cf3bc8e634b\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"all done\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n"
+      "<slug>/<session>.jsonl": "{\"type\":\"user\",\"sessionId\":\"<session>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"go\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"<session>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"looking with swordfish42\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n{\"type\":\"assistant\",\"sessionId\":\"<session>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"all done\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"<now>\"}\n"
     }
   },
   "afterExec": {
