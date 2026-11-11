@@ -84,7 +84,7 @@ try {
   const writer = core.client;
 
   /** The desktop: the protocol client over a socket whose outgoing reads this replay counts and can hold (a read in flight). */
-  async function desktop(name) {
+  async function desktop(name, { reconnects = false } = {}) {
     const wire = { reads: [], hold: null, held: [], replies: [], replyHold: null, replyIds: new Set(), heldReplies: [], deliver: null };
     let socket = null;
     const client = await within(lib.connect({
@@ -123,7 +123,9 @@ try {
       clientInfo: { name, title: name, version: String(JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version), kind: 'desktop' },
       capabilities: {},
       threadReducer: lib.sessionReducer,
-      clock: { sleep: (ms) => Promise.reject(new Error(`${name} asked to sleep ${ms} ms (a reconnect backoff): its connection was lost`)) },
+      // A connection lost is a failure of the replay, except where the case is about a stale reply: the client that is handed one closes
+      // the feed (1002, a gap) and reconnects from the core's state, which is what the case then shows (`reconnects`).
+      clock: { sleep: (ms) => (reconnects ? Promise.resolve() : Promise.reject(new Error(`${name} asked to sleep ${ms} ms (a reconnect backoff): its connection was lost`))) },
       random: Math.random,
     }), LIMIT, `${name} connecting`);
     opened.push(client);
@@ -218,7 +220,7 @@ try {
     const rec = observed(name);
     const threadId = await newThread(writer);
     await written(threadId, 'stored');
-    const { client: a, holdReplyTo, releaseReply } = await desktop('reentry-delayed');
+    const { client: a, holdReplyTo, releaseReply } = await desktop('reentry-delayed', { reconnects: true });
     await within(a.resumeThread(threadId, { lastItems: 50 }), LIMIT, 'opening the stored session');
     await shows(a, threadId, step(rec, 'opened with a stored answer').texts, 'opened with a stored answer');
     // The case is about a stale reply: the read goes out and the core answers it, the answer is held back from the client while a new
@@ -234,6 +236,8 @@ try {
     await within(read, LIMIT, 'the held reply');
     const done = step(rec, 'read released');
     assert.deepStrictEqual({ texts: texts(a, threadId), lastTwo: texts(a, threadId).slice(-2) }, { texts: done.texts, lastTwo: done.lastTwo }, `${name}: after the read is released`);
+    // The stale reply made the client close its feed and read the session again: it settles on the same rows.
+    await shows(a, threadId, done.texts, 'the transcript after the client read the session again');
     console.log(`${name}: replayed`);
   }
 
