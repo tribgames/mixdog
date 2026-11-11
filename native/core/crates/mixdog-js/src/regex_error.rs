@@ -1208,7 +1208,7 @@ mod tests {
     /// hand-picked case across 22 flag sets plus up to 14 rows from each (message, flags) bucket
     /// of an exhaustive sweep (all strings up to three characters over 38 pattern characters,
     /// four over 16, five over 16 with `u`). `null` is a pattern V8 accepts.
-    const ROWS: &str = include_str!("../testdata/regex_errors.json");
+    const ROWS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("testdata/regex_errors.json");
 
     fn mismatches(rows: impl Iterator<Item = (String, String, Option<String>)>, limit: usize) -> (usize, usize, Vec<String>) {
         let (mut total, mut count, mut bad) = (0, 0, Vec::new());
@@ -1237,7 +1237,7 @@ mod tests {
 
     #[test]
     fn error_text_matches_node_on_the_corpus() {
-        let rows: Vec<(String, String, Option<String>)> = serde_json::from_str(ROWS).expect("fixture");
+        let rows: Vec<(String, String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
         let (total, count, bad) = mismatches(rows.into_iter(), 40);
         assert!(total > 5000, "{total}");
         assert!(bad.is_empty(), "{count} of {total} differ:\n{}", bad.join("\n"));

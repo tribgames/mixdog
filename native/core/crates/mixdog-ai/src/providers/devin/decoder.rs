@@ -449,7 +449,7 @@ mod progress_tests {
     /// decoder takes from the wire carries the same arguments.
     #[test]
     fn malformed_arguments_carry_v8s_parse_text() {
-        let errors: Vec<Value> = serde_json::from_str(include_str!("../../../../mixdog-js/testdata/json_error.json")).unwrap();
+        let errors: Vec<Value> = serde_json::from_str(mixdog_testkit::fixture!("../mixdog-js/testdata/json_error.json")).unwrap();
         let mut wrong = Vec::new();
         for row in errors.into_iter().skip(1) {
             let input = row[0].as_str().unwrap();

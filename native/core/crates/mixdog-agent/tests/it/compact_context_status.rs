@@ -60,7 +60,7 @@ fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
 
 #[test]
 fn status_equals_node() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status/golden.json")).expect("golden json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/context-status/golden.json")).expect("golden json");
     let owner = replay_owner();
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let mut compared = 0;

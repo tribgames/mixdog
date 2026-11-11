@@ -139,7 +139,7 @@ mod tests {
     use super::*;
 
     fn golden() -> Value {
-        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/handoff-env/golden.json"))).expect("golden")
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/handoff-env/golden.json")).expect("golden")
     }
 
     struct NoStamps;

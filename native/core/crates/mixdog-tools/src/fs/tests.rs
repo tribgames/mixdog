@@ -910,7 +910,7 @@ fn snapshot(dir: &Path, base: &Path, out: &mut Tree) {
 /// text, the error flag and the resulting tree must all match.
 #[tokio::test]
 async fn edit_and_apply_patch_match_recorded_node_cases() {
-    let cases: Vec<JsonValue> = serde_json::from_str(include_str!("golden/cases.json")).unwrap();
+    let cases: Vec<JsonValue> = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/cases.json")).unwrap();
     let tools: Vec<Box<dyn Tool>> = vec![Box::new(EditTool::new()), Box::new(ApplyPatchTool::new())];
     let mut failures = Vec::new();
     for case in &cases {
@@ -1715,8 +1715,8 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
 /// guard's own outcomes are checked in `read_legacy`.
 #[tokio::test]
 async fn the_legacy_path_spelling_reads_as_node_reads() {
-    let batch: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let batch: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut workspace = batch.clone();
     workspace["files"].as_object_mut().unwrap().extend(doc["extraFiles"].as_object().unwrap().clone());
     let dir = tempfile::tempdir().unwrap();
@@ -1777,7 +1777,7 @@ fn pin_legacy_environment() -> Vec<(&'static str, String)> {
 /// `normalizeErrorMessage` over the recorded messages (quoted paths, `file:///` URIs, the roots).
 #[test]
 fn error_messages_are_redacted_as_node_redacts_them() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut tokens = pin_legacy_environment();
     let cwd = std::env::temp_dir().join("mixdog-legacy-read-env").join("ws").to_string_lossy().replace('\\', "/");
     // The workspace with the other case of its drive letter (a Windows host compares paths without case).
@@ -1814,7 +1814,7 @@ fn error_messages_are_redacted_as_node_redacts_them() {
 #[test]
 fn host_path_spellings_are_normalized_as_node_normalizes_them() {
     use super::read_paths::{Host, host_spelling};
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut failures = Vec::new();
     for s in doc["spellings"].as_array().unwrap() {
         let host = if s["host"] == "windows" { Host::Windows } else { Host::Wsl };
@@ -1974,7 +1974,7 @@ fn recorded_result(result: &JsonValue) -> Vec<(String, String)> {
 /// Node's `read`, text and batch forms, replayed from `batch_cases.json` (no session, so no memory).
 #[tokio::test]
 async fn reading_text_and_batches_matches_the_recorded_node_cases() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let (root, ctx) = recorded_workspace(&doc, dir.path(), true).await;
     let cwd = root.as_path().to_string_lossy().replace('\\', "/");
@@ -2015,7 +2015,7 @@ impl SnapshotPersist for MemorySnapshots {
 /// read, a read after an edit or a patch, another session, a changed file, and a cache that has
 /// outlived its 30 seconds (on a clock the test moves).
 async fn replay_sequence(name: &str) {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let mut failures = Vec::new();
     {
         let sequence = doc["sequences"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded sequence {name}"));
@@ -2339,7 +2339,7 @@ async fn glob_and_find_see_files_past_fifty_thousand_entries() {
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.
 #[test]
 fn every_recorded_sequence_has_its_session_memory_test() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let recorded: Vec<&str> = doc["sequences"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(recorded, SEQUENCE_TESTS);
 }
