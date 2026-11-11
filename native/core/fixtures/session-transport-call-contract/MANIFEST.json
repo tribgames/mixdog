@@ -1,21 +1,20 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs --tree <tree>",
-  "entry": "Ran src/tui/session/oauth-flows.mjs, src/standalone/session-service.mjs createSessionService().handleCall (scripted runtime factory / readStoredSession / listSessions / log), the real HTTP session transport + session-client attachSession (callId cache, client registry) with the stub runtimes of scripts/session-transport/_shared.mjs, and src/standalone/session-proxy/transitions.mjs createTransitions. Did not run the log-summary, call-cache-metric and remote-projection cases (see notRecorded).",
+  "entry": "Ran src/tui/session/oauth-flows.mjs, src/standalone/session-service.mjs createSessionService().handleCall (scripted runtime factory / readStoredSession / listSessions / log), the real HTTP session transport + session-client attachSession and createSession (callId cache, client registry, remote runtime proxy) with the stub runtimes of scripts/session-transport/_shared.mjs, and src/standalone/session-proxy/transitions.mjs createTransitions. A TCP tap in front of the transport records every HTTP exchange (status line, headers in order, body). Did not run the log-summary and call-cache-metric cases (see notRecorded).",
   "exclusions": [
-    "cases 48, 451, 465 are listed in notRecorded with their reasons",
-    "case 15: flow ids oauth_<ms base36>_<seq base36> -> oauth_<ms>_<seq>; the registry timers armed are recorded by delay",
-    "wire envelope: the client-visible result/error (message and code) is recorded, plus the call the service received; HTTP headers/bytes are not",
-    "client tokens (random uuid) -> <client N> by first appearance; daemon session ids sess_daemon_<ms>_<32 hex> -> <daemon session N>",
-    "revision / baseRevision values above 1e12 (epoch-based, restart-monotonic) -> <epoch revision>+offset from the first one seen in the case",
-    "the runtime root temp dir -> <runtime root>, this process's cwd -> <cwd>, its pid/ppid in leadPid fields -> <pid>/<ppid>",
-    "queuedMs of a service call (time in the lane) is not recorded: it is a wall-clock measure"
+    "cases 48 and 451 are listed in notRecorded with their reasons",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\""
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 32684,
+      "bytes": 219857,
       "path": "recording.json",
-      "sha256": "47649eb41438a89f65ce893f284e42a62f7f55de12f2a3c3ee8be58361aa9929"
+      "sha256": "a0b5d95d09a754a1ed5830480eddb470d65f7cd537878bff57c16b55a9fb0eb1"
     }
   ],
   "inputs": [
@@ -24,16 +23,20 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/session-daemon-harness.mjs",
-      "sha256": "9527596ccea60373a9391e7dc25f5c24f4854791fa1d64141d2949a8cbaf7ebe"
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -54,9 +57,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-call-contract.mjs",
-  "recorderSha256": "58c07157d1a241841da900c572fc1cc4433a61b30b231fc30ada67c4974bf23c",
-  "replay": "mixdog-app-server dispatch (APP/dispatch.rs, handshake.rs, subscriptions.rs), mixdog-core-base ops (ops/tests.rs op-id replay and payload conflict), ai_account/flows.rs OAuth flow status/complete/cancel and thread/read raw messages: drive the same ordered calls with the same arguments/callIds and compare each outcome (value or error message+code), the service call list (name, args, context), scripted-endpoint counters and recorded log lines whole.",
+  "recorderSha256": "fac2605762ac06f52bf4afee8fdf035a83ec245f9133dcd85c9422e5b433249f",
+  "replay": "App-server protocol methods of the Rust core (native/core/crates/mixdog-app-protocol methods.rs, served by mixdog-app-server): session.create -> thread/start, session.read -> thread/read, session.submit -> turn/start, session.abort -> turn/interrupt, session.subscribe/unsubscribe -> thread/resume + thread/unsubscribe, session.configure (setRoute, renameSessionTitle) -> thread/setEffort / thread/rename and the other thread/set* methods, session.list -> thread/list; OAuth flows -> account/beginOAuthProviderLogin, account/completeOAuthProviderLogin, account/cancelOAuthProviderLogin, account/getOAuthProviderLoginStatus. Drive the same ordered calls with the same arguments and callIds (op-id replay and payload conflict: mixdog-core-base ops) and compare each outcome (value, or error name/message/code), the service call list (name, args, context), the scripted-endpoint counters and the log lines whole. The Node HTTP exchange log (wire) documents the Node transport only: the Rust transport is the app-server WebSocket, so compare the calls and results, not the HTTP bytes. The remote-runtime proxy (transitions.applyResult, createSession projection) has no Rust counterpart: Rust-side work, recorded here as the client-visible contract.",
   "set": "session-transport-call-contract",
   "testFile": "scripts/session-transport/call-contract.test.mjs",
-  "totalBytes": 32684
+  "totalBytes": 219857,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
