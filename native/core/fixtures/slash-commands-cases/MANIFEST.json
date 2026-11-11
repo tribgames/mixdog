@@ -1,34 +1,50 @@
 {
-  "cases": 2,
+  "cases": 4,
   "command": "node benchmarks/rust-core/recorders/record-slash-commands-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
-    "notRun": "the /btw panel cases (overlayBlocksGlobalTranscriptScroll, btwScrollMax/Offset, btwContentRows/PanelRows) are Node TUI code: not recorded",
+    "notRun": "the Node TUI is not rendered: the /btw panel cases record its pure scroll and row functions (overlayBlocksGlobalTranscriptScroll, btwScrollMax/Offset, btwContentRows/PanelRows) as a client observes them",
     "runs": "src/tui/app/slash-commands.mjs normalizeSlashCommandName and slashArgumentHint over the real command registry"
   },
   "exclusions": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1718,
+      "bytes": 4063,
       "path": "golden.json",
-      "sha256": "bfd6799cd34858f291fcc65273ae0fc8c3ddb496b39a65bb356afd1ffba44e43"
+      "sha256": "2205ab2c4c0bb31aa0751e3f9b8b41af9d7df92f989a6644ae6ba988ffd1edb5"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,11 +63,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-slash-commands-cases.mjs",
-  "recorderSha256": "3b1bdc97cf25668ca18ac71a7bf5d237f8823ec34b0b7b88a3f360eabf7c5cdc",
+  "recorderSha256": "db64f8b60f9a3ebf64142891b6a6cdfa158a09e19e29cd0b05dbfdfa52160d94",
   "replay": {
-    "entry": "mixdog-core-session session/pending.rs (slash tokens): resolve each recorded name and compare; compare the argument hint of each recorded input",
-    "normalised": {}
+    "compare": "mixdog-core-session session/pending.rs (slash tokens): resolve each recorded name and compare; compare the argument hint of each recorded input",
+    "entry": "NO RUST ENTRY ON o1: slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart; the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI.",
+    "missingOnO1": [
+      "slash tokens: mixdog-core-session/src/session/pending.rs:118 `recognised_slash_token` is pub(crate), SLASH_TOKENS is private; the argument hint has no counterpart",
+      "the /btw panel scroll and row functions (src/tui/app/btw-controller.mjs, slash-commands.mjs overlayBlocksGlobalTranscriptScroll): Node TUI code, no Rust TUI"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "slash-commands-cases",
-  "totalBytes": 1718
+  "totalBytes": 4063,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

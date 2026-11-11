@@ -30,11 +30,108 @@
           },
           {
             "input": {
-              "undefined": true
+              "$exact": "undefined"
             },
             "result": ""
           }
         ]
+      }
+    },
+    {
+      "case": "an open /btw panel owns PageUp/PageDown and wheel scroll",
+      "observed": {
+        "overlays": [
+          {
+            "overlay": {
+              "btwPanel": true
+            },
+            "blocks": true
+          },
+          {
+            "overlay": {},
+            "blocks": false
+          }
+        ]
+      }
+    },
+    {
+      "case": "btw scroll offsets page by one row less than the body, clamped to the content",
+      "observed": {
+        "scrollMax": [
+          {
+            "content": 30,
+            "body": 10,
+            "result": 20
+          },
+          {
+            "content": 5,
+            "body": 10,
+            "result": 0
+          }
+        ],
+        "scrollOffset": [
+          {
+            "args": [
+              {
+                "pageDown": true
+              },
+              0,
+              10,
+              30
+            ],
+            "result": 9
+          },
+          {
+            "args": [
+              {
+                "pageDown": true
+              },
+              18,
+              10,
+              30
+            ],
+            "result": 20
+          },
+          {
+            "args": [
+              {
+                "pageUp": true
+              },
+              5,
+              10,
+              30
+            ],
+            "result": 0
+          },
+          {
+            "args": [
+              {
+                "pageUp": true
+              },
+              20,
+              10,
+              30
+            ],
+            "result": 11
+          },
+          {
+            "args": [
+              {},
+              50,
+              10,
+              30
+            ],
+            "result": 20
+          }
+        ],
+        "longAnswer": {
+          "question": "q",
+          "status": "done",
+          "text": "line 0\n\nline 1\n\nline 2\n\nline 3\n\nline 4\n\nline 5\n\nline 6\n\nline 7\n\nline 8\n\nline 9\n\nline 10\n\nline 11\n\nline 12\n\nline 13\n\nline 14\n\nline 15\n\nline 16\n\nline 17\n\nline 18\n\nline 19\n\nline 20\n\nline 21\n\nline 22\n\nline 23\n\nline 24\n\nline 25\n\nline 26\n\nline 27\n\nline 28\n\nline 29\n\nline 30\n\nline 31\n\nline 32\n\nline 33\n\nline 34\n\nline 35\n\nline 36\n\nline 37\n\nline 38\n\nline 39"
+        },
+        "contentRows": 79,
+        "panelRows": 14,
+        "chromeRows": 4
       }
     },
     {
