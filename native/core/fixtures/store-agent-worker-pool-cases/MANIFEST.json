@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,7 +67,8 @@
   "recorderSha256": "2bb0cad635de5e45ee230bfca1240fdceacacaa4dca6f6b64370876047223abc",
   "replay": {
     "compare": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
-    "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624)).",
+    "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624); re-exported by agents/mod.rs:50).",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the persisted header cache, the link list and the stat / read counters: no counterpart found"
     ],
@@ -78,7 +79,7 @@
     "rustTargets": [
       {
         "line": 139,
-        "methods": "new (pool_list.rs:619), list (pool_list.rs:624)",
+        "methods": "new (pool_list.rs:619), list (pool_list.rs:624); re-exported by agents/mod.rs:50",
         "name": "AgentPool",
         "path": "native/core/crates/mixdog-core-agents/src/agents/pool_list.rs"
       }
