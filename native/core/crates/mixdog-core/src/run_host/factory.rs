@@ -1522,11 +1522,11 @@ mod tests {
 
     /// `fixtures/turn-effort/*.json` (`record-turn-effort.mjs`, client mode): Node's TUI session store over its real
     /// session runtime ran a turn (a tool call, then a reply) on an Anthropic route with effort fixed (`high`), none, and
-    /// Auto at `medium` with the step judged after the tool call; each `turnEffort` its route state published
-    /// (`local-session-runtime.mjs` `publishChanged`) was recorded in order. The same turn here: the session actor starts
-    /// it, the factory builds the run with the route's effort wiring and the judge over the recorded judge answers, and
-    /// every `thread/route/updated` frame the actor sent the thread's feed is read in order, whole sequence; each
-    /// request's effort is the recorded one.
+    /// Auto at `medium` with the step judged after the tool call; each change its route state published
+    /// (`local-session-runtime.mjs` `publishChanged`) was recorded whole, in order, with the state before the turn and how
+    /// it ended. The same turn here: the session actor starts it, the factory builds the run with the route's effort wiring
+    /// and the judge over the recorded judge answers, and every `thread/route/updated` frame the actor sent the thread's feed
+    /// is read in order, whole sequence; each request's effort is the recorded one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_actor_publishes_the_turn_effort_sequence_node_published() {
         use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot};
@@ -1585,11 +1585,36 @@ mod tests {
             let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
             let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
             let handle = directory.handle(&id).expect("loaded");
-            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": prompt } }), "op-1")).await.expect("turn/start");
             let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
+            // `initial` and `atStart`: the route state before the turn, and what was published before it.
+            let before = frames("thread/route/updated");
+            assert_eq!(before.len(), recorded["client"]["atStart"].as_array().unwrap().len(), "{name}: nothing is published before the turn");
+            assert_eq!(before.last().map_or(Value::Null, |p| p["value"]["turnEffort"].clone()), recorded["client"]["initial"], "{name}: the effort before the turn");
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": prompt } }), "op-1")).await.expect("turn/start");
             eventually_on_awaiting(|| format!("{name}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
-            let published: Vec<Value> = frames("thread/route/updated").into_iter().map(|p| p["value"]["turnEffort"].clone()).collect();
-            assert_eq!(Value::Array(published), recorded["client"]["published"], "{name}: what the client saw, in order");
+            // `status`: the turn the client's `submitAndWait` saw end `done` is the one that completed.
+            assert_eq!(recorded["client"]["status"], "done", "{name}: the recorded turn ended done");
+            assert_eq!(frames("turn/completed").len(), 1, "{name}: the turn completed once");
+            // Every publication of the client's route state (`publishChanged`: the keys that changed, the first one the whole
+            // route), in order. The core publishes the whole route with each frame: Node's changes accumulate into the state the
+            // client held after each publication, and `turnEffort` is compared in each. The other keys of Node's first publication
+            // (`sessionId`, `sessionProvider`, `sessionModel`, the context windows and limits, `agentScope`) are the MANIFEST's
+            // declared exclusion: this rig's thread stores no route and the windows are `thread/context/updated`'s.
+            // A publication that does not carry `turnEffort` is the client's first snapshot of a route that never changed (the
+            // `none` scenario): the core publishes no frame for a route that did not change. Declared in the MANIFEST.
+            let routes = frames("thread/route/updated");
+            let mut state = serde_json::Map::new();
+            let mut node_states = Vec::new();
+            for patch in recorded["client"]["published"].as_array().unwrap() {
+                state.extend(patch.as_object().unwrap().clone());
+                if patch.get("turnEffort").is_some() {
+                    node_states.push(state.clone());
+                }
+            }
+            assert_eq!(routes.len(), node_states.len(), "{name}: one route frame per publication of the effort");
+            for (n, (state, frame)) in node_states.iter().zip(&routes).enumerate() {
+                assert_eq!(&frame["value"]["turnEffort"], &state["turnEffort"], "{name}: publication {n}: turnEffort");
+            }
             let sent: Vec<Value> = lock(&provider.requests).iter().map(|r| json!(r.options.effort)).collect();
             let node: Vec<Value> = recorded["sends"].as_array().unwrap().iter().map(|s| s["requestEffort"].clone()).collect();
             assert_eq!(sent, node, "{name}: each request's effort");

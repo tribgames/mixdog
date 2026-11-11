@@ -1,21 +1,26 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-turn-effort.mjs --tree <b6f10295a export>",
+  "exclusions": [
+    "client.published: the session id the runtime names (process id and clock) is written <session>",
+    "client.published: a publication that does not carry turnEffort (the first snapshot of a route that never changed, scenario none) has no frame in the core, which publishes none for a route that did not change; the replay compares the publications that carry it",
+    "client.published: the replay compares turnEffort in each publication; the other keys of Node's first publication (sessionId, sessionProvider, sessionModel, contextWindow, rawContextWindow, effectiveContextWindowPercent, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, agentScope) are recorded but not compared: the replay thread stores no route, and the windows and limits are the core's thread/context/updated section"
+  ],
   "fileCount": 3,
   "files": [
     {
-      "bytes": 1077,
+      "bytes": 1548,
       "path": "auto-step.json",
-      "sha256": "71cca469ee0e3b923d23cd17172c085d7bccc939f28453eb7599f51df64aa34e"
+      "sha256": "8cfdfadcda1a10a46e16a904a9f721b84c4348d3671e83622f852d90dd14eb78"
     },
     {
-      "bytes": 960,
+      "bytes": 1399,
       "path": "fixed.json",
-      "sha256": "459aa5fbe5cb77dd4f2c5373f5740937ae74333cb6ef3c1ef47d1061af277e5d"
+      "sha256": "7a57125e033ebcc5838cf60dd7604f54e6924addf49393b4cb5ac2c9f52ab9e3"
     },
     {
-      "bytes": 928,
+      "bytes": 1355,
       "path": "none.json",
-      "sha256": "47035153d3fa72af6877a891518412ce2bad2c7da6ee6bccfa1bd40f4ec83720"
+      "sha256": "12aa3c64c3b79d132302807a95e55b85fb8210995d3c8bb62b74ee52c641c77b"
     }
   ],
   "inputs": [
@@ -59,12 +64,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-effort.mjs",
-  "recorderSha256": "c7030bd4a73f1e8f75f983db02fd9a2b430a92b1fd565fd417b24418bacacb1a",
+  "recorderSha256": "0c3176e01c91058e0a87efe96306c1ea60e905f9f4159ca01268024a22d23355",
   "scenarios": [
     "fixed",
     "none",
     "auto-step"
   ],
   "set": "turn-effort",
-  "totalBytes": 2965
+  "totalBytes": 4302
 }
