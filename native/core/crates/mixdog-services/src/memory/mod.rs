@@ -29,6 +29,8 @@ pub mod transcript;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod replays;
 
 /// Aborts a task when dropped: a wait for the task that is itself abandoned (the stop's bound passed) ends the task too. Aborting a task that already ended
 /// does nothing.
