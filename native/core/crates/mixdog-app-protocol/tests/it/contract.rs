@@ -514,14 +514,15 @@ fn every_inbound_kind_names_its_lone_surrogates() {
 }
 
 /// Every string field of every client request, client notification and answer to a server request (read from the
-/// schema goldens, and inside the values the schema leaves untyped from the inventory's `payloads`) is either a
-/// free-text field (`free_text::FREE_TEXT`) or named as refused in `free_text_fields.json`; a field that is in neither (a
-/// method gained one) fails here, as does a listed field the schema no longer has, an untyped value with no declaration,
-/// and a refused text-like field without its reason.
+/// schema goldens, and inside the values the schema leaves untyped from the inventory's `payloads`), a map's keys
+/// included, is in exactly one class of `free_text_fields.json` with its reason, and the `free` class is exactly
+/// `free_text::FREE_TEXT`, either way: the inventory is the statement the table is checked against. A part classed whole
+/// (`**`) is only one the inventory declares `open` (no fixed fields by nature), in the class it declares.
 #[test]
-fn every_string_field_is_free_text_or_named_as_refused() {
+fn every_string_field_is_classed_once_and_free_text_is_listed_free() {
     use mixdog_app_protocol::free_text::FREE_TEXT;
     use mixdog_app_protocol::free_text::Kind;
+    use std::collections::BTreeSet;
     fn untyped(schema: &Value) -> bool {
         schema == &Value::Bool(true)
             || schema.as_object().is_some_and(|object| {
@@ -530,7 +531,7 @@ fn every_string_field_is_free_text_or_named_as_refused() {
                     .any(|key| object.contains_key(*key))
             })
     }
-    fn walk(schema: &Value, defs: &Value, path: &str, out: &mut std::collections::BTreeSet<String>, seen: &[String]) {
+    fn walk(schema: &Value, defs: &Value, path: &str, out: &mut BTreeSet<String>, seen: &[String]) {
         if schema.is_null() || schema == &Value::Bool(false) {
             return;
         }
@@ -566,6 +567,8 @@ fn every_string_field_is_free_text_or_named_as_refused() {
             walk(property, defs, &format!("{path}/{}", key.replace('~', "~0").replace('/', "~1")), out, seen);
         }
         if let Some(more) = schema.get("additionalProperties").filter(|more| *more != &Value::Bool(false)) {
+            // A map: its keys are strings of their own class.
+            out.insert(format!("{path}/{{}}"));
             walk(more, defs, &format!("{path}/*"), out, seen);
         }
         match &schema["items"] {
@@ -581,14 +584,12 @@ fn every_string_field_is_free_text_or_named_as_refused() {
     let schema = |name: &str| -> Value { serde_json::from_slice(&std::fs::read(crate_dir().join("schema").join(name)).unwrap()).unwrap() };
     let named: Value = serde_json::from_slice(&std::fs::read(crate_dir().join("tests/it/free_text_fields.json")).unwrap()).unwrap();
     let mut problems = Vec::new();
-    // A value the schema leaves untyped (`path/**`) is replaced by the string fields its reader reads, as the inventory's
-    // `payloads` enumerates them: `fields` (pointers below the payload), `schema` (a definition of a schema golden that
-    // the reader deserialises into), `open` (JSON with no fixed fields a model or a tool's source wrote: free text below,
-    // FREE_TEXT has `path/**`), or `opaque` (no fixed fields and no typed text: refused whole, with the reason). An untyped
-    // value with no declaration is a failure: its fields were never classed.
-    let mut used = std::collections::BTreeSet::new();
-    let mut expand = |kind: &str, method: &str, walked: std::collections::BTreeSet<String>, problems: &mut Vec<String>| {
-        let mut out = std::collections::BTreeSet::new();
+    // Each untyped value (`path/**`) is replaced by what `payloads` declares for it; one with no declaration is a failure.
+    // The `**` parts left are the declared `open` ones, each with the class it must have.
+    let mut used = BTreeSet::new();
+    let mut open_class: BTreeMap<String, String> = BTreeMap::new();
+    let mut expand = |kind: &str, method: &str, walked: BTreeSet<String>, problems: &mut Vec<String>| {
+        let mut out = BTreeSet::new();
         for field in walked {
             let Some(at) = field.strip_suffix("/**") else {
                 out.insert(field);
@@ -596,7 +597,7 @@ fn every_string_field_is_free_text_or_named_as_refused() {
             };
             let spec = &named["payloads"][kind][method][at];
             if spec.is_null() {
-                problems.push(format!("{kind} {method} {field}: an untyped payload whose fields are not enumerated in `payloads`"));
+                problems.push(format!("{kind} {method} {field}: an untyped value whose fields are not enumerated in `payloads`"));
                 continue;
             }
             used.insert(format!("{kind} {method} {at}"));
@@ -609,34 +610,33 @@ fn every_string_field_is_free_text_or_named_as_refused() {
                 let file = schema(file);
                 walk(&file["definitions"][definition], &file["definitions"], at, &mut out, &[definition.to_owned()]);
             }
-            if spec["open"].is_string() || spec["opaque"].is_string() {
-                out.insert(field.clone());
-            }
-            for (sub, reason) in spec["opaque"].as_object().into_iter().flatten() {
-                assert!(reason.is_string(), "{kind} {method} {at}{sub}: an opaque part without its reason");
+            for (sub, open) in spec["open"].as_object().into_iter().flatten() {
+                let class = open["class"].as_str().unwrap_or_default();
+                if !["free", "refused"].contains(&class) || !open["reason"].as_str().is_some_and(|r| !r.is_empty()) {
+                    problems.push(format!("{kind} {method} {at}{sub}: an open part without its class and reason"));
+                }
                 out.insert(format!("{at}{sub}/**"));
+                open_class.insert(format!("{kind} {method} {at}{sub}/**"), class.to_owned());
             }
         }
         out
     };
-    let mut fields: BTreeMap<(&str, String), std::collections::BTreeSet<String>> = BTreeMap::new();
+    let mut fields: BTreeSet<String> = BTreeSet::new();
     for (file, kind) in [("client_request.json", "request"), ("client_notification.json", "notification")] {
         let file = schema(file);
         for variant in file["oneOf"].as_array().unwrap() {
             let method = &variant["properties"]["method"];
             let method = method["const"].as_str().or_else(|| method["enum"][0].as_str()).unwrap().to_owned();
-            let mut out = std::collections::BTreeSet::new();
+            let mut out = BTreeSet::new();
             walk(&variant["properties"]["params"], &file["definitions"], "", &mut out, &[]);
-            let out = expand(kind, &method, out, &mut problems);
-            fields.insert((kind, method), out);
+            fields.extend(expand(kind, &method, out, &mut problems).into_iter().map(|f| format!("{kind} {method} {f}")));
         }
     }
     let answers = schema("server_request_methods.json");
     for (method, row) in answers["methods"].as_object().unwrap() {
-        let mut out = std::collections::BTreeSet::new();
+        let mut out = BTreeSet::new();
         walk(&row["result"], &answers["definitions"], "", &mut out, &[]);
-        let out = expand("answer", method, out, &mut problems);
-        fields.insert(("answer", method.clone()), out);
+        fields.extend(expand("answer", method, out, &mut problems).into_iter().map(|f| format!("answer {method} {f}")));
     }
     for (kind, methods) in named["payloads"].as_object().unwrap() {
         for (method, paths) in methods.as_object().unwrap() {
@@ -645,82 +645,47 @@ fn every_string_field_is_free_text_or_named_as_refused() {
             }
         }
     }
-    for ((kind, method), found) in &fields {
-        let refused: std::collections::BTreeSet<String> =
-            named["refused"][kind][method].as_array().into_iter().flatten().map(|p| p.as_str().unwrap().to_owned()).collect();
-        let free: Vec<&str> = FREE_TEXT
-            .iter()
-            .filter(|(k, m, _)| *m == method && matches!((k, *kind), (Kind::Request, "request") | (Kind::Notification, "notification") | (Kind::Answer, "answer")))
-            .flat_map(|(_, _, patterns)| patterns.iter().copied())
-            .collect();
-        for field in found.iter().filter(|field| !free.contains(&field.as_str()) && !refused.contains(*field)) {
-            problems.push(format!("{kind} {method} {field}: neither free text nor named as refused"));
-        }
-        for field in refused.iter().filter(|field| !found.contains(*field) || free.contains(&field.as_str())) {
-            problems.push(format!("{kind} {method} {field}: named as refused, not a string field of the schema or free text"));
-        }
-        // A refused `**` is only an `opaque` declaration's; a free one only an `open` declaration's.
-        for field in found.iter().filter(|field| field.ends_with("/**")) {
-            let at = field.strip_suffix("/**").unwrap();
-            let spec = &named["payloads"][kind][method][at];
-            let (open, opaque) = (spec["open"].is_string(), spec["opaque"].is_string() || at.rsplit_once('/').is_some_and(|(head, tail)| named["payloads"][kind][method][head]["opaque"][format!("/{tail}")].is_string()));
-            if free.contains(&field.as_str()) != open || refused.contains(field) != opaque {
-                problems.push(format!("{kind} {method} {field}: open JSON is free text only when declared `open`, refused only when declared `opaque`"));
-            }
-        }
-        for pattern in &free {
-            if !found.contains(*pattern) {
-                problems.push(format!("{kind} {method} {pattern}: free text, not a field of the schema"));
-            }
-        }
-    }
-    // Every refused field a person might read as text has its reason; a reason names only refused fields, once.
-    const TEXT_LIKE: &[&str] = &[
-        "name", "title", "label", "text", "message", "description", "query", "searchTerm", "body", "content", "prompt", "summary", "reason", "reply",
-        "comment", "note", "instructions", "persona", "alias", "displayName", "error", "context", "currentText", "goalCommand", "command", "email",
-        "newName", "filename", "value", "detail", "metadataText", "city", "region",
-    ];
-    let text_like = |field: &str| TEXT_LIKE.contains(&field.trim_end_matches("/*").rsplit('/').next().unwrap_or_default());
-    let mut reasoned = BTreeMap::new();
-    for group in named["reasons"].as_array().unwrap() {
-        assert!(group["reason"].as_str().is_some_and(|r| !r.is_empty()));
+    // The inventory's classes: every field once, with its reason.
+    let mut class_of: BTreeMap<String, String> = BTreeMap::new();
+    for group in named["classes"].as_array().unwrap() {
+        let class = group["class"].as_str().unwrap();
+        assert!(["free", "refused"].contains(&class), "a class that is neither free nor refused: {class}");
+        assert!(group["reason"].as_str().is_some_and(|r| !r.is_empty()), "a class without its reason");
         for entry in group["fields"].as_array().unwrap() {
             let entry = entry.as_str().unwrap();
-            if reasoned.insert(entry.to_owned(), ()).is_some() {
-                problems.push(format!("{entry}: given two reasons"));
+            if class_of.insert(entry.to_owned(), class.to_owned()).is_some() {
+                problems.push(format!("{entry}: classed twice"));
             }
-            let mut parts = entry.splitn(3, ' ');
-            let (kind, method, field) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
-            if !named["refused"][kind][method].as_array().is_some_and(|list| list.iter().any(|f| f == field)) {
-                problems.push(format!("{entry}: a reason for a field that is not refused"));
+            if !fields.contains(entry) {
+                problems.push(format!("{entry}: classed, not a string field of the schema"));
             }
         }
     }
-    for (kind, methods) in named["refused"].as_object().unwrap() {
-        for (method, list) in methods.as_object().unwrap() {
-            for field in list.as_array().unwrap().iter().filter_map(Value::as_str).filter(|f| text_like(f)) {
-                if !reasoned.contains_key(&format!("{kind} {method} {field}")) {
-                    problems.push(format!("{kind} {method} {field}: refused text-like field without a reason in `reasons`"));
-                }
-            }
+    for field in &fields {
+        match (class_of.get(field), open_class.get(field)) {
+            (None, _) => problems.push(format!("{field}: a string field in no class")),
+            (Some(class), Some(open)) if class != open => problems.push(format!("{field}: an open part classed {class}, declared {open}")),
+            _ => {}
         }
     }
-    for (kind, method, _) in FREE_TEXT {
-        let kind = match kind {
-            Kind::Request => "request",
-            Kind::Notification => "notification",
-            Kind::Answer => "answer",
-        };
-        if !fields.contains_key(&(kind, (*method).to_owned())) {
-            problems.push(format!("{kind} {method}: free text of a method the schema does not have"));
-        }
+    // FREE_TEXT equals the inventory's free class, either way.
+    let listed: BTreeSet<String> = FREE_TEXT
+        .iter()
+        .flat_map(|(kind, method, patterns)| {
+            let kind = match kind {
+                Kind::Request => "request",
+                Kind::Notification => "notification",
+                Kind::Answer => "answer",
+            };
+            patterns.iter().map(move |pattern| format!("{kind} {method} {pattern}"))
+        })
+        .collect();
+    let free: BTreeSet<String> = class_of.iter().filter(|(_, class)| *class == "free").map(|(field, _)| field.clone()).collect();
+    for field in listed.difference(&free) {
+        problems.push(format!("{field}: in FREE_TEXT, not classed free in the inventory"));
     }
-    for (kind, methods) in named["refused"].as_object().unwrap() {
-        for method in methods.as_object().unwrap().keys() {
-            if !fields.contains_key(&(kind.as_str(), method.clone())) {
-                problems.push(format!("{kind} {method}: named as refused, not a method of the schema"));
-            }
-        }
+    for field in free.difference(&listed) {
+        problems.push(format!("{field}: classed free in the inventory, not in FREE_TEXT"));
     }
     assert!(problems.is_empty(), "{problems:#?}");
 }

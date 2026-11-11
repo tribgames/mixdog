@@ -25,7 +25,7 @@ fn kill_child() {
     let fs = ProjectFs::new(Arc::new(RecoveryStore::new(PathBuf::from(store))));
     let writes: Vec<BatchFile> = FILES
         .iter()
-        .map(|(rel, before, after)| BatchFile { rel_path: (*rel).into(), content: (*after).into(), expected_content: (*before).into(), content_lone: false })
+        .map(|(rel, before, after)| BatchFile { rel_path: (*rel).into(), content: (*after).into(), expected_content: (*before).into(), content_lone: false, expected_lone: false })
         .collect();
     fs.write_batch(Path::new(&root), &writes, true).expect("the batch completes unless killed");
 }
