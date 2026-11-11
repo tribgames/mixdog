@@ -185,13 +185,14 @@ impl SessionDirectory {
         let (carried, set) = self.fit_rows(source, heir, handle, source_header, compact).await.map_err(|error| Carry { error, appended: false })?;
         let ctx = CallContext::internal("inheritance");
         let count = carried.len();
-        for (method, params) in [
-            ("thread/inheritedRows/append", json!({ "messages": carried })),
-            ("thread/header/patch", json!({ "threadId": heir, "set": set, "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT] })),
-        ] {
-            handle.request(CoreRequest { method: Method(method), params, op: None, ctx: ctx.clone() }).await.map_err(|error| Carry { error, appended: true })?;
+        // The rows, the header keys and the end of the copy are one save (`saveSession(target, { immediate: true })`), which
+        // Node does not await: a write that fails keeps them queued for the next one, with one notice, and the inheritance
+        // still answers. Until that write the heir's header still names its source as being copied.
+        let params = json!({ "messages": carried, "set": set, "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT] });
+        match handle.request(CoreRequest { method: Method("thread/inheritedRows/append"), params, op: None, ctx }).await {
+            Ok(_) | Err(CoreError::BarrierFailed { .. }) => Ok(count),
+            Err(error) => Err(Carry { error, appended: true }),
         }
-        Ok(count)
     }
 
     /// The source's rows fitted to the heir, the last one holding the inheritance boundary, and the heir's header

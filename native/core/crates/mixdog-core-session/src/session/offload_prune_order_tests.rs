@@ -830,24 +830,26 @@ async fn the_unknown_sets_are_read_in_bounded_batches_that_resume() {
 enum CarryFails {
     /// Refused before anything is appended (the conversation does not fit and cannot be compacted).
     Refused,
-    /// The append's batch fails, nothing written.
+    /// The copy's batch (rows, header keys and the end of the copy: one write) fails, nothing written.
     AppendRolledBack,
-    /// The append's batch is written and its sync fails: its rows are in the log.
+    /// The copy's batch is written and its sync fails: its rows are in the log.
     AppendWritten,
-    /// The rows are stored; the header patch naming the source fails.
-    HeaderPatch,
+    /// The same batch fails on its header record (the one naming the source), nothing written.
+    HeaderRecord,
 }
 
 /// Every failure point of an inheritance, in order, against the heir's reference set and copy mark on disk: the set
 /// (the heir's own, the source's and the source) stored before anything is copied is never taken back; the mark goes
 /// only when nothing was appended, and stays (stopping the source's prune) while rows of the copy may be in the log
-/// unread. A mark an earlier boot left (the process stopped) stops nothing: the heir is read, under its set.
+/// unread. A refusal before anything is queued fails the inheritance; a failed write of the copy does not (its rows, header
+/// keys and the mark's removal stay queued for the heir's next write). A mark an earlier boot left (the process stopped)
+/// stops nothing: the heir is read, under its set.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back() {
     use mixdog_store::offload_sources as sets;
     use mixdog_store::schema::blob::Slot;
     use mixdog_store::schema::record::MetaRecord;
-    for point in [CarryFails::Refused, CarryFails::AppendRolledBack, CarryFails::AppendWritten, CarryFails::HeaderPatch] {
+    for point in [CarryFails::Refused, CarryFails::AppendRolledBack, CarryFails::AppendWritten, CarryFails::HeaderRecord] {
         let world = world("copy-in-progress").await;
         let source = world.handle.id.clone();
         let heir = ThreadId::from(format!("{}_heir", source.as_str()));
@@ -858,22 +860,24 @@ async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back()
             CarryFails::Refused => *lock(&world.rig.inherit.basis) = Some((10, 100, false)),
             CarryFails::AppendRolledBack => *lock(&world.rig.store.fail_when) = Some((Box::new(appended), false)),
             CarryFails::AppendWritten => *lock(&world.rig.store.fail_when) = Some((Box::new(appended), true)),
-            CarryFails::HeaderPatch => *lock(&world.rig.store.fail_when) = Some((Box::new(named), false)),
+            CarryFails::HeaderRecord => *lock(&world.rig.store.fail_when) = Some((Box::new(named), false)),
         }
         let forked = json!({ "threadId": source, "opId": "op-inherit", "intoThreadId": heir });
         let answer = within("the inheritance answers", world.handle.request(request("thread/fork", forked, "op-inherit"))).await;
-        assert!(answer.is_err(), "{point:?}: the inheritance fails: {answer:?}");
+        assert_eq!(answer.is_err(), matches!(point, CarryFails::Refused), "{point:?}: only a failure before anything is queued fails the inheritance: {answer:?}");
         let header = world.rig.store.stored_header(&heir).expect("the heir's header");
         assert!(sets::sources(&header).contains(&sets::safe_segment(source.as_str())), "{point:?}: the heir's set names the source: {header:?}");
         let marked = sets::mark(&header);
         let copies = world.rig.store.copies_of(&source).await;
         match point {
-            CarryFails::Refused => {
-                assert_eq!(marked, None, "{point:?}: nothing was appended: no mark");
+            // A batch written whole (its sync failed) holds the rows and the end of the copy together: the log the prune
+            // reads has both, so no mark stands over rows it cannot read.
+            CarryFails::Refused | CarryFails::AppendWritten => {
+                assert_eq!(marked, None, "{point:?}: nothing was appended, or the batch holds the rows and the end of the copy: no mark");
                 assert!(copies.is_ok_and(|found| found.copies == [heir.as_str()]), "{point:?}: the source's prune reads the heir");
             }
             _ => {
-                assert_eq!(marked, Some((source.as_str().to_owned(), sets::boot().to_owned())), "{point:?}: rows may be in the log: the mark stays");
+                assert_eq!(marked, Some((source.as_str().to_owned(), sets::boot().to_owned())), "{point:?}: the copy is queued: the stored header keeps the mark");
                 let blocked = copies.expect_err("the source's prune is stopped");
                 assert!(format!("{blocked:?}").contains("is still inheriting"), "{point:?}: {blocked:?}");
             }
@@ -901,9 +905,58 @@ async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back()
         }
         // The source opened by the next process: the heir is read, and what its stored rows name stays on disk.
         let (directory, _handle) = world.reopened(2).await;
-        let rows_written = matches!(point, CarryFails::AppendWritten | CarryFails::HeaderPatch);
+        // The shutdown's own write takes the rows a failed write left queued with it.
+        let rows_written = true;
         assert_eq!(named_on_disk(), rows_written, "{point:?}: the sidecar the heir's stored rows name is kept, and only that");
         within("the directory shuts down", directory.shutdown_for("test close")).await;
+    }
+}
+
+/// A failed write of the copy leaves the heir's stored header with its set and its mark; the heir's next successful write
+/// lands the queued rows with the header keys and the end of the copy, and the source's prune is free of the mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_copy_a_failed_write_left_queued_lands_with_the_heirs_next_write() {
+    use mixdog_store::offload_sources as sets;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::MetaRecord;
+    for point in [CarryFails::AppendRolledBack, CarryFails::AppendWritten, CarryFails::HeaderRecord] {
+        let world = world("copy-in-progress").await;
+        let source = world.handle.id.clone();
+        let heir = ThreadId::from(format!("{}_heir", source.as_str()));
+        within("the heir is created", world.directory.create_with_id(heir.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({}))).await.expect("create");
+        let appended = |record: &Record| !matches!(record, Record::Meta(_) | Record::Session(_));
+        let named = |record: &Record| matches!(record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("inheritedFromSessionId"));
+        match point {
+            CarryFails::AppendRolledBack => *lock(&world.rig.store.fail_when) = Some((Box::new(appended), false)),
+            CarryFails::AppendWritten => *lock(&world.rig.store.fail_when) = Some((Box::new(appended), true)),
+            _ => *lock(&world.rig.store.fail_when) = Some((Box::new(named), false)),
+        }
+        let forked = json!({ "threadId": source, "opId": "op-inherit", "intoThreadId": heir });
+        within("the inheritance answers", world.handle.request(request("thread/fork", forked, "op-inherit"))).await.expect("the inheritance answers");
+        let header = world.rig.store.stored_header(&heir).expect("the heir's header");
+        assert!(sets::sources(&header).contains(&sets::safe_segment(source.as_str())), "{point:?}: the stored header keeps its set: {header:?}");
+        // A batch written whole (its sync failed) already holds the end of the copy.
+        assert_eq!(sets::mark(&header).is_some(), !matches!(point, CarryFails::AppendWritten), "{point:?}: the mark stands until the copy lands: {header:?}");
+        let handle = within("the heir opens", world.directory.open_handle(&heir, &CallContext::internal("test"))).await.expect("open");
+        let patch = json!({ "threadId": heir, "set": { "title": "next" }, "unset": [] });
+        let next = CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") };
+        within("the heir's next write", handle.request(next)).await.expect("thread/header/patch");
+        let header = world.rig.store.stored_header(&heir).expect("the heir's header");
+        assert_eq!(sets::mark(&header), None, "{point:?}: the mark went with the rows: {header:?}");
+        assert_eq!(header.get("inheritedFromSessionId"), Some(&json!(source.as_str())), "{point:?}: the header keys are stored: {header:?}");
+        let contents = |id: &ThreadId| -> Vec<Value> {
+            world.rig.store.records(id).into_iter().filter_map(|(_, record)| match record {
+                Record::Item(row) => match &row.body {
+                    Slot::Inline(body) => body.get("content").cloned(),
+                    _ => None,
+                },
+                _ => None,
+            }).collect()
+        };
+        let carried = contents(&heir);
+        let held = contents(&source);
+        assert!(!held.is_empty() && held.iter().all(|content| carried.contains(content)), "{point:?}: the rows are stored: {carried:?} of {held:?}");
+        within("the directory shuts down", world.directory.shutdown_for("test close")).await;
     }
 }
 

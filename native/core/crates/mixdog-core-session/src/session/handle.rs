@@ -433,9 +433,11 @@ impl SessionHandle {
                 .collect::<Vec<Value>>()
         })?;
         let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
+        let set = req.params.get("set").cloned().unwrap_or(Value::Null);
+        let unset = req.params.get("unset").cloned().unwrap_or(Value::Null);
         let append = CoreRequest {
             method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params: json!({ "rows": rows }),
+            params: json!({ "rows": rows, "set": set, "unset": unset }),
             op: None,
             ctx: req.ctx,
         };

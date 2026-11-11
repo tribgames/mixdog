@@ -180,6 +180,12 @@ mod sensitive_carry_tests;
 #[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
+mod goal_snapshot_replay_tests;
+#[cfg(test)]
+mod client_chain_replay_tests;
+#[cfg(test)]
+mod idle_state_replay_tests;
+#[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
@@ -195,6 +201,8 @@ mod recorded_145_tests;
 mod phone_chat_tests;
 #[cfg(test)]
 mod new_task_tests;
+#[cfg(test)]
+mod store_burst_tests;
 
 use std::sync::Arc;
 

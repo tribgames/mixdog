@@ -354,6 +354,8 @@ pub struct MemStore {
     pub title_gate: TitleGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
+    /// The record count of every batch that landed, in order: which records one group commit held.
+    pub batches: Arc<Mutex<Vec<usize>>>,
 }
 
 impl MemStore {
@@ -453,6 +455,7 @@ struct MemLog {
     on_compaction: CompactionHook,
     title_gate: TitleGate,
     committed: Arc<tokio::sync::Notify>,
+    batches: Arc<Mutex<Vec<usize>>>,
 }
 
 impl SessionLog for MemLog {
@@ -510,6 +513,7 @@ impl SessionLog for MemLog {
             next += 1;
         }
         drop(log);
+        lock(&self.batches).push(batch.len());
         self.committed.notify_waiters();
         if self.fail_after_write.swap(false, Ordering::SeqCst) {
             return Err(BarrierError::Failed { io_kind: "test".into() });
@@ -740,6 +744,7 @@ impl ThreadStore for MemStore {
             on_compaction: self.on_compaction.clone(),
             title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
+            batches: self.batches.clone(),
         }))
     }
 
@@ -764,6 +769,7 @@ impl ThreadStore for MemStore {
             on_compaction: self.on_compaction.clone(),
             title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
+            batches: self.batches.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))

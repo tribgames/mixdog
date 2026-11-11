@@ -230,6 +230,9 @@ pub(crate) struct ControlCell {
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
     pub stepped: tokio::sync::Notify,
+    /// The records the actor accepted that the store has not acknowledged, after its last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub unacked: std::sync::atomic::AtomicUsize,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
