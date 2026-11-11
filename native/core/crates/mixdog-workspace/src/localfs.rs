@@ -27,7 +27,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Condvar;
+use std::sync::LazyLock;
 use std::sync::Mutex;
+use std::sync::MutexGuard;
+use std::sync::PoisonError;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -68,11 +71,14 @@ use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use std::sync::atomic::AtomicBool;
+#[cfg(test)]
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicU8;
 #[cfg(feature = "replay-controls")]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
+use tokio::sync::Notify;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -717,14 +723,14 @@ impl FileService for LocalFileService {
         }
         match overrides_for(root, Vec::new()) {
             Ok(overrides) => builder.overrides(overrides),
-            Err(error) => return streamed(Box::new(Failed(invalid_pattern(&error, root))), Deadline::default()),
+            Err(error) => return failed(invalid_pattern(&error, root)),
         };
         ignore_rules(&mut builder, request.respect_ignore);
         let prune: Vec<PathBuf> = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
         if !prune.is_empty() {
             builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
         }
-        streamed(Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs }), Deadline::default())
+        streamed(&PRODUCERS, Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs }), Deadline::default())
     }
 
     /// The search runs on its own thread, at most [`QUEUE`] matches ahead of the consumer (see [`Streamed`]).
@@ -734,7 +740,7 @@ impl FileService for LocalFileService {
         let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
         let overrides = match overrides_for(root, globs) {
             Ok(overrides) => overrides,
-            Err(error) => return streamed(Box::new(Failed(invalid_pattern(&error, root))), Deadline::default()),
+            Err(error) => return failed(invalid_pattern(&error, root)),
         };
         let mut builder = WalkBuilder::new(root);
         // Siblings in name order, depth first: the walk yields the files in `PathBuf` order, the order Node's server
@@ -747,12 +753,17 @@ impl FileService for LocalFileService {
             Err(error) => Err(walk_error(&error, &walk_root)),
         }));
         let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
-        search_over(&request, listing, open)
+        search_over(&PRODUCERS, &request, listing, open)
     }
 }
 
-/// `request`'s search of the files `listing` names, each read through `open`.
-fn search_over(request: &SearchRequest, listing: Listing, open: Opener) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+/// `request`'s search of the files `listing` names, each read through `open`, its producer counted in `producers`.
+fn search_over(
+    producers: &Arc<Producers>,
+    request: &SearchRequest,
+    listing: Listing,
+    open: Opener,
+) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
     // A pattern that does not parse is reported with the parser's own text, as Node shows it.
     let matcher = match RegexMatcherBuilder::new()
@@ -764,8 +775,7 @@ fn search_over(request: &SearchRequest, listing: Listing, open: Opener) -> Box<d
     {
         Ok(m) => m,
         Err(error) => {
-            let failed = FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone()));
-            return streamed(Box::new(Failed(failed)), Deadline::default());
+            return failed(FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone())));
         }
     };
     let searching = Searching {
@@ -781,7 +791,7 @@ fn search_over(request: &SearchRequest, listing: Listing, open: Opener) -> Box<d
     };
     #[cfg(feature = "replay-controls")]
     let after_files = match deadline_script::for_root(request.root.as_path()) {
-        Some(deadline_script::Script::Silent) => return streamed(Box::new(deadline_script::Silent { _search: Box::new(searching) }), Deadline::default()),
+        Some(deadline_script::Script::Silent) => return streamed(producers, Box::new(deadline_script::Silent { _search: Box::new(searching) }), Deadline::default()),
         Some(deadline_script::Script::AfterFiles(n)) => Some(n),
         None => None,
     };
@@ -789,7 +799,7 @@ fn search_over(request: &SearchRequest, listing: Listing, open: Opener) -> Box<d
     let deadline = Deadline { at: request.deadline, after_files };
     #[cfg(not(feature = "replay-controls"))]
     let deadline = Deadline { at: request.deadline };
-    streamed(Box::new(searching), deadline)
+    streamed(producers, Box::new(searching), deadline)
 }
 
 /// The request's globs, then the resident search server's implicit `.git` exclusions
@@ -894,12 +904,97 @@ const CLOSE_GRACE: Duration = Duration::from_secs(1);
 /// server checks them before each read of its 64 KiB chunks (`serve_search/matching.rs`, `CancellableReader`).
 const READ_CHUNK: usize = 64 * 1024;
 
-static ABANDONED: AtomicU64 = AtomicU64::new(0);
+/// Every stream's producer threads, process-wide.
+static PRODUCERS: LazyLock<Arc<Producers>> = LazyLock::new(|| Arc::new(Producers::new()));
 
-/// Stream producers [`EventSource::close`] stopped waiting for: threads held in a blocking OS call (a directory or file
-/// read on a dead network share) when the grace ran out. Each ends when its call returns; nothing waits for it.
-pub fn abandoned_producers() -> u64 {
-    ABANDONED.load(Ordering::SeqCst)
+/// The stream producer threads alive now, process-wide ([`Producers`]).
+pub fn producer_counts() -> ProducerCounts {
+    PRODUCERS.counts()
+}
+
+/// What [`Producers`] counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProducerCounts {
+    /// Producer threads started that have not ended.
+    pub live: usize,
+    /// Of those, the ones their stream has let go of (closed, or dropped, a `close` cut short included) that are still
+    /// running: a thread held in a blocking OS call (a directory or file read on a dead network share), which nothing
+    /// interrupts. Each ends when its call returns; nothing waits for it.
+    pub abandoned: usize,
+}
+
+/// A producer's state, changed only under [`Producers`]' lock, so each start, release and end is counted once.
+const WAITING: u8 = 0;
+const RUNNING: u8 = 1;
+const RELEASED: u8 = 2;
+const ENDED: u8 = 3;
+
+/// The producer threads of a set of streams. A stream's state moves through [`WAITING`] (no thread yet), [`RUNNING`],
+/// [`RELEASED`] (its stream let go of it while it ran: abandoned until it ends) and [`ENDED`]; the counts change with
+/// it, under one lock, whichever of the stream (close, drop) and the thread (its end) gets there first.
+pub struct Producers {
+    counts: Mutex<ProducerCounts>,
+    /// Notified on every change of the counts.
+    changed: Notify,
+}
+
+impl Producers {
+    fn new() -> Self {
+        Self { counts: Mutex::new(ProducerCounts::default()), changed: Notify::new() }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, ProducerCounts> {
+        self.counts.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn counts(&self) -> ProducerCounts {
+        *self.lock()
+    }
+
+    /// `state`'s producer starts.
+    fn start(&self, state: &AtomicU8) {
+        let mut counts = self.lock();
+        counts.live += 1;
+        state.store(RUNNING, Ordering::SeqCst);
+    }
+
+    /// `state`'s stream lets go of its producer: one still running is abandoned until it ends.
+    fn release(&self, state: &AtomicU8) {
+        let mut counts = self.lock();
+        match state.load(Ordering::SeqCst) {
+            RUNNING => {
+                state.store(RELEASED, Ordering::SeqCst);
+                counts.abandoned += 1;
+            }
+            WAITING => state.store(ENDED, Ordering::SeqCst),
+            _ => return,
+        }
+        drop(counts);
+        self.changed.notify_waiters();
+    }
+
+    /// `state`'s producer thread ends.
+    fn end(&self, state: &AtomicU8) {
+        let mut counts = self.lock();
+        if state.swap(ENDED, Ordering::SeqCst) == RELEASED {
+            counts.abandoned -= 1;
+        }
+        counts.live -= 1;
+        drop(counts);
+        self.changed.notify_waiters();
+    }
+}
+
+/// A started producer's hold on its count, given up when its thread ends, however it ends.
+struct Started {
+    producers: Arc<Producers>,
+    state: Arc<AtomicU8>,
+}
+
+impl Drop for Started {
+    fn drop(&mut self) {
+        self.producers.end(&self.state);
+    }
 }
 
 /// When a search's deadline passes.
@@ -927,6 +1022,16 @@ struct Control {
 }
 
 impl Control {
+    fn new(deadline: Deadline) -> Self {
+        Self {
+            stop: AtomicBool::new(false),
+            deadline,
+            #[cfg(feature = "replay-controls")]
+            files_with_lines: AtomicUsize::new(0),
+            in_file: AtomicBool::new(false),
+        }
+    }
+
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
     }
@@ -977,15 +1082,6 @@ trait Produce<T>: Send {
     /// Sends every item through `out`; returns once done, once `out` refuses an item, or at a check that finds the
     /// stream stopped.
     fn run(self: Box<Self>, out: &Out<T>);
-}
-
-/// A stream that is one error.
-struct Failed(FsError);
-
-impl<T> Produce<T> for Failed {
-    fn run(self: Box<Self>, out: &Out<T>) {
-        out.send(Err(self.0));
-    }
 }
 
 struct Walking {
@@ -1157,8 +1253,9 @@ impl Produce<SearchMatch> for Searching {
 /// [`EventSource::close`] stops the producer and waits for its thread to end, at most [`CLOSE_GRACE`]: a producer
 /// checks the stop between entries, before every read of a file and at every item it queues, so it ends at once unless
 /// a blocking OS call holds it (a directory or file read on a dead network share), which nothing can interrupt. Such a
-/// thread is abandoned by design: counted ([`abandoned_producers`]), never awaited, it ends when its call returns.
-/// Dropping the stream stops the producer the same way without waiting for it.
+/// thread is abandoned by design: counted ([`ProducerCounts::abandoned`]) from the moment its stream lets go of it,
+/// never awaited, it ends when its call returns. Dropping the stream, or a `close` cut short by its caller's deadline or
+/// cancellation, stops the producer and counts it the same way without waiting for it.
 ///
 /// With a deadline, the stream ends with a [`FsErrorKind::TimedOut`] item once it passes: from the producer at its next
 /// check, or at once while the producer is in the walk (its directory read may never return), as Node's server answers
@@ -1170,32 +1267,55 @@ struct Streamed<T> {
     finished: Option<oneshot::Receiver<()>>,
     /// The deadline passed while the producer was inside a file: that file's read reports it.
     late: bool,
+    producers: Arc<Producers>,
+    /// The producer's state in `producers`.
+    state: Arc<AtomicU8>,
 }
 
-fn streamed<T: Send + 'static>(producer: Box<dyn Produce<T>>, deadline: Deadline) -> Box<dyn EventSource<Result<T, FsError>>> {
+/// A queue holding one item.
+fn one_item<T>(item: Result<T, FsError>) -> mpsc::Receiver<Result<T, FsError>> {
+    let (tx, rx) = mpsc::channel(1);
+    let _ = tx.try_send(item);
+    rx
+}
+
+/// A stream that is one error: no producer.
+fn failed<T: Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, FsError>>> {
+    Box::new(Streamed {
+        rx: Some(one_item(Err(error))),
+        ctl: Arc::new(Control::new(Deadline::default())),
+        finished: None,
+        late: false,
+        producers: PRODUCERS.clone(),
+        state: Arc::new(AtomicU8::new(ENDED)),
+    })
+}
+
+fn streamed<T: Send + 'static>(
+    producers: &Arc<Producers>,
+    producer: Box<dyn Produce<T>>,
+    deadline: Deadline,
+) -> Box<dyn EventSource<Result<T, FsError>>> {
     let (tx, rx) = mpsc::channel(QUEUE);
-    let ctl = Arc::new(Control {
-        stop: AtomicBool::new(false),
-        deadline,
-        #[cfg(feature = "replay-controls")]
-        files_with_lines: AtomicUsize::new(0),
-        in_file: AtomicBool::new(false),
-    });
+    let ctl = Arc::new(Control::new(deadline));
     let (done, finished) = oneshot::channel::<()>();
     let out = Out { tx, ctl: ctl.clone() };
+    let state = Arc::new(AtomicU8::new(WAITING));
+    producers.start(&state);
+    let started = Started { producers: producers.clone(), state: state.clone() };
+    let mut stream = Streamed { rx: Some(rx), ctl, finished: Some(finished), late: false, producers: producers.clone(), state };
     let spawned = std::thread::Builder::new().name("mixdog-fs-stream".into()).spawn(move || {
-        // Dropped when the thread ends, however it ends.
+        // Dropped when the thread ends, however it ends, in this order: the count, then the end `close` waits for.
         let _done = done;
+        let _started = started;
         producer.run(&out);
     });
-    match spawned {
-        Ok(_) => Box::new(Streamed { rx: Some(rx), ctl, finished: Some(finished), late: false }),
-        Err(error) => {
-            let (tx, rx) = mpsc::channel(1);
-            let _ = tx.try_send(Err(FsError::new(FsErrorKind::Io { os_code: error.raw_os_error() }, None)));
-            Box::new(Streamed { rx: Some(rx), ctl, finished: None, late: false })
-        }
+    // The closure, dropped unrun, gave up the count and ended the queue.
+    if let Err(error) = spawned {
+        stream.rx = Some(one_item(Err(FsError::new(FsErrorKind::Io { os_code: error.raw_os_error() }, None))));
+        stream.finished = None;
     }
+    Box::new(stream)
 }
 
 #[async_trait]
@@ -1228,10 +1348,10 @@ impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
         self.ctl.stop.store(true, Ordering::SeqCst);
         // A producer waiting on a full queue is released.
         self.rx = None;
-        if let Some(finished) = self.finished.take()
-            && tokio::time::timeout(CLOSE_GRACE, finished).await.is_err()
-        {
-            ABANDONED.fetch_add(1, Ordering::SeqCst);
+        // Counted before the wait, so a caller that drops this `close` leaves the count right.
+        self.producers.release(&self.state);
+        if let Some(finished) = self.finished.take() {
+            let _ = tokio::time::timeout(CLOSE_GRACE, finished).await;
         }
     }
 }
@@ -1239,6 +1359,7 @@ impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
 impl<T> Drop for Streamed<T> {
     fn drop(&mut self) {
         self.ctl.stop.store(true, Ordering::SeqCst);
+        self.producers.release(&self.state);
     }
 }
 
@@ -1906,7 +2027,7 @@ mod tests {
     async fn a_stop_or_a_deadline_mid_file_ends_the_search_of_a_huge_file() {
         let (_dir, root) = root();
         let (listing, open, read) = one_gib_file(&root);
-        let mut stream = search_over(&needle_request(&root, None), listing, open);
+        let mut stream = search_over(&PRODUCERS, &needle_request(&root, None), listing, open);
         assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
         let started = Instant::now();
         stream.close().await;
@@ -1918,7 +2039,7 @@ mod tests {
         assert_eq!(probe::search(root.as_path()).live, 0);
 
         let (listing, open, read) = one_gib_file(&root);
-        let mut stream = search_over(&needle_request(&root, Some(Instant::now() + Duration::from_millis(100))), listing, open);
+        let mut stream = search_over(&PRODUCERS, &needle_request(&root, Some(Instant::now() + Duration::from_millis(100))), listing, open);
         let err = stream.next().await.unwrap().unwrap_err();
         assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
         assert_eq!(err.path.map(|p| p.as_path().to_path_buf()), Some(root.join("big.txt").as_path().to_path_buf()), "the cut file is named");
@@ -1929,11 +2050,53 @@ mod tests {
 
         // Dropping the stream stops the producer without waiting for it: it ends at its next read.
         let (listing, open, read) = one_gib_file(&root);
-        let stream = search_over(&needle_request(&root, None), listing, open);
+        let stream = search_over(&PRODUCERS, &needle_request(&root, None), listing, open);
         assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
         drop(stream);
         assert!(eventually(|| probe::search(root.as_path()).live == 0).await);
         assert!(read.load(Ordering::SeqCst) < GIB);
+    }
+
+    /// Waits until `test` holds of `producers`' counts, at most 10 s.
+    async fn until(producers: &Producers, what: &str, test: impl Fn(ProducerCounts) -> bool) {
+        let wait = async {
+            loop {
+                let changed = producers.changed.notified();
+                let mut changed = std::pin::pin!(changed);
+                changed.as_mut().enable();
+                if test(producers.counts()) {
+                    return;
+                }
+                changed.await;
+            }
+        };
+        if tokio::time::timeout(Duration::from_secs(10), wait).await.is_err() {
+            panic!("{what} within 10 s: {:?}", producers.counts());
+        }
+    }
+
+    /// A walk whose directory read never returns until the sender is dropped; the receiver ends once the producer is
+    /// in that read.
+    fn hung_listing() -> (Listing, std::sync::mpsc::Sender<()>, oneshot::Receiver<()>) {
+        let (release, hung) = std::sync::mpsc::channel::<()>();
+        let (entered, in_read) = oneshot::channel::<()>();
+        let state = Mutex::new((hung, Some(entered)));
+        let listing: Listing = Box::new(std::iter::from_fn(move || {
+            let mut state = state.lock().unwrap();
+            state.1.take();
+            let _ = state.0.recv();
+            None
+        }));
+        (listing, release, in_read)
+    }
+
+    /// `wait`'s outcome, at most 10 s.
+    async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("{what} within 10 s"))
+    }
+
+    fn no_files() -> Opener {
+        Box::new(|_| unreachable!("no file is listed"))
     }
 
     /// A directory read that never returns: the deadline answers at once, and `close` waits its grace and abandons the
@@ -1941,26 +2104,52 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_directory_read_that_never_returns_is_abandoned_after_the_grace() {
         let (_dir, root) = root();
-        let (release, hung) = std::sync::mpsc::channel::<()>();
-        let hung = Mutex::new(hung);
-        let listing: Listing = Box::new(std::iter::from_fn(move || {
-            let _ = hung.lock().unwrap().recv();
-            None
-        }));
-        let open: Opener = Box::new(|_| unreachable!("no file is listed"));
+        let producers = Arc::new(Producers::new());
+        let (listing, release, _) = hung_listing();
         let started = Instant::now();
-        let mut stream = search_over(&needle_request(&root, Some(started + Duration::from_millis(100))), listing, open);
+        let mut stream = search_over(&producers, &needle_request(&root, Some(started + Duration::from_millis(100))), listing, no_files());
         let err = stream.next().await.unwrap().unwrap_err();
         assert!(matches!(err.kind, FsErrorKind::TimedOut) && err.path.is_none(), "{err:?}");
         assert!(started.elapsed() < Duration::from_secs(1), "the deadline does not wait for the walk");
-        let abandoned = abandoned_producers();
         let closing = Instant::now();
         stream.close().await;
         assert!(closing.elapsed() >= CLOSE_GRACE && closing.elapsed() < CLOSE_GRACE * 3, "{:?}", closing.elapsed());
-        assert!(abandoned_producers() > abandoned);
-        assert_eq!(probe::search(root.as_path()).live, 1, "the abandoned thread is still in its read");
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1 }, "the abandoned thread is still in its read");
         drop(release);
-        assert!(eventually(|| probe::search(root.as_path()).live == 0).await, "it ends once the read returns");
+        until(&producers, "the abandoned thread ends once its read returns", |c| c == ProducerCounts::default()).await;
+    }
+
+    /// A producer held in a read that never returns is counted as abandoned however its stream lets go of it: a `close`
+    /// that waits out its grace, a `close` its caller drops before the grace (its deadline or cancellation), and a
+    /// dropped stream. Each count ends with the read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends() {
+        let (_dir, root) = root();
+        let producers = Arc::new(Producers::new());
+        let mut released = Vec::new();
+        let mut search = async || {
+            let (listing, release, in_read) = hung_listing();
+            released.push(release);
+            let stream = search_over(&producers, &needle_request(&root, None), listing, no_files());
+            let _ = within("the producer in its read", in_read).await;
+            stream
+        };
+        let mut closed = search().await;
+        closed.close().await;
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1 }, "a close that waited out its grace");
+        let mut cut = search().await;
+        {
+            let close = cut.close();
+            let mut close = std::pin::pin!(close);
+            let polled = close.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+            assert!(polled.is_pending(), "the close waits for its producer");
+        }
+        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2 }, "a close its caller dropped");
+        drop(search().await);
+        assert_eq!(producers.counts(), ProducerCounts { live: 3, abandoned: 3 }, "a dropped stream");
+        drop(released);
+        until(&producers, "every producer ends once its read returns", |c| c == ProducerCounts::default()).await;
+        drop((closed, cut));
     }
 
     /// The native traversal over a real directory of 2,000 files: every file, in path order.
