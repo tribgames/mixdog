@@ -31,7 +31,7 @@ fn text_of(value: &Value) -> Option<&str> {
 
 #[tokio::test]
 async fn start_up_leaves_the_core_key_node_leaves_including_two_starters_at_once() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/memory-core-key/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/memory-core-key/golden.json")).expect("golden");
     let identity = &golden["identity"];
     let dims = golden["dims"].as_u64().expect("dims") as usize;
     let pg = TestPg::start().await;

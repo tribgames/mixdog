@@ -34,7 +34,7 @@ impl crate::memory::cycles::CycleEmbeddings for NoEmbeddings {
 
 #[tokio::test]
 async fn the_status_and_the_cycle_state_file_are_nodes() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/memory-status/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/memory-status/golden.json")).expect("golden");
     let now_ms = golden["clockMs"].as_i64().expect("clock");
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;

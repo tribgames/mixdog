@@ -78,7 +78,7 @@ fn ort_library() -> PathBuf {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_model_cache_is_compressed_as_nodes_worker_does() {
     let ort_library = ort_library();
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/memory-model-compression/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/memory-model-compression/golden.json")).expect("golden");
     let model_id = golden["modelId"].as_str().expect("model id");
     let tokens = mixdog_rt::testing::tokens();
     let cases: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["platform"] == PLATFORM).collect();

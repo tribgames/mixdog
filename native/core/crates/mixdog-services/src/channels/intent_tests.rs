@@ -15,7 +15,7 @@ use super::running::RunningWork;
 use super::tools::ACTIVATE_TOOL;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/channel-remote-intent/golden.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/channel-remote-intent/golden.json")).unwrap()
 }
 
 fn file_state(path: &Path) -> Value {
