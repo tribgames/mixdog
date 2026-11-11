@@ -35,6 +35,8 @@ struct Store {
     dirs: Mutex<HashSet<String>>,
     /// The stored session records asked for.
     header_reads: std::sync::atomic::AtomicUsize,
+    /// The process stops before its queued writes reach the store: they are lost.
+    lose_writes: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -72,6 +74,9 @@ impl WorkerStore for Store {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
+        if self.lose_writes.load(Ordering::SeqCst) {
+            return;
+        }
         if WorkerStore::kept(self, session) {
             return self.keep(session, worker);
         }
@@ -807,10 +812,12 @@ async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
     #[derive(Default)]
     struct Told(Mutex<Vec<(String, String)>>);
     #[async_trait]
-    impl mixdog_tools::exec::TaskNotifier for Told {
-        async fn finished(&self, owner: &ThreadId, _: &str, task_id: &str, _: &str, _: String) {
-            self.0.lock().unwrap().push((owner.as_str().to_owned(), task_id.to_owned()));
+    impl restart::RestartNotices for Told {
+        async fn queue_durably(&self, owner: &ThreadId, execution: &str, _: String) -> Result<(), String> {
+            self.0.lock().unwrap().push((owner.as_str().to_owned(), execution.to_owned()));
+            Ok(())
         }
+        async fn show(&self, _: &ThreadId, _: &str, _: String) {}
     }
 
     let rig = Rig::new();
@@ -849,6 +856,101 @@ async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
     assert!(!map.contains_key("sessionId") && map.contains_key("tombstone"), "{map:?}");
     // And a restart after that lists it no more.
     assert!(!listed(&rig.registry()).await);
+}
+
+/// `restart-notify.mjs:115-131`: the notice is stored under its stable id before the row is stamped, so a crash at any point
+/// tells the owner exactly once. Each boundary is a process that stops there, then a restart (a new registry over what was
+/// stored): before the notice is stored (nothing stored, the row still owed), after it is stored but before the stamp is
+/// (the stamp's write lost: the restart queues the same id again, one entry), and after the stamp (nothing owed).
+#[tokio::test]
+async fn a_restart_failure_is_told_exactly_once_wherever_a_crash_stops_the_notice() {
+    struct Frozen;
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+    /// The owner's queue: one entry per execution id, as the session's queue keeps one (`pendingIdStillQueued`).
+    #[derive(Default)]
+    struct Queue {
+        stored: Mutex<Vec<(String, String)>>,
+        crash_before_stored: std::sync::atomic::AtomicBool,
+    }
+    #[async_trait]
+    impl restart::RestartNotices for Queue {
+        async fn queue_durably(&self, owner: &ThreadId, execution: &str, _: String) -> Result<(), String> {
+            if self.crash_before_stored.swap(false, Ordering::SeqCst) {
+                return Err("the process stopped before the notice was stored".into());
+            }
+            let mut stored = self.stored.lock().unwrap();
+            if !stored.iter().any(|(_, id)| id == execution) {
+                stored.push((owner.as_str().to_owned(), execution.to_owned()));
+            }
+            Ok(())
+        }
+        async fn show(&self, _: &ThreadId, _: &str, _: String) {}
+    }
+
+    let rig = Rig::new();
+    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
+    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
+    let (queue, board) = (Queue::default(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None));
+    let stamped = || rig.store.map("s-owed").unwrap().contains_key("restartNotified");
+    let one = [("lead-a".to_owned(), "restart:t-1".to_owned())];
+
+    queue.crash_before_stored.store(true, Ordering::SeqCst);
+    assert_eq!(restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap(), 0);
+    assert!(queue.stored.lock().unwrap().is_empty() && !stamped(), "stopped before the notice: nothing stored, still owed");
+
+    rig.store.lose_writes.store(true, Ordering::SeqCst);
+    restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap();
+    rig.store.lose_writes.store(false, Ordering::SeqCst);
+    assert_eq!(*queue.stored.lock().unwrap(), one, "the notice is stored");
+    assert!(!stamped(), "stopped before the stamp was stored");
+
+    assert_eq!(restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap(), 1, "the restart retries the row");
+    assert_eq!(*queue.stored.lock().unwrap(), one, "under the same id: still one notice");
+    assert!(stamped());
+
+    assert_eq!(restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap(), 0, "after the stamp nothing is owed");
+    assert_eq!(*queue.stored.lock().unwrap(), one);
+}
+
+/// Kept rows live in memory once loaded, and the table loses a kept map once it holds only a tombstone past the TTL, or one
+/// beyond the newest [`MAX_TAG_TOMBSTONES`] (`worker-rows.mjs:7,96-102`: Node's index file is rewritten with only those).
+#[tokio::test]
+async fn expired_and_surplus_kept_tombstones_leave_the_kept_table() {
+    let rig = Rig::new();
+    let max = super::rows::MAX_TAG_TOMBSTONES;
+    let tombstone = |n: usize, reaped: i64| obj(json!({ "tag": format!("t{n}"), "tombstone": { "tag": format!("t{n}"), "reapedAt": at(reaped), "ownerSessionId": "lead-a" } }));
+    // One past the TTL, then MAX + 1 live ones, the oldest of which is beyond the cap.
+    rig.store.keep("s-expired", Some(tombstone(0, NOW - super::rows::TAG_TOMBSTONE_TTL_MS as i64 - 1)));
+    for n in 1..=max + 1 {
+        rig.store.keep(&format!("s-{n}"), Some(tombstone(n, NOW - n as i64 * 1000)));
+    }
+    let kept = || rig.store.kept.lock().unwrap().iter().map(|(id, _)| id.clone()).collect::<HashSet<String>>();
+    assert_eq!(kept().len(), max + 2);
+    rig.registry().refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    let left = kept();
+    assert_eq!(left.len(), max, "the table shrank");
+    assert!(!left.contains("s-expired") && !left.contains(&format!("s-{}", max + 1)), "the expired one and the oldest beyond the cap left");
+}
+
+/// The production keeper reads its table once: later reads are memory, current with its own writes.
+#[tokio::test]
+async fn kept_rows_are_read_from_the_table_once_and_kept_current_in_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let kept = KeptRows::new(state.clone());
+    let row = obj(json!({ "sessionId": "s-1", "tag": "one" }));
+    kept.put("s-1", Some(row.clone())).await.unwrap();
+    // Written behind the keeper's back: a keeper that read the table again would list it.
+    let text = serde_json::to_string(&row).unwrap();
+    state.write(move |tx| tx.put_meta("agent-kept-worker:s-2", &text)).await.unwrap();
+    assert_eq!(kept.load().await.unwrap(), [("s-1".to_owned(), row.clone())]);
+    kept.put("s-1", None).await.unwrap();
+    assert_eq!(kept.load().await.unwrap(), Vec::new());
 }
 
 /// The production keeper of those rows: what it kept is read back by a new keeper over the core's state database opened

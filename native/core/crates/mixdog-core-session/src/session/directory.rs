@@ -814,7 +814,22 @@ impl SessionDirectory {
     /// `enqueueCompletion`: the completion joins the owner's queue; a thread not loaded is
     /// opened for it (and, not live, is never woken by it).
     pub(crate) async fn queue_completion(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String) {
-        self.queue_notice(owner, surface, task_id, status, text, None).await;
+        self.queue_notice(owner, surface, task_id, status, text, None, None).await;
+    }
+
+    /// [`Self::queue_completion`], answered once the queued entry is durable (`enqueuePendingMessage` then
+    /// `settlePendingMessageWrites`): an error when the owner could not take it or its record was not stored. The same
+    /// execution queued again is one entry, so a retry under the same id is told once.
+    pub(crate) async fn queue_completion_durably(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String) -> Result<(), String> {
+        let (durable, stored) = tokio::sync::oneshot::channel();
+        if !self.queue_notice(owner, surface, task_id, status, text, None, Some(durable)).await {
+            return Err(format!("the notification was refused by {}", owner.as_str()));
+        }
+        match stored.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(format!("the notification for {} was not stored: {error:?}", owner.as_str())),
+            Err(_) => Err(format!("the notification for {} was not stored: its thread stopped", owner.as_str())),
+        }
     }
 
     /// `submitSession(.. mode: 'task-notification', origin: 'channel')` of the channel session
@@ -822,24 +837,35 @@ impl SessionDirectory {
     /// same path as a completion. A submit starts its turn on a thread it had to open too.
     /// False when the thread could not be opened or is gone.
     pub async fn queue_channel_notification(&self, owner: &ThreadId, text: String) -> bool {
-        self.queue_notice(owner, "", "", "", text, Some(super::completions::ORIGIN_CHANNEL)).await
+        self.queue_notice(owner, "", "", "", text, Some(super::completions::ORIGIN_CHANNEL), None).await
     }
 
-    async fn queue_notice(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String, origin: Option<&'static str>) -> bool {
-        let msg = |live| Inbox::TaskNotification {
+    #[allow(clippy::too_many_arguments)]
+    async fn queue_notice(
+        &self,
+        owner: &ThreadId,
+        surface: &str,
+        task_id: &str,
+        status: &str,
+        text: String,
+        origin: Option<&'static str>,
+        durable: Option<tokio::sync::oneshot::Sender<Result<(), super::run::RunError>>>,
+    ) -> bool {
+        let msg = |live, durable| Inbox::TaskNotification {
             surface: surface.to_owned(),
             task_id: task_id.to_owned(),
             status: status.to_owned(),
             text: text.clone(),
             origin,
             live,
+            durable,
         };
         if let Some(handle) = self.inner.loaded(owner) {
-            return handle.inbox.send(msg(true)).await.is_ok();
+            return handle.inbox.send(msg(true, durable)).await.is_ok();
         }
         let ctx = CallContext::internal("task-notification");
         match self.inner.open(owner, &ctx).await {
-            Ok(handle) => handle.inbox.send(msg(origin.is_some())).await.is_ok(),
+            Ok(handle) => handle.inbox.send(msg(origin.is_some(), durable)).await.is_ok(),
             Err(_) => false,
         }
     }
