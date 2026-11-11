@@ -9,8 +9,7 @@
 //
 // Output: native/core/fixtures/execution-tail/golden.json (+ MANIFEST.json). The data dir is written `<DATA>` and
 // path separators `/`, so the replay compares the same text on any host.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -28,9 +27,14 @@ const { buildExecutionTail, executionTokens, toolHistoryBudget } = await importF
 const { renderAgentCompletionEnvelope } = await importFrom(tree, 'src/runtime/shared/task-notification-envelope.mjs');
 const { convertMessagesToResponsesInput } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/openai-responses-input.mjs');
 
+// A fixed relative data root: its paths appear in the messages and so in the token counts the cases record
+// (`toolTokens`), and the replay can use the same string on any host (relative to its own working directory).
+const DATA_ROOT = 'mixdog-et-data';
 let root = null;
 function sandbox() {
-  root = mkdtempSync(join(tmpdir(), 'mixdog-execution-tail-'));
+  rmSync(DATA_ROOT, { recursive: true, force: true });
+  mkdirSync(DATA_ROOT);
+  root = DATA_ROOT;
   process.env.MIXDOG_DATA_DIR = root;
   return root;
 }
@@ -491,6 +495,7 @@ await record(':858', 'repeated archive references keep their underlying artifact
   step('prune', [{ content: outer.path }], { sessionId }, Object.keys(files()).sort());
 });
 
+rmSync(DATA_ROOT, { recursive: true, force: true });
 const finalDir = join(FIXTURES_ROOT, 'execution-tail');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { note: `Node's execution tail at ${NODE_COMMIT} over the cases of execution-tail.test.mjs`, cases });

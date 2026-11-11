@@ -104,8 +104,102 @@ impl ToolResultArtifacts {
     fn describe(&self, content: &str) -> (PathBuf, Artifact) {
         let sha256 = hex(&Sha256::digest(content.as_bytes()));
         let path = self.dir.join(format!("{sha256}.txt"));
-        let artifact = Artifact { display_path: display(&path), lines: split_lines(content), sha256 };
+        let artifact = Artifact { display_path: display(&path), path: path.to_string_lossy().into_owned(), lines: split_lines(content), sha256 };
         (path, artifact)
+    }
+}
+
+/// Only a sidecar at least this old can be pruned (`OFFLOAD_PRUNE_MIN_AGE_MS`).
+const PRUNE_MIN_AGE_MS: u64 = 10 * 60 * 1000;
+
+/// The `\b[a-f0-9]{64}\.txt\b` names in `text`, in order.
+fn sidecar_names(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+    let mut names = Vec::new();
+    let mut i = 0;
+    while i + 68 <= bytes.len() {
+        let found = (i == 0 || !word(bytes[i - 1]))
+            && bytes[i..i + 64].iter().all(|b| hex(*b))
+            && &bytes[i + 64..i + 68] == b".txt"
+            && bytes.get(i + 68).is_none_or(|b| !word(*b));
+        if found {
+            names.push(text[i..i + 68].to_owned());
+            i += 68;
+        } else {
+            i += 1;
+        }
+    }
+    names
+}
+
+impl ToolResultArtifacts {
+    /// `pruneOffloadSession`: deletes the session's sidecars at least ten minutes old (at `now_ms`)
+    /// that `transcripts` (the session's message lists, serialized as `JSON.stringify` writes them)
+    /// neither names by path or file name nor reaches through the archives it names. Best-effort: an
+    /// unreadable listing or archive deletes nothing.
+    pub async fn prune(&self, transcripts: String, now_ms: u64) {
+        let dir = self.dir.clone();
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, &transcripts, now_ms)) else {
+            return;
+        };
+        let _ = job.await;
+    }
+}
+
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, transcripts: &str, now_ms: u64) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let candidates: Vec<(String, PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            let modified_ms = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64;
+            (name.ends_with(".txt") && now_ms.saturating_sub(modified_ms) >= PRUNE_MIN_AGE_MS).then(|| (name, entry.path()))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    let fold = |text: &str| if cfg!(windows) { text.to_lowercase() } else { text.to_owned() };
+    let haystack = fold(transcripts);
+    let mut unreferenced: Vec<(String, PathBuf)> = candidates
+        .into_iter()
+        .filter(|(name, path)| ![display(path), name.clone()].iter().any(|needle| haystack.contains(&fold(needle))))
+        .collect();
+    let mut reachable: Vec<String> = Vec::new();
+    for name in sidecar_names(&haystack) {
+        if !reachable.contains(&name) {
+            reachable.push(name);
+        }
+    }
+    let mut retain = |reachable: &[String]| {
+        unreferenced.retain(|(name, _)| !reachable.contains(name));
+        !unreferenced.is_empty()
+    };
+    if !retain(&reachable) {
+        return;
+    }
+    let mut i = 0;
+    while i < reachable.len() {
+        // An unreadable root must not destroy recovery evidence.
+        let Ok(text) = std::fs::read_to_string(dir.join(&reachable[i])) else { return };
+        let mut grew = false;
+        for name in sidecar_names(&text) {
+            if !reachable.contains(&name) {
+                reachable.push(name);
+                grew = true;
+            }
+        }
+        if grew && !retain(&reachable) {
+            return;
+        }
+        i += 1;
+    }
+    for (_, path) in unreferenced {
+        let _ = std::fs::remove_file(path);
     }
 }
 

@@ -25,6 +25,7 @@ use mixdog_protocol::ProviderId;
 use serde_json::{Value, json};
 
 use super::compaction_node_harness::{NoAttachments, NoSummary, World, archive, media, session_compactor};
+use super::compactors::CompactionRows;
 use super::message_row::{message_of, row_of};
 use super::summary_routes::{MaintainerRoute, SessionRoute, SummaryHost};
 
@@ -89,6 +90,38 @@ struct Replay {
 }
 
 impl Replay {
+    /// A recorded text with each `<DATA>/…` path written back as the path Node wrote (native separators).
+    fn restored(&self, text: &str) -> String {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(at) = rest.find("<DATA>/") {
+            out.push_str(&rest[..at]);
+            let tail = &rest[at + "<DATA>/".len()..];
+            let end = tail.find(|c: char| !(c.is_ascii_alphanumeric() || "_.-/".contains(c))).unwrap_or(tail.len());
+            let path = tail[..end].split('/').fold(self.data.clone(), |p, s| p.join(s));
+            out.push_str(&path.to_string_lossy());
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A recorded body: a JSON body has its strings restored and is written back as Node's `JSON.stringify` wrote it.
+    fn restored_text(&self, text: &str) -> String {
+        fn walk(r: &Replay, v: Value) -> Value {
+            match v {
+                Value::String(s) => Value::String(r.restored(&s)),
+                Value::Array(items) => Value::Array(items.into_iter().map(|v| walk(r, v)).collect()),
+                Value::Object(o) => Value::Object(o.into_iter().map(|(k, v)| (k, walk(r, v))).collect()),
+                other => other,
+            }
+        }
+        match serde_json::from_str::<Value>(text) {
+            Ok(value @ (Value::Object(_) | Value::Array(_))) => mixdog_js::json_stringify(&walk(self, value)),
+            _ => self.restored(text),
+        }
+    }
+
     fn data_dir(&self, options: &Value) -> PathBuf {
         match options["dataDir"].as_str() {
             Some(dir) => {
@@ -103,17 +136,33 @@ impl Replay {
     async fn step(&mut self, op: &str, input: &Value, o: &Value) -> Value {
         let session = o["sessionId"].as_str().unwrap_or_default();
         if op == "persist" {
-            let artifact = archive(&self.data, session).persist(input.as_str().unwrap()).await.expect("persisted");
-            return json!({ "path": artifact.display_path });
+            let artifact = archive(&self.data, session).persist(&self.restored_text(input.as_str().unwrap())).await.expect("persisted");
+            return json!({ "path": artifact.path });
         }
         if op == "prune" {
-            // Node's reference-driven retention of a session's dumps (`pruneOffloadSession`): the core has
-            // no such sweep, so the replayed output cannot equal Node's.
-            return json!({ "unsupported": "prune" });
+            // `pruneOffloadSession(sessionId, () => transcripts)` after the recorder aged every file an hour: the
+            // sweep runs an hour later instead. Its output is the data dir's listing afterwards.
+            let rows: Vec<Value> = input_rows(input, &self.previous)
+                .into_iter()
+                .map(|mut row| {
+                    if let Some(Value::String(content)) = row.get_mut("content") {
+                        *content = self.restored(content);
+                    }
+                    row
+                })
+                .collect();
+            let transcripts = mixdog_js::json_stringify(&Value::Array(rows));
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+            archive(&self.data, session).prune(transcripts, now + 3_600_000).await;
+            let mut listing = Vec::new();
+            listed(&self.data, &mut listing);
+            listing.sort();
+            return json!(listing);
         }
-        let stored = StoredRows::new();
+        let stored = Arc::new(StoredRows::new());
         let rows = input_rows(input, &self.previous);
         let messages = messages_of(&rows, &stored);
+        let stored = CompactionRows(stored);
         let lowering = media(session, "");
         let owner = ProviderId::from("");
         let meter = MessageMeter { media: &*lowering, replay_owner: &owner };
@@ -137,6 +186,7 @@ impl Replay {
                     handoff_text: o["handoffText"].as_str().unwrap_or_default().to_owned(),
                     active_turn: o["activeTurn"] == json!(true),
                     force: o["force"] == json!(true),
+                    latest_user_prefix: o["latestUserPrefix"].as_str().unwrap_or_default().to_owned(),
                     ..FreshOptions::default()
                 };
                 let ctx = FreshContext { tail, attachments: &NoAttachments };
@@ -337,6 +387,17 @@ fn canonical(mut canon: Canon, outputs: &[Value], file: impl Fn(&str) -> Option<
     json!({ "steps": steps, "files": files, "fileCount": file_count })
 }
 
+/// Every file under `dir`, as its displayed path.
+fn listed(dir: &Path, out: &mut Vec<String>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if entry.path().is_dir() {
+            listed(&entry.path(), out);
+        } else {
+            out.push(entry.path().to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
 fn files_under(dir: &Path) -> usize {
     std::fs::read_dir(dir).map_or(0, |entries| {
         entries.flatten().map(|e| if e.path().is_dir() { files_under(&e.path()) } else { 1 }).sum()
@@ -352,8 +413,33 @@ fn without_diagnostics(output: &Value) -> Value {
     output
 }
 
+/// The recorder's data root (`DATA_ROOT`, relative to the working directory): its paths are counted in the token
+/// figures the cases record, so the replay writes under the same string.
+const DATA_ROOT: &str = "mixdog-et-data";
+
+/// The data root, emptied on creation and removed on drop.
+struct DataRoot(PathBuf);
+
+impl DataRoot {
+    fn new() -> Self {
+        let _ = std::fs::remove_dir_all(DATA_ROOT);
+        std::fs::create_dir(DATA_ROOT).unwrap();
+        Self(PathBuf::from(DATA_ROOT))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for DataRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 async fn replay(case: &Value) -> (Value, Value) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = DataRoot::new();
     let mut run = Replay { data: dir.path().to_path_buf(), previous: Vec::new() };
     let mut got = Vec::new();
     for step in case["steps"].as_array().unwrap() {
@@ -372,25 +458,6 @@ async fn replay(case: &Value) -> (Value, Value) {
     (got, want)
 }
 
-/// Recorded cases the core does not yet reproduce; each is a reported difference, not replayed.
-const DIFFERENCES: &[(&str, &str)] = &[
-    (":218", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":494", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":520", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":549", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":569", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":639", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":667", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":711", "tool-token accounting reads the registered stored row, not the compacted message"),
-    (":368", "a large UI diff counts toward the tool-history budget and displaces the latest request"),
-    (":425", "the Goal snapshot is not prefixed to the kept request after Compact"),
-    (":466", "no Goal snapshot row when the transcript has no raw human request"),
-    (":603", "encrypted reasoning items stay on an older assistant message"),
-    (":792", "legacy reasoning items on the latest group refuse compaction instead of being shed"),
-    (":249", "no reference-driven retention sweep of a session's dumps (pruneOffloadSession)"),
-    (":858", "no reference-driven retention sweep of a session's dumps (pruneOffloadSession)"),
-];
-
 #[tokio::test]
 async fn execution_tail_cases_equal_node() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -404,11 +471,8 @@ async fn execution_tail_cases_equal_node() {
             std::fs::write(Path::new(&dir).join(format!("{stem}.got.json")), serde_json::to_string_pretty(&got).unwrap()).unwrap();
             std::fs::write(Path::new(&dir).join(format!("{stem}.want.json")), serde_json::to_string_pretty(&want).unwrap()).unwrap();
         }
-        if DIFFERENCES.iter().any(|(t, _)| *t == test) {
-            continue;
-        }
         assert_eq!(got, want, "{name}");
         replayed += 1;
     }
-    assert_eq!(replayed, 9, "every recorded case not listed as a difference is replayed");
+    assert_eq!(replayed, 25, "every recorded case is replayed");
 }
