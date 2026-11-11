@@ -70,7 +70,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'resolveEmbeddingCacheMaxRows and pruneEmbeddingCache (embedding-cache-retention.mjs)', notRun: 'a real database: db.query is a scripted endpoint that records statements; the last prune call (no options) uses the default cap from the environment' },
-    replay: 'mixdog-services memory: mem/ingest/embed_flush.rs cache_max_rows and prune over a recording db seam; compares the returned {removed, truncated, remaining} (or the error text) and the ordered statements (text and params) exactly',
+    replay: 'public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). NODE BUG recorded as is: resolveEmbeddingCacheMaxRows(\'0.5\') returns 0 (a positive fraction floors to 0, which wipes the cache); fix proposed in D:\\mixdog-build\\tmp\\node-patches\\node-fix-embedding-cache-max-rows.patch',
     exclusions: 'none',
     normalised: { none: 'no run-dependent value' },
   },
