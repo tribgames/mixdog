@@ -1,6 +1,6 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "command": "node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "Serve each case's `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
@@ -28,7 +28,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "b6c4767c333a2714a3c1e6defcee0a5e4cc938ac62a51d33cbc14a6d73bae79c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -44,7 +44,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+      "sha256": "14328d15667d2c5ad8f14803aeae9164c02ffe2894fde446c53e204612064d30"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
