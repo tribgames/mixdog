@@ -50,35 +50,8 @@ async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_response
     assert!(rest.iter().all(|wire| wire.body.get("result").is_some()));
 }
 
-const TRUST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-host-trust-cases/golden.json");
-
-/// Node's model-proxy host runs every call it is sent: its recorded burst ("a burst of sends all run, with no rate or
-/// concurrency refusal") has all `sends` in flight at once and none refused. It refuses by payload size alone
-/// (`MODEL_PROXY_BUSY`, answered by `ModelProxyService` and replayed in mixdog-core's trust replay), so the class cap of the
-/// server does not count `modelProxy/run`: every send of the burst, far past the C2 cap, reaches the domain.
-#[tokio::test(start_paused = true)]
-async fn the_recorded_burst_of_model_proxy_runs_is_admitted_whole() {
-    use mixdog_app_protocol::v2::model_proxy::{ProxyCall, ProxyOptions, ProxyRequest};
-
-    let golden: serde_json::Value = serde_json::from_str(&TRUST).unwrap();
-    let burst = golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == "a burst of sends all run, with no rate or concurrency refusal").expect("the burst is recorded");
-    let sends = burst["observed"]["sends"].as_u64().unwrap() as i64;
-    let cap = 8;
-    assert!(sends > cap, "the recorded burst is past the C2 cap");
-
-    let rig = Rig::gated(&["modelProxy"]);
-    let client = rig.ready(1, json!({}));
-    let call = ProxyCall::Send {
-        provider: "openai".into(),
-        request: Box::new(ProxyRequest { model: "gpt".into(), messages: Vec::new(), tools: Vec::new(), options: ProxyOptions::default() }),
-    };
-    for id in 1..=sends {
-        client.request(id, "modelProxy/run", json!({ "runId": format!("r{id}"), "call": call, "allowedProviders": null }));
-    }
-    settle().await;
-    assert_eq!(rig.gate("modelProxy").log().len(), sends as usize, "every send of the burst reached the domain");
-    assert!(client.drain().is_empty(), "no send was refused");
-}
+// The recorded model-proxy burst and refusal are replayed from the wire through this admission to the real
+// `ModelProxyService` in model_proxy_wire.rs.
 
 #[tokio::test(start_paused = true)]
 async fn control_requests_stay_admitted_while_a_class_is_saturated() {

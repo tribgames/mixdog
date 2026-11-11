@@ -49,11 +49,11 @@ fn observed(case: &str) -> Value {
 }
 
 /// What the scripted provider does on its one attempt: the events its stream yields, and the tools it reports left out
-/// once `excluded_after` of them were yielded. Every request it is sent is kept.
+/// at the points it is told to. Every request it is sent is kept.
 struct Script {
     inner: MockProvider,
-    excluded: Vec<p::ToolExclusionReport>,
-    excluded_after: usize,
+    /// The tools it reports left out, each once that many events were yielded (0: before the first).
+    reports: Vec<(usize, p::ToolExclusionReport)>,
     events: Vec<p::StreamEvent>,
     seen: Mutex<Vec<p::ModelRequest>>,
     /// A script that holds its first attempt until released, to keep a run in flight.
@@ -71,19 +71,17 @@ struct Hold {
 struct Scripted {
     events: VecDeque<p::StreamEvent>,
     yielded: usize,
-    after: usize,
-    excluded: Vec<p::ToolExclusionReport>,
+    reports: VecDeque<(usize, p::ToolExclusionReport)>,
     sink: Option<p::ToolExclusionSink>,
 }
 
 #[async_trait]
 impl p::ModelStream for Scripted {
     async fn next(&mut self) -> Option<Result<p::StreamEvent, p::ProviderError>> {
-        if self.yielded >= self.after {
+        while self.reports.front().is_some_and(|(after, _)| self.yielded >= *after) {
+            let (_, report) = self.reports.pop_front().expect("a report is due");
             if let Some(sink) = &self.sink {
-                for report in self.excluded.drain(..) {
-                    sink.report(report);
-                }
+                sink.report(report);
             }
         }
         self.yielded += 1;
@@ -133,8 +131,7 @@ impl p::ProviderAdapter for Script {
         Ok(Box::new(Scripted {
             events: self.events.iter().cloned().collect(),
             yielded: 0,
-            after: self.excluded_after,
-            excluded: self.excluded.clone(),
+            reports: self.reports.iter().cloned().collect(),
             sink: request.options.on_tool_excluded.clone(),
         }))
     }
@@ -235,13 +232,18 @@ fn script(excluded: Vec<p::ToolExclusionReport>, events: Vec<p::StreamEvent>) ->
 
 /// A script that reports the tools it left out once `after` of its events were yielded.
 fn script_reporting_after(after: usize, excluded: Vec<p::ToolExclusionReport>, events: Vec<p::StreamEvent>) -> Arc<Script> {
-    Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), excluded, excluded_after: after, events, seen: Mutex::new(Vec::new()), hold: None })
+    script_reporting_at(excluded.into_iter().map(|report| (after, report)).collect(), events)
+}
+
+/// A script that reports each tool it left out once its number of events were yielded.
+fn script_reporting_at(reports: Vec<(usize, p::ToolExclusionReport)>, events: Vec<p::StreamEvent>) -> Arc<Script> {
+    Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), reports, events, seen: Mutex::new(Vec::new()), hold: None })
 }
 
 /// A script whose first attempt waits for its `release`.
 fn held_script(events: Vec<p::StreamEvent>) -> (Arc<Script>, Arc<Hold>) {
     let hold = Arc::new(Hold { armed: std::sync::atomic::AtomicBool::new(true), entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
-    let script = Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), excluded: Vec::new(), excluded_after: 0, events, seen: Mutex::new(Vec::new()), hold: Some(hold.clone()) });
+    let script = Arc::new(Script { inner: MockProvider::new(Vec::<MockAttempt>::new()), reports: Vec::new(), events, seen: Mutex::new(Vec::new()), hold: Some(hold.clone()) });
     (script, hold)
 }
 
@@ -433,15 +435,18 @@ async fn reports_reach_the_server_projected_and_the_account_id_stays_on_this_pc(
         message: "gemini tool \"bad_tool\" excluded; key sk-DUMMY-abcdefghijklmnopqrstuv".into(),
     };
     let mut events = vec![
-        p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "openai".into(), account_id: "pc-acct-42".into(), at: 7 }),
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: secret.into() }),
+        p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "openai".into(), account_id: "pc-acct-42".into(), at: 7 }),
     ];
     // The recorder's scripted `send` returns `{ content: 'ok' }`: the provider is scripted from that, never from the
     // recorded result, whose content the core's own events must fold to.
     events.extend(answer("ok"));
-    // Node's scripted send called the stage changes, then `onToolExcluded`; the provider is scripted to report the tool
-    // it left out after its two stage events, so the order the server receives can be compared as it was recorded.
-    let (service, notes) = service(script_reporting_after(2, vec![excluded], events)).await;
+    // The order of the recording is the order a real send raises these in (b6f10295a): the adapter builds its request body, and
+    // so reports the tools it leaves out, at the start of each account attempt (gemini-request-body.mjs:66, antigravity-request.mjs:260);
+    // the account pool announces the switch to the next account after a refused attempt (account-pool.mjs:625), the next attempt
+    // reports again, and the committed change comes last, after the answer (account-pool.mjs:586). The provider is scripted the
+    // same way: its report before its first event, the switch, the report again, the change.
+    let (service, notes) = service(script_reporting_at(vec![(0, excluded.clone()), (1, excluded)], events)).await;
     let hi = request(vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))]);
     assert_eq!(answered(&service, run("r5", &hi)).await["result"], "sent");
     let got = notes.events("r5");
