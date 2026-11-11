@@ -56,7 +56,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [features]
 # A test build ends the process at the point MIXDOG_NEW_TASK_CRASH_AT names (session/new_task.rs); no normal build enables it.
 crash-gates = []
-# A replay's clock: the session's wall clock reads mixdog-rt's virtual clock once a replay froze it. Never in an ordinary build.
+# A replay's clock (mixdog-rt virtual_clock.rs): the session's wall clock and timers stand still until the replay advances them.
+# Never in an ordinary build.
 virtual-clock = ["mixdog-rt/virtual-clock"]
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 

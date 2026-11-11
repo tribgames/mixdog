@@ -61,7 +61,7 @@ impl Liveness {
     /// Runs `work` against the head deadline.
     pub async fn bound_head<T>(self, work: impl Future<Output = T>) -> Result<T, Expired> {
         match self.head_deadline() {
-            Some(after) => tokio::time::timeout(after, work)
+            Some(after) => crate::time::timeout(after, work)
                 .await
                 .map_err(|_| Expired { after }),
             None => Ok(work.await),

@@ -23,7 +23,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
@@ -126,7 +125,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn system_now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 /// `boundedText`: more than 16 384 UTF-16 units keeps the first 16 384 (a cut surrogate pair

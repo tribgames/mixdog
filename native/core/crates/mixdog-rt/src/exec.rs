@@ -239,10 +239,7 @@ impl Executors {
                 let failures = priority_failures.clone();
                 move || apply_priority(priority, &failures)
             };
-            let control = crate::virtual_clock::runtime("mixdog-rt-c", on(CONTROL_PRIORITY))?;
-            let work = crate::virtual_clock::runtime("mixdog-rt-w", on(WORK_PRIORITY))?;
-            crate::virtual_clock::start_control();
-            Some((control, work))
+            Some(crate::virtual_clock::start(on(CONTROL_PRIORITY), on(WORK_PRIORITY))?)
         } else {
             None
         };
@@ -358,6 +355,8 @@ impl Backend for Executors {
     }
 
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
         self.lanes[lane_index(job.lane())].submit(job)
     }
 

@@ -10,7 +10,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
@@ -119,7 +118,7 @@ impl ChangeSink for BridgeSink {
 }
 
 fn system_now_ms() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
 }
 
 fn load(lane: &InLane<MaintenanceIo>, path: &Path) -> Loaded {
@@ -552,7 +551,7 @@ mod tests {
 
     fn lay_out(case: &Value, dir: &Path) {
         std::fs::create_dir_all(dir).unwrap();
-        let now = SystemTime::now();
+        let now = std::time::SystemTime::now();
         for (file, entry) in case["files"].as_object().unwrap() {
             let path = dir.join(file);
             std::fs::write(&path, entry["text"].as_str().unwrap().replace("{alive}", &std::process::id().to_string())).unwrap();
