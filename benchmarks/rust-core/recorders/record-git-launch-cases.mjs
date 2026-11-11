@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Recording of shared/git-launch.test.mjs (b6f10295a): how Node resolves the git it starts. Real git-launch.mjs (resolveGitLaunch,
 // gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync), over directory trees built in a temp folder (the file
-// layout of each case is part of the recording; every temp root is written <root> wherever it occurs, with the separators Node
+// layout of each case is part of the recording; every temp root is written <root-N> (N: creation order, one marker per root) wherever it occurs, with the separators Node
 // produced: backslashes on win32, which is the platform recorded). The recording is Windows-only where Node's own test is
 // (`skip: process.platform !== 'win32'`): on another platform those cases record {skipped}.
 // Nothing here runs the machine's git. The two Node cases that ran a real git (the direct binary's environment; the runner's PATH
@@ -175,7 +175,7 @@ await set.run('the direct binary sees the environment the launcher would give it
   const fallback = controlledInstall();
   const env = { ...BASE_ENV, PATH: join(fallback.root, 'Git', 'cmd'), HOME: 'D:\\h' };
   const args = ['-c', 'alias.dumpenv=!env', 'dumpenv'];
-  const run = (command, childEnv) => measured(spawnSync(command, args, { encoding: 'utf8', windowsHide: true, cwd: fallback.root, env: childEnv }));
+  const run = (command, childEnv) => { const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, cwd: fallback.root, env: childEnv, timeout: 30_000 }); if (result.error?.code === 'ETIMEDOUT') throw new Error(`the git child ${command}: no answer within 30000 ms`); return measured(result); };
   const viaLauncher = run('git', env);
   const direct = run(gitCommand(env), gitChildEnv(env));
   const lines = (output) => output.split('\n').filter(Boolean).sort();
@@ -190,11 +190,11 @@ await set.run('the direct binary sees the environment the launcher would give it
 
 await set.finish({
   entry: { runs: 'src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) over trees of empty files in a temp folder', notRun: 'no real git: the two cases that start processes run against the stand-in install (lib/git-standin.cs); the retry cases pass startGit a scripted start function, as the Node test does', standIn: { source: 'benchmarks/rust-core/recorders/lib/git-standin.cs', sha256: 'listed with the recorder inputs of this manifest (benchmarks/rust-core/recorders/lib/git-standin.cs)', build: 'csc.exe of the .NET Framework 4 (C:/Windows/Microsoft.NET/Framework64/v4.0.30319), one build per run' } },
-  replay: { entry: 'mixdog-scm git_launch.rs: rebuild each case\'s tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole', normalised: { tempRoots: 'every temp root is written <root> wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)' }, platform: 'recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere' },
+  replay: { entry: 'mixdog-scm git_launch.rs: rebuild each case\'s tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole', normalised: { tempRoots: 'every temp root is written <root-N> (N: creation order, one marker per root) wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)' }, platform: 'recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere' },
   dataFiles: ['benchmarks/rust-core/recorders/lib/git-standin.cs'],
-  replaceInText: roots.map((r) => [r, '<root>']),
+  replaceInText: roots.map((r, i) => [r, `<root-${i + 1}>`]),
   replaceRegex: [[/^pid:\d+$/, '<pid>'], [/^ms:-?[\d.]+(e[+-]?\d+)?$/, '<ms>']],
-  normaliseReason: 'every temp root is written <root>; the process id of a spawned child (spawnSync result.pid) is a measurement of the run, written <pid>; the spawn timings of runChildTimed are written <ms>. Nothing else is normalised: every environment is recorded whole and compared raw.',
+  normaliseReason: 'every temp root is written <root-N>, N its position in the order the recorder created the roots (each root has its own marker, so the stale and the fallback root stay apart); the process id of a spawned child (spawnSync result.pid) is a measurement of the run, written <pid>; the spawn timings of runChildTimed are written <ms>. Nothing else is normalised: every environment is recorded whole and compared raw.',
 });
 for (const r of roots) rmSync(r, { recursive: true, force: true });
 process.exit(0);
