@@ -9,11 +9,11 @@
 //
 //   node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs --tree <dir>
 import { DatabaseSync } from 'node:sqlite';
-import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = 1_700_000_000_000;
-Date.now = () => CLOCK_MS; // makeChunkQuality stamps verifiedAt
+freezeClock(CLOCK_MS); // makeChunkQuality stamps verifiedAt
 const dir = 'src/runtime/memory/lib/';
 const { buildRecallScopeFilter } = await importFrom(ctx.tree, `${dir}memory-recall-scope-filter.mjs`);
 const { retrieveEntries } = await importFrom(ctx.tree, `${dir}memory-retrievers.mjs`);
