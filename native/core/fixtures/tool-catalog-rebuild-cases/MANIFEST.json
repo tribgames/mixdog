@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-tool-catalog-rebuild-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per open/set/apply step: the whole session afterwards; per union step: the whole catalog union",
+  "excluded": {
+    "render": "OPEN (port decision): `renderToolSearch` on a native-provider session (openai-oauth, anthropic-oauth: no toolExposureMode) selects the tools and answers `{selected, nativeToolSearch, loaded, alreadyActive, missing, blocked}`; the core's `load_tool` (orch/bridge.rs over SessionCatalog) only describes, as Node's bridge mode does, and has no native branch",
+    "select": "OPEN (port decision): `selectDeferredTools` without `exact` is what Node's native `load_tool` runs; the core selects only for a skill's dependencies (HeaderSkillArm, `exact: true`), so no core entry point runs this selection"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2717091,
+      "path": "golden.json",
+      "sha256": "0aa3adb9ab8b674b07cb6f352a2ee17e66c7b71da536a5dfb13aab86d73cad17"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tool-catalog-rebuild-cases.mjs",
+  "recorderSha256": "c58f91f8c69f94094e7ebbec71062248b5dcba3c19ffbfd45ab05e86b80d50b1",
+  "set": "tool-catalog-rebuild-cases",
+  "totalBytes": 2717091
+}
