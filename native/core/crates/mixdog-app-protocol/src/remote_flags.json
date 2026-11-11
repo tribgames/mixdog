@@ -1,0 +1,75 @@
+{
+  "note": "The one source of initialize.capabilities.remote (remote_flags.rs). Each flag of Node's relay challenge (remote-relay-client-lifecycle.ts:117-151 at b6f10295a) with the Node calls it opens on the phone's page (remote-shim-api.ts and its readers). A call served for a phone end to end names the core method its phone adapter calls (`method`; a call the adapter answers from a held app-feed section names `app/subscribe`, the feed that holds it); a call that is not names who brings it (`owner`). A flag is on only when every call names a method and nothing else waits (`unserved`); nativePush also needs the relay to offer native platforms. apps/desktop/src/renderer/remote-flags.test.mjs fails when a call names a method no bundled adapter claims, or an owner while an adapter claims it; remote_flags.rs's tests fail when a method is not in the method table for a relay connection.",
+  "flags": {
+    "remoteParity": {
+      "calls": {
+        "getUpdaterState": { "method": "app/subscribe" },
+        "checkForDesktopUpdate": { "method": "update/desktop/command" },
+        "showDesktopUpdate": { "method": "update/desktop/command" },
+        "trashProjectEntry": { "method": "projectFs/trash" },
+        "browserReleasePage": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4)" },
+        "submitToSession": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },
+        "localPageUrl": { "method": "projectFs/localPageUrl" },
+        "previewProjectFile": { "method": "projectFs/previewFile" },
+        "previewProjectFileRange": { "method": "projectFs/previewRange" },
+        "githubCliLoginOpenBrowser": { "method": "github/login/openBrowser" },
+        "ghPrList": { "method": "github/pr/list" },
+        "ghPrDefaultBranch": { "method": "github/pr/defaultBranch" },
+        "ghPrCreate": { "method": "github/pr/create" },
+        "ghPrView": { "method": "github/pr/view" },
+        "ghPrCheckout": { "method": "github/pr/checkout" },
+        "ghPrMerge": { "method": "github/pr/merge" },
+        "ghPrDiff": { "method": "github/pr/diff" }
+      }
+    },
+    "nativePush": {
+      "calls": {
+        "registerNativePush": { "method": "remoteAccess/registerNativePush" },
+        "removeNativePush": { "method": "remoteAccess/removeNativePush" }
+      }
+    },
+    "browserDrive": { "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" } } },
+    "browserSessionTabs": {
+      "calls": {
+        "browserRemoteTabOpen": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" },
+        "browserRemoteTabClose": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" }
+      }
+    },
+    "termSizeOwner": { "calls": { "termResize": { "method": "terminal/resize" } } },
+    "hostDirectories": { "calls": { "listHostDirectories": { "method": "projectFs/browseDirs" } } },
+    "usageRequests": { "calls": { "readCapabilities": { "owner": "PH-2 Chat group (phone-chat-live, w5)" } } },
+    "projectRecovery": { "calls": { "projectRecovery": { "owner": "PH-2 Settings group (project recovery): no branch yet" } } },
+    "routeAutoEffort": {
+      "calls": {
+        "submitNewTask": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },
+        "setModelRoute": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },
+        "inheritSession": { "owner": "PH-2 Chat group (phone-chat-live, w5)" }
+      }
+    },
+    "visualize": {
+      "calls": {
+        "visualizeState": { "owner": "PH-2 Visualize group: no branch yet" },
+        "visualizeCommand": { "owner": "PH-2 Visualize group: no branch yet" },
+        "visualizePaneInline": { "owner": "PH-2 Visualize group: no branch yet" },
+        "visualizePanePages": { "owner": "PH-2 Visualize group: no branch yet" },
+        "visualizePaneRange": { "owner": "PH-2 Visualize group: no branch yet" }
+      }
+    },
+    "fileDownloads": {
+      "calls": {
+        "fileDownloadAuthorize": { "method": "transfer/authorizeRead" },
+        "fileDownloadBegin": { "method": "transfer/redeemGrant" },
+        "fileDownloadRange": { "method": "transfer/readRange" },
+        "fileDownloadFinish": { "method": "transfer/finishRead" },
+        "fileDownloadAbort": { "method": "transfer/endRead" }
+      }
+    },
+    "secretInput": { "calls": { "provideSecretInput": { "owner": "PH-2 Chat group (phone-chat-live, w5)" } } },
+    "browserWebrtc": {
+      "version": 1,
+      "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2 WebRTC live view)" } }
+    },
+    "browserFit": { "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" } } },
+    "mediaE2ee": { "calls": {}, "unserved": "RS-1: the encrypted HTTP media lane" }
+  }
+}

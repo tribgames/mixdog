@@ -178,6 +178,9 @@ pub struct AttachDecision {
     pub epoch: FeedEpoch,
     /// First live seq after the replay frames (`resumeFrom.seq + 1`) or the snapshot (`S + 1`).
     pub start_seq: u64,
+    /// `S + 1`: the first seq published after this attach. A replay's frames are below it: they were published while the client
+    /// was away.
+    pub live_seq: u64,
 }
 
 /// A registered subscription. The server must write its response with
