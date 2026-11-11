@@ -30,31 +30,25 @@
           {
             "provider": "grok-oauth",
             "rejected": {
+              "$exact": "error",
               "name": "Error",
-              "code": "MODEL_PROXY_PROVIDER_NOT_ALLOWED",
               "message": "This PC does not let this server use provider \"grok-oauth\".",
-              "status": null,
-              "retryAfter": null,
-              "partialContent": null,
-              "liveTextEmitted": null,
-              "headers": null,
-              "cause": null,
-              "baseURL": null
+              "code": "MODEL_PROXY_PROVIDER_NOT_ALLOWED",
+              "props": {
+                "name": "Error"
+              }
             }
           },
           {
             "provider": "anthropic-oauth",
             "rejected": {
+              "$exact": "error",
               "name": "Error",
-              "code": "MODEL_PROXY_PROVIDER_UNAVAILABLE",
               "message": "Provider \"anthropic-oauth\" is not enabled on this PC.",
-              "status": null,
-              "retryAfter": null,
-              "partialContent": null,
-              "liveTextEmitted": null,
-              "headers": null,
-              "cause": null,
-              "baseURL": null
+              "code": "MODEL_PROXY_PROVIDER_UNAVAILABLE",
+              "props": {
+                "name": "Error"
+              }
             }
           }
         ],
@@ -71,7 +65,131 @@
             "name": "openai-oauth",
             "model": "gpt-exhausted"
           }
-        ]
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -113,30 +231,22 @@
             "step": "failed measurement is not cached",
             "failA": {
               "rejected": {
+                "$exact": "error",
                 "name": "Error",
-                "code": null,
                 "message": "usage fetch failed",
-                "status": null,
-                "retryAfter": null,
-                "partialContent": null,
-                "liveTextEmitted": null,
-                "headers": null,
-                "cause": null,
-                "baseURL": null
+                "props": {
+                  "name": "Error"
+                }
               }
             },
             "failB": {
               "rejected": {
+                "$exact": "error",
                 "name": "Error",
-                "code": null,
                 "message": "usage fetch failed",
-                "status": null,
-                "retryAfter": null,
-                "partialContent": null,
-                "liveTextEmitted": null,
-                "headers": null,
-                "cause": null,
-                "baseURL": null
+                "props": {
+                  "name": "Error"
+                }
               }
             },
             "measurements": 4
@@ -146,7 +256,1747 @@
             "answer": true,
             "measurements": 5
           }
-        ]
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -206,7 +2056,77 @@
             ]
           }
         ],
-        "hostRunningAfter": 0
+        "hostRunningAfter": 0,
+        "settledCalls": [
+          {
+            "provider": "anthropic-oauth",
+            "outcome": "answered"
+          }
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -240,6 +2160,46 @@
             "model": "m2"
           },
           "reason": "x"
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
         }
       }
     },
@@ -248,30 +2208,23 @@
       "observed": {
         "unavailable": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "code": "MODEL_PROXY_PROVIDER_UNAVAILABLE",
             "message": "Provider \"gemini\" is not enabled on this PC.",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "code": "MODEL_PROXY_PROVIDER_UNAVAILABLE",
+            "props": {
+              "name": "Error"
+            }
           }
         },
         "forget": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "Model proxy method \"forgetCredentials\" is not allowed.",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "props": {
+              "name": "Error"
+            }
           }
         },
         "models": [
@@ -295,7 +2248,131 @@
           },
           "ready": true
         },
-        "listCalls": 1
+        "listCalls": 1,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -337,6 +2414,74 @@
         "forwardedBudgetForUnlisted": {
           "transportMs": 130000,
           "semanticMs": 250000
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
         }
       }
     },
@@ -346,28 +2491,90 @@
         "runningWhileCalling": 1,
         "daemonOutcome": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "user stop",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "props": {}
           }
         },
         "pcAbortReason": {
-          "name": "AbortError"
+          "$exact": "error",
+          "name": "AbortError",
+          "message": "The remote session cancelled the model call.",
+          "props": {
+            "name": "AbortError"
+          }
         },
         "runningAfter": 0,
         "snapshot": {
           "requests": [],
           "cancelled": []
         },
-        "resolveOperationSeen": true,
-        "normalized": "timers: heartbeat counts depend on the host timers and are not compared, only the lease outcome"
+        "operations": [
+          "modelProxyClaim",
+          "modelProxyResolve"
+        ],
+        "settledCalls": [
+          {
+            "provider": "openai",
+            "outcome": "failed",
+            "error": {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "The remote session cancelled the model call.",
+              "props": {
+                "name": "AbortError"
+              }
+            }
+          }
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 20,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -376,28 +2583,120 @@
         "leaseMs": 100,
         "heartbeatMs": 5,
         "runningBefore": 1,
-        "atLeastThreeFailedHeartbeats": true,
+        "steps": [
+          {
+            "step": "daemon silent; the injected clock moves 50 ms",
+            "now": 1050
+          },
+          {
+            "step": "virtual clock +5 ms: heartbeat 1 failed",
+            "now": 1050,
+            "running": 1
+          },
+          {
+            "step": "virtual clock +5 ms: heartbeat 2 failed",
+            "now": 1050,
+            "running": 1
+          },
+          {
+            "step": "virtual clock +5 ms: heartbeat 3 failed",
+            "now": 1050,
+            "running": 1
+          },
+          {
+            "step": "the injected clock moves 100 ms past the lease",
+            "now": 1150
+          }
+        ],
+        "failedHeartbeats": [
+          1050,
+          1050,
+          1050
+        ],
         "runningInsideLease": 1,
         "abortReason": {
+          "$exact": "error",
+          "name": "AbortError",
+          "message": "The remote daemon stopped answering; the model call was abandoned.",
           "code": "MODEL_PROXY_UNAVAILABLE",
-          "message": "The remote daemon stopped answering; the model call was abandoned."
+          "props": {
+            "name": "AbortError"
+          }
         },
         "runningAfter": 0,
         "daemonOutcome": {
           "rejected": {
+            "$exact": "error",
             "name": "AbortError",
-            "code": "MODEL_PROXY_UNAVAILABLE",
             "message": "The remote daemon stopped answering; the model call was abandoned.",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "props": {
+              "name": "AbortError"
+            }
           }
         },
-        "normalized": "timers: heartbeat counts depend on the host timers and are not compared, only the lease outcome"
+        "operations": [
+          "modelProxyClaim",
+          "modelProxyHeartbeat",
+          "modelProxyHeartbeat",
+          "modelProxyHeartbeat",
+          "modelProxyResolve"
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5,
+              "atMs": 0
+            }
+          ],
+          "fired": [
+            {
+              "api": "setInterval",
+              "ms": 5,
+              "atMs": 5
+            },
+            {
+              "api": "setInterval",
+              "ms": 5,
+              "atMs": 10
+            },
+            {
+              "api": "setInterval",
+              "ms": 5,
+              "atMs": 15
+            },
+            {
+              "api": "setInterval",
+              "ms": 5,
+              "atMs": 20
+            }
+          ],
+          "pending": []
+        }
       }
     },
     {
@@ -406,21 +2705,56 @@
         "runningBefore": 1,
         "runningAfterDispose": 0,
         "abortReason": {
-          "name": "AbortError"
+          "$exact": "error",
+          "name": "AbortError",
+          "message": "The desktop app is closing.",
+          "props": {
+            "name": "AbortError"
+          }
         },
         "daemonOutcome": {
           "rejected": {
+            "$exact": "error",
             "name": "AbortError",
-            "code": null,
             "message": "The desktop app is closing.",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "props": {
+              "name": "AbortError"
+            }
           }
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
         }
       }
     },
@@ -442,7 +2776,50 @@
         },
         "keyReads": [],
         "waitMs": 2000,
-        "normalized": "the test waited 50 ms before connecting; the recording yields five event-loop turns"
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 2000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 2000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -454,7 +2831,90 @@
             "modelProxy": {}
           }
         },
-        "asked": 2
+        "asked": 2,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 2000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 250,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 1750,
+              "atMs": 250
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 250
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 250
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 250
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 250
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 250
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 250
+            }
+          ],
+          "fired": [
+            {
+              "api": "setTimeout",
+              "ms": 250,
+              "atMs": 250
+            }
+          ],
+          "pending": []
+        }
       }
     },
     {
@@ -466,6 +2926,45 @@
             "authState": "present",
             "modelProxy": {}
           }
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
         }
       }
     },
@@ -478,7 +2977,47 @@
         "keyReads": [
           "openai"
         ],
-        "anthropicKeyInLastInit": null
+        "anthropicKeyInLastInit": null,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -507,7 +3046,47 @@
         "signalIsAbortSignal": true,
         "toolExecutionSessionId": "",
         "sessionId": "s1",
-        "temperature": 0.2
+        "temperature": 0.2,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -517,84 +3096,321 @@
         "log": [
           {
             "step": "success",
-            "scope": {
-              "isString": true,
-              "differsFromServerScope": true,
-              "startsWithSessionHash": true
-            },
-            "closedIsScope": true,
-            "releasedIsScope": true
+            "sentScopes": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084"
+            ],
+            "sentHaveTransportScope": [
+              true
+            ],
+            "closed": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084"
+            ],
+            "released": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084"
+            ]
           },
           {
             "step": "error",
             "fail": {
               "rejected": {
+                "$exact": "error",
                 "name": "Error",
-                "code": null,
                 "message": "provider down",
-                "status": null,
-                "retryAfter": null,
-                "partialContent": null,
-                "liveTextEmitted": null,
-                "headers": null,
-                "cause": null,
-                "baseURL": null
+                "props": {
+                  "name": "Error"
+                }
               }
             },
-            "scopeIsClosed": true,
-            "differsFromFirst": true,
-            "releasedEqualsClosed": true
+            "sentScopes": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086"
+            ],
+            "sentHaveTransportScope": [
+              true,
+              true
+            ],
+            "closed": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086"
+            ],
+            "released": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086"
+            ]
           },
           {
             "step": "cancel",
-            "closedWhileRunning": 2,
+            "whileRunning": {
+              "sentScopes": [
+                "ok#proxy:00000000-0000-4000-8000-000000000084",
+                "fail#proxy:00000000-0000-4000-8000-000000000086",
+                "hang#proxy:00000000-0000-4000-8000-000000000088"
+              ],
+              "sentHaveTransportScope": [
+                true,
+                true,
+                true
+              ],
+              "closed": [
+                "ok#proxy:00000000-0000-4000-8000-000000000084",
+                "fail#proxy:00000000-0000-4000-8000-000000000086"
+              ],
+              "released": [
+                "ok#proxy:00000000-0000-4000-8000-000000000084",
+                "fail#proxy:00000000-0000-4000-8000-000000000086"
+              ]
+            },
             "cancelled": {
               "rejected": {
+                "$exact": "error",
                 "name": "Error",
-                "code": null,
                 "message": "user stop",
-                "status": null,
-                "retryAfter": null,
-                "partialContent": null,
-                "liveTextEmitted": null,
-                "headers": null,
-                "cause": null,
-                "baseURL": null
+                "props": {}
               }
             },
-            "closedAfter": 3,
-            "closedIsScope": true,
-            "releasedEqualsClosed": true,
-            "distinctScopes": 3
+            "sentScopes": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086",
+              "hang#proxy:00000000-0000-4000-8000-000000000088"
+            ],
+            "sentHaveTransportScope": [
+              true,
+              true,
+              true
+            ],
+            "closed": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086",
+              "hang#proxy:00000000-0000-4000-8000-000000000088"
+            ],
+            "released": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086",
+              "hang#proxy:00000000-0000-4000-8000-000000000088"
+            ]
           },
           {
             "step": "no scope named",
-            "hasTransportScope": false,
-            "closedAfter": 3
+            "sentScopes": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086",
+              "hang#proxy:00000000-0000-4000-8000-000000000088",
+              {
+                "$exact": "undefined"
+              }
+            ],
+            "sentHaveTransportScope": [
+              true,
+              true,
+              true,
+              false
+            ],
+            "closed": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086",
+              "hang#proxy:00000000-0000-4000-8000-000000000088"
+            ],
+            "released": [
+              "ok#proxy:00000000-0000-4000-8000-000000000084",
+              "fail#proxy:00000000-0000-4000-8000-000000000086",
+              "hang#proxy:00000000-0000-4000-8000-000000000088"
+            ]
           }
         ],
-        "normalized": "the scope is session#<random>: only its shape is compared"
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
       "case": "PC errors reach the server with only the recovery fields, credentials redacted",
       "observed": {
         "thrown": {
+          "$exact": "error",
           "name": "Error",
-          "code": "auth_failed",
           "message": "401 from upstream for key [redacted]",
-          "status": 401,
-          "retryAfter": 3,
-          "partialContent": "half an answer",
-          "liveTextEmitted": true,
-          "headers": null,
-          "cause": null,
-          "baseURL": null,
-          "hasHeaders": false,
-          "hasCause": false,
-          "hasBaseURL": false,
-          "messageRedacted": true,
-          "messageKeepsKey": false
+          "code": "auth_failed",
+          "props": {
+            "name": "Error",
+            "status": 401,
+            "retryAfter": 3,
+            "partialContent": "half an answer",
+            "liveTextEmitted": true
+          }
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
         }
       }
     },
@@ -623,20 +3439,113 @@
         },
         "customSend": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "code": "MODEL_PROXY_PROVIDER_NOT_ALLOWED",
             "message": "This PC does not let this server use provider \"custom-1\".",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "code": "MODEL_PROXY_PROVIDER_NOT_ALLOWED",
+            "props": {
+              "name": "Error"
+            }
           }
         },
         "openaiSend": {
           "content": "x"
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
         }
       }
     },
@@ -712,6 +3621,96 @@
             null
           ],
           "pcAsked": 1
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
         }
       }
     },
@@ -722,7 +3721,84 @@
           "content": "second"
         },
         "claims": 2,
-        "runningAfterSecond": 1
+        "runningAfterSecond": 2,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "dueMs": 20000
+            }
+          ]
+        }
       }
     },
     {
@@ -732,19 +3808,46 @@
         "contentChars": 500,
         "outcome": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "code": "MODEL_PROXY_REQUEST_TOO_LARGE",
             "message": "The model call is larger than this PC accepts from a server.",
-            "status": 413,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "code": "MODEL_PROXY_REQUEST_TOO_LARGE",
+            "props": {
+              "name": "Error",
+              "status": 413
+            }
           }
         },
-        "providerSent": false
+        "providerSent": false,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -767,7 +3870,12 @@
             "provider": "undefined"
           }
         ],
-        "keyReads": []
+        "keyReads": [],
+        "timers": {
+          "armed": [],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -777,19 +3885,38 @@
         "waitMs": 30,
         "outcome": {
           "rejected": {
+            "$exact": "error",
             "name": "ModelProxyUnavailableError",
-            "code": "MODEL_PROXY_UNAVAILABLE",
             "message": "model proxy unavailable: the desktop provider request timed out",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "props": {
+              "name": "ModelProxyUnavailableError"
+            }
           }
         },
-        "requestPublished": true
+        "requestPublished": true,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 30,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            }
+          ],
+          "fired": [
+            {
+              "api": "setTimeout",
+              "ms": 30,
+              "atMs": 30
+            }
+          ],
+          "pending": []
+        }
       }
     },
     {
@@ -799,19 +3926,54 @@
         "waitMs": 30,
         "outcome": {
           "rejected": {
+            "$exact": "error",
             "name": "ModelProxyUnavailableError",
-            "code": "MODEL_PROXY_UNAVAILABLE",
             "message": "model proxy unavailable: the desktop provider request timed out",
-            "status": null,
-            "retryAfter": null,
-            "partialContent": null,
-            "liveTextEmitted": null,
-            "headers": null,
-            "cause": null,
-            "baseURL": null
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "props": {
+              "name": "ModelProxyUnavailableError"
+            }
           }
         },
-        "requestPublished": true
+        "requestPublished": true,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 30,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 30
+            }
+          ],
+          "fired": [
+            {
+              "api": "setTimeout",
+              "ms": 30,
+              "atMs": 30
+            }
+          ],
+          "pending": [
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "dueMs": 20030
+            }
+          ]
+        }
       }
     },
     {
@@ -834,7 +3996,33 @@
             "step": "long + short wait",
             "requestsSentTotal": 4
           }
-        ]
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 1000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -1171,7 +4359,1279 @@
             ],
             "content": "custom-00000000-0000-4000-8000-000000000021:no-key"
           }
-        ]
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -1213,7 +5673,125 @@
             },
             "provider": "undefined"
           }
-        ]
+        ],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -1246,7 +5824,69 @@
           "modelProxy": {}
         },
         "providerAfterUnset": "undefined",
-        "keyReads": []
+        "keyReads": [],
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": []
+        }
       }
     },
     {
@@ -1261,6 +5901,74 @@
           "enabled": true,
           "authState": "unreadable",
           "modelProxy": {}
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
         }
       }
     },
@@ -1271,7 +5979,47 @@
           "nativePdf": false,
           "takesImages": false
         },
-        "openaiTraits": {}
+        "openaiTraits": {},
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -1313,6 +6061,46 @@
           ],
           "authState": "present",
           "modelProxy": {}
+        },
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
         }
       }
     },
@@ -1415,7 +6203,47 @@
           "custom-missing": null,
           "openai": null
         },
-        "blockedNameLeaked": false
+        "blockedNameLeaked": false,
+        "timers": {
+          "armed": [
+            {
+              "api": "setTimeout",
+              "ms": 10000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "atMs": 0
+            },
+            {
+              "api": "setImmediate",
+              "atMs": 0
+            },
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "atMs": 0
+            }
+          ],
+          "fired": [],
+          "pending": [
+            {
+              "api": "setInterval",
+              "ms": 5000,
+              "dueMs": 5000
+            }
+          ]
+        }
       }
     },
     {
@@ -1596,7 +6424,12 @@
             "step": "custom auth none",
             "probe": "present"
           }
-        ]
+        ],
+        "timers": {
+          "armed": [],
+          "fired": [],
+          "pending": []
+        }
       }
     }
   ]
