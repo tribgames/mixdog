@@ -456,8 +456,8 @@ impl ManualCompaction for HostManualCompaction {
         self.parts.config.route_config(header)
     }
 
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
-        self.parts.config.settings_changes()
+    fn settings_changes(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        self.parts.config.settings_changes(thread)
     }
 
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {

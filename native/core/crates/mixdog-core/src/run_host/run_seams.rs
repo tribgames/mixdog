@@ -271,8 +271,8 @@ impl ConfigSeams for ConfigRunSeams {
         super::compaction_follow::sync_change(header, &self.saved_compaction()).set.shift_remove("compaction")
     }
 
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
-        self.settings.as_ref().map(|settings| settings.subscribe())
+    fn settings_changes(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        self.settings.as_ref().map(|settings| settings.feed(thread))
     }
 
     fn route_config(&self, header: &Header) -> ThreadRoute {
