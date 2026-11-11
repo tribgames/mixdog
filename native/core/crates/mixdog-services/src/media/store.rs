@@ -1,6 +1,9 @@
 //! On-disk store for generated media under `<data>/media`: assets as real files in
-//! `assets/`, `index.json` (newest first), `boards.json` and `defaults.json`. The daemon owns
-//! the data directory, so one in-process lock serializes every read-modify-write; each write is
+//! `assets/`, `index.json` (newest first), `boards.json` and `defaults.json`. A catalog
+//! read-modify-write holds `<file>.lock` in Node's file-lock protocol, as `updateJsonAtomicSync`
+//! does, because the core is not the only writer of the folder: the CLI's headless run and REPL
+//! load Node's session runtime in their own process (`src/headless-exec.mjs:412`,
+//! `src/repl.mjs:46`), whose media store writes the same `index.json`. Each write is
 //! atomic (temp file + rename) and keeps the previous catalog as `<file>.bak`. A damaged file is
 //! set aside as `<file>.corrupt-<ts>` and the last good copy restored; any other read failure
 //! propagates, so a mutation never writes an empty catalog over an unreadable one.
@@ -91,14 +94,17 @@ pub struct MediaStore {
     /// `readIndex`): a screen of thumbnails reads it once. Held across a disk read, so a burst of
     /// readers finds one read.
     index: Mutex<IndexCache>,
-    /// Runs in a catalog mutation after its first read of the index and before its locked
-    /// read-modify-write: a test holds two saves there to make both read before either writes.
+    /// Runs in a catalog mutation while it holds `index.json.lock`, after its read of the
+    /// catalog and before its write: a test does another process's save there.
     #[cfg(test)]
-    after_index_read: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    holding_index: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// `indexSignature` (`store.mjs:61-65`): `mtimeMs:ctimeMs:size` of `index.json`. The ctime is the
 /// inode change time on Unix and `FILE_BASIC_INFO.ChangeTime` on Windows, as libuv reports it.
+/// Node compares the times as float milliseconds, the core as integer nanoseconds: two changes
+/// inside one millisecond are a re-read here where Node keeps its cached catalog (declared in
+/// `fixtures/media-store-cases/MANIFEST.json`).
 #[derive(Clone, PartialEq)]
 enum IndexSignature {
     Missing,
@@ -242,6 +248,21 @@ fn read_state_at(path: &Path, valid: impl Fn(&Value) -> bool, now: i64) -> Resul
     Ok(restored)
 }
 
+/// `withFileLockSync(`${file}.lock`)` of `updateJsonAtomicSync`, in Node's protocol and with its
+/// wait (`MIXDOG_LOCK_TIMEOUT_MS`, else 2 s), held until the returned value is dropped.
+fn file_lock(file: &Path) -> Result<mixdog_statefile::LockHold, MediaError> {
+    let (sent, taken) = std::sync::mpsc::channel();
+    let hold = mixdog_statefile::hold_lock(&mixdog_statefile::lock_path(file), &mixdog_statefile::LockOpts::default(), move |outcome| {
+        let _ = sent.send(outcome);
+    });
+    match taken.recv() {
+        Ok(Ok(())) => Ok(hold),
+        Ok(Err(mixdog_statefile::LockError::Io(error))) => Err(error.into()),
+        Ok(Err(busy)) => Err(MediaError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, busy.to_string()))),
+        Err(_) => Err(MediaError::Io(std::io::Error::other("the lock thread ended without an answer"))),
+    }
+}
+
 fn has_array(key: &'static str) -> impl Fn(&Value) -> bool {
     move |v| v.get(key).is_some_and(Value::is_array)
 }
@@ -260,7 +281,7 @@ impl MediaStore {
             layout_checked: std::sync::atomic::AtomicBool::new(false),
             index: Mutex::new(IndexCache::default()),
             #[cfg(test)]
-            after_index_read: Mutex::new(None),
+            holding_index: Mutex::new(None),
         }
     }
 
@@ -416,21 +437,22 @@ impl MediaStore {
 
     /// The one catalog read-modify-write (`mutateIndex`); `mutate` returning `None` writes nothing.
     /// The catalog is read through the cache first (which sets a damaged one aside), then afresh
-    /// under the lock for the change, as `updateJsonAtomicSync` reads it under `<file>.lock`
-    /// (`atomic-file.mjs:668-679`): a save that read the catalog before another's write still
-    /// changes the catalog that write left. What was written becomes the cached catalog, and a
-    /// failed write leaves the cache as it was.
+    /// under `index.json.lock` for the change, as `updateJsonAtomicSync` reads it
+    /// (`atomic-file.mjs:668-679`): a save that read the catalog before another's write, in this
+    /// process or another, still changes the catalog that write left. What was written becomes
+    /// the cached catalog, and a failed write leaves the cache as it was.
     fn mutate_assets<T>(&self, mutate: impl FnOnce(Vec<Value>) -> (Option<Vec<Value>>, T)) -> Result<T, MediaError> {
         self.read_index()?;
+        let _held = file_lock(&self.index_path())?;
+        let current = self.read_assets()?;
         #[cfg(test)]
         {
-            let gate = self.after_index_read.lock().unwrap().clone();
-            if let Some(gate) = gate {
-                gate();
+            let hook = self.holding_index.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook();
             }
         }
-        let _guard = self.lock.lock().unwrap();
-        let (next, out) = mutate(self.read_assets()?);
+        let (next, out) = mutate(current);
         if let Some(next) = next {
             self.write_assets(&next)?;
             let mut cache = self.index.lock().unwrap();
@@ -446,8 +468,9 @@ impl MediaStore {
             .unwrap_or_default())
     }
 
+    /// `mutateBoards`: the boards' read-modify-write under `boards.json.lock`.
     fn mutate_boards<T>(&self, mutate: impl FnOnce(Vec<Value>) -> (Option<Vec<Value>>, T)) -> Result<T, MediaError> {
-        let _guard = self.lock.lock().unwrap();
+        let _held = file_lock(&self.boards_path())?;
         let (next, out) = mutate(self.read_boards()?);
         if let Some(next) = next {
             write_atomic_stepped(&self.boards_path(), &serde_json::to_vec(&json!({"version": 1, "boards": next}))?, true).map_err(MediaError::Fs)?;
@@ -973,19 +996,52 @@ mod tests {
         let before = mixdog_workspace::ident::stat_version(&path).unwrap();
         let mtime = fs::metadata(&path).unwrap().modified().unwrap();
         let edited = String::from_utf8(fs::read(&path).unwrap()).unwrap().replace("\"prompt\":\"p\"", "\"prompt\":\"q\"");
-        // File times tick (NTFS: about 16 ms): the edit is repeated until it lands in a later tick
-        // than the cached read, as an outside editor's would.
-        loop {
+        // File times tick: the edit is repeated until it lands in a later tick than the cached
+        // read, as an outside editor's would; a change time that never moves fails the test.
+        const REWRITES: usize = 100;
+        let moved = (0..REWRITES).any(|_| {
             fs::write(&path, &edited).unwrap();
             fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(mtime).unwrap();
             let after = mixdog_workspace::ident::stat_version(&path).unwrap();
             assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns), "same size, mtime restored");
-            if after.ctime_ns != before.ctime_ns {
-                break;
-            }
-        }
+            after.ctime_ns != before.ctime_ns
+        });
+        assert!(moved, "the change time of index.json did not move in {REWRITES} rewrites");
         let listed = s.list_assets(None, None, None, "").unwrap();
         assert_eq!((listed["assets"][0]["id"].clone(), listed["assets"][0]["prompt"].clone()), (a["id"].clone(), json!("q")));
+    }
+
+    /// How long a child test process may run.
+    const CHILD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// Runs this binary's test `name` alone in a child process with `env` and returns its output;
+    /// a child still running at [`CHILD_DEADLINE`] is killed and the test fails.
+    fn child(name: &str, env: &[(&str, &std::ffi::OsStr)]) -> std::process::Output {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let running = command.spawn().unwrap();
+        let pid = running.id();
+        let (done, waited) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(running.wait_with_output());
+        });
+        match waited.recv_timeout(CHILD_DEADLINE) {
+            Ok(output) => output.unwrap(),
+            Err(_) => {
+                #[cfg(windows)]
+                let killed = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).output();
+                #[cfg(unix)]
+                let killed = std::process::Command::new("kill").args(["-9", &pid.to_string()]).output();
+                panic!("timed out after {CHILD_DEADLINE:?} awaiting the child test {name} (pid {pid}, killed: {:?})", killed.map(|o| o.status));
+            }
+        }
     }
 
     /// The child of the kill test: a save over the parent's folder, aborted at the kill point
@@ -998,6 +1054,36 @@ mod tests {
         unreachable!("the save is killed before its index");
     }
 
+    /// The child of the two-process test: one save over the parent's folder, its outcome printed
+    /// as `save-result <json>`.
+    #[test]
+    fn save_child() {
+        let Ok(dir) = std::env::var("MIXDOG_MEDIA_SAVE_DIR") else { return };
+        let s = MediaStore::new(Path::new(&dir), mixdog_rt::testing::tokens().durability_io);
+        let saved = s.save_asset("image", "gemini", "m/1", "p", json!({}), "image/png", b"bytes", Map::new());
+        let outcome = match saved {
+            Ok(entry) => json!({"id": entry["id"]}),
+            Err(error) => json!({"error": error.to_string()}),
+        };
+        println!("save-result {outcome}");
+    }
+
+    /// One save in another process over `dir` (with `MIXDOG_LOCK_TIMEOUT_MS` when given): its
+    /// `save-result`.
+    fn save_in_another_process(dir: &Path, lock_timeout_ms: Option<&str>) -> Value {
+        let mut env: Vec<(&str, &std::ffi::OsStr)> = vec![("MIXDOG_MEDIA_SAVE_DIR", dir.as_os_str())];
+        if let Some(ms) = lock_timeout_ms {
+            env.push(("MIXDOG_LOCK_TIMEOUT_MS", std::ffi::OsStr::new(ms)));
+        }
+        let output = child("media::store::tests::save_child", &env);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // libtest prints the test's name and then, on the same line, what the test printed.
+        let line = stdout.lines().find_map(|line| line.split_once("save-result ").map(|(_, result)| result)).unwrap_or_else(|| {
+            panic!("the child printed no save-result (status {:?}):\n{stdout}\n{}", output.status, String::from_utf8_lossy(&output.stderr))
+        });
+        serde_json::from_str(line).unwrap()
+    }
+
     /// A process killed after the asset is written and before the index names it leaves what Node's
     /// `saveMediaAsset` leaves: the asset's file, listed nowhere, and the index as it was, readable.
     #[test]
@@ -1005,13 +1091,11 @@ mod tests {
         let (dir, s) = store();
         let kept = save(&s, "image");
         let index = fs::read(s.index_path()).unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "media::store::tests::kill_child", "--nocapture", "--test-threads=1"])
-            .env("MIXDOG_MEDIA_KILL_DIR", dir.path())
-            .env("MIXDOG_KILL_AT", "media-save:before-index")
-            .status()
-            .unwrap();
-        assert!(!status.success(), "the child dies at the kill point");
+        let output = child(
+            "media::store::tests::kill_child",
+            &[("MIXDOG_MEDIA_KILL_DIR", dir.path().as_os_str()), ("MIXDOG_KILL_AT", std::ffi::OsStr::new("media-save:before-index"))],
+        );
+        assert!(!output.status.success(), "the child dies at the kill point");
         assert_eq!(fs::read(s.index_path()).unwrap(), index, "the index is untouched");
         let orphans = files_under(&s.assets_dir().join("videos"));
         assert_eq!(orphans.len(), 1, "the asset's bytes are on disk: {orphans:?}");
@@ -1022,26 +1106,45 @@ mod tests {
         assert!(!fs::read_dir(&next.dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")), "nothing was set aside");
     }
 
-    /// Two saves that both read the index before either writes (each held at the gate until the
-    /// other has read) both end up in it: the change is made to a fresh read under the lock.
+    /// A save in another process while this one holds `index.json.lock` between its read of the
+    /// catalog and its write: told to try the lock once (`MIXDOG_LOCK_TIMEOUT_MS=0`), it is
+    /// refused, so it never writes a catalog this one then overwrites (a save answered done and
+    /// lost). With the lock free, the same save waits its turn, and all three are in the catalog.
     #[test]
-    fn two_saves_at_once_both_reach_the_index() {
+    fn a_save_in_another_process_cannot_write_the_index_this_one_is_changing() {
+        let (dir, s) = store();
+        let first = save(&s, "image");
+        let during = Arc::new(Mutex::new(None));
+        *s.holding_index.lock().unwrap() = Some(Arc::new({
+            let (during, dir) = (during.clone(), dir.path().to_owned());
+            move || {
+                *during.lock().unwrap() = Some(save_in_another_process(&dir, Some("0")));
+            }
+        }));
+        let second = save(&s, "video");
+        *s.holding_index.lock().unwrap() = None;
+        let during = during.lock().unwrap().take().expect("the other process saved while the lock was held");
+        assert!(during["error"].as_str().is_some_and(|error| error.contains("atomic lock contended")), "the other process's save: {during}");
+        let after = save_in_another_process(dir.path(), None);
+        let id = |entry: &Value| str_field(entry, "id").to_owned();
+        let listed: Vec<String> = s.list_assets(None, None, None, "").unwrap()["assets"].as_array().unwrap().iter().map(id).collect();
+        assert_eq!(listed, [id(&after), id(&second), id(&first)]);
+    }
+
+    /// Two stores over one folder (the daemon has two, `compose_domains/local.rs:209` and
+    /// `compose_flip.rs:2434`) saving on two threads at once: both entries are in the catalog.
+    /// It does not force an interleaving; the exclusion itself is shown across processes above.
+    #[test]
+    fn two_stores_over_one_folder_saving_at_once_keep_both() {
         let (dir, s) = store();
         save(&s, "image");
         let first = s.list_assets(None, None, None, "").unwrap()["assets"][0].clone();
-        let both_read = Arc::new(std::sync::Barrier::new(2));
-        *s.after_index_read.lock().unwrap() = Some(Arc::new({
-            let both_read = both_read.clone();
-            move || {
-                both_read.wait();
-            }
-        }));
+        let other = MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io);
         let (a, b) = std::thread::scope(|scope| {
             let a = scope.spawn(|| save(&s, "image"));
-            let b = scope.spawn(|| save(&s, "video"));
+            let b = scope.spawn(|| save(&other, "video"));
             (a.join().unwrap(), b.join().unwrap())
         });
-        *s.after_index_read.lock().unwrap() = None;
         let ids = |listed: Value| {
             let mut ids: Vec<String> = listed["assets"].as_array().unwrap().iter().map(|e| str_field(e, "id").to_owned()).collect();
             ids.sort();
