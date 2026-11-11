@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 427383,
+      "bytes": 427563,
       "path": "cases.json",
-      "sha256": "b1524ef1a9f9373d08247cda1363462d27f99a572be8f23cb3ca68008a5a8216"
+      "sha256": "d045d3b014bb892f488f0db967aabebade770995512bf18367728478709c6494"
     }
   ],
   "inputs": [
@@ -127,12 +127,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-custom-reasoning.mjs",
-  "recorderSha256": "0a6aad26339ae9a5ba3cd95450ab0cd094aee88d43b0a5544821c48b42eb64ee",
+  "recorderSha256": "2c4de82581b99d999cd06530c5b2447a767adce2e7f0d5f5d2fa40c2b873f7a1",
   "replay": "PURE: the public mixdog-ai/src/providers/custom/reasoning.rs functions named per case in `levels` (snap_effort :121, wire_format :149, resolve :174, canonical_level :261, ReasoningRow::effort_levels :100). The send cases (sendCompatChat-custom-row-and-padding, sendCompatResponses-snaps-without-promotion) are WIRE: the request that arrived is `requests`; the model row is the product's own catalog entry (createCustomProvider over the stored config's manual model override, then getCachedModelInfo), the call a turn makes; the Node test substitutes it, the recording does not. Public Rust function of the same input and output for these two cases: none in o1 (they are the wire request). Cases marked RUST WORK have no public Rust function of the same input and output.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-custom-reasoning",
-  "totalBytes": 427383,
+  "totalBytes": 427563,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

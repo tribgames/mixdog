@@ -24,6 +24,21 @@ const rec = await startRecording({
   compare: 'mixdog-ai providers::custom::reasoning (reasoning.rs:121-200, :392-444), compat chat/options.rs and compat Responses codec, anthropic body.rs: feed `input` (model row, protocol, effort, base URL, history) and compare `result` whole; for the send cases the request body is `requests[0].body`.',
   replay: "PURE: the public mixdog-ai/src/providers/custom/reasoning.rs functions named per case in `levels` (snap_effort :121, wire_format :149, resolve :174, canonical_level :261, ReasoningRow::effort_levels :100). The send cases (sendCompatChat-custom-row-and-padding, sendCompatResponses-snaps-without-promotion) are WIRE: the request that arrived is `requests`; the model row is the product's own catalog entry (createCustomProvider over the stored config's manual model override, then getCachedModelInfo), the call a turn makes; the Node test substitutes it, the recording does not. Public Rust function of the same input and output for these two cases: none in o1 (they are the wire request). Cases marked RUST WORK have no public Rust function of the same input and output.",
 });
+// The declared header rule of lib/provider-case-recorder.mjs (the three SDK headers that carry the recording host are written as `<recording host <header name>>`) applies to every copy of a request the
+// manifest names, including the request records a case result holds: the record is normalised when the endpoint receives it, whatever the case does with it afterwards.
+{
+  let scripted = null;
+  Object.defineProperty(rec.net, 'reply', {
+    configurable: true,
+    get: () => scripted,
+    set: (fn) => {
+      scripted = fn && ((record, n) => {
+        for (const pair of record.headers) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
+        return fn(record, n);
+      });
+    },
+  });
+}
 const P = 'agent/orchestrator/providers/';
 const { CUSTOM_EFFORT_LEVELS, customEffortLevels, customWireFormat, resolveCustomReasoning, snapCustomEffort } = await rec.P(`${P}custom-reasoning.mjs`);
 const { applyCompatProviderChatOptions } = await rec.P(`${P}openai-compat-options.mjs`);
