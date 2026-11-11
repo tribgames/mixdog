@@ -3,19 +3,6 @@
   "coreDifferences": {
     "differences": [
       {
-        "scenario": "loaded",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
         "core": [
           {
             "frame": "thread/started <room log 0>",
@@ -29,22 +16,22 @@
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           }
-        ]
-      },
-      {
-        "scenario": "loaded",
-        "step": "update",
-        "part": "before the answer",
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
         "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
         "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
         ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
+        "scenario": "loaded",
+        "step": "create"
+      },
+      {
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -58,36 +45,51 @@
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "reset",
-        "part": "after the answer",
-        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node's store refresh, held until after the answer, lists the reset log's row read after the reset's later writes and publishes it then; the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
         ],
         "node": [
           "catalog [<room log 0>]"
         ],
-        "compareWith": "loaded-reset-refresh-in-io"
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded",
+        "step": "update"
       },
       {
+        "core": [
+          {
+            "frame": "thread/started <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
         "scenario": "loaded-reconnect",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
+        "step": "create"
+      },
+      {
         "core": [
           {
             "frame": "thread/started <room log 0>",
@@ -101,51 +103,22 @@
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           }
-        ]
-      },
-      {
-        "scenario": "not-loaded",
-        "step": "create",
-        "part": "before the answer",
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
         "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
         "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
         ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
+        "scenario": "not-loaded",
+        "step": "create"
       },
       {
-        "scenario": "not-loaded",
-        "step": "update",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -159,20 +132,22 @@
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           }
-        ]
-      },
-      {
-        "scenario": "not-loaded-large",
-        "step": "update-rounds",
-        "part": "after the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog of the 51 room logs; the core sends one frame per row of the listing.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
         ],
         "node": [
-          "catalog [<room log 0>, <room log 1>, <room log 2>, <room log 3>, <room log 4>, <room log 5>, <room log 6>, <room log 7>, <room log 8>, <room log 9>, <room log 10>, <room log 11>, <room log 12>, <room log 13>, <room log 14>, <room log 15>, <room log 16>, <room log 17>, <room log 18>, <room log 19>, <room log 20>, <room log 21>, <room log 22>, <room log 23>, <room log 24>, <room log 25>, <room log 26>, <room log 27>, <room log 28>, <room log 29>, <room log 30>, <room log 31>, <room log 32>, <room log 33>, <room log 34>, <room log 35>, <room log 36>, <room log 37>, <room log 38>, <room log 39>, <room log 40>, <room log 41>, <room log 42>, <room log 43>, <room log 44>, <room log 45>, <room log 46>, <room log 47>, <room log 48>, <room log 49>, <room log 50>]"
+          "catalog [<room log 0>]"
         ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "not-loaded",
+        "step": "update"
+      },
+      {
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -378,21 +353,44 @@
             "frame": "thread/summary/updated <room log 50>",
             "publication": 0
           }
-        ]
+        ],
+        "node": [
+          "catalog [<room log 0>, <room log 1>, <room log 2>, <room log 3>, <room log 4>, <room log 5>, <room log 6>, <room log 7>, <room log 8>, <room log 9>, <room log 10>, <room log 11>, <room log 12>, <room log 13>, <room log 14>, <room log 15>, <room log 16>, <room log 17>, <room log 18>, <room log 19>, <room log 20>, <room log 21>, <room log 22>, <room log 23>, <room log 24>, <room log 25>, <room log 26>, <room log 27>, <room log 28>, <room log 29>, <room log 30>, <room log 31>, <room log 32>, <room log 33>, <room log 34>, <room log 35>, <room log 36>, <room log 37>, <room log 38>, <room log 39>, <room log 40>, <room log 41>, <room log 42>, <room log 43>, <room log 44>, <room log 45>, <room log 46>, <room log 47>, <room log 48>, <room log 49>, <room log 50>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "after the answer",
+        "reason": "Node hands the client one catalog of the 51 room logs; the core sends one frame per row of the listing.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
+        ],
+        "scenario": "not-loaded-large",
+        "step": "update-rounds"
       },
       {
+        "core": [
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
+        ],
         "scenario": "pruned-at-load",
-        "step": "restart-after-agent-deletion",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
+        "step": "restart-after-agent-deletion"
+      },
+      {
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -401,23 +399,27 @@
           {
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 1
           }
-        ]
-      },
-      {
+        ],
+        "node": [
+          "catalog [<room log 0>]",
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing. Its three frames: the prune's room pass, then the start-up recover's (agent-rooms.ts:478; Node's catalog channel drops it as unchanged), whose pass reads the rooms before the update writes as recover is the first to await the first load, then the update's.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
+        ],
         "scenario": "prune-held",
-        "step": "update-rounds-and-list-while-held",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]",
-          "catalog [<room log 0>]"
-        ],
+        "step": "update-rounds-and-list-while-held"
+      },
+      {
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -425,52 +427,23 @@
           },
           {
             "frame": "thread/summary/updated <room log 0>",
-            "publication": 1
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 1
+            "publication": 0
           }
-        ]
-      },
-      {
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
+        ],
         "scenario": "prune-failed",
-        "step": "restart-and-list",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client a catalog only when it differs from the one the client holds (session-host-publication.ts:141); the core sends the room log row again, unchanged, from its room pass and from its listing.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
+        "step": "restart-and-list"
       },
       {
-        "scenario": "loaded-reset-refresh-in-io",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
         "core": [
           {
             "frame": "thread/started <room log 0>",
@@ -484,22 +457,22 @@
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-refresh-in-io",
-        "step": "update",
-        "part": "before the answer",
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
         "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
         "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
         ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
+        "scenario": "loaded-reset-refresh-in-io",
+        "step": "create"
+      },
+      {
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
@@ -513,208 +486,542 @@
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           }
-        ]
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-reset-refresh-in-io",
+        "step": "update"
       },
       {
-        "scenario": "loaded",
-        "step": "reset",
-        "part": "before the answer",
-        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), Node's last of them is the stored row the client then holds, which the core's one publication also leaves held. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
+        "core": [
+          {
+            "frame": "thread/started <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
         ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-reset-listing-first",
+        "step": "create"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-reset-listing-first",
+        "step": "update"
+      },
+      {
+        "compareWith": "loaded-reset-refresh-in-io",
         "node": [
           "catalog [<room log 0>]",
           "catalog [<room log 0>]"
         ],
-        "compareWith": "loaded-reset-refresh-in-io"
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "create",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/started <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "update",
-        "part": "before the answer",
-        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
-        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
-        "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
-        ],
-        "node": [
-          "catalog [<room log 0>]"
-        ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
-      },
-      {
-        "scenario": "loaded-reset-listing-first",
-        "step": "reset",
-        "part": "before the answer",
         "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
         "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), the two differing in the row's form or room fields. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
         ],
-        "node": [
-          "catalog [<room log 0>]",
-          "catalog [<room log 0>]"
-        ],
-        "compareWith": "loaded-reset-refresh-in-io"
+        "scenario": "loaded-reset-listing-first",
+        "step": "reset"
       },
       {
-        "scenario": "loaded-reset-listing-first",
-        "step": "forget-member",
-        "part": "before the answer",
+        "compareWith": "loaded-reset-refresh-in-io",
+        "node": [
+          "catalog [<room log 0>]"
+        ],
         "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "part": "before the answer",
         "reason": "Follows this scenario's reset: Node's client holds the row from the reset's later publication (its stored form), which the forget-member room call's catalog republishes; the core's client holds the row of its one reset publication. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
         ],
+        "scenario": "loaded-reset-listing-first",
+        "step": "forget-member"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/started <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
         "node": [
           "catalog [<room log 0>]"
         ],
-        "compareWith": "loaded-reset-refresh-in-io"
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-read-after-answer",
+        "step": "create"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-read-after-answer",
+        "step": "update"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/started <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-reset-refresh-in-io-read-after-answer",
+        "step": "create"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-reset-refresh-in-io-read-after-answer",
+        "step": "update"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/started <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-refresh-before-answer",
+        "step": "create"
+      },
+      {
+        "core": [
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          }
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "part": "before the answer",
+        "reason": "Node hands the client one catalog for the room call (its title rename awaits a whole listing, session-host-lifecycle.ts:225-233; CatalogChannel.publish hands only a changed catalog, session-host-publication.ts:128-149); the core sends the room log row once per index write of the log and once per room pass.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:264 (thread/started, a log row first listed)",
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+        ],
+        "scenario": "loaded-refresh-before-answer",
+        "step": "update"
+      },
+      {
+        "compareWith": "loaded-reset-refresh-in-io",
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "part": "after the answer",
+        "reason": "Read order (MANIFEST resetReadRace.cases.loaded-read-after-answer): the daemon's read of the reset room's log (store-summary-catalog.mjs:623-625, from reconcileSessionFile :377) ends after the reset answered, so the reset's own listing (session-host-lifecycle.ts:401) publishes the cleared row after the answer, behind the room call's publication (agent-rooms.ts:388); the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
+        ],
+        "scenario": "loaded-read-after-answer",
+        "step": "reset"
+      },
+      {
+        "compareWith": "loaded-reset-refresh-in-io",
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "part": "after the answer",
+        "reason": "Read order (MANIFEST resetReadRace.cases.loaded-reset-refresh-in-io-read-after-answer): the daemon's read of the reset room's log (store-summary-catalog.mjs:623-625, from reconcileSessionFile :377) ends after the reset answered, so the reset's own listing (session-host-lifecycle.ts:401) publishes the cleared row after the answer, behind the room call's publication (agent-rooms.ts:388); the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
+        ],
+        "scenario": "loaded-reset-refresh-in-io-read-after-answer",
+        "step": "reset"
       }
     ]
   },
   "exact": true,
-  "fileCount": 12,
+  "fileCount": 15,
   "files": [
     {
-      "bytes": 4841,
+      "bytes": 4834,
       "path": "loaded-failing.json",
-      "sha256": "8654112a9b603e6fb42a66605bbacddccf18079f52b3b026190eba1eb358da18"
+      "sha256": "fb6647d772aa25295247c0f378898f88f8ef509aa52c56eb8222a0f0bdf13cd0"
     },
     {
-      "bytes": 2288,
+      "bytes": 8758,
+      "path": "loaded-read-after-answer.json",
+      "sha256": "416fd67d3d30d4c11b2a3b3941e5ee9f19713eae69a23df9f2b19b414b665f23"
+    },
+    {
+      "bytes": 2274,
       "path": "loaded-reconnect.json",
-      "sha256": "9c9927559e7a86dd71938eacf3ea506f730fef5d4cd6f5792c99a869cd88705b"
+      "sha256": "be5703cf9f3692f9e68c0def22a69b9a015d7e9fc47740d126c92f14f69241aa"
     },
     {
-      "bytes": 10065,
+      "bytes": 4108,
+      "path": "loaded-refresh-before-answer.json",
+      "sha256": "4cf74493a0d2e0eb9e3b8cd7b87c5f172829aeb0c06f4a511a948b1af32c3a2d"
+    },
+    {
+      "bytes": 8643,
       "path": "loaded-reset-listing-first.json",
-      "sha256": "e806880385972a19413d7c89a79508e02a6a5465c66b8e77ca57f50d1445f079"
+      "sha256": "7b60a79a9924b7a0761a39d38e9f25546ec5af3b212d8471636bfb84d3369fa8"
     },
     {
-      "bytes": 7440,
+      "bytes": 8891,
+      "path": "loaded-reset-refresh-in-io-read-after-answer.json",
+      "sha256": "484fdaa3542a7484b46d6b79dd993842d9f0e87497f8b9f6ff855fca2eb7c016"
+    },
+    {
+      "bytes": 7536,
       "path": "loaded-reset-refresh-in-io.json",
-      "sha256": "60a2583f93f8a11d3243861f7ea512486a8afb8b0c7901a023b38b2dda03c391"
+      "sha256": "32367b58eeff731d489ef807d28d5c67b52075a2bdd6f97f087a743c1c29b5aa"
     },
     {
-      "bytes": 8681,
+      "bytes": 7423,
       "path": "loaded.json",
-      "sha256": "0bef847ac3734a61c5fac01ab21c28890db9135e69a58197cadab1ade7642197"
+      "sha256": "b33e4914d41ac91a9f9def938db3169920764a9fd11f1a4f6f417791c995e705"
     },
     {
-      "bytes": 1593,
+      "bytes": 1586,
       "path": "not-loaded-failing.json",
-      "sha256": "4004c39c25bd3d105cd4107dfe003e866cd99657428ec7d2cdfa2f1bf8af82c1"
+      "sha256": "5f88ed2d89e6d51be60d2860999efa4121e8042b96f12243a0aa077563d4f78a"
     },
     {
-      "bytes": 78492,
+      "bytes": 78128,
       "path": "not-loaded-large.json",
-      "sha256": "fd57c9781ae040b76ce429af0faeecf58dea816e7298719b146471a84754dd0d"
+      "sha256": "68a7ab77bba046c5c7ef1ea4d0625ad8101ed2055775617a0d6f38fee31401ea"
     },
     {
-      "bytes": 3888,
+      "bytes": 3867,
       "path": "not-loaded.json",
-      "sha256": "04d57f0d11362783399b02a8b1244f8bf9160a5e801637cf79a5c321c4aaa53d"
+      "sha256": "a69337713ad821ce0ab96cf64a93dbcac6bce27156a987eecad7a46587e6067e"
     },
     {
-      "bytes": 6211,
+      "bytes": 6183,
       "path": "prune-failed-then-update.json",
-      "sha256": "836b134abc044fc378799a41aa5672ec3f031ceaa8db5f1328f1f66aa17ed1f9"
+      "sha256": "de4daf304754d1cd6f8bc06ef5229c65d9b8479a1734b6431794c268a571089c"
     },
     {
-      "bytes": 5488,
+      "bytes": 5460,
       "path": "prune-failed.json",
-      "sha256": "cf69528cb65c5fce53917b9f76767c270506a18cfb8f2c178be46697265a7494"
+      "sha256": "2c644ddd3262b6673e606da5a89878db5ab47aadd3fd57cabf0556d829afe490"
     },
     {
-      "bytes": 5648,
+      "bytes": 5620,
       "path": "prune-held.json",
-      "sha256": "00bfb0dd939b5d4e9ea719755f8b8c7ddec9296a42d638e3703c3c82fef5f359"
+      "sha256": "32f1deea9bb896ceca1113591ede645e9016d768121abeee1b2d040e256e2b3f"
     },
     {
-      "bytes": 6979,
+      "bytes": 6944,
       "path": "pruned-at-load.json",
-      "sha256": "3996defe7bdab88fe3fd132ae96103ae3d35860345620ba333fbbb56b1c61d59"
+      "sha256": "20de364841f922b3230510582614e09e37cc13f32b80cbddb800ea3bd5973f83"
     }
   ],
+  "fixedAtSource": {
+    "clock": "the host is made while Date.now is 2026-06-07T08:09:10.000Z + one minute per step",
+    "envFolder": "room-catalog-<scenario> under the scratch root, emptied before the run",
+    "roomIds": "randomBytes(4) from agent-rooms.ts answers 1, 2, ... (big-endian), so a room's id is the clock's base 36 and the counter"
+  },
   "forcedOrders": {
     "loaded": {
-      "resetListings": {
-        "how": "the reset's own listing is held at its daemon call until the room call's catalog is published and the store watcher has reported the cleared log",
-        "order": "room-call-first"
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication"
       },
       "resetRefresh": {
         "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
         "order": "after-answer"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-failing": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-read-after-answer": {
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer"
+      },
+      "resetRefresh": {
+        "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
+        "order": "after-answer"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-reconnect": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-refresh-before-answer": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the call's own listing is not started until the store refresh has fired and run to its end, so the refresh publishes inside the call (a call longer than the debounce)",
+        "order": "before-answer"
       }
     },
     "loaded-reset-listing-first": {
       "resetListings": {
-        "how": "the room records' save is held until the reset's own listing has ended; that listing is held at its daemon call until the store watcher has reported the cleared log",
+        "how": "the reset's read of the archived copy (agent-home-sessions.ts:73, startOver's last await before the room's record changes, agent-rooms.ts:379-385) is held until the reset's own listing has ended; that listing is held at its daemon call until the clear's summary flush has landed",
         "order": "listing-first"
       },
       "resetRefresh": {
         "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
         "order": "after-answer"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
       }
     },
     "loaded-reset-refresh-in-io": {
-      "resetListings": {
-        "how": "the reset's own listing is held at its daemon call until the room call's catalog is published and the store watcher has reported the cleared log",
-        "order": "room-call-first"
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication"
       },
       "resetRefresh": {
         "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end",
         "order": "in-io"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "loaded-reset-refresh-in-io-read-after-answer": {
+      "resetRead": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer"
+      },
+      "resetRefresh": {
+        "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end",
+        "order": "in-io"
+      },
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "not-loaded": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "not-loaded-failing": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "not-loaded-large": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "prune-failed": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "prune-failed-then-update": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "prune-held": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
+      }
+    },
+    "pruned-at-load": {
+      "storeRefresh": {
+        "appliesTo": "every call but a reset",
+        "how": "the default of every scenario: the store refresh's start is gated from the call's start until its answer is recorded, so the call's own listing publishes first (a call shorter than the debounce)",
+        "order": "after-answer"
       }
     }
   },
@@ -726,14 +1033,31 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs",
+      "sha256": "a3db23b1c9d920917d062d4f27e31beaee3fbd930402a44fe7bacc84d75b1eec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
-      "sha256": "c66f752de2228725574d3e3ca20254e3a4d457ff51ee6ff629b69825682ed8a1"
+      "sha256": "b50065fec8f861375a975149b0747d60ad22fd510063f4145f415b7c1f045650"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalized": {
+    "how": "CLOCK_BASE_MS + 1000 * order of first appearance of the distinct value in the scenario",
+    "paths": "every object with messageCount and cwd (a session summary), keys createdAt, updatedAt, activityAt",
+    "reason": "stamped by the daemon process with its real clock, which nothing injects"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -752,11 +1076,47 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-  "recorderSha256": "1477665925a836d5975ba12446a7f853cd5cd429c944a98be4384e5c7ecf61f7",
+  "recorderSha256": "482564acb5a1fdcd9d9f750999b2f7989c2fba272bff752300a58e09134c0359",
+  "resetReadRace": {
+    "cases": {
+      "loaded": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication",
+        "resetRefresh": "after-answer"
+      },
+      "loaded-read-after-answer": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer",
+        "resetRefresh": "after-answer"
+      },
+      "loaded-reset-refresh-in-io": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
+        "order": "before-publication",
+        "resetRefresh": "in-io"
+      },
+      "loaded-reset-refresh-in-io-read-after-answer": {
+        "how": "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+        "order": "after-answer",
+        "resetRefresh": "in-io"
+      }
+    },
+    "daemonRead": "store-summary-reader.mjs:305 (listJsonSummariesAsync) → store-summary-catalog.mjs:918 (loadIndexAsync) → :650-653 (stamps of session-summaries.json/.log) → :672/:623-625 (readLogBytesStep of session-summaries.log), then :945 (refreshAsync) → :853 (reconcileSessionFileSteps) → store/session-log-reader.mjs:260 → :141 (readSessionLog of sessions/<room>.log.jsonl); the session.list of the reset's own listing (session-host-lifecycle.ts:401, session-host-catalog.ts:217-238)",
+    "holds": {
+      "clearFlush": "observed, not held: the daemon's fs/promises.appendFile of session-summaries.log carrying the room log's row stamped at or after the reset's start (store-summary-index.mjs:529, :619-622), reported over the same connection",
+      "daemonRead": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs, loaded by the daemon: the reset's own listing's first fs/promises.stat of session-summaries.json (the start of its index load) on a stack through listSessionCatalog, armed over the recorder's TCP connection before that listing's session.list is sent (once the session.list calls sent before it have answered)",
+      "hostPublication": "the room records' save (atomic-file.mjs temp open of agent-rooms.json), the last await before republishCatalog (agent-rooms.ts:387-388)",
+      "indexRebuild": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: the summary index rebuild worker the reset's clear spawns (store/listing.mjs:378-380 → :111-142, summary-rebuild-worker.mjs) started on a bootstrap that runs it when the recorder releases it, once the clear has reached the summary index; its answer is awaited before the reset's own listing loads the index. Unheld, its base write (store-summary-index.mjs:382-404, which empties the delta log) lands before or after that listing: before, the listing's index rows describe the room log (rows carry incomingTail and compactCount, store-summary-index.mjs:288-290); after, the index has no base and no rows (store-summary-catalog.mjs:742-745), so the listing reads the log and its row has neither (store-summary-catalog.mjs:315-346 rowFromSession, :433-441)",
+      "summarySettle": "benchmarks/rust-core/recorders/lib/daemon-read-hold.cjs: the reset's own listing is sent only once the daemon's settleSummaryIndexWrites (store-summary-index.mjs:495) has answered after the clear; while an op is queued or in flight the daemon answers a listing from its in-memory rows and reads no index (store/listing.mjs:276)"
+    },
+    "hostPublication": "agent-rooms.ts:387-388 (persist, then deps.republishCatalog) → session-host.ts:353-354 (publishSessionCatalog(sessionCatalog()))"
+  },
   "scenarios": [
     "loaded",
+    "loaded-read-after-answer",
     "loaded-reset-refresh-in-io",
+    "loaded-reset-refresh-in-io-read-after-answer",
     "loaded-reset-listing-first",
+    "loaded-refresh-before-answer",
     "loaded-reconnect",
     "not-loaded",
     "not-loaded-failing",
@@ -768,5 +1128,5 @@
     "prune-failed"
   ],
   "set": "room-catalog-states",
-  "totalBytes": 141614
+  "totalBytes": 160255
 }
