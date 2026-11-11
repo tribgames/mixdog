@@ -57,7 +57,7 @@ const rtx = { platform: 'win32', arch: 'x64', supported: true, gpu: { vendor: 'N
 await rec.run('rtx-recommendation-before-install', `${SRC}:36`, { hardware: rtx }, () => ({ status: localProviderCatalogStatus({ dataDir: caseDir('catalog-rtx'), platform: 'win32', arch: 'x64', hardware: rtx }) }));
 const apple = { supported: true, gpu: { vendor: 'Apple', name: 'Apple M4', memoryBytes: 32 * 1024 ** 3 } };
 const intel = { supported: false, gpu: null };
-await rec.run('apple-silicon-metal-and-unsupported-hosts', `${SRC}:64`, { apple, intel }, () => ({
+await rec.run('apple-silicon-metal-and-unsupported-hosts', `${SRC}:65`, { apple, intel }, () => ({
   metal: localProviderCatalogStatus({ platform: 'darwin', arch: 'arm64', hardware: apple }),
   intel: localProviderCatalogStatus({ platform: 'darwin', arch: 'x64', hardware: intel }),
 }));
@@ -65,7 +65,7 @@ const rtx3070 = { platform: 'win32', arch: 'x64', supported: true, gpu: { vendor
 await rec.run('no-recommendation-beyond-vram', `${SRC}:87`, { hardware: rtx3070 }, () => ({ status: localProviderCatalogStatus({ platform: 'win32', arch: 'x64', hardware: rtx3070 }) }));
 
 const asset = (payload, extra = {}) => ({ name: 'asset.bin', url: 'https://assets.example/asset.bin', size: payload.length, sha256: sha256(payload), ...extra });
-await rec.run('resume-partial-publish-after-sha256', `${SRC}:101`, { payload: 'verified local provider asset', prefixBytes: 9 }, async () => {
+await rec.run('resume-partial-publish-after-sha256', `${SRC}:106`, { payload: 'verified local provider asset', prefixBytes: 9 }, async () => {
   const dir = caseDir('dl-resume');
   const destination = join(dir, 'asset.bin');
   const payload = Buffer.from('verified local provider asset');
@@ -118,7 +118,7 @@ await rec.run('server-declining-range-cannot-bypass-disk-check', `${SRC}:226`, {
   }));
   return { ...out, spaceChecks, streamCancelled: cancelled, destinationExists: existsSync(destination), files: filesOf(dir) };
 });
-await rec.run('cancellation-closes-stream-preserves-partial-for-resume', `${SRC}:262`, { payload: 'cancel and resume this model', prefixBytes: 8, enqueued: [8, 12] }, async () => {
+await rec.run('cancellation-closes-stream-preserves-partial-for-resume', `${SRC}:263`, { payload: 'cancel and resume this model', prefixBytes: 8, enqueued: [8, 12] }, async () => {
   const dir = caseDir('dl-cancel');
   const destination = join(dir, 'asset.bin');
   const payload = Buffer.from('cancel and resume this model');

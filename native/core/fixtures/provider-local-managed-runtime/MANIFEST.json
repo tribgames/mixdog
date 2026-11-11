@@ -20,7 +20,7 @@
     {
       "bytes": 31324,
       "path": "cases.json",
-      "sha256": "84941a4f9d46007f10bf165e3c0c8c1683062d4f0814d094c0f24af5e9db5daf"
+      "sha256": "674f73902ca12f39c3b1a155dab74c7e147f94855b91a8c2e502e18ce50ded5b"
     }
   ],
   "inputs": [
@@ -68,7 +68,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-local-managed-runtime.mjs",
-  "recorderSha256": "5b5982e575f2d35e247ce9c2ee32a06b6385296cb5bd464fef83585619d4fea2",
+  "recorderSha256": "f392f87c1e3dcda2ce9a0c9df107c45efccb186f8e76c657fc11f5fc94211abc",
   "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
   "set": "provider-local-managed-runtime",
   "totalBytes": 31324,
