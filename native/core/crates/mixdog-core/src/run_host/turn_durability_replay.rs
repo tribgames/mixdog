@@ -54,6 +54,7 @@ impl ModelStream for Play {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+    fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
 }
 
 struct Stub {
@@ -168,8 +169,26 @@ fn stack(rig: &Rig, store: Arc<dyn mixdog_core_session::session::ThreadStore>, p
 }
 
 async fn start(directory: &SessionDirectory, workspace: &Path) -> Arc<mixdog_core_session::session::SessionHandle> {
+    start_with(directory, json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.to_string_lossy() })).await
+}
+
+/// The session record's route (`createSession({ provider: 'durability-stub', model: 'stub-model' })`), which an heir's
+/// inheritance boundary names. The rig's route seam seats none; it is set after the turn, whose rows Node's recording stamps
+/// with no route.
+async fn route(handle: &mixdog_core_session::session::SessionHandle) {
+    let set = json!({ "provider": "durability-stub", "model": "stub-model" });
+    let patch = CoreRequest {
+        method: Method("thread/header/patch"),
+        params: json!({ "threadId": ThreadHandle::id(handle).as_str(), "set": set, "unset": [] }),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
+    handle.request(patch).await.expect("thread/header/patch");
+}
+
+async fn start_with(directory: &SessionDirectory, params: Value) -> Arc<mixdog_core_session::session::SessionHandle> {
     let reply = directory
-        .request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.to_string_lossy() }), "op-start"))
+        .request(request("thread/start", params, "op-start"))
         .await
         .expect("thread/start");
     let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -523,6 +542,15 @@ fn rust_rows(items: &Value) -> Vec<Value> {
                     put("at", pick(item, &["/meta/at", "/meta/ext/at"]));
                     put("messageId", pick(item, &["/meta/messageId", "/meta/ext/messageId"]));
                 }
+                "statusRow" => {
+                    put("kind", item.get("kind").cloned());
+                    put("status", pick(item, &["/meta/ext/status"]));
+                    put("label", pick(item, &["/meta/label"]));
+                    put("detail", pick(item, &["/meta/detail"]));
+                    put("provider", pick(item, &["/meta/provider", "/meta/ext/provider"]));
+                    put("modelId", pick(item, &["/meta/modelId", "/meta/model", "/meta/ext/modelId"]));
+                    put("at", pick(item, &["/meta/at", "/meta/ext/at"]));
+                }
                 other => panic!("an item Node's rows have no kind for: {other}"),
             }
             Value::Object(row)
@@ -583,8 +611,10 @@ fn rust_step(view: &Value) -> Value {
 fn same(case: &str, step: &Value, got: Value) {
     let mut want = node_step(step);
     // In the process that ran the turn, Node shows its live end row (`turnDoneItem`, `tui/session/turn.mjs:577`), which names
-    // no message; the recorder's view is the stored-transcript projection, whose end row takes the answer's `messageId`.
-    if step["step"] != "reopened" && step["step"] != "read again" {
+    // no message; the recorder's view is the stored-transcript projection, whose end row takes the answer's `messageId`. An
+    // heir ran no turn: it shows its carried rows restored, end rows with their `messageId`.
+    let label = step["step"].as_str().unwrap_or_default();
+    if label != "reopened" && label != "read again" && !label.ends_with("(heir)") {
         for row in want["rows"].as_array_mut().unwrap() {
             if row["kind"] == "turndone" {
                 row.as_object_mut().unwrap().shift_remove("messageId");
@@ -724,6 +754,7 @@ async fn a_held_turn_forks_as_node_forks_it() {
     })
     .await;
     same(name, &steps[0], rust_step(&observe(&directory, &handle).await));
+    route(&handle).await;
     for (n, step) in steps[1..].iter().enumerate() {
         if n == 1 {
             DISK_FAILS.store(false, Ordering::SeqCst);

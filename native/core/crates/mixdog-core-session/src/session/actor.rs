@@ -1444,7 +1444,8 @@ impl SessionActor {
                     .transcript
                     .items(lane, row)
                     .into_iter()
-                    .filter(|shown| !live || !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
+                    // A row of no turn (an heir's carried conversation) has no close: its end shows as history shows it.
+                    .filter(|shown| !live || row.turn.is_none() || !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
                     .map(|shown| {
                         if !live {
                             return shown;
