@@ -222,7 +222,7 @@ mod tests {
 
     /// What real Node answered (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`).
     fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/agent-watchdog/golden.json")).unwrap()
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap()
     }
 
     fn overrides_of(recorded: &Value) -> Overrides {

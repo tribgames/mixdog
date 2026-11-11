@@ -4,7 +4,7 @@ use super::*;
 
 /// Node's recorded outputs (`tests/golden/routes/routes.json`).
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../tests/golden/routes/routes.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("tests/golden/routes/routes.json")).unwrap()
 }
 
 #[test]

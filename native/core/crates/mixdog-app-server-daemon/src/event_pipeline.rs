@@ -627,11 +627,11 @@ mod tests {
 
     /// Recorded from Node's real `event-pipeline.mjs`, `event-queue.mjs` and `executor.mjs`
     /// (`record-event-pipeline.mjs`).
-    const GOLDEN: &str = include_str!("../../../fixtures/event-pipeline/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/event-pipeline/golden.json");
     const NOW: i64 = 1_700_000_000_000;
 
     fn golden() -> Value {
-        serde_json::from_str(GOLDEN).unwrap()
+        serde_json::from_str(&GOLDEN).unwrap()
     }
 
     #[derive(Default)]

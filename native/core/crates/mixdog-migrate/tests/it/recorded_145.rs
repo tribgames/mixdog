@@ -282,6 +282,8 @@ fn on_step(step: Step, path: &Path, _bytes: &[u8]) {
 #[test]
 fn crash_child() {
     let Some(base) = std::env::var_os("MIG145_BASE") else { return };
+    // A killed process leaves its writes with the OS, flushed or not: the kill is what is tested.
+    mixdog_store::fsio::elide_syncs();
     if let Ok(stop) = std::env::var("MIG145_STOP_AT") {
         STOP_AT.set(stop.parse().expect("a step index")).expect("once");
     }
@@ -368,6 +370,8 @@ fn every_crash_chunk_has_its_test() {
 /// A kill at every mutating step of chunk `chunk` of a run over the recorded directory, then a resume in a fresh run: the
 /// whole tree, the journal and the completion marker included, is the one an uninterrupted run leaves.
 fn crash_points_chunk(chunk: usize) {
+    // The trees compared are read back from the running OS; a flush to the device changes none of them.
+    mixdog_store::fsio::elide_syncs();
     let scratch = tempfile::tempdir().expect("scratch dir");
     let steps = recorded_steps(scratch.path());
     let mine: Vec<(usize, &String)> = steps.iter().enumerate().skip(chunk).step_by(CRASH_CHUNKS).collect();

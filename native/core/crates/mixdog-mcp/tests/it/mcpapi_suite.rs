@@ -325,7 +325,7 @@ fn masked(base: &str, value: &Value) -> Value {
 async fn every_mcp_method_answers_saves_and_triggers_what_node_does() {
     let scratch = tempfile::tempdir().unwrap();
     let base = scratch.path().to_string_lossy().into_owned();
-    let golden: Value = serde_json::from_str(&support::relocate(include_str!("../golden/mcpapi.json"), &base)).unwrap();
+    let golden: Value = serde_json::from_str(&support::relocate(mixdog_testkit::fixture!("tests/golden/mcpapi.json"), &base)).unwrap();
     for (name, files) in golden["fixtures"].as_object().unwrap() {
         for (relative, text) in files.as_object().unwrap() {
             let file = Path::new(&base).join("src").join(name).join(relative);

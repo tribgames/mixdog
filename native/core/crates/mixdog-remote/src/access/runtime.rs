@@ -1622,7 +1622,7 @@ impl RemoteRuntime {
             Received::Dropped => {}
             Received::Ready(frames) => {
                 for sealed in frames {
-                    self.inner.write_sealed(client_id, sealed).await;
+                    self.inner.write_sealed(client_id, sealed, false).await;
                 }
                 self.attach_peer(client_id).await;
                 self.inner.bridge.client_open(client_id);
@@ -1732,9 +1732,10 @@ mod tests {
 
 impl Inner {
     /// Seals one frame for a phone and writes it to the leg: binary relay frames when the relay
-    /// takes them, otherwise JSON text frames.
-    async fn write_sealed(&self, client_id: &str, sealed: Sealed) {
-        let out = self.outgoing(client_id, sealed);
+    /// takes them, otherwise JSON text frames. A `droppable` frame is one the relay may skip for a
+    /// phone that cannot take it.
+    async fn write_sealed(&self, client_id: &str, sealed: Sealed, droppable: bool) {
+        let out = self.outgoing(client_id, sealed, droppable);
         self.cfg.link.send_wait(out).await;
     }
 
@@ -1746,22 +1747,29 @@ impl Inner {
         self.cfg.registry.write_view(client_id, &mut || {
             let sealed = self.state().table.seal(client_id, bytes, binary);
             if let (Ok(sealed), Some(permit)) = (sealed, permit.take()) {
-                permit.send(self.outgoing(client_id, sealed));
+                permit.send(self.outgoing(client_id, sealed, false));
             }
         });
     }
 
-    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames.
-    fn outgoing(&self, client_id: &str, sealed: Sealed) -> Outgoing {
+    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames, which carry
+    /// `droppable: true` only when it is (Node's `...(droppable ? { droppable: true } : {})`, remote-relay-delivery.ts).
+    fn outgoing(&self, client_id: &str, sealed: Sealed, droppable: bool) -> Outgoing {
         let binary_frames = self.state().caps.binary_frames();
+        let text_frame = |mut frame: Value| {
+            if droppable {
+                frame["droppable"] = json!(true);
+            }
+            Outgoing::Text(frame.to_string())
+        };
         match sealed {
-            Sealed::Text(text) => Outgoing::Text(json_frame(client_id, &text).to_string()),
-            Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, false, false)).flatten() {
+            Sealed::Text(text) => text_frame(json_frame(client_id, &text)),
+            Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, droppable, false)).flatten() {
                 Some(frame) => Outgoing::Binary(frame),
                 None => {
                     use base64::Engine;
                     let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    Outgoing::Text(json!({ "type": "frame", "clientId": client_id, "data": data }).to_string())
+                    text_frame(json!({ "type": "frame", "clientId": client_id, "data": data }))
                 }
             },
         }
@@ -1778,6 +1786,29 @@ impl Inner {
 /// connection-scoped notification, which the core serializes with `method` first (`JsonRpcNotification`).
 fn live_view_write(frame: &[u8]) -> bool {
     [&br#"{"method":"browser/frame","#[..], &br#"{"method":"browser/webrtcSignal","#[..]].iter().any(|head| frame.starts_with(head))
+}
+
+/// The terminal lane's feed (mixdog-spawn `service::feeds::TERMINAL_LANE_FEED`): every terminal tab's output as Node's relay lane sent it.
+const TERMINAL_LANE_FEED: &str = "process:relay";
+
+/// Whether a frame from the core is terminal output on the terminal lane: a `process/outputDelta` of [`TERMINAL_LANE_FEED`]. Node sent
+/// every tab's output to a phone as `termData` marked droppable (remote-relay-push-lanes.ts:85), and nothing else on this path: the relay
+/// may skip such a frame for a phone that cannot take it, with a resync hint, where a frame that is not droppable cuts the phone's leg
+/// (apps/relay/lib/relay-legs.mjs deliverToPhone, relay-transport.mjs admitFrame). The phone's client takes a skipped frame as a gap in
+/// the feed and attaches again.
+fn terminal_lane_output(frame: &[u8]) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Head<'a> {
+        #[serde(borrow)]
+        feed: Option<Stamp<'a>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Stamp<'a> {
+        #[serde(borrow)]
+        id: std::borrow::Cow<'a, str>,
+    }
+    frame.starts_with(br#"{"method":"process/outputDelta","#)
+        && serde_json::from_slice::<Head>(frame).is_ok_and(|head| head.feed.is_some_and(|feed| feed.id == TERMINAL_LANE_FEED))
 }
 
 struct WeakSink {
@@ -1800,10 +1831,12 @@ impl PhoneSink for RuntimeSink {
             ToPhone::Frame { peer_id, frame } => {
                 // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
                 // revocation that may have come since.
-                let gated = match &frame {
-                    Frame::Text(text) => live_view_write(text.as_bytes()),
-                    Frame::Binary(bytes) => live_view_write(bytes),
+                let bytes = match &frame {
+                    Frame::Text(text) => text.as_bytes(),
+                    Frame::Binary(bytes) => bytes.as_slice(),
                 };
+                let gated = live_view_write(bytes);
+                let droppable = terminal_lane_output(bytes);
                 let session = self.inner.state().table.transport(&peer_id);
                 if let Some(session) = session {
                     let text = match frame {
@@ -1811,7 +1844,7 @@ impl PhoneSink for RuntimeSink {
                         Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
                     };
                     if let Some(text) = text {
-                        let _ = session.send_gated(&text, false, gated.then(|| self.inner.view_gate(&peer_id))).await;
+                        let _ = session.send_gated(&text, droppable, gated.then(|| self.inner.view_gate(&peer_id))).await;
                     }
                     return;
                 }
@@ -1825,7 +1858,7 @@ impl PhoneSink for RuntimeSink {
                 }
                 let sealed = self.inner.state().table.seal(&peer_id, &bytes, binary);
                 if let Ok(sealed) = sealed {
-                    self.inner.write_sealed(&peer_id, sealed).await;
+                    self.inner.write_sealed(&peer_id, sealed, droppable).await;
                 }
             }
             ToPhone::Close { peer_id, code: _, reason } => {

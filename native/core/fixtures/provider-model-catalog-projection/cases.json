@@ -1,0 +1,1176 @@
+{
+  "set": "provider-model-catalog-projection",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "keeps-every-field-a-lookup-reads",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:61",
+      "input": {
+        "source": {
+          "anthropic": {
+            "id": "anthropic",
+            "name": "Anthropic",
+            "doc": "https://docs.anthropic.com",
+            "env": [
+              "ANTHROPIC_API_KEY"
+            ],
+            "models": {
+              "claude-opus-9-1": {
+                "id": "claude-opus-9-1",
+                "name": "Claude Opus 9.1",
+                "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                "family": "claude-opus",
+                "release_date": "2026-11-01",
+                "last_updated": "2026-11-01",
+                "knowledge": "2026-01",
+                "open_weights": false,
+                "temperature": true,
+                "structured_output": true,
+                "attachment": true,
+                "tool_call": true,
+                "reasoning": true,
+                "reasoning_options": [
+                  {
+                    "type": "effort",
+                    "values": [
+                      "low",
+                      "high"
+                    ]
+                  }
+                ],
+                "interleaved": {
+                  "field": "thinking"
+                },
+                "modalities": {
+                  "input": [
+                    "text",
+                    "image"
+                  ],
+                  "output": [
+                    "text"
+                  ]
+                },
+                "limit": {
+                  "context": 200000,
+                  "output": 64000
+                },
+                "cost": {
+                  "input": 5,
+                  "output": 25,
+                  "cache_read": 0.5,
+                  "cache_write": 6.25
+                }
+              },
+              "claude-opus-8-0": {
+                "id": "claude-opus-8-0",
+                "name": "Claude Opus 8",
+                "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                "family": "claude-opus",
+                "release_date": "2024-11-01",
+                "knowledge": "2024-01",
+                "tool_call": true,
+                "modalities": {
+                  "input": [
+                    "text"
+                  ],
+                  "output": [
+                    "text"
+                  ]
+                },
+                "limit": {
+                  "context": 200000,
+                  "output": 32000
+                },
+                "cost": {
+                  "input": 15,
+                  "output": 75
+                }
+              }
+            }
+          }
+        }
+      },
+      "result": {
+        "projected": {
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "reasoning": true,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "interleaved": {
+            "field": "thinking"
+          },
+          "tool_call": true,
+          "family": "claude-opus",
+          "release_date": "2026-11-01",
+          "name": "Claude Opus 9.1"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "anthropic": {
+                "id": "anthropic",
+                "name": "Anthropic",
+                "doc": "https://docs.anthropic.com",
+                "env": [
+                  "ANTHROPIC_API_KEY"
+                ],
+                "models": {
+                  "claude-opus-9-1": {
+                    "id": "claude-opus-9-1",
+                    "name": "Claude Opus 9.1",
+                    "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                    "family": "claude-opus",
+                    "release_date": "2026-11-01",
+                    "last_updated": "2026-11-01",
+                    "knowledge": "2026-01",
+                    "open_weights": false,
+                    "temperature": true,
+                    "structured_output": true,
+                    "attachment": true,
+                    "tool_call": true,
+                    "reasoning": true,
+                    "reasoning_options": [
+                      {
+                        "type": "effort",
+                        "values": [
+                          "low",
+                          "high"
+                        ]
+                      }
+                    ],
+                    "interleaved": {
+                      "field": "thinking"
+                    },
+                    "modalities": {
+                      "input": [
+                        "text",
+                        "image"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 64000
+                    },
+                    "cost": {
+                      "input": 5,
+                      "output": 25,
+                      "cache_read": 0.5,
+                      "cache_write": 6.25
+                    }
+                  },
+                  "claude-opus-8-0": {
+                    "id": "claude-opus-8-0",
+                    "name": "Claude Opus 8",
+                    "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                    "family": "claude-opus",
+                    "release_date": "2024-11-01",
+                    "knowledge": "2024-01",
+                    "tool_call": true,
+                    "modalities": {
+                      "input": [
+                        "text"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 32000
+                    },
+                    "cost": {
+                      "input": 15,
+                      "output": 75
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "drops-unread-payload",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:79",
+      "input": {
+        "source": {
+          "anthropic": {
+            "id": "anthropic",
+            "name": "Anthropic",
+            "doc": "https://docs.anthropic.com",
+            "env": [
+              "ANTHROPIC_API_KEY"
+            ],
+            "models": {
+              "claude-opus-9-1": {
+                "id": "claude-opus-9-1",
+                "name": "Claude Opus 9.1",
+                "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                "family": "claude-opus",
+                "release_date": "2026-11-01",
+                "last_updated": "2026-11-01",
+                "knowledge": "2026-01",
+                "open_weights": false,
+                "temperature": true,
+                "structured_output": true,
+                "attachment": true,
+                "tool_call": true,
+                "reasoning": true,
+                "reasoning_options": [
+                  {
+                    "type": "effort",
+                    "values": [
+                      "low",
+                      "high"
+                    ]
+                  }
+                ],
+                "interleaved": {
+                  "field": "thinking"
+                },
+                "modalities": {
+                  "input": [
+                    "text",
+                    "image"
+                  ],
+                  "output": [
+                    "text"
+                  ]
+                },
+                "limit": {
+                  "context": 200000,
+                  "output": 64000
+                },
+                "cost": {
+                  "input": 5,
+                  "output": 25,
+                  "cache_read": 0.5,
+                  "cache_write": 6.25
+                }
+              },
+              "claude-opus-8-0": {
+                "id": "claude-opus-8-0",
+                "name": "Claude Opus 8",
+                "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                "family": "claude-opus",
+                "release_date": "2024-11-01",
+                "knowledge": "2024-01",
+                "tool_call": true,
+                "modalities": {
+                  "input": [
+                    "text"
+                  ],
+                  "output": [
+                    "text"
+                  ]
+                },
+                "limit": {
+                  "context": 200000,
+                  "output": 32000
+                },
+                "cost": {
+                  "input": 15,
+                  "output": 75
+                }
+              }
+            }
+          }
+        }
+      },
+      "result": {
+        "row": {
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cache_read": 0.5,
+            "cache_write": 6.25
+          },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "reasoning": true,
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "interleaved": {
+            "field": "thinking"
+          },
+          "tool_call": true,
+          "family": "claude-opus",
+          "release_date": "2026-11-01",
+          "name": "Claude Opus 9.1"
+        },
+        "present": {
+          "description": false,
+          "knowledge": false,
+          "open_weights": false,
+          "temperature": false,
+          "structured_output": false,
+          "attachment": false,
+          "last_updated": false
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "anthropic": {
+                "id": "anthropic",
+                "name": "Anthropic",
+                "doc": "https://docs.anthropic.com",
+                "env": [
+                  "ANTHROPIC_API_KEY"
+                ],
+                "models": {
+                  "claude-opus-9-1": {
+                    "id": "claude-opus-9-1",
+                    "name": "Claude Opus 9.1",
+                    "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                    "family": "claude-opus",
+                    "release_date": "2026-11-01",
+                    "last_updated": "2026-11-01",
+                    "knowledge": "2026-01",
+                    "open_weights": false,
+                    "temperature": true,
+                    "structured_output": true,
+                    "attachment": true,
+                    "tool_call": true,
+                    "reasoning": true,
+                    "reasoning_options": [
+                      {
+                        "type": "effort",
+                        "values": [
+                          "low",
+                          "high"
+                        ]
+                      }
+                    ],
+                    "interleaved": {
+                      "field": "thinking"
+                    },
+                    "modalities": {
+                      "input": [
+                        "text",
+                        "image"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 64000
+                    },
+                    "cost": {
+                      "input": 5,
+                      "output": 25,
+                      "cache_read": 0.5,
+                      "cache_write": 6.25
+                    }
+                  },
+                  "claude-opus-8-0": {
+                    "id": "claude-opus-8-0",
+                    "name": "Claude Opus 8",
+                    "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                    "family": "claude-opus",
+                    "release_date": "2024-11-01",
+                    "knowledge": "2024-01",
+                    "tool_call": true,
+                    "modalities": {
+                      "input": [
+                        "text"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 32000
+                    },
+                    "cost": {
+                      "input": 15,
+                      "output": 75
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "explicit-tool-call-false-survives",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:94",
+      "input": {},
+      "result": {
+        "row": {
+          "cost": {
+            "input": 15,
+            "output": 75
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          },
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "tool_call": false,
+          "family": "claude-opus",
+          "release_date": "2024-11-01",
+          "name": "Claude Opus 8"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "anthropic": {
+                "id": "anthropic",
+                "name": "Anthropic",
+                "doc": "https://docs.anthropic.com",
+                "env": [
+                  "ANTHROPIC_API_KEY"
+                ],
+                "models": {
+                  "claude-opus-9-1": {
+                    "id": "claude-opus-9-1",
+                    "name": "Claude Opus 9.1",
+                    "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                    "family": "claude-opus",
+                    "release_date": "2026-11-01",
+                    "last_updated": "2026-11-01",
+                    "knowledge": "2026-01",
+                    "open_weights": false,
+                    "temperature": true,
+                    "structured_output": true,
+                    "attachment": true,
+                    "tool_call": true,
+                    "reasoning": true,
+                    "reasoning_options": [
+                      {
+                        "type": "effort",
+                        "values": [
+                          "low",
+                          "high"
+                        ]
+                      }
+                    ],
+                    "interleaved": {
+                      "field": "thinking"
+                    },
+                    "modalities": {
+                      "input": [
+                        "text",
+                        "image"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 64000
+                    },
+                    "cost": {
+                      "input": 5,
+                      "output": 25,
+                      "cache_read": 0.5,
+                      "cache_write": 6.25
+                    }
+                  },
+                  "claude-opus-8-0": {
+                    "id": "claude-opus-8-0",
+                    "name": "Claude Opus 8",
+                    "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                    "family": "claude-opus",
+                    "release_date": "2024-11-01",
+                    "knowledge": "2024-01",
+                    "tool_call": false,
+                    "modalities": {
+                      "input": [
+                        "text"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 32000
+                    },
+                    "cost": {
+                      "input": 15,
+                      "output": 75
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cost-less-row-stays-cost-less",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:102",
+      "input": {},
+      "result": {
+        "row": {
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          },
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "tool_call": true,
+          "family": "claude-opus",
+          "release_date": "2024-11-01",
+          "name": "Claude Opus 8"
+        },
+        "hasCost": false
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "anthropic": {
+                "id": "anthropic",
+                "name": "Anthropic",
+                "doc": "https://docs.anthropic.com",
+                "env": [
+                  "ANTHROPIC_API_KEY"
+                ],
+                "models": {
+                  "claude-opus-9-1": {
+                    "id": "claude-opus-9-1",
+                    "name": "Claude Opus 9.1",
+                    "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                    "family": "claude-opus",
+                    "release_date": "2026-11-01",
+                    "last_updated": "2026-11-01",
+                    "knowledge": "2026-01",
+                    "open_weights": false,
+                    "temperature": true,
+                    "structured_output": true,
+                    "attachment": true,
+                    "tool_call": true,
+                    "reasoning": true,
+                    "reasoning_options": [
+                      {
+                        "type": "effort",
+                        "values": [
+                          "low",
+                          "high"
+                        ]
+                      }
+                    ],
+                    "interleaved": {
+                      "field": "thinking"
+                    },
+                    "modalities": {
+                      "input": [
+                        "text",
+                        "image"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 64000
+                    },
+                    "cost": {
+                      "input": 5,
+                      "output": 25,
+                      "cache_read": 0.5,
+                      "cache_write": 6.25
+                    }
+                  },
+                  "claude-opus-8-0": {
+                    "id": "claude-opus-8-0",
+                    "name": "Claude Opus 8",
+                    "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                    "family": "claude-opus",
+                    "release_date": "2024-11-01",
+                    "knowledge": "2024-01",
+                    "tool_call": true,
+                    "modalities": {
+                      "input": [
+                        "text"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 32000
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sanitizer-same-verdict-on-projection",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:110",
+      "input": {
+        "clockStartMs": 1794225600000
+      },
+      "result": {
+        "models": [
+          {
+            "id": "claude-opus-9-1",
+            "mode": "chat",
+            "contextWindow": 200000,
+            "outputTokens": 64000
+          },
+          {
+            "id": "claude-opus-8-0",
+            "mode": "chat",
+            "contextWindow": 200000,
+            "outputTokens": 32000
+          }
+        ],
+        "full": [
+          {
+            "id": "claude-opus-9-1",
+            "mode": "chat",
+            "contextWindow": 200000,
+            "outputTokens": 64000
+          }
+        ],
+        "projected": [
+          {
+            "id": "claude-opus-9-1",
+            "mode": "chat",
+            "contextWindow": 200000,
+            "outputTokens": 64000
+          }
+        ],
+        "survivors": [
+          "claude-opus-9-1"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-list-sanitize.mjs.sanitizeModelList",
+          "args": [
+            [
+              {
+                "id": "claude-opus-9-1",
+                "mode": "chat",
+                "contextWindow": 200000,
+                "outputTokens": 64000
+              },
+              {
+                "id": "claude-opus-8-0",
+                "mode": "chat",
+                "contextWindow": 200000,
+                "outputTokens": 32000
+              }
+            ],
+            {
+              "provider": "anthropic",
+              "_testCatalog": {
+                "anthropic": {
+                  "id": "anthropic",
+                  "name": "Anthropic",
+                  "doc": "https://docs.anthropic.com",
+                  "env": [
+                    "ANTHROPIC_API_KEY"
+                  ],
+                  "models": {
+                    "claude-opus-9-1": {
+                      "id": "claude-opus-9-1",
+                      "name": "Claude Opus 9.1",
+                      "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                      "family": "claude-opus",
+                      "release_date": "2026-11-01",
+                      "last_updated": "2026-11-01",
+                      "knowledge": "2026-01",
+                      "open_weights": false,
+                      "temperature": true,
+                      "structured_output": true,
+                      "attachment": true,
+                      "tool_call": true,
+                      "reasoning": true,
+                      "reasoning_options": [
+                        {
+                          "type": "effort",
+                          "values": [
+                            "low",
+                            "high"
+                          ]
+                        }
+                      ],
+                      "interleaved": {
+                        "field": "thinking"
+                      },
+                      "modalities": {
+                        "input": [
+                          "text",
+                          "image"
+                        ],
+                        "output": [
+                          "text"
+                        ]
+                      },
+                      "limit": {
+                        "context": 200000,
+                        "output": 64000
+                      },
+                      "cost": {
+                        "input": 5,
+                        "output": 25,
+                        "cache_read": 0.5,
+                        "cache_write": 6.25
+                      }
+                    },
+                    "claude-opus-8-0": {
+                      "id": "claude-opus-8-0",
+                      "name": "Claude Opus 8",
+                      "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                      "family": "claude-opus",
+                      "release_date": "2024-11-01",
+                      "knowledge": "2024-01",
+                      "tool_call": true,
+                      "modalities": {
+                        "input": [
+                          "text"
+                        ],
+                        "output": [
+                          "text"
+                        ]
+                      },
+                      "limit": {
+                        "context": 200000,
+                        "output": 32000
+                      },
+                      "cost": {
+                        "input": 15,
+                        "output": 75
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "anthropic": {
+                "id": "anthropic",
+                "name": "Anthropic",
+                "doc": "https://docs.anthropic.com",
+                "env": [
+                  "ANTHROPIC_API_KEY"
+                ],
+                "models": {
+                  "claude-opus-9-1": {
+                    "id": "claude-opus-9-1",
+                    "name": "Claude Opus 9.1",
+                    "description": "Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. Prose no lookup reads. ",
+                    "family": "claude-opus",
+                    "release_date": "2026-11-01",
+                    "last_updated": "2026-11-01",
+                    "knowledge": "2026-01",
+                    "open_weights": false,
+                    "temperature": true,
+                    "structured_output": true,
+                    "attachment": true,
+                    "tool_call": true,
+                    "reasoning": true,
+                    "reasoning_options": [
+                      {
+                        "type": "effort",
+                        "values": [
+                          "low",
+                          "high"
+                        ]
+                      }
+                    ],
+                    "interleaved": {
+                      "field": "thinking"
+                    },
+                    "modalities": {
+                      "input": [
+                        "text",
+                        "image"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 64000
+                    },
+                    "cost": {
+                      "input": 5,
+                      "output": 25,
+                      "cache_read": 0.5,
+                      "cache_write": 6.25
+                    }
+                  },
+                  "claude-opus-8-0": {
+                    "id": "claude-opus-8-0",
+                    "name": "Claude Opus 8",
+                    "description": "Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. Superseded by the row above. ",
+                    "family": "claude-opus",
+                    "release_date": "2024-11-01",
+                    "knowledge": "2024-01",
+                    "tool_call": true,
+                    "modalities": {
+                      "input": [
+                        "text"
+                      ],
+                      "output": [
+                        "text"
+                      ]
+                    },
+                    "limit": {
+                      "context": 200000,
+                      "output": 32000
+                    },
+                    "cost": {
+                      "input": 15,
+                      "output": 75
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-list-sanitize.mjs.sanitizeModelList",
+          "args": [
+            [
+              {
+                "id": "claude-opus-9-1",
+                "mode": "chat",
+                "contextWindow": 200000,
+                "outputTokens": 64000
+              },
+              {
+                "id": "claude-opus-8-0",
+                "mode": "chat",
+                "contextWindow": 200000,
+                "outputTokens": 32000
+              }
+            ],
+            {
+              "provider": "anthropic",
+              "_testCatalog": {
+                "anthropic": {
+                  "models": {
+                    "claude-opus-9-1": {
+                      "cost": {
+                        "input": 5,
+                        "output": 25,
+                        "cache_read": 0.5,
+                        "cache_write": 6.25
+                      },
+                      "limit": {
+                        "context": 200000,
+                        "output": 64000
+                      },
+                      "modalities": {
+                        "input": [
+                          "text",
+                          "image"
+                        ],
+                        "output": [
+                          "text"
+                        ]
+                      },
+                      "reasoning": true,
+                      "reasoning_options": [
+                        {
+                          "type": "effort",
+                          "values": [
+                            "low",
+                            "high"
+                          ]
+                        }
+                      ],
+                      "interleaved": {
+                        "field": "thinking"
+                      },
+                      "tool_call": true,
+                      "family": "claude-opus",
+                      "release_date": "2026-11-01",
+                      "name": "Claude Opus 9.1"
+                    },
+                    "claude-opus-8-0": {
+                      "cost": {
+                        "input": 15,
+                        "output": 75
+                      },
+                      "limit": {
+                        "context": 200000,
+                        "output": 32000
+                      },
+                      "modalities": {
+                        "input": [
+                          "text"
+                        ],
+                        "output": [
+                          "text"
+                        ]
+                      },
+                      "tool_call": true,
+                      "family": "claude-opus",
+                      "release_date": "2024-11-01",
+                      "name": "Claude Opus 8"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "litellm-keeps-every-field-a-lookup-reads",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:137",
+      "input": {
+        "source": {
+          "anthropic/claude-opus-9-1": {
+            "litellm_provider": "anthropic",
+            "mode": "chat",
+            "max_input_tokens": 200000,
+            "max_tokens": 200000,
+            "max_output_tokens": 64000,
+            "input_cost_per_token": 0.000005,
+            "output_cost_per_token": 0.000025,
+            "cache_read_input_token_cost": 5e-7,
+            "cache_creation_input_token_cost": 0.00000625,
+            "supports_vision": true,
+            "supports_function_calling": true,
+            "supports_prompt_caching": true,
+            "supports_reasoning": true,
+            "reasoning_content_field": "thinking",
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "high"
+                ]
+              }
+            ],
+            "deprecation_date": "2027-01-01",
+            "input_cost_per_pixel": 0.001,
+            "supported_regions": [
+              "us-east-1",
+              "eu-west-1"
+            ],
+            "supports_audio_input": false
+          }
+        }
+      },
+      "result": {
+        "row": {
+          "max_input_tokens": 200000,
+          "max_tokens": 200000,
+          "max_output_tokens": 64000,
+          "input_cost_per_token": 0.000005,
+          "output_cost_per_token": 0.000025,
+          "cache_read_input_token_cost": 5e-7,
+          "cache_creation_input_token_cost": 0.00000625,
+          "supports_vision": true,
+          "supports_function_calling": true,
+          "supports_prompt_caching": true,
+          "supports_reasoning": true,
+          "mode": "chat",
+          "litellm_provider": "anthropic",
+          "reasoning_content_field": "thinking",
+          "reasoning_options": [
+            {
+              "type": "effort",
+              "values": [
+                "high"
+              ]
+            }
+          ]
+        },
+        "present": {
+          "deprecation_date": false,
+          "input_cost_per_pixel": false,
+          "supported_regions": false,
+          "supports_audio_input": false
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectLitellmCatalog",
+          "args": [
+            {
+              "anthropic/claude-opus-9-1": {
+                "litellm_provider": "anthropic",
+                "mode": "chat",
+                "max_input_tokens": 200000,
+                "max_tokens": 200000,
+                "max_output_tokens": 64000,
+                "input_cost_per_token": 0.000005,
+                "output_cost_per_token": 0.000025,
+                "cache_read_input_token_cost": 5e-7,
+                "cache_creation_input_token_cost": 0.00000625,
+                "supports_vision": true,
+                "supports_function_calling": true,
+                "supports_prompt_caching": true,
+                "supports_reasoning": true,
+                "reasoning_content_field": "thinking",
+                "reasoning_options": [
+                  {
+                    "type": "effort",
+                    "values": [
+                      "high"
+                    ]
+                  }
+                ],
+                "deprecation_date": "2027-01-01",
+                "input_cost_per_pixel": 0.001,
+                "supported_regions": [
+                  "us-east-1",
+                  "eu-west-1"
+                ],
+                "supports_audio_input": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tolerates-published-shapes",
+      "source": "src/runtime/agent/orchestrator/providers/model-catalog-projection.test.mjs:178",
+      "input": {},
+      "result": {
+        "modelsDevBroken": {},
+        "modelsDevNoModels": {},
+        "litellmBroken": {},
+        "modelsDevNull": null,
+        "litellmUndefinedIsUndefined": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "broken": null
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            {
+              "noModels": {
+                "name": "x"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectLitellmCatalog",
+          "args": [
+            {
+              "broken": null
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectModelsDevCatalog",
+          "args": [
+            null
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog-projection.mjs.projectLitellmCatalog",
+          "args": [
+            {
+              "$exact": "undefined"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "clockStartMs": 1794225600000
+}

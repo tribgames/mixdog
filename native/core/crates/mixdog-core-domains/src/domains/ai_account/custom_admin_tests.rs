@@ -51,7 +51,7 @@ use super::custom_admin::CustomSeams;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/custom-admin/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/custom-admin/golden.json");
 
 #[derive(Default)]
 struct TestVault {
@@ -225,7 +225,7 @@ fn pick<'a>(value: &'a Value, path: &str) -> &'a Value {
 
 #[tokio::test]
 async fn every_step_does_what_node_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let env = golden["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
     let w = world(env).await;
     let mut names: Vec<(String, String)> = Vec::new();

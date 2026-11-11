@@ -4,7 +4,7 @@ use super::*;
 use serde_json::Value;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../testdata/time_v8.json")).expect("golden")
+    serde_json::from_str(mixdog_testkit::fixture!("testdata/time_v8.json")).expect("golden")
 }
 
 /// JSON null is the recorder's NaN.
