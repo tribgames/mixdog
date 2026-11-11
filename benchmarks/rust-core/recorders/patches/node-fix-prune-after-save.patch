@@ -1,9 +1,9 @@
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
 new file mode 100644
-index 0000000..b7d5ca0
+index 0000000..50fc837
 --- /dev/null
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
-@@ -0,0 +1,615 @@
+@@ -0,0 +1,710 @@
 +// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is stored: a
 +// process that stops before the save restarts from the stored transcript, which still names them, and a save that does
 +// not store it (dropped by a delete's fence, refused because another writer recorded after this copy, or failed)
@@ -64,7 +64,7 @@ index 0000000..b7d5ca0
 +const { _sessionLogIoForTest } = await import('../store/session-log-writer.mjs');
 +const { settleRecorder } = await import('../store/session-writers.mjs');
 +const { parseSessionLog } = await import('../store/session-log-reader.mjs');
-+const { encodePatch } = await import('../store/session-log-format.mjs');
++const { encodeAppend, encodePatch, messageJson } = await import('../store/session-log-format.mjs');
 +
 +const HOUR_AGO = new Date(Date.now() - 3_600_000);
 +const sidecarName = (content) => `${createHash('sha256').update(content).digest('hex')}.txt`;
@@ -213,6 +213,29 @@ index 0000000..b7d5ca0
 +  await compact(seeded, () => {
 +    io.fsync = (fd, done) => fsync(fd, (error) => (error ? done(error) : process.exit(0)));
 +  });
++  process.exit(1);
++} else if (CHILD === 'copying') {
++  // The process stops while a copy of the conversation is being made: its set and its mark are stored, its record is not.
++  const seeded = await plainSession(
++    'copying',
++    { named: 'named output', stray: 'stray output' },
++    (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ],
++    // A boundary the heir's carry is compacted toward.
++    { contextWindow: 100_000, compactBoundaryTokens: 100_000 }
++  );
++  const lifecycle = createLifecycleApi({
++    getSession: () => null,
++    getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }),
++    mgr: manager,
++    invalidateContextStatusCache() {},
++    saveSession() {},
++    compactConversation: async () => process.exit(0),
++  });
++  const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
++  await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId, { compact: true }));
 +  process.exit(1);
 +} else if (CHILD === 'stopped') {
 +  // The process stops while the turn that stopped the prune still runs.
@@ -543,6 +566,78 @@ index 0000000..b7d5ca0
 +    assert.deepEqual(left(seeded.files), ['named']);
 +  });
 +
++  test('a process stopped while a copy was being made leaves no mark that stops the prune: its source is pruned', async () => {
++    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
++      env: { ...process.env, MIXDOG_PRUNE_AFTER_SAVE_CHILD: 'copying', MIXDOG_DATA_DIR: dataDir },
++      encoding: 'utf8',
++      timeout: 60_000,
++    });
++    assert.equal(child.status, 0, `the child stopped while the copy was being made: ${child.stderr}`);
++    const sessionId = `sess_prune_after_save_copying_${child.pid}`;
++    const files = Object.fromEntries(['named', 'stray'].map((role) => [role, join(dataDir, 'tool-results', sessionId, sidecarName(`${role} output`))]));
++    assert.deepEqual(left(files), ['named', 'stray']);
++    const logged = await stderrOf(() => resume(sessionId));
++    assert.doesNotMatch(logged, /still inheriting/, 'the copy its stopped process was making is not being made');
++    assert.deepEqual(left(files), ['named']);
++  });
++
++  // A copy of `seeded`'s conversation another way stores (`write`, after the prune checked it as naming nothing)
++  // names `late`; `seeded` is resumed again: the copy's record changed since it was checked, so it is read again and
++  // `late` is kept.
++  async function copyStoredAfterItsCheck(tag, write) {
++    const seeded = await plainSession(tag, { named: 'named output', late: 'late output', stray: 'stray output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    utimesSync(seeded.files.late, new Date(), new Date());
++    const copyId = `sess_prune_after_save_${tag}_copy_${process.pid}`;
++    await saveSessionAsync({ id: copyId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: [{ role: 'user', content: 'hello' }], tools: [], generation: 0, closed: false });
++    await settleRecorder(copyId);
++    assert.deepEqual(loadSession(copyId).messages.length, 1, 'the copy is read (and cached) before the check');
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named', 'late'], 'the copy names nothing when it is checked');
++    await write(copyId, seeded);
++    assert.match(JSON.stringify(loadSession(copyId).messages), new RegExp(basename(seeded.files.late)), 'the copy names late');
++    utimesSync(seeded.files.late, HOUR_AGO, HOUR_AGO);
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named', 'late']);
++  }
++
++  test('a deleted copy restored naming a sidecar keeps it', async () => {
++    await copyStoredAfterItsCheck('restored', async (copyId, { files }) => {
++      await manager.deleteSession(copyId);
++      assert.equal(loadSession(copyId), null, 'the copy is deleted');
++      // Its record put back (a backup an earlier version wrote, without a set): the conversation it held then names `late`.
++      const record = { id: copyId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: [{ role: 'user', content: `the result is at ${files.late}` }], tools: [], generation: 0, closed: false };
++      writeFileSync(join(dataDir, 'sessions', `${copyId}.json`), JSON.stringify(record));
++    });
++  });
++
++  test('a copy another process records to after the load cache read it keeps the sidecar it names', async () => {
++    await copyStoredAfterItsCheck('foreign', async (copyId, { sessionId, files }) => {
++      evictLiveSession(copyId);
++      // Another process copies `sessionId`'s conversation into it: its record's set now names `sessionId`.
++      const logPath = join(dataDir, 'sessions', `${copyId}.log.jsonl`);
++      const { seq, messageCount } = parseSessionLog(readFileSync(logPath));
++      appendFileSync(logPath, encodeAppend(seq + 1, messageCount + 1, [messageJson({ role: 'user', content: `the result is at ${files.late}` })]));
++      appendFileSync(logPath, encodePatch(seq + 2, [['offloadSources', JSON.stringify([sessionId])]], []));
++    });
++  });
++
++  test("a copy naming its source's sidecars in another letter case keeps them where the file system ignores case", async () => {
++    const seeded = await plainSession('case', { copied: 'copied output', stray: 'stray output' }, () => [
++      { role: 'user', content: 'hello' },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    // A copy an earlier version stored, whose text names the sidecar's path in upper case (a model quoting it).
++    const copyId = `sess_prune_after_save_case_copy_${process.pid}`;
++    const record = { id: copyId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: [{ role: 'user', content: `see ${seeded.files.copied.toUpperCase()}` }], tools: [], generation: 0, closed: false };
++    writeFileSync(join(dataDir, 'sessions', `${copyId}.json`), JSON.stringify(record));
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), process.platform === 'win32' ? ['copied'] : []);
++  });
++
 +  test('a session let go while its reconcile runs is left to its next owner', async () => {
 +    const seeded = await plainSession('owner', { named: 'named output', stray: 'stray output' }, (files) => [
 +      { role: 'user', content: `the result is at ${files.named}` },
@@ -620,10 +715,10 @@ index 0000000..b7d5ca0
 +  });
 +}
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-index 923faae..e272232 100644
+index 923faae..9496e14 100644
 --- a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-@@ -17,9 +17,15 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
+@@ -17,9 +17,17 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
  import { positiveInt } from '../../../../shared/numbers.mjs';
  import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
  import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
@@ -631,8 +726,10 @@ index 923faae..e272232 100644
  import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
  import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 -import { pruneOffloadSession } from '../tool-result-offload.mjs';
-+import { pruneOffloadSession, readOffloadSources, recordOffloadSources } from '../tool-result-offload.mjs';
-+import { offloadSourcesOf, safeSessionSegment } from '../offload-sources.mjs';
++import { liveOffloadCopies, pruneOffloadSession, readOffloadSources, recordOffloadSources } from '../tool-result-offload.mjs';
++import { namesSegment, offloadSourcesOf, safeSessionSegment } from '../offload-sources.mjs';
++import { sessionRecordStampSync } from '../store/session-log-reader.mjs';
++import { sessionLogRecordPath, sessionRecordPath } from '../store/session-paths.mjs';
 +import { loadSession } from '../store.mjs';
 +import { loadSessionCopy } from '../store/load-session.mjs';
 +import { scanStoredSessionSummaries } from '../store/listing.mjs';
@@ -640,7 +737,7 @@ index 923faae..e272232 100644
  import { _getPendingMessagesForSession } from './pending-messages.mjs';
  import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
  import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
-@@ -466,20 +472,123 @@ async function compareTranscriptEncodings(before, after) {
+@@ -466,20 +474,142 @@ async function compareTranscriptEncodings(before, after) {
  }
  
  // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
@@ -717,12 +814,22 @@ index 923faae..e272232 100644
 +// `sessionId` (the copies of its conversation, and the copies of those),
 +// read when the prune asks for them: one lookup in the stored sets, with no
 +// session in between needed, so a copy whose source was deleted still counts.
-+// Every stored session gets its set once (the one-time check of what an
-+// earlier version stored without one, from its stored record); until every
-+// one has, nothing is pruned. A copy deleted since names nothing. A stored
++// Every stored session's set is checked against its record: an entry read
++// under the record's current stamp counts, any other session (never checked,
++// an earlier version's record without a set, a record changed since) is read
++// again and its set stored with that stamp, the entry's kept with it; until
++// every one is, nothing is pruned. A copy deleted since names nothing. A stored
 +// session whose record cannot be read (whether it names this session is
 +// unknown then), a copy still being made, or a store that cannot be listed
 +// answers null: nothing is deleted, and the skip says why.
++function recordStampOf(id) {
++  try {
++    return sessionRecordStampSync({ jsonPath: sessionRecordPath(id), logPath: sessionLogRecordPath(id) });
++  } catch {
++    return null;
++  }
++}
++
 +async function offloadCopies(sessionId) {
 +  const skipped = (why) => {
 +    writeStderrBestEffort(`[session] offload prune skipped (sess=${sessionId}): ${why}\n`);
@@ -738,23 +845,32 @@ index 923faae..e272232 100644
 +  }
 +  if (!scan) return skipped('the session store could not be listed');
 +  if (scan.unreadable.length) return skipped(`the session ${scan.unreadable[0]} cannot be read`);
++  const own = safeSessionSegment(sessionId);
++  for (const mark of liveOffloadCopies()) {
++    if (mark.copy !== sessionId && (mark.sources === null || namesSegment(mark.sources, own))) {
++      return skipped(`the session ${mark.copy} is still inheriting the conversation of ${mark.source}`);
++    }
++  }
 +  let sets = readOffloadSources();
 +  const checked = {};
 +  for (const { id } of scan.rows) {
-+    if (!id || sets[id]) continue;
++    if (!id) continue;
++    const entry = sets[id];
++    // The stamp is read before the record: a record that changes while it is
++    // read is checked again by the next prune.
++    const stamp = recordStampOf(id);
++    if (entry && stamp !== null && entry.stamp === stamp) continue;
 +    const { session, from } = loadSessionCopy(id);
 +    if (from === 'unreadable') return skipped(`the session ${id} cannot be read`);
 +    if (!session) continue;
 +    const sources = offloadSourcesOf(session);
 +    if (!sources) return skipped(`the session ${id} cannot be read`);
-+    checked[id] = { sources };
++    checked[id] = { sources: [...new Set([...(entry?.sources ?? []), ...sources])].sort(), stamp };
 +  }
 +  if (Object.keys(checked).length) sets = recordOffloadSources(checked);
-+  const own = safeSessionSegment(sessionId);
 +  const lists = [];
 +  for (const [id, entry] of Object.entries(sets)) {
-+    if (id === sessionId || !entry?.sources?.includes(own)) continue;
-+    if (entry.inheriting) return skipped(`the session ${id} is still inheriting the conversation of ${entry.inheriting}`);
++    if (id === sessionId || !namesSegment(entry?.sources, own)) continue;
 +    const { session: copy, from } = loadSessionCopy(id);
 +    if (from === 'unreadable') return skipped(`the session ${id} cannot be read`);
 +    if (!copy) continue;
@@ -772,7 +888,7 @@ index 923faae..e272232 100644
  function summaryUsageRecord(usage) {
    if (!usage) return null;
    return {
-@@ -697,7 +806,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
+@@ -697,7 +827,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
    // change re-roots the system prompt now and needs no notice any more.
    if (changed) applyPendingWorkspaceReroot(session);
    if (changed) resetReadStateAfterCompaction(resolvedSessionId);
@@ -942,10 +1058,10 @@ index 5627bca..01889c5 100644
  }
 diff --git a/src/runtime/agent/orchestrator/session/offload-sources.mjs b/src/runtime/agent/orchestrator/session/offload-sources.mjs
 new file mode 100644
-index 0000000..e827d15
+index 0000000..0bb1b1b
 --- /dev/null
 +++ b/src/runtime/agent/orchestrator/session/offload-sources.mjs
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,57 @@
 +// Sanitize sessionId before using it as a path segment. A raw `..` or slash
 +// would let the sidecar dir — and clearOffloadSession's readdir+unlink — escape
 +// the tool-results root (arbitrary .txt deletion). Strip to [A-Za-z0-9_-];
@@ -970,6 +1086,15 @@ index 0000000..e827d15
 +// transcript cannot be serialized.
 +const NAMED_SOURCE = /tool-results[\\/]+([A-Za-z0-9_-]+)[\\/]/g;
 +
++// A reference is text anyone may write (a model quoting a path, a user
++// pasting one), not only the product's own exact-case paths: segments are
++// compared as the file system compares the directory names, case-insensitively
++// on Windows (as the prune's own sidecar match folds its text there).
++export function segmentKey(segment) {
++  const text = String(segment ?? '');
++  return process.platform === 'win32' ? text.toLowerCase() : text;
++}
++
 +export function offloadSourcesOf(session) {
 +  if (Array.isArray(session?.offloadSources)) return session.offloadSources.filter((source) => typeof source === 'string' && source);
 +  let text;
@@ -978,9 +1103,15 @@ index 0000000..e827d15
 +  } catch {
 +    return null;
 +  }
-+  const sources = new Set([...text.matchAll(NAMED_SOURCE)].map(([, segment]) => segment));
-+  sources.delete(safeSessionSegment(session?.id));
++  const sources = new Set([...segmentKey(text).matchAll(NAMED_SOURCE)].map(([, segment]) => segment));
++  sources.delete(segmentKey(safeSessionSegment(session?.id)));
 +  return [...sources].sort();
++}
++
++/** Whether the set `sources` names the session of path segment `segment`. */
++export function namesSegment(sources, segment) {
++  const key = segmentKey(segment);
++  return Array.isArray(sources) && sources.some((source) => typeof source === 'string' && segmentKey(source) === key);
 +}
 +
 +/** The record about to be saved carries its reference set. */
@@ -1058,10 +1189,18 @@ index b0d58a4..51efab7 100644
  
  // `status` of loadSession(id), for the agent-status pulse: it reads every
 diff --git a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-index f9f9973..7ba5ed4 100644
+index f9f9973..d963014 100644
 --- a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
 +++ b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-@@ -19,6 +19,7 @@ import { getPluginData } from '../config.mjs';
+@@ -12,13 +12,14 @@ import {
+   unlinkSync,
+ } from 'node:fs';
+ import { lstat, open, readdir, readFile, stat, unlink } from 'node:fs/promises';
+-import { createHash } from 'node:crypto';
++import { createHash, randomUUID } from 'node:crypto';
+ import { join } from 'node:path';
+ import { holdsNoData, writeFileAtomicAsync, writeFileAtomicSync } from '../../../shared/atomic-file.mjs';
+ import { getPluginData } from '../config.mjs';
  import { countSplitLines, normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
  import { classifyResultKind } from './result-classification.mjs';
  import { registerSessionPurgeHook } from './store.mjs';
@@ -1069,7 +1208,7 @@ index f9f9973..7ba5ed4 100644
  import { SETUP_OUTPUT_MAX_BYTES, capMarker } from '../../../shared/tool-output-limit.mjs';
  
  const TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS = 50_000;
-@@ -147,16 +148,54 @@ function rankAggregateOffloadCandidates(entries) {
+@@ -147,16 +148,119 @@ function rankAggregateOffloadCandidates(entries) {
      .map((entry) => entry.index);
  }
  
@@ -1087,11 +1226,17 @@ index f9f9973..7ba5ed4 100644
 +// where the reference sets name sessions by it too).
 +
 +// The stored reference sets (`offload-sources.json` in the data dir): each
-+// checked session's set (`sources`) and, while a copy of a conversation is
-+// being made into it, the session it copies (`inheriting`). A session not
-+// listed has not been checked: the prune checks it once from its stored record
-+// (`offloadCopies`). A file that cannot be read lists none (every set is then
-+// checked again from the records, which hold the copies' own).
++// checked session's set (`sources`) and the stamp of the record it was read
++// from (`stamp`, null for a set written ahead of the record's save). The file
++// is not written in one step with the session records, so it is only ever a
++// cache the prune checks against them (`offloadCopies`): an entry counts only
++// while its record still carries the stamp it was read under; any other entry
++// (a record saved since, by this process or another, a deleted record
++// restored, a record the load cache read again) and a session not listed are
++// unchecked, read again from the record, and the set kept is the union of the
++// entry and the record's (a set never shrinks). A lost write (an entry
++// dropped by another process's concurrent merge, a file that cannot be read)
++// only leaves sessions unchecked.
 +const offloadSourcesPath = () => join(getPluginData(), 'offload-sources.json');
 +
 +export function readOffloadSources() {
@@ -1115,26 +1260,85 @@ index f9f9973..7ba5ed4 100644
 +  return sessions;
 +}
 +
++// The copies being made (`offload-copies/<copy>.json`, one file each, so no
++// other process's write can drop one): the copy, the session it copies, the
++// copy's reference set, and the process making it (`pid`, `boot`). A mark
++// stops every prune of a session its set names while its process lives; a
++// mark a process left when it stopped (its pid gone, or this pid under
++// another boot) is stale and removed: whatever that copy stored is a record
++// the prune reads, under the set stored before it.
++const OFFLOAD_COPY_BOOT = randomUUID();
++const offloadCopiesDir = () => join(getPluginData(), 'offload-copies');
++const offloadCopyMarkPath = (id) => join(offloadCopiesDir(), `${safeSessionSegment(id)}.json`);
++
++function processAlive(pid) {
++  try {
++    process.kill(pid, 0);
++    return true;
++  } catch (error) {
++    return error?.code === 'EPERM';
++  }
++}
++
++/** The marks of the copies being made now (stale ones removed). */
++export function liveOffloadCopies() {
++  let names;
++  try {
++    names = readdirSync(offloadCopiesDir());
++  } catch {
++    return [];
++  }
++  const live = [];
++  for (const name of names) {
++    const path = join(offloadCopiesDir(), name);
++    let mark;
++    try {
++      mark = JSON.parse(readFileSync(path, 'utf8'));
++    } catch {
++      // Being written (atomically) or damaged: a copy may be in progress.
++      live.push({ copy: name, source: 'an unknown session', sources: null });
++      continue;
++    }
++    const alive = mark?.pid === process.pid ? mark?.boot === OFFLOAD_COPY_BOOT : Number.isInteger(mark?.pid) && processAlive(mark.pid);
++    if (alive) live.push(mark);
++    else {
++      try {
++        unlinkSync(path);
++      } catch {
++        /* best-effort */
++      }
++    }
++  }
++  return live;
++}
++
 +/** A copy of `source`'s conversation is being made into `copy`: its reference
 + *  set (what it held, the source's set and the source) is stored before
-+ *  anything is copied, marked as still inheriting, so no prune of a session
-+ *  the copy will name runs until `done(true)` (the copy is stored);
-+ *  `done(false)` (nothing was stored) puts back what was there. */
++ *  anything is copied, and the copy is marked as being made, so no prune of a
++ *  session the copy will name runs until `done()`. The set is never taken
++ *  back: whatever the copy holds once it is done (stored, kept in memory by a
++ *  save that failed, or nothing) is read by every later prune under it, so
++ *  `done` (stored or not) only removes the mark. */
 +export function beginOffloadCopy(copy, source) {
 +  const previous = readOffloadSources()[copy.id] ?? null;
 +  const field = copy.offloadSources;
 +  const held = [...(previous?.sources ?? []), ...(Array.isArray(field) ? field : [])];
 +  const sources = [...new Set([...held, ...(offloadSourcesOf(source) ?? []), safeSessionSegment(source.id)])].sort();
 +  copy.offloadSources = sources;
-+  recordOffloadSources({ [copy.id]: { sources, inheriting: source.id } });
-+  return (stored) => {
-+    if (!stored) copy.offloadSources = field;
-+    recordOffloadSources({ [copy.id]: stored ? { sources } : previous });
++  mkdirSync(offloadCopiesDir(), { recursive: true });
++  writeFileAtomicSync(offloadCopyMarkPath(copy.id), JSON.stringify({ copy: copy.id, source: source.id, sources, pid: process.pid, boot: OFFLOAD_COPY_BOOT }));
++  recordOffloadSources({ [copy.id]: { sources, stamp: null } });
++  return () => {
++    try {
++      unlinkSync(offloadCopyMarkPath(copy.id));
++    } catch {
++      /* best-effort: a mark left behind is stale once this process stops */
++    }
 +  };
  }
  
  function ensureToolResultsDir(sessionId) {
-@@ -509,52 +548,38 @@ registerSessionPurgeHook(clearOffloadSessionSync);
+@@ -509,52 +613,38 @@ registerSessionPurgeHook(clearOffloadSessionSync);
  // path match is conservative: if messages cannot be serialized, or a path is
  // mentioned anywhere in a message, retain the file rather than risk deleting
  // one that can still be read by the model.
@@ -1203,7 +1407,7 @@ index f9f9973..7ba5ed4 100644
    if (!unreferenced.length) return;
    // Compact archives may themselves reference older archives or offloaded
    // results. Keep the reachable graph, not just directly visible files. The
-@@ -566,6 +591,32 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+@@ -566,6 +656,32 @@ export async function pruneOffloadSession(sessionId, getMessages) {
      return unreferenced.length > 0;
    };
    if (!retainReachable()) return;
@@ -1236,7 +1440,7 @@ index f9f9973..7ba5ed4 100644
    const pending = [...reachable];
    for (let i = 0; i < pending.length; i += 1) {
      let text;
-@@ -583,6 +634,7 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+@@ -583,6 +699,7 @@ export async function pruneOffloadSession(sessionId, getMessages) {
      }
      if (grew && !retainReachable()) return;
    }
