@@ -2895,7 +2895,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     );
     // `hostState.remoteSession`: the session the bridge is pinned to, published now and at each change of the binding.
     let session_publisher = state.publisher.clone();
-    channel_calls.observe_binding(Arc::new(move |enabled, session| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), enabled, session)));
+    channel_calls.observe_binding(Arc::new(move |remote| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), remote.acquired, remote.pinned_session_id, remote.cwd)));
     // The pin a manual Remote ON saved (`channel-remote-intent.json` in the runtime root, where Node keeps it); `restore_remote_intent` activates it after ready.
     channel_calls
         .load_intent(mixdog_services::channels::intent::IntentFile::new(&b.runtime_root, b.tokens.maintenance_io, b.log.line_log()))
