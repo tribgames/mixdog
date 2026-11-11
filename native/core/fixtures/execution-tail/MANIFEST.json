@@ -3,6 +3,7 @@
   "exclusions": {
     "chaining": "a step whose input is `<previous>` or `{previous, append}` takes the previous step's output (plus the appended rows), as the test does",
     "clock": "prune ages files by an hour through utimes, as the test does",
+    "diagnostics": "steps[op=fresh].output.diagnostics is recorded and not compared: the core's fresh_context_compact_messages returns no diagnostics (FreshResult: messages, fresh_context). Node writes it to its debug log (compact/runner.mjs:1024) and to the pre-send compaction's event details (pre-send-compact.mjs:330, :509); it includes the wall-clock durationMs",
     "firstCase": ":21 is recorded by record-compact-node-cases.mjs"
   },
   "fileCount": 1,
