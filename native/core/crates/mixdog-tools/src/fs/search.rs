@@ -706,7 +706,7 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
 /// more line after it), else every kept row that is not a header, separator, notice or empty.
 fn grep_shown_entries(kept: &[&str]) -> usize {
     static HEADER: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"^# .+:\d+ \[lines (\d+)-(\d+)\]$").expect("a fixed pattern"));
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^# [^\n\r\u{2028}\u{2029}]+:[0-9]+ \[lines ([0-9]+)-([0-9]+)\]$").expect("a fixed pattern"));
     let mut blocks = 0;
     let mut saw_header = false;
     for (index, line) in kept.iter().enumerate() {
@@ -929,7 +929,7 @@ struct Hit {
 /// possible split of `path:line:text`; the whole line when there is none.
 fn candidate_match_texts(line: &str) -> Vec<&str> {
     static SPLIT: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r":(\d+):").expect("a fixed pattern"));
+        std::sync::LazyLock::new(|| regex::Regex::new(r":([0-9]+):").expect("a fixed pattern"));
     let mut out = Vec::new();
     let mut at = 0;
     // `re.lastIndex = hit.index + 1`: overlapping splits are all tried.
@@ -1474,9 +1474,9 @@ impl GrepTool {
 }
 
 static CONTEXT_HEADER: std::sync::LazyLock<regex::Regex> =
-    std::sync::LazyLock::new(|| regex::Regex::new(r"^# (.+):(\d+) \[lines (\d+)-(\d+)\]$").expect("a fixed pattern"));
+    std::sync::LazyLock::new(|| regex::Regex::new(r"^# ([^\n\r\u{2028}\u{2029}]+):([0-9]+) \[lines ([0-9]+)-([0-9]+)\]$").expect("a fixed pattern"));
 static MATCH_PREFIX: std::sync::LazyLock<regex::Regex> =
-    std::sync::LazyLock::new(|| regex::Regex::new(r":(\d+):|-(\d+)-").expect("a fixed pattern"));
+    std::sync::LazyLock::new(|| regex::Regex::new(r":([0-9]+):|-([0-9]+)-").expect("a fixed pattern"));
 
 /// Node `splitGrepLinePrefix` of a match line: its path and line number when the first
 /// `:N:`/`-N-` marker (past a drive letter) is a match marker.
