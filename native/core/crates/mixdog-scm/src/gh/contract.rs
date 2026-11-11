@@ -109,8 +109,10 @@ impl GithubRequest {
     }
 }
 
-fn type_error(text: impl Into<String>) -> ScmFailure {
-    ScmFailure::git(text)
+/// Node's `TypeError`: the request is refused before anything runs. On the wire it is the plain failed command it always was
+/// (`git` / `COMMAND_FAILED` with Node's text); a failure of the run itself is an [`ScmFailure::Command`].
+pub fn type_error(text: impl Into<String>) -> ScmFailure {
+    ScmFailure::Refused { domain: crate::error::GIT_DOMAIN, code: crate::error::CODE_COMMAND_FAILED, message: text.into() }
 }
 
 /// A JSON number that is a safe integer (`Number.isSafeInteger`): `1.0` is one, `"1"` is not.

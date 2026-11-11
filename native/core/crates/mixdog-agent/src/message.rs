@@ -200,6 +200,12 @@ impl AgentMessage {
         message.source = self.source.and_then(Source::wire);
         message.turn_reminder = self.turn_reminder.clone().filter(|text| !text.is_empty());
         message.account_routing = self.account_routing();
+        message.sent_request_tail = self
+            .stored
+            .as_ref()
+            .and_then(|row| row.get("meta"))
+            .and_then(|meta| meta.get("sentRequestTail"))
+            == Some(&mixdog_protocol::JsonValue::Bool(true));
         message
     }
 

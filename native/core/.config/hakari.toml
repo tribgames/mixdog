@@ -31,5 +31,5 @@ platforms = [
 # dependencies when the crate is only removed after unification.
 [traversal-excludes]
 third-party = [
-    { name = "fancy-regex", path = "../vendor/fancy-regex" },
+    { name = "fancy-regex", path = "vendor/fancy-regex" },
 ]

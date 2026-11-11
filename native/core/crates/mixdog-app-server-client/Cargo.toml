@@ -10,6 +10,8 @@ workspace = true
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-protocol = { workspace = true }
+# Its timers (mixdog_rt::time), which a replay's clock orders and fires.
+mixdog-rt = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }
@@ -37,3 +39,6 @@ mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-protocol = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

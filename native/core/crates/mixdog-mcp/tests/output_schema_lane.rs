@@ -63,7 +63,7 @@ fn a_pathological_pattern_holds_no_async_worker_and_ends_when_its_call_is_cancel
 fn calls_on_one_worker() {
     // Two cpu-bulk threads: the plain result's check runs beside the hostile one, which holds the other.
     let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
-    config.cpu_bulk = mixdog_rt::exec::PoolParams { threads: 2, queue: 2 };
+    config.cpu_bulk = mixdog_rt::exec::PoolParams::fixed(2, 2, 2);
     let (_executors, tokens) = mixdog_rt::exec::boot(config).expect("the production lanes");
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     runtime.block_on(async {
@@ -77,7 +77,7 @@ fn calls_on_one_worker() {
         let entry = json!({"command": MOCK, "env": {"MOCK_SCENARIO": scenario.to_string()}});
         let config = McpServerConfig::from_entry("srv", &entry, &std::env::vars().collect()).unwrap();
         let server = McpServer::new(config, io, Spiller::new(dir.path().to_path_buf(), io.durability), OutputPolicy::default(), None);
-        tokio::time::timeout(Duration::from_secs(30), server.connect()).await.expect("the mock server connects in 30 s").unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(30), server.connect()).await.expect("the mock server connects in 30 s").unwrap();
 
         // The hostile call is sent at its first poll, before the plain call is spawned: the server answers the two in
         // that order. The hostile call is polled first whenever both can go on, so a check run on this worker would
@@ -166,9 +166,9 @@ fn on_the_lane(
                 (answer, probe::take_reads(), took)
             })
             .unwrap();
-        let ran = tokio::time::timeout(Duration::from_secs(120), job).await.expect("the match ends in 120 s").unwrap();
+        let ran = mixdog_rt::time::timeout(Duration::from_secs(120), job).await.expect("the match ends in 120 s").unwrap();
         let next = tokens.cpu_bulk.submit(&CancellationToken::new(), |_lane| 7).unwrap();
-        assert_eq!(tokio::time::timeout(Duration::from_secs(30), next).await.expect("the lane runs its next job in 30 s").unwrap(), 7);
+        assert_eq!(mixdog_rt::time::timeout(Duration::from_secs(30), next).await.expect("the lane runs its next job in 30 s").unwrap(), 7);
         ran
     })
 }
@@ -180,7 +180,7 @@ fn on_the_lane(
 #[test]
 fn a_long_match_reads_its_stop_within_a_bounded_number_of_steps_and_frees_its_lane() {
     let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
-    config.cpu_bulk = mixdog_rt::exec::PoolParams { threads: 1, queue: 2 };
+    config.cpu_bulk = mixdog_rt::exec::PoolParams::fixed(1, 2, 2);
     let (_executors, tokens) = mixdog_rt::exec::boot(config).expect("the production lanes");
     for Shape { name: shape, pattern, haystack, min_reads, meta_pass } in long_shapes() {
         let regex = Arc::new(fancy_regex::RegexBuilder::new(&pattern).backtrack_limit(usize::MAX).build().unwrap());

@@ -179,6 +179,112 @@ async fn a_decision_goes_to_the_owning_thread_and_only_from_a_connection_that_ha
     );
 }
 
+/// Every free-text field of a decision ([`FREE_TEXT`], a person's answer or reason): a lone surrogate in it reaches the
+/// owning thread as U+FFFD, the result whole as with a real U+FFFD there. (`model/proxy/execute` answers a `host/*`
+/// request: host.rs.)
+#[tokio::test(start_paused = true)]
+async fn every_free_text_field_of_a_decision_reaches_the_owning_thread_as_u_fffd() {
+    use mixdog_app_protocol::free_text::FREE_TEXT;
+    use mixdog_app_protocol::free_text::Kind;
+    const MARK: &str = "lone-surrogate-mark";
+    let rig = Rig::new();
+    let owner = thread(&rig, "t1");
+    let viewer = rig.ready(1, json!({}));
+    watch(&viewer, 1, "t1").await;
+    let samples = super::sample::Samples::new();
+    let mut expected = Vec::new();
+    let mut order = 0;
+    for (kind, method, patterns) in FREE_TEXT {
+        if *kind != Kind::Answer || *method == "model/proxy/execute" {
+            continue;
+        }
+        for pattern in *patterns {
+            order += 1;
+            let id = format!("ap{order}");
+            let frame = json!({ "id": id, "method": method, "params": { "threadId": "t1" } });
+            rig.outgoing.publish(PendingServerRequest {
+                id: ServerRequestId(id.clone()),
+                method: Method(*method),
+                thread: ThreadId::from("t1"),
+                surface: ThreadId::from("t1"),
+                order,
+                frame: Bytes::from(frame.to_string()),
+            });
+            viewer.drain();
+            let answer = json!({ "id": id, "result": samples.untyped_with_text(pattern, MARK) });
+            viewer.send_text(&answer.to_string().replace(&format!("\"{MARK}\""), r#""a\ud800""#));
+            expected.push(ControlCall::Decide(Decision {
+                request: ServerRequestId(id),
+                connection: ConnectionId(1),
+                device: "test".to_owned(),
+                connection_kind: ConnectionKind::Desktop,
+                origin: mixdog_protocol::Origin::Local,
+                result: samples.untyped_with_text(pattern, "a\u{fffd}"),
+            }));
+        }
+    }
+    assert!(order > 10, "only {order} fields");
+    assert_eq!(owner.control_calls(), expected);
+}
+
+/// Every field of a decision the inventory classes (super::inventory_rule): free text reaches the owning thread as U+FFFD,
+/// whole; a refused field decides nothing (the thread is never called) and the answering connection is told the field.
+#[tokio::test(start_paused = true)]
+async fn every_decision_field_of_the_inventory_decides_or_is_refused_as_classed() {
+    use super::inventory_rule::MARK;
+    use super::inventory_rule::READ;
+    use super::inventory_rule::inventory;
+    use super::inventory_rule::lone;
+    use super::inventory_rule::placed;
+    use super::inventory_rule::pointer_of;
+    let rig = Rig::new();
+    let owner = thread(&rig, "t1");
+    let viewer = rig.ready(1, json!({}));
+    watch(&viewer, 1, "t1").await;
+    let samples = super::sample::Samples::new();
+    let mut expected = Vec::new();
+    let mut failures = Vec::new();
+    let mut order = 0;
+    for field in inventory("answer").into_iter().filter(|field| field.method.starts_with("item/")) {
+        order += 1;
+        let id = format!("ap{order}");
+        let method: &'static str = Box::leak(field.method.clone().into_boxed_str());
+        let frame = json!({ "id": id, "method": method, "params": { "threadId": "t1" } });
+        rig.outgoing.publish(PendingServerRequest {
+            id: ServerRequestId(id.clone()),
+            method: Method(method),
+            thread: ThreadId::from("t1"),
+            surface: ThreadId::from("t1"),
+            order,
+            frame: Bytes::from(frame.to_string()),
+        });
+        settle().await;
+        viewer.drain();
+        let result = |text: &str| placed(&field.pattern, text, |pattern, text| samples.untyped_with_text(pattern, text));
+        viewer.send_text(&lone(&json!({ "id": id, "result": result(MARK) })));
+        settle().await;
+        let told: Vec<Value> = control(viewer.drain()).into_iter().filter(|frame| frame["method"] == json!("error")).collect();
+        if field.free {
+            expected.push(ControlCall::Decide(Decision {
+                request: ServerRequestId(id),
+                connection: ConnectionId(1),
+                device: "test".to_owned(),
+                connection_kind: ConnectionKind::Desktop,
+                origin: mixdog_protocol::Origin::Local,
+                result: result(READ),
+            }));
+        } else {
+            let path = format!("result{}", pointer_of(&result(MARK), MARK));
+            if told.len() != 1 || told[0]["params"]["error"]["data"]["path"] != json!(path) {
+                failures.push(format!("refused {} {}: {told:?}", field.method, field.pattern));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(order > 20, "only {order} fields");
+    assert_eq!(owner.control_calls(), expected);
+}
+
 /// A thread whose control plane is a mock session actor, loaded in the core.
 fn actor(rig: &Rig, id: &str) -> Arc<ActorThread> {
     let handle = Arc::new(ActorThread {

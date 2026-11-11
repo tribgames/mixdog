@@ -12,9 +12,12 @@ use std::sync::PoisonError;
 /// This crate's manifest from the checkout's root: what marks a directory as the checkout.
 const SELF_MANIFEST: &str = "native/core/crates/mixdog-testkit/Cargo.toml";
 
-/// The checkout the test binary was built in: this crate's manifest directory is four levels below it.
-fn built_root() -> Option<&'static Path> {
-    Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4)
+/// The checkout a fixture path was written in (by `fixture!` in the test's crate, with that crate's manifest directory):
+/// the directory the path continues from with `native/core`. Taken from the path and not from this crate's own
+/// `env!("CARGO_MANIFEST_DIR")`: compiled in, that path made this library differ between checkouts, so rustc-slot's cache
+/// could not share it.
+fn built_root(path: &Path) -> Option<&Path> {
+    path.ancestors().skip(1).find(|dir| path.strip_prefix(dir).is_ok_and(|rest| rest.starts_with("native/core")))
 }
 
 /// The checkout the test runs in: the one holding the manifest directory cargo and nextest name in the test's
@@ -43,7 +46,7 @@ fn relocated(path: &Path, built_root: Option<&Path>, run_root: Option<&Path>) ->
 pub fn bytes(path: &'static str) -> &'static [u8] {
     static READ: Mutex<BTreeMap<&'static str, &'static [u8]>> = Mutex::new(BTreeMap::new());
     let mut read = READ.lock().unwrap_or_else(PoisonError::into_inner);
-    read.entry(path).or_insert_with(|| Box::leak(crate::read(relocated(Path::new(path), built_root(), run_root())).into_boxed_slice()))
+    read.entry(path).or_insert_with(|| Box::leak(crate::read(relocated(Path::new(path), built_root(Path::new(path)), run_root())).into_boxed_slice()))
 }
 
 /// The UTF-8 text of the file at `path`, read on first use.
@@ -111,12 +114,15 @@ mod tests {
         let outside = Path::new("/elsewhere/golden.json");
         assert_eq!(relocated(outside, Some(built), Some(run)), outside);
         assert_eq!(relocated(inside, Some(built), None), inside);
+        // The checkout is read from the path itself.
+        assert_eq!(built_root(inside), Some(built));
+        assert_eq!(built_root(outside), None);
     }
 
     #[test]
     fn the_running_checkout_is_found_from_the_test_environment() {
         // cargo and nextest run a test with its package's manifest directory in the environment.
-        assert_eq!(run_root(), built_root());
+        assert_eq!(run_root(), built_root(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))));
         assert_eq!(text(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")), crate::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")));
     }
 }

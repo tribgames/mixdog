@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::model_list_node_tests::{Rig, assert_rows, node_calls, recording, rig, three_reads, web_search};
-use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates};
+use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates, WarmupMarks};
 use crate::domains::ai_account::SetupSource;
 use crate::domains::ai_account::auth_refresh::{AuthRefreshFlow, ProviderEffects};
 use crate::domains::ai_account::dashboards::Dashboards;
@@ -23,6 +23,10 @@ struct Gates {
     closing: AtomicBool,
 }
 
+impl WarmupMarks for Gates {
+    fn profile(&self, _event: &str, _detail: Option<Value>) {}
+}
+
 impl WarmupGates for Gates {
     fn busy(&self) -> Option<&'static str> {
         *self.busy.lock().unwrap()
@@ -30,14 +34,13 @@ impl WarmupGates for Gates {
     fn closing(&self) -> bool {
         self.closing.load(Ordering::SeqCst)
     }
-    fn profile(&self, _event: &str, _detail: &str) {}
     // The model warm never waits on the close; its tests set the flag.
     fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         Box::pin(std::future::pending())
     }
 }
 
-const ON: WarmupConfig = WarmupConfig { enabled: true, delay: Duration::ZERO };
+const ON: WarmupConfig = WarmupConfig { enabled: true, delay: Duration::ZERO, before_first_turn: false };
 
 async fn scenario(name: &str) -> Rig {
     let recording = recording();
@@ -250,7 +253,7 @@ fn the_delay_is_nodes_env_delay_and_defaults_to_the_daemons_zero() {
 #[tokio::test(start_paused = true)]
 async fn the_scheduled_warm_waits_for_its_delay() {
     let rig = scenario("custom-discovery").await;
-    let config = WarmupConfig { enabled: true, delay: Duration::from_millis(3000) };
+    let config = WarmupConfig { enabled: true, delay: Duration::from_millis(3000), before_first_turn: false };
     let warm = warmup(&rig, config, Arc::default());
     let started = tokio::time::Instant::now();
     // The timer counts from this call, so the clock may move as soon as `start` returns: no wait for the task.
@@ -269,7 +272,7 @@ async fn the_scheduled_warm_waits_for_its_delay() {
 // arrives while it is held joins it.
 #[tokio::test]
 async fn the_account_change_warm_loads_once_at_once_and_is_not_adopted() {
-    let off = WarmupConfig { enabled: false, delay: Duration::ZERO };
+    let off = WarmupConfig { enabled: false, delay: Duration::ZERO, before_first_turn: false };
     let after_change = || async {
         let rig = scenario("custom-discovery").await;
         rig.service.rows(false, false).await.unwrap();
@@ -357,7 +360,7 @@ fn account_flow(rig: &Rig, warm: Arc<ModelWarmup>) -> Arc<AuthRefreshFlow<Provid
 async fn the_account_change_warm_reads_no_secret() {
     let rig = scenario("custom-discovery").await;
     let base = rig.secret_reads.load(Ordering::SeqCst);
-    let warm = warmup(&rig, WarmupConfig { enabled: false, delay: Duration::ZERO }, Arc::default());
+    let warm = warmup(&rig, WarmupConfig { enabled: false, delay: Duration::ZERO, before_first_turn: false }, Arc::default());
     warm.warm_now();
     warm.settle().await;
     assert_eq!(rig.secret_reads.load(Ordering::SeqCst), base, "the account warm reads no secret");
@@ -392,7 +395,7 @@ async fn an_invalidation_during_the_preparation_refuses_the_load() {
 // Through the production flow: the account switch drops the caches and warms; a reader overlapping it joins its one load.
 #[tokio::test]
 async fn an_account_switch_warms_through_the_one_shared_load() {
-    let off = WarmupConfig { enabled: false, delay: Duration::ZERO };
+    let off = WarmupConfig { enabled: false, delay: Duration::ZERO, before_first_turn: false };
     let primed = || async {
         let rig = scenario("custom-discovery").await;
         rig.service.rows(false, false).await.unwrap();
@@ -451,7 +454,7 @@ async fn an_account_change_warm_lists_the_providers_of_the_config_as_it_is_now()
     assert!(!rig.registry.names().contains("custom-dddd"), "nothing has listed the new provider yet");
     let before = hits(&rig);
 
-    let warm = warmup(&rig, WarmupConfig { enabled: false, delay: Duration::ZERO }, Arc::default());
+    let warm = warmup(&rig, WarmupConfig { enabled: false, delay: Duration::ZERO, before_first_turn: false }, Arc::default());
     let flow = account_flow(&rig, warm.clone());
     flow.account_selection_changed();
     warm.settle().await;

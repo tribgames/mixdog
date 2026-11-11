@@ -831,7 +831,7 @@ pub async fn run_nested(
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
-    let mut running = Box::pin(tool.call(&nested, args));
+    let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
     let waited = Scope::new()
         .cancel(&ctx.cancel)
         .deadline(nested.deadline)
@@ -1059,8 +1059,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         return cancelled();
     }
     let execution_started_at = env.clock.now_ms();
+    // The call's lane jobs name the tool when one waits past the lanes' slow-wait threshold.
+    let label = mixdog_rt::tool_label(&spec.name);
     let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
-        tool.call(&ctx, args).await
+        mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await
     });
     let _abort = AbortOnDrop(handle.abort_handle());
     // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
@@ -1255,6 +1257,7 @@ impl Run {
             log.batch(&batch);
         }
         self.emit(RunEvent::ToolBatch(batch));
+        self.emit(RunEvent::ExecutionCalls(execution));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
@@ -1290,6 +1293,10 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     let name = name.to_lowercase();
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
+#[cfg(test)]
+#[path = "tools_coerce_session_tests.rs"]
+mod coerce_session_tests;
+
 #[cfg(test)]
 mod tests {
     #[test]

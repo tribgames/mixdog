@@ -73,10 +73,10 @@ async fn a_survivor_is_listed_and_its_end_wakes_the_waiter() {
     });
     // Nothing ends while the sleeper runs, however long the waiter has been parked.
     let mut waiter = waiter;
-    assert!(tokio::time::timeout(Duration::from_millis(300), &mut waiter).await.is_err(), "the waiter returned with a survivor running");
+    assert!(mixdog_rt::time::timeout(Duration::from_millis(300), &mut waiter).await.is_err(), "the waiter returned with a survivor running");
 
     end_externally(sleeper);
-    let confirmed = tokio::time::timeout(Duration::from_secs(10), waiter)
+    let confirmed = mixdog_rt::time::timeout(Duration::from_secs(10), waiter)
         .await
         .expect("the survivor's end wakes the waiter")
         .unwrap();
@@ -95,7 +95,7 @@ async fn kill_ends_the_survivors_and_a_second_look_finds_none() {
     assert!(!pid_alive(sleeper), "the sleeper survived the kill");
     assert_eq!(watch.survivors(&h), None);
     // Nothing left: waiting returns at once.
-    let confirmed = tokio::time::timeout(Duration::from_secs(2), watch.wait_gone(&h, &CancellationToken::new())).await.expect("nothing to wait for");
+    let confirmed = mixdog_rt::time::timeout(Duration::from_secs(2), watch.wait_gone(&h, &CancellationToken::new())).await.expect("nothing to wait for");
     assert!(confirmed);
 }
 
@@ -112,7 +112,7 @@ async fn an_abort_ends_the_wait_unconfirmed_and_leaves_the_survivor_running() {
         async move { watch.wait_gone(&h, &abort).await }
     });
     abort.cancel();
-    let confirmed = tokio::time::timeout(Duration::from_secs(10), waiter).await.expect("the abort ends the wait").unwrap();
+    let confirmed = mixdog_rt::time::timeout(Duration::from_secs(10), waiter).await.expect("the abort ends the wait").unwrap();
     assert!(!confirmed, "an aborted wait confirms nothing");
     assert!(pid_alive(sleeper), "aborting a wait does not touch the survivor");
     assert!(watch.survivors(&h).is_some());
@@ -195,7 +195,7 @@ async fn a_console_host_still_exiting_after_its_root_is_no_survivor() {
     let mut events = m.subscribe(&h, Some(0)).unwrap();
     let mut out = Vec::new();
     let root: u32 = loop {
-        match tokio::time::timeout(WAIT, events.next()).await.expect("the root prints its pid").expect("the feed is open") {
+        match mixdog_rt::time::timeout(WAIT, events.next()).await.expect("the root prints its pid").expect("the feed is open") {
             ProcessEvent::Output { bytes, .. } => out.extend(bytes),
             ProcessEvent::Exited { .. } => panic!("the root ended before it printed its pid: {}", text(&out)),
         }
@@ -218,7 +218,7 @@ async fn a_console_host_still_exiting_after_its_root_is_no_survivor() {
     client.end();
     mixdog_spawn::testing::release_settle_window();
     loop {
-        match tokio::time::timeout(WAIT, events.next()).await.expect("the root's exit is published").expect("the feed is open") {
+        match mixdog_rt::time::timeout(WAIT, events.next()).await.expect("the root's exit is published").expect("the feed is open") {
             ProcessEvent::Exited { .. } => break,
             ProcessEvent::Output { .. } => {}
         }

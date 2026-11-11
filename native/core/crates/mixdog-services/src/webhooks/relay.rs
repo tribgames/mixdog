@@ -340,7 +340,7 @@ mod tests {
         let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         let mut leg = relay.next_leg().await;
         tunnel.close();
-        let ended = tokio::time::timeout(Duration::from_secs(10), async {
+        let ended = mixdog_rt::time::timeout(Duration::from_secs(10), async {
             while let Some(Ok(message)) = leg.socket.next().await {
                 if message.is_close() {
                     break;
@@ -349,7 +349,7 @@ mod tests {
         })
         .await;
         assert!(ended.is_ok(), "the leg is closed");
-        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1_500)).await;
         assert!(relay.legs.try_recv().is_err(), "no reconnect after close");
     }
 }

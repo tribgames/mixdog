@@ -80,7 +80,7 @@ async fn closed_after(before: usize) {
             notified.await;
         }
     };
-    tokio::time::timeout(std::time::Duration::from_secs(30), released).await.expect("no listener was released");
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(30), released).await.expect("no listener was released");
 }
 
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-callback-mcp/golden.json");

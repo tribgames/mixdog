@@ -244,7 +244,7 @@ async fn supervise(
         status = child.wait() => status,
         () = shutdown.cancelled() => {
             // stdin is closed by the writer; a well-behaved server exits within the grace.
-            match tokio::time::timeout(grace, child.wait()).await {
+            match mixdog_rt::time::timeout(grace, child.wait()).await {
                 Ok(status) => status,
                 Err(_) => {
                     kill_tree(&mut child, containment.as_ref());
@@ -258,13 +258,13 @@ async fn supervise(
     }
     // Messages the child wrote before exiting are delivered before `Closed`.
     if let Some(reader) = reader {
-        let _ = tokio::time::timeout(grace, reader).await;
+        let _ = mixdog_rt::time::timeout(grace, reader).await;
     }
     // The tail is complete only once stderr was read to its end.
     // A descendant that keeps the pipe open ends the wait by abort, so the reader neither outlives
     // this task nor races the snapshot below.
     if let Some(mut stderr_reader) = stderr_reader
-        && tokio::time::timeout(grace, &mut stderr_reader).await.is_err()
+        && mixdog_rt::time::timeout(grace, &mut stderr_reader).await.is_err()
     {
         stderr_reader.abort();
         let _ = stderr_reader.await;
@@ -332,7 +332,7 @@ mod tests {
         };
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
         let mut line = String::new();
-        tokio::time::timeout(Duration::from_secs(30), async {
+        mixdog_rt::time::timeout(Duration::from_secs(30), async {
             loop {
                 line.clear();
                 assert!(stdout.read_line(&mut line).await.unwrap() > 0, "the child ended before it said ready");
@@ -345,11 +345,11 @@ mod tests {
         .expect("the child says ready (its grandchild runs) in 30 s");
         containment.terminate();
         let mut rest = Vec::new();
-        tokio::time::timeout(Duration::from_secs(30), stdout.read_to_end(&mut rest))
+        mixdog_rt::time::timeout(Duration::from_secs(30), stdout.read_to_end(&mut rest))
             .await
             .expect("the grandchild ended with the job: its end of the stdout pipe closed in 30 s")
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(30), child.wait()).await.expect("the child ended in 30 s").unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(30), child.wait()).await.expect("the child ended in 30 s").unwrap();
     }
 
     /// A child the job refuses is not started: the start fails and the child, created suspended and never resumed, is
@@ -363,7 +363,7 @@ mod tests {
         };
         assert!(matches!(error, TransportError::Spawn { .. }), "{error:?}");
         let mut child = child.expect("the child was created");
-        tokio::time::timeout(Duration::from_secs(30), child.wait())
+        mixdog_rt::time::timeout(Duration::from_secs(30), child.wait())
             .await
             .expect("the child of a failed attach ended in 30 s, not left suspended")
             .unwrap();

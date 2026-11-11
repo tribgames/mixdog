@@ -14,7 +14,6 @@ use std::sync::OnceLock;
 use std::sync::Weak;
 use std::time::Duration;
 use std::time::Instant;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use crate::domain_seams::settings_effects::ConfiguredShell;
@@ -53,7 +52,7 @@ fn host_oem() -> Option<&'static str> {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Bound of the completion channel. A full channel is backpressure: the completing job's task
@@ -210,6 +209,8 @@ pub fn build_exec(
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             maintenance: tokens.maintenance_io,
+            spawn: tokens.spawn_io,
+            pty: tokens.pty_io,
         },
         spill_dir: data_dir.join("scratch").join("jobs"),
         data_dir: Some(data_dir.to_path_buf()),
@@ -420,7 +421,7 @@ mod tests {
 
         /// The standby parked next, once it is.
         async fn parked(&self) -> ProcessHandle {
-            tokio::time::timeout(Duration::from_secs(30), self.runtime.wait_parked_standby()).await.expect("no standby was parked")
+            mixdog_rt::time::timeout(Duration::from_secs(30), self.runtime.wait_parked_standby()).await.expect("no standby was parked")
         }
 
         async fn task(&self, call: &str, args: serde_json::Value) -> String {
@@ -536,7 +537,7 @@ mod tests {
         let parked = rig.parked().await;
         let mut events = rig.processes.subscribe(&parked, Some(0)).unwrap();
         rig.runtime.drain_snapshots(&CancellationToken::new()).await;
-        let ended = tokio::time::timeout(Duration::from_secs(30), async {
+        let ended = mixdog_rt::time::timeout(Duration::from_secs(30), async {
             loop {
                 if let Some(ProcessEvent::Exited { .. }) | None = events.next().await {
                     return;
@@ -631,7 +632,7 @@ mod tests {
             let call = format!("u{i}");
             let started = std::time::Instant::now();
             // An answer after the stand-in's life is wrong already, so the wait ends there.
-            let ran = tokio::time::timeout(life, rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input))
+            let ran = mixdog_rt::time::timeout(life, rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input))
                 .await
                 .unwrap_or_else(|_| panic!("{}: no answer within the stand-in's {life:?}", case["name"]));
             let ran = text(ran);
@@ -671,7 +672,7 @@ mod tests {
         assert!(rig.run("warm", "Write-Output hi").await.contains("hi"));
         let mut times = Vec::new();
         for i in 0..20 {
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            mixdog_rt::time::sleep(Duration::from_secs(3)).await;
             let start = std::time::Instant::now();
             let ran = rig.run(&format!("m{i}"), "Write-Output hi").await;
             times.push(start.elapsed().as_secs_f64() * 1000.0);

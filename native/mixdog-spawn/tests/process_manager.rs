@@ -28,7 +28,7 @@ fn long_sleep() -> CommandSpec {
 
 async fn wait_exit(manager: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) {
     while manager.info(h).unwrap().exit.is_none() {
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
@@ -265,7 +265,7 @@ async fn run_limit_takes_the_whole_tree_too() {
     let deadline = Instant::now() + Duration::from_secs(5);
     while pid_alive(grandchild) {
         assert!(Instant::now() < deadline, "the grandchild survived the run limit");
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
@@ -290,7 +290,7 @@ fn flood_command(path: &str) -> CommandSpec {
 /// The bytes pushed once the process's reader is parked at its feed's gate: held back by the stalled consumer or the paused feed. The wait is on
 /// the reader's own signal, so a loaded machine cannot end it early; the deadline fails a reader that never parks.
 async fn pushed_when_blocked(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
-    tokio::time::timeout(Duration::from_secs(60), m.output_blocked(h))
+    mixdog_rt::time::timeout(Duration::from_secs(60), m.output_blocked(h))
         .await
         .expect("the reader never parked at its feed's gate within 60 s")
         .unwrap()
@@ -323,7 +323,7 @@ async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     m.write_input(&h, b"x".to_vec()).unwrap();
     while m.input_backlog(&h).unwrap() > 0 {
         assert!(started.elapsed() < Duration::from_secs(2), "keystroke stuck behind the stalled output");
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     }
 
     // Another process is neither slowed nor stalled by it.
@@ -339,7 +339,7 @@ async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     let drain_started = Instant::now();
     let mut tail: Vec<u8> = Vec::new();
     let mut total = 0usize;
-    tokio::time::timeout(Duration::from_secs(120), async {
+    mixdog_rt::time::timeout(Duration::from_secs(120), async {
         while let Some(event) = client.next().await {
             match event {
                 ProcessEvent::Output { bytes, .. } => {
@@ -369,7 +369,7 @@ async fn explicit_pause_stops_the_reader_and_resume_releases_it() {
     m.spawn(pty_request(&h, cmd, PtySize { cols: 120, rows: 40 })).await.unwrap();
     // Pause once the flood has started: a reader paused before its first byte stays at zero.
     while m.output_pushed(&h).unwrap() == 0 {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
     m.set_output_paused(&h, true).unwrap();
     let stalled = pushed_when_blocked(&m, &h).await;
@@ -402,7 +402,7 @@ async fn natural_exit_behind_paused_output_is_published_and_frees_the_slot() {
         };
         m.spawn(req).await.unwrap();
         while m.output_pushed(&h).unwrap() == 0 {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         m.set_output_paused(&h, true).unwrap();
         wait_exit(&m, &h).await;
@@ -449,7 +449,7 @@ async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() 
     m.spawn(request(&h, orphan_pipe_script())).await.unwrap();
     let grandchild = child_pid(&m, &h).await;
     // Long enough for the root to be gone; the pipe is still held.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(1500)).await;
     assert!(m.info(&h).unwrap().exit.is_none(), "the exit waits for the held pipe");
     assert!(pid_alive(grandchild));
     let killed = m.kill(&h);
@@ -463,7 +463,7 @@ async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() 
     let started = Instant::now();
     while pid_alive(grandchild) {
         assert!(started.elapsed() < Duration::from_secs(5), "the grandchild survived the kill");
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
     }
     wait_exit(&m, &h).await;
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
@@ -593,7 +593,7 @@ async fn a_write_in_pieces_is_never_interleaved_with_another_write() {
     let mut second = Box::pin(m.write_input_wait(&h, b"x".to_vec()));
     assert!(poll_once(&mut second).await.is_pending(), "a waiting write goes after the whole of it");
     m.kill(&h).unwrap();
-    assert_eq!(tokio::time::timeout(WAIT, first).await.expect("the first write ends with the process"), Err(ProcessError::StdinClosed));
+    assert_eq!(mixdog_rt::time::timeout(WAIT, first).await.expect("the first write ends with the process"), Err(ProcessError::StdinClosed));
     let _ = collect(&m, &h).await;
 }
 
@@ -609,7 +609,7 @@ async fn a_write_whose_caller_is_dropped_midway_is_written_whole() {
     let mut first = Box::pin(m.write_input_wait(&h, format!("{long}\n").into_bytes()));
     let _ = poll_once(&mut first).await;
     drop(first);
-    tokio::time::timeout(WAIT, m.write_input_wait(&h, b"END\n".to_vec())).await.expect("the second write within the deadline").unwrap();
+    mixdog_rt::time::timeout(WAIT, m.write_input_wait(&h, b"END\n".to_vec())).await.expect("the second write within the deadline").unwrap();
     m.close_stdin(&h).unwrap();
     let (output, _) = collect(&m, &h).await;
     let lines: Vec<String> = String::from_utf8(output).unwrap().lines().map(|line| line.trim_end().to_owned()).collect();
@@ -626,7 +626,7 @@ async fn refusing_the_input_ends_a_waiting_write() {
     let mut first = Box::pin(m.write_input_wait(&h, "é".repeat(256 * 1024).into_bytes()));
     assert!(poll_once(&mut first).await.is_pending(), "the large write waits for room");
     m.refuse_input(&h);
-    assert_eq!(tokio::time::timeout(WAIT, first).await.expect("the write ends when the input is refused"), Err(ProcessError::StdinClosed));
+    assert_eq!(mixdog_rt::time::timeout(WAIT, first).await.expect("the write ends when the input is refused"), Err(ProcessError::StdinClosed));
     assert_eq!(m.write_input(&h, b"x".to_vec()), Err(ProcessError::StdinClosed), "the write side is free and refuses");
     m.kill(&h).unwrap();
     let _ = collect(&m, &h).await;
@@ -644,7 +644,7 @@ async fn a_whole_write_is_done_when_the_process_has_it_and_fails_when_it_never_d
     let mut write = Box::pin(m.write_input_whole(&h, vec![b'x'; 512 * 1024]));
     assert!(poll_once(&mut write).await.is_pending(), "queued is not written");
     m.kill(&h).unwrap();
-    let ended = tokio::time::timeout(WAIT, write).await.expect("the write ends with the process");
+    let ended = mixdog_rt::time::timeout(WAIT, write).await.expect("the write ends with the process");
     assert!(ended.is_err(), "an unread write fails: {ended:?}");
     let _ = collect(&m, &h).await;
 }
@@ -663,7 +663,7 @@ async fn input_larger_than_the_queue_is_written_in_pieces() {
     let lines: Vec<String> = (0..64).map(|n| format!("line {n:02}")).collect();
     let text = lines.iter().map(|line| format!("{line}\n")).collect::<String>();
     assert!(text.len() > 16 * 4);
-    tokio::time::timeout(WAIT, m.write_input_wait(&h, text.into_bytes())).await.expect("the input was written within the deadline").unwrap();
+    mixdog_rt::time::timeout(WAIT, m.write_input_wait(&h, text.into_bytes())).await.expect("the input was written within the deadline").unwrap();
     m.close_stdin(&h).unwrap();
     let (output, _) = collect(&m, &h).await;
     let got: Vec<String> = String::from_utf8_lossy(&output).lines().map(str::to_owned).collect();

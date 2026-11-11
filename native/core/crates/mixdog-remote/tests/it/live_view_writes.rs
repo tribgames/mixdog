@@ -74,12 +74,12 @@ async fn a_live_view_write_queued_before_an_unpair_reaches_no_phone() {
     runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
     runtime.list_clients().await.unwrap();
     let mut phone = relay.pair_phone(&identity, PHONE, CRED).await;
-    tokio::time::timeout(WAIT, bridged.wait_for(|dialed| *dialed)).await.expect("the bridge dialed the core within 10 s").unwrap();
+    mixdog_rt::time::timeout(WAIT, bridged.wait_for(|dialed| *dialed)).await.expect("the bridge dialed the core within 10 s").unwrap();
 
     // While the device may view, its frame reaches it.
     to_bridge.send(Frame::Text(frame(1))).unwrap();
     reads.add_permits(1);
-    assert_eq!(tokio::time::timeout(WAIT, phone.recv()).await.expect("the first frame reached the phone within 10 s"), frame(1));
+    assert_eq!(mixdog_rt::time::timeout(WAIT, phone.recv()).await.expect("the first frame reached the phone within 10 s"), frame(1));
 
     // A frame and a WebRTC signal the core queued before the unpair, then a message of another kind.
     let signal = json!({ "method": "browser/webrtcSignal", "params": { "signal": { "type": "offer", "sdp": "v=0" } } }).to_string();
@@ -92,7 +92,7 @@ async fn a_live_view_write_queued_before_an_unpair_reaches_no_phone() {
     // The bridge reads what was queued.
     reads.add_permits(3);
     assert_eq!(
-        tokio::time::timeout(WAIT, phone.recv()).await.expect("a message reached the phone within 10 s"),
+        mixdog_rt::time::timeout(WAIT, phone.recv()).await.expect("a message reached the phone within 10 s"),
         other,
         "the frame and the signal queued before the unpair reached no phone"
     );

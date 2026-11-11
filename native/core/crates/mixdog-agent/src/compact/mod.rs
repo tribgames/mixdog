@@ -26,3 +26,6 @@ pub mod summary_schema;
 pub mod text_utils;
 pub mod tool_schema;
 pub mod triggers;
+
+#[cfg(test)]
+mod node_cases_tests;

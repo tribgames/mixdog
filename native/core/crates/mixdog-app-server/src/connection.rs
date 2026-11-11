@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
@@ -21,6 +22,7 @@ use mixdog_core_api::HostError;
 use mixdog_core_api::FeedSource;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
@@ -69,7 +71,7 @@ enum Waiter {
 #[derive(Default)]
 struct HostState {
     /// Requests sent to this connection as the host claimant; `None` once closed.
-    pending: Option<HashMap<RequestId, Waiter>>,
+    pending: Option<HashMap<RequestId, (Method, Waiter)>>,
 }
 
 pub(crate) struct Connection {
@@ -82,10 +84,16 @@ pub(crate) struct Connection {
     /// is what keeps a server request from overtaking the response on the control lane.
     handshake_done: AtomicBool,
     inflight: [AtomicU32; 4],
+    /// Reads that found their class full, per class in arrival order; `None` once closed. A freed place goes to the
+    /// oldest of them, and the count only falls with no read waiting, both under this lock.
+    queued: Mutex<Option<[VecDeque<Queued>; 4]>>,
     subs: Mutex<Option<HashMap<FeedId, Sub>>>,
     next_sub: AtomicU64,
     host: Mutex<HostState>,
 }
+
+/// A read waiting for an in-flight place: given the connection once it holds one ([`Connection::granted`]).
+pub(crate) type Queued = Box<dyn FnOnce(Arc<Connection>) + Send>;
 
 /// What a closing connection leaves behind for the caller to release.
 pub(crate) struct Closed {
@@ -112,7 +120,20 @@ pub(crate) struct Slot {
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        self.conn.inflight[class_index(self.class)].fetch_sub(1, Ordering::AcqRel);
+        let index = class_index(self.class);
+        let next = {
+            let mut queued = lock(&self.conn.queued);
+            let next = queued.as_mut().and_then(|queued| queued[index].pop_front());
+            if next.is_none() {
+                self.conn.inflight[index].fetch_sub(1, Ordering::AcqRel);
+            }
+            next
+        };
+        // The place passes to the oldest waiting read, which runs on its own task (never inside this drop).
+        if let Some(next) = next {
+            let conn = Arc::clone(&self.conn);
+            mixdog_rt::spawn("request", mixdog_rt::TaskClass::Work, async move { next(conn) });
+        }
     }
 }
 
@@ -134,6 +155,7 @@ impl Connection {
             session: OnceLock::new(),
             handshake_done: AtomicBool::new(false),
             inflight: Default::default(),
+            queued: Mutex::new(Some(Default::default())),
             subs: Mutex::new(Some(HashMap::new())),
             next_sub: AtomicU64::new(1),
             host: Mutex::new(HostState {
@@ -175,6 +197,38 @@ impl Connection {
                 _request: request_started(),
             })
             .map_err(|_| cap)
+    }
+
+    /// [`Self::admit`] for a read: a full class queues it (`later` makes what runs once it has a place) unless `bound`
+    /// reads already wait. `Ok` gives the slot and `item` back; `Err(None)` is queued; `Err(Some(cap))` is refused.
+    pub(crate) fn admit_or_queue<T>(
+        self: &Arc<Self>,
+        class: RequestClass,
+        cap: u32,
+        bound: usize,
+        item: T,
+        request_started: impl FnOnce(&T) -> mixdog_core_api::handle::RequestGuard,
+        later: impl FnOnce(T) -> Queued,
+    ) -> Result<(Slot, T), Option<u32>> {
+        let index = class_index(class);
+        let mut queued = lock(&self.queued);
+        let Some(queued) = queued.as_mut() else { return Err(Some(cap)) };
+        let admitted = queued[index].is_empty()
+            && self.inflight[index].try_update(Ordering::AcqRel, Ordering::Acquire, |count| (count < cap).then_some(count + 1)).is_ok();
+        if admitted {
+            let guard = request_started(&item);
+            return Ok((Slot { conn: Arc::clone(self), class, _request: guard }, item));
+        }
+        if queued[index].len() >= bound {
+            return Err(Some(cap));
+        }
+        queued[index].push_back(later(item));
+        Err(None)
+    }
+
+    /// The slot a queued read was handed by the slot that freed its place (the count already holds it).
+    pub(crate) fn granted(self: &Arc<Self>, class: RequestClass, request: mixdog_core_api::handle::RequestGuard) -> Slot {
+        Slot { conn: Arc::clone(self), class, _request: request }
     }
 
     pub(crate) fn next_subscription_id(&self) -> SubscriptionId {
@@ -244,9 +298,10 @@ impl Connection {
     pub(crate) fn register_host_request(
         &self,
         id: RequestId,
+        method: Method,
     ) -> Option<oneshot::Receiver<HostReply>> {
         let (tx, rx) = oneshot::channel();
-        lock(&self.host).pending.as_mut()?.insert(id, Waiter::Reply(tx));
+        lock(&self.host).pending.as_mut()?.insert(id, (method, Waiter::Reply(tx)));
         Some(rx)
     }
 
@@ -255,10 +310,16 @@ impl Connection {
     pub(crate) fn register_host_stream(
         &self,
         id: RequestId,
+        method: Method,
     ) -> Option<mpsc::UnboundedReceiver<Streamed>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        lock(&self.host).pending.as_mut()?.insert(id, Waiter::Stream(tx));
+        lock(&self.host).pending.as_mut()?.insert(id, (method, Waiter::Stream(tx)));
         Some(rx)
+    }
+
+    /// The method of the `host/*` request `id` pending here.
+    pub(crate) fn host_request_method(&self, id: &RequestId) -> Option<Method> {
+        lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)).map(|(method, _)| *method)
     }
 
     /// Delivers the claimant's answer; gives it back when the request is not pending here.
@@ -270,7 +331,8 @@ impl Connection {
         let waiter = lock(&self.host)
             .pending
             .as_mut()
-            .and_then(|pending| pending.remove(id));
+            .and_then(|pending| pending.remove(id))
+            .map(|(_, waiter)| waiter);
         match waiter {
             // The requester may have abandoned the request; the answer is then unwanted.
             Some(Waiter::Reply(sender)) => {
@@ -289,7 +351,7 @@ impl Connection {
     /// (a late event after the answer, or a request that is not streamed).
     pub(crate) fn host_stream_event(&self, id: &RequestId, event: Value) -> bool {
         match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
-            Some(Waiter::Stream(sender)) => sender.send(Streamed::Event(event)).is_ok(),
+            Some((_, Waiter::Stream(sender))) => sender.send(Streamed::Event(event)).is_ok(),
             _ => false,
         }
     }
@@ -297,7 +359,7 @@ impl Connection {
     /// Tells a pending streamed request its claimant is alive; `false` when none such is pending here.
     pub(crate) fn host_stream_alive(&self, id: &RequestId) -> bool {
         match lock(&self.host).pending.as_ref().and_then(|pending| pending.get(id)) {
-            Some(Waiter::Stream(sender)) => sender.send(Streamed::Alive).is_ok(),
+            Some((_, Waiter::Stream(sender))) => sender.send(Streamed::Alive).is_ok(),
             _ => false,
         }
     }
@@ -312,6 +374,9 @@ impl Connection {
     /// elsewhere. Pending `host/*` requests are dropped, which fails their waiters.
     pub(crate) fn close(&self) -> Closed {
         self.cancel.cancel();
+        // Waiting reads are dropped unanswered, as the connection's running work is cancelled.
+        let waiting = lock(&self.queued).take();
+        drop(waiting);
         let subs = lock(&self.subs)
             .take()
             .map(|subs| subs.into_values().collect())

@@ -94,9 +94,9 @@ The crate is vendored and compiled into the Rust core, where it matches the
 `pattern` keywords of MCP tools' output schemas. The upstream license is
 preserved as `LICENSES/fancy-regex-MIT.txt` and beside the vendored tree.
 
-- `native/vendor/fancy-regex/`
+- `native/core/vendor/fancy-regex/`
 
-Statement of changes (listed in `native/vendor/fancy-regex/MIXDOG.md` and
+Statement of changes (listed in `native/core/vendor/fancy-regex/MIXDOG.md` and
 marked `mixdog` in the sources): a stop a caller sets on its thread, which a
 match reads at bounded intervals of counted steps (`src/interrupt.rs`, new;
 `src/vm.rs`); searches handed to regex-automata run its lazy DFA one byte at a

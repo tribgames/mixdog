@@ -233,7 +233,7 @@ mod tests {
             }
             let at_once = effects.calls.lock().unwrap().clone();
             assert_eq!(at_once, strings(&scenario["syncCalls"]), "{label}: calls at once");
-            tokio::time::sleep(Duration::from_millis(40)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(40)).await;
             assert_eq!(effects.calls.lock().unwrap().clone(), strings(&scenario["calls"]), "{label}: calls settled");
             assert_eq!(*effects.cooldown.lock().unwrap(), scenario["blockedAfter"].is_string(), "{label}: cooldown");
         }

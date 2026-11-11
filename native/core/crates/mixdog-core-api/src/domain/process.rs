@@ -193,6 +193,18 @@ pub trait ProcessManager: Send + Sync {
     /// `limits.maxProcesses` live processes: `LimitReached`), then creates the process on
     /// io-spawn; dropping the future abandons the wait. There is no per-session spawn limit.
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError>;
+    /// [`spawn`](Self::spawn) and a subscription from the process's first event, made in one
+    /// step: the subscription exists before the child can write a byte, so however late the
+    /// caller is scheduled none of the output is lost (a subscriber holds the replay ring's
+    /// reader back instead). The default subscribes after the spawn, for managers without a ring.
+    async fn spawn_subscribed(
+        &self,
+        request: SpawnRequest,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        let handle = request.handle.clone();
+        let spawned = self.spawn(request).await?;
+        Ok((spawned, self.subscribe(&handle, Some(0))?))
+    }
     /// Events from `from_seq` (replayed from the ring) or from the next one.
     fn subscribe(
         &self,

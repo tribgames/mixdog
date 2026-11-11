@@ -24,6 +24,7 @@ use super::summary::fit_complete_compaction_prompt;
 use super::summary::fit_generated_handoff_message;
 use super::summary::extract_response_text;
 use crate::env::CompactError;
+use crate::env::CompactRoute;
 use crate::one_shot::CallShape;
 use crate::message::AgentMessage;
 use mixdog_core_api::domain::provider::Role;
@@ -42,6 +43,18 @@ pub enum SummaryFailure {
     /// The call was cancelled: the abort propagates, no route is tried after it.
     Aborted,
     Failed(String),
+}
+
+/// Node `fallsToNextRoute`: a failure out of quota, unavailable to the account or naming a model
+/// that is not found lets the next route still summarize, wherever it arose (the send, or the
+/// route's provider init).
+pub fn falls_to_next_route(code: Option<&str>, status: Option<u16>, quota: bool) -> bool {
+    matches!(code, Some("provider_accounts_exhausted" | "model_not_found")) || matches!(status, Some(429 | 404)) || quota
+}
+
+/// A failure of a route step classified by [`falls_to_next_route`].
+pub fn route_failure(message: String, code: Option<&str>, status: Option<u16>, quota: bool) -> SummaryFailure {
+    if falls_to_next_route(code, status, quota) { SummaryFailure::NextRoute(message) } else { SummaryFailure::Failed(message) }
 }
 
 impl From<SummaryFailure> for CompactError {
@@ -430,12 +443,19 @@ async fn summarize_on_route(
 pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, steps: &[RouteStep]) -> Result<(RouteStep, Generated), CompactError> {
     let warm = cx.fork.warm();
     let mut tried: HashSet<(String, String)> = HashSet::new();
-    let mut failure: Option<SummaryFailure> = None;
+    let mut failure: Option<CompactError> = None;
+    // `error.compactRoute`: a failure on a resolved route names that route.
+    let on_route = |error: SummaryFailure, route: &SummaryRoute| match error {
+        SummaryFailure::NextRoute(text) | SummaryFailure::Failed(text) => {
+            CompactError::RouteFailed(text, CompactRoute { provider: route.provider_name.clone(), model: route.model.clone() })
+        }
+        other => other.into(),
+    };
     for step in steps {
         let route = match cx.resolver.resolve(*step).await {
             Ok(route) => route,
             Err(error) if *step != RouteStep::Session && matches!(error, SummaryFailure::NextRoute(_)) => {
-                failure = Some(error);
+                failure = Some(error.into());
                 continue;
             }
             Err(error) => return Err(error.into()),
@@ -447,10 +467,10 @@ pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, steps: &[RouteStep]) -
         match summarize_on_route(cx, &route, warm).await {
             Ok(done) => return Ok((route.step, done)),
             Err(error) if route.step != RouteStep::Session && matches!(error, SummaryFailure::NextRoute(_)) => {
-                failure = Some(error);
+                failure = Some(on_route(error, &route));
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(on_route(error, &route)),
         }
     }
-    Err(failure.map_or_else(|| CompactError::Failed("compact summary route unavailable".into()), Into::into))
+    Err(failure.unwrap_or_else(|| CompactError::Failed("compact summary route unavailable".into())))
 }

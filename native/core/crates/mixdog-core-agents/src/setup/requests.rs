@@ -218,7 +218,7 @@ impl SetupDesktop for SetupRequests {
                     }
                     continue;
                 }
-                () = tokio::time::sleep_until(deadline) => {
+                () = mixdog_rt::time::sleep_until(deadline) => {
                     let (now_claimed, now_deadline) = {
                         let pending = self.pending.lock().expect("setup requests");
                         pending.get(&id).map_or((is_claimed, deadline), |e| (e.owner.is_some(), e.deadline))

@@ -388,7 +388,7 @@ mod tests {
         };
         let mut stdout = tokio::io::BufReader::new(proc.child.stdout.take().unwrap());
         let mut line = String::new();
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 line.clear();
                 assert!(stdout.read_line(&mut line).await.unwrap() > 0, "the worker ended before it said ready");
@@ -401,11 +401,11 @@ mod tests {
         .expect("the worker says ready (its grandchild runs) in 30 s");
         proc.containment.kill_group();
         let mut rest = Vec::new();
-        tokio::time::timeout(std::time::Duration::from_secs(30), stdout.read_to_end(&mut rest))
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), stdout.read_to_end(&mut rest))
             .await
             .expect("the grandchild ended with the job: its end of the stdout pipe closed in 30 s")
             .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(30), proc.child.wait())
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), proc.child.wait())
             .await
             .expect("the worker ended in 30 s")
             .unwrap();
@@ -422,7 +422,7 @@ mod tests {
         };
         assert!(error.to_string().contains("attach failed"), "{error}");
         let mut child = child.expect("the child was created");
-        tokio::time::timeout(std::time::Duration::from_secs(30), child.wait())
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(30), child.wait())
             .await
             .expect("the child of a failed attach ended in 30 s, not left suspended")
             .unwrap();

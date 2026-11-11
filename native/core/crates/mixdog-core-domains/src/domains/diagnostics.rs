@@ -789,7 +789,8 @@ fn config_file(dir: &std::path::Path) -> Reported {
         }
         Err(_) => return Err(ProbeFailed),
     };
-    let valid = matches!(serde_json::from_str::<Value>(&raw), Ok(Value::Object(_)));
+    // A string Node stored with half an emoji (`\ud83d`) is valid to Node's `JSON.parse`.
+    let valid = matches!(serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&raw)), Ok(Value::Object(_)));
     Ok(if valid {
         verdict(Level::Ok, "mixdog-config.json is valid")
     } else {
@@ -974,7 +975,7 @@ async fn doctor_check(
     interactive: InteractiveIo,
 ) -> Value {
     let work = run_check(id, thread.as_ref(), &*sources, &config, &cancel, interactive);
-    let verdict = match tokio::time::timeout(config.check_timeout, work).await {
+    let verdict = match mixdog_rt::time::timeout(config.check_timeout, work).await {
         Err(_) => Verdict {
             level: Level::Warn,
             detail: format!(

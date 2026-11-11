@@ -82,7 +82,7 @@ fn analysis(runtime: &tokio::runtime::Runtime, command: &str) -> Vec<String> {
         let tokens = mixdog_rt::testing::tokens();
         let cwd = std::env::temp_dir();
         let direct =
-            super::direct::plan_direct_exe(tokens.maintenance_io, &CancellationToken::new(), command, true, true, &cwd, "").await;
+            super::direct::plan_direct_exe(tokens.spawn_io, &CancellationToken::new(), command, true, true, &cwd, "").await;
         out.push(format!("{direct:?}"));
     });
     out
