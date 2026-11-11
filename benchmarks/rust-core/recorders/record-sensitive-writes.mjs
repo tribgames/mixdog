@@ -77,6 +77,8 @@ if (process.argv[2] === '--child') {
   const { createMemoryIngest } = await imp('src/session-runtime/lifecycle/memory-ingest.mjs');
   const { stopOwnedPgForShutdown } = await imp('src/runtime/memory/lib/pg/supervisor.mjs');
   const { backfillSessionSearch } = await imp('src/runtime/session-search/session-search-ingest.mjs');
+  const { createTranscriptRouteMetadata } = await imp('src/runtime/shared/transcript-metadata.mjs');
+  const { pickDoneVerb } = await imp('src/tui/session/labels.mjs');
   const cfgMod = await imp(`${S}config.mjs`);
   const mgr = await imp(`${S}session/manager.mjs`);
   // The desktop tools of the session runtime (boot/tools.mjs wireInternalTools): the `browser` tool and `handoff_user`, with
@@ -113,9 +115,11 @@ if (process.argv[2] === '--child') {
 
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : { sends: [], approvals: [], commands: [], answers: [], ingests: [], compaction: null };
   const providerName = 'sensitive-writes';
+  // The result the OpenAI-chat provider the replay serves would give (openai-compat-chat-send.mjs: `stopReason` is the
+  // choice's `finish_reason`).
   const reply = (step) => ({
     content: step.text,
-    ...(step.calls.length ? { toolCalls: step.calls.map((c) => ({ id: c.id, name: c.name, arguments: c.args })), stopReason: 'tool_use' } : {}),
+    ...(step.calls.length ? { toolCalls: step.calls.map((c) => ({ id: c.id, name: c.name, arguments: c.args })), stopReason: 'tool_calls' } : { stopReason: 'stop' }),
     usage: { inputTokens: 1, outputTokens: 1 },
   });
   const provider = {
@@ -155,7 +159,16 @@ if (process.argv[2] === '--child') {
       rt.session = resumed;
     }
     for (const turn of TURNS.filter((t) => t.phase === phase)) {
-      const answer = await deadline(askSession(sessionId, turn.prompt, null, null, null, null, { onToolApproval }), 120_000, `the turn "${turn.prompt}"`);
+      // The transcript metadata the desktop's turn hands askSession (tui/session/turn.mjs `beginTurn`: the route of the
+      // session, the submitting device, the turn's verb and attempt id; turn-run `stampCheckpoint`: the prompt id).
+      const transcriptMeta = {
+        ...createTranscriptRouteMetadata(mgr.getSession(sessionId), { workflow: mgr.getSession(sessionId)?.workflow }),
+        device: 'sw-replay',
+        completionVerb: pickDoneVerb(state.answers.length),
+        attemptId: globalThis.crypto.randomUUID(),
+        checkpointId: globalThis.crypto.randomUUID(),
+      };
+      const answer = await deadline(askSession(sessionId, turn.prompt, null, null, null, null, { onToolApproval, transcriptMeta }), 120_000, `the turn "${turn.prompt}"`);
       state.answers.push(answer?.content ?? null);
     }
     if (phase === 1) {

@@ -320,7 +320,8 @@ fn typed_of(row: &Value) -> Result<AgentMessage, String> {
     message.message.role = role;
     message.message.tool_calls = calls_of(row)?;
     message.message.tool_call_id = str_of(row, "toolCallId").map(str::to_owned);
-    message.message.is_error = row.get("isError").and_then(Value::as_bool) == Some(true);
+    // Node's tool result states a failure by its `toolKind` alone (`finalize.mjs`); an older row by `isError`.
+    message.message.is_error = row.get("isError").and_then(Value::as_bool) == Some(true) || (role == Role::Tool && str_of(row, "toolKind") == Some("error"));
     message.message.cache_tier = str_of(row, "cacheTier").and_then(tier_of);
     message.message.thinking_blocks = row.get("thinkingBlocks").cloned();
     message.message.assistant_blocks = row.get("assistantBlocks").cloned();
@@ -435,7 +436,7 @@ fn fresh_row(m: &AgentMessage) -> Row {
         row.insert("toolCalls".into(), call_rows(&m.message.tool_calls, None));
     }
     set_or_remove(&mut row, "toolCallId", m.message.tool_call_id.as_ref().map(|v| json!(v)));
-    if m.message.is_error {
+    if m.message.is_error && !(m.message.role == Role::Tool && m.tool_kind == Some(ToolKind::Error)) {
         row.insert("isError".into(), json!(true));
     }
     set_or_remove(&mut row, "cacheTier", m.message.cache_tier.map(|t| json!(tier_name(t))));

@@ -458,6 +458,24 @@ impl Submissions {
     }
 }
 
+/// The input row's `meta.transcript` as Node persists it (`persistedUserTranscriptMetadata`): its fields in that order, then
+/// what the core adds (`clientSubmissionId`); `completionVerb` is the turn's (`beginTurn`) and is not persisted.
+fn persisted_user_order(meta: &mut serde_json::Map<String, Value>) {
+    const ORDER: [&str; 18] = [
+        "messageId", "attemptId", "at", "modelId", "model", "provider", "agent", "sender", "device", "fromAgent", "hop", "botChain", "roomRow", "checkpointId",
+        "submissionIds", "consumedExecutionIds", "attachments", "routineTrigger",
+    ];
+    meta.shift_remove("completionVerb");
+    let mut ordered = serde_json::Map::new();
+    for key in ORDER {
+        if let Some(value) = meta.shift_remove(key) {
+            ordered.insert(key.into(), value);
+        }
+    }
+    ordered.append(meta);
+    *meta = ordered;
+}
+
 /// The trimmed `clientSubmissionId` of a start, if it names one.
 fn submission_id(input: &TurnInput) -> Option<&str> {
     input.options.as_ref().and_then(|options| options.client_submission_id.as_deref()).map(mixdog_js::js_trim).filter(|id| !id.is_empty())
@@ -5066,6 +5084,7 @@ impl SessionActor {
             if !route_agent.is_empty() {
                 meta.entry("agent").or_insert_with(|| json!(route_agent));
             }
+            persisted_user_order(meta);
         }
         self.sync_turn_chain();
         // `mintTranscriptEpoch` (`transcript-durability.mjs`): a transcript lineage is named when the first turn

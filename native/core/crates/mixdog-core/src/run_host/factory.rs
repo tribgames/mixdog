@@ -390,6 +390,25 @@ impl PortSink {
             }
             transcript.entry("completion").or_insert(completion);
         }
+        // Node's key order: the tool-call message opens with `role, createdAt` (`buildToolCallAssistantMessage`), the
+        // terminal reply puts its `meta` right after `content` (`appendAssistantTurnMessage`).
+        let lead: &[&str] = if !message.tool_calls().is_empty() {
+            &["role", "createdAt"]
+        } else if terminal.is_some() {
+            &["role", "content", "meta"]
+        } else {
+            &[]
+        };
+        if !lead.is_empty() {
+            let mut ordered = serde_json::Map::new();
+            for key in lead {
+                if let Some(value) = object.shift_remove(*key) {
+                    ordered.insert((*key).into(), value);
+                }
+            }
+            ordered.append(object);
+            *object = ordered;
+        }
     }
 
     /// The input row and the context before it: known ids, and the turn's first live message.
