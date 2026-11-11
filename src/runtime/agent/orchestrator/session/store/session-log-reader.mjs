@@ -24,6 +24,15 @@ import {
   sameFingerprint,
   sha1Hex,
 } from './session-log-format.mjs';
+import {
+  SCAN_GUARD_BYTES,
+  bytesDigest,
+  dropScanCheckpoint,
+  loadScanCheckpoint,
+  loadScanCheckpointSync,
+  saveScanCheckpointSync,
+  wantsScanCheckpoint,
+} from './session-scan-checkpoint.mjs';
 
 const NEWLINE = 0x0a;
 
@@ -182,9 +191,16 @@ function absent(err) {
 // ended on; anything else is scanned from the start. What a resume does not
 // see is bytes changed in place further back than that, which nothing of
 // ours does; a full replay (a load, an open for writing) reads everything.
+//
+// A process (or a worker thread) that has just started has no place of its
+// own, and its first scan of each log read all of it. A caller that names a
+// checkpoint directory (`checkpoints`) lets scans leave their place there
+// (session-scan-checkpoint.mjs), every SCAN_STRIDE_BYTES of growth, and a scan
+// with no place in memory takes it from there; it is held to the same proof as
+// a place in memory, which includes the first bytes of the log (its base names
+// the log: a new log is a new id).
 const SCAN_RESUME_LIMIT = 256;
-const SCAN_GUARD_BYTES = 1024;
-const _scans = new Map(); // path → { ino, offset, guard, replay }
+const _scans = new Map(); // path → { ino, offset, guard, first, persisted, replay }
 
 // The scan of `path` to resume on a file whose bigint stat is `st`, taken out
 // of the table for as long as it is being applied to (a scan of the same path
@@ -195,11 +211,40 @@ function takeScan(path, st) {
   return held && held.ino === st.ino && st.size >= BigInt(held.offset) ? held : null;
 }
 
-function keepScan(path, st, replay, offset, guard) {
+function keepScan(path, st, entry) {
   // A damaged log is replayed whole each time: its end is not a place to go on from.
-  if (replay.damage) return;
-  _scans.set(path, { ino: st.ino, offset, guard, replay });
+  if (entry.replay.damage) return;
+  _scans.set(path, { ino: st.ino, ...entry });
   while (_scans.size > SCAN_RESUME_LIMIT) _scans.delete(_scans.keys().next().value);
+}
+
+// The place a checkpoint holds, for a log whose bigint stat is `st`; null when
+// the file no longer reaches it (the guards prove the rest).
+function adoptCheckpoint(checkpoint, st) {
+  if (!checkpoint || checkpoint.ino !== st.ino || st.size < BigInt(checkpoint.offset)) return null;
+  const { ino: _ino, ...place } = checkpoint;
+  return { ...place, persisted: checkpoint.offset };
+}
+
+// How many bytes of the log's start, and of its end before the offset, a place covers.
+const placeLength = (held) => held.first?.length ?? held.guardLength;
+
+// Whether the log's `first` bytes and the `guard` bytes before the place's
+// offset are the ones the place was left on. A place from a checkpoint holds
+// their digests only; once they prove it, the bytes are its own.
+function provesPlace(held, first, guard) {
+  if (held.first) return first.equals(held.first) && guard.equals(held.guard);
+  if (bytesDigest(first) !== held.firstDigest || bytesDigest(guard) !== held.guardDigest) return false;
+  held.first = first;
+  held.guard = guard;
+  return true;
+}
+
+// The first bytes of the log, of `before` (those of the offset the read
+// started at) and the `applied` bytes of `read` that follow.
+function firstAt(before, read, applied) {
+  if (before.length >= SCAN_GUARD_BYTES) return before;
+  return Buffer.from(Buffer.concat([before, read.subarray(0, applied)]).subarray(0, SCAN_GUARD_BYTES));
 }
 
 // The last bytes before `offset`, of `before` (the guard of the offset the
@@ -233,59 +278,114 @@ async function readAt(handle, length, position) {
   return got === length ? bytes : bytes.subarray(0, got);
 }
 
+// `{ result, save }`: the scan's result, and the place to leave in the
+// checkpoint directory (null: none is due).
 function scanned(path, st, held, bytes) {
   const replay = held ? held.replay : newReplay(false);
   const from = held ? held.offset : 0;
   const offset = replayBytes(replay, bytes, from);
-  keepScan(path, st, replay, offset, guardAt(held ? held.guard : NO_BYTES, bytes, offset - from));
-  return replayResult(replay, from + bytes.length, true);
+  const entry = {
+    offset,
+    guard: guardAt(held ? held.guard : NO_BYTES, bytes, offset - from),
+    first: firstAt(held ? held.first : NO_BYTES, bytes, offset - from),
+    persisted: held ? held.persisted : 0,
+    replay,
+  };
+  const save = wantsScanCheckpoint(replay, offset, entry.persisted) ? { ino: st.ino, ...entry } : null;
+  if (save) entry.persisted = offset;
+  keepScan(path, st, entry);
+  return { result: replayResult(replay, from + bytes.length, true), save };
 }
 
-function scanSessionLogSync(path) {
+function scanSessionLogSync(path, checkpoints) {
+  let result;
+  let save;
   let fd;
   try {
     fd = openSync(path, 'r');
   } catch (err) {
     _scans.delete(path);
-    if (absent(err)) return null;
+    if (absent(err)) {
+      if (checkpoints) dropScanCheckpoint(checkpoints, path);
+      return null;
+    }
     throw err;
   }
   try {
     const st = fstatSync(fd, { bigint: true });
     let held = takeScan(path, st);
-    if (held && !readAtSync(fd, held.guard.length, held.offset - held.guard.length).equals(held.guard)) held = null;
+    const fromCheckpoint = !held && checkpoints;
+    if (fromCheckpoint) held = adoptCheckpoint(loadScanCheckpointSync(checkpoints, path), st);
+    if (
+      held &&
+      !provesPlace(
+        held,
+        readAtSync(fd, placeLength(held), 0),
+        readAtSync(fd, placeLength(held), held.offset - placeLength(held))
+      )
+    ) {
+      held = null;
+    }
+    // A checkpoint of another file (or of the same file before it was
+    // rewritten) holds what it kept of that one: it goes now, not when a later
+    // scan of this one overwrites it.
+    if (fromCheckpoint && !held) dropScanCheckpoint(checkpoints, path);
     const from = held ? held.offset : 0;
-    return scanned(path, st, held, readAtSync(fd, Number(st.size) - from, from));
+    ({ result, save } = scanned(path, st, held, readAtSync(fd, Number(st.size) - from, from)));
   } finally {
     closeSync(fd);
   }
+  // Published with the log closed, and only if it is still the one read (session-scan-checkpoint.mjs).
+  if (save) saveScanCheckpointSync(checkpoints, path, save);
+  return result;
 }
 
-async function scanSessionLog(path) {
+async function scanSessionLog(path, checkpoints) {
+  let result;
+  let save;
   let handle;
   try {
     handle = await open(path, 'r');
   } catch (err) {
     _scans.delete(path);
-    if (absent(err)) return null;
+    if (absent(err)) {
+      if (checkpoints) dropScanCheckpoint(checkpoints, path);
+      return null;
+    }
     throw err;
   }
   try {
     const st = await handle.stat({ bigint: true });
     let held = takeScan(path, st);
-    if (held && !(await readAt(handle, held.guard.length, held.offset - held.guard.length)).equals(held.guard)) {
+    const fromCheckpoint = !held && checkpoints;
+    if (fromCheckpoint) held = adoptCheckpoint(await loadScanCheckpoint(checkpoints, path), st);
+    if (
+      held &&
+      !provesPlace(
+        held,
+        await readAt(handle, placeLength(held), 0),
+        await readAt(handle, placeLength(held), held.offset - placeLength(held))
+      )
+    ) {
       held = null;
     }
+    // A checkpoint of another file (or of the same file before it was
+    // rewritten) holds what it kept of that one: it goes now, not when a later
+    // scan of this one overwrites it.
+    if (fromCheckpoint && !held) dropScanCheckpoint(checkpoints, path);
     const from = held ? held.offset : 0;
-    return scanned(path, st, held, await readAt(handle, Number(st.size) - from, from));
+    ({ result, save } = scanned(path, st, held, await readAt(handle, Number(st.size) - from, from)));
   } finally {
     await handle.close();
   }
+  // Published with the log closed, and only if it is still the one read (session-scan-checkpoint.mjs).
+  if (save) saveScanCheckpointSync(checkpoints, path, save);
+  return result;
 }
 
 /** Replay `path`; null when the log does not exist. */
 export async function readSessionLog(path, options) {
-  if (options?.messages === false) return scanSessionLog(path);
+  if (options?.messages === false) return scanSessionLog(path, options.checkpoints);
   let bytes;
   try {
     bytes = await readFile(path);
@@ -297,7 +397,7 @@ export async function readSessionLog(path, options) {
 }
 
 export function readSessionLogSync(path, options) {
-  if (options?.messages === false) return scanSessionLogSync(path);
+  if (options?.messages === false) return scanSessionLogSync(path, options.checkpoints);
   let bytes;
   try {
     bytes = readFileSync(path);
@@ -404,9 +504,16 @@ function stampedStat(file) {
  * (null without one); bytes read under it are proven only by the caller's
  * stamp taken after the read being equal to it.
  */
-export async function resolveSessionRecord({ jsonPath, logPath, loadLegacy, messages = true, stamp = null }) {
+export async function resolveSessionRecord({
+  jsonPath,
+  logPath,
+  loadLegacy,
+  messages = true,
+  stamp = null,
+  checkpoints = null,
+}) {
   const stamped = stamp === null ? null : parseSessionRecordStamp(stamp);
-  const log = stamped && !stamped.log ? null : await readSessionLog(logPath, { messages });
+  const log = stamped && !stamped.log ? null : await readSessionLog(logPath, { messages, checkpoints });
   const readJson = () => (stamped && !stamped.json ? null : readJsonFile(jsonPath, stamped));
   let outcome;
   if (!log) outcome = resolveLegacy(jsonPath, loadLegacy, await readJson());
@@ -418,9 +525,16 @@ export async function resolveSessionRecord({ jsonPath, logPath, loadLegacy, mess
   return { ...outcome, stamp };
 }
 
-export function resolveSessionRecordSync({ jsonPath, logPath, loadLegacy, messages = true, stamp = null }) {
+export function resolveSessionRecordSync({
+  jsonPath,
+  logPath,
+  loadLegacy,
+  messages = true,
+  stamp = null,
+  checkpoints = null,
+}) {
   const stamped = stamp === null ? null : parseSessionRecordStamp(stamp);
-  const log = stamped && !stamped.log ? null : readSessionLogSync(logPath, { messages });
+  const log = stamped && !stamped.log ? null : readSessionLogSync(logPath, { messages, checkpoints });
   const readJson = () => (stamped && !stamped.json ? null : readJsonFileSync(jsonPath, stamped));
   let outcome;
   if (!log) outcome = resolveLegacy(jsonPath, loadLegacy, readJson());
