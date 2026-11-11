@@ -10,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 60982,
+      "bytes": 60980,
       "path": "golden.json",
-      "sha256": "d8e51bc103f05f06ba39bce9996e3a0ee497772ba0f8149032bafc1ec7f63f78"
+      "sha256": "ed071f6923ad5aea158114928b65c1a88606b6c164e2e21d9fb9c1c8dc8786be"
     }
   ],
   "inputs": [
@@ -68,7 +68,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-reentry-cases.mjs",
-  "recorderSha256": "a44e7403e656da5795ebbd12b534206b1d06ac23f8ae1a41c107cdc5d8e4f44f",
+  "recorderSha256": "acfd1dbb5919a587489f6baaf0bba8b9c4858c942a8e1a7a281c88d9285bf418",
   "replay": {
     "compare": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
     "entry": "NO RUST ENTRY ON o1: the unload of an idle session and its re-entry from the stored view, the replayed submission id join and the read tracing diagnostics: no counterpart found.",
@@ -79,7 +79,7 @@
       "the unload of an idle session and its re-entry from the stored view, the replayed submission id join and the read tracing diagnostics: no counterpart found"
     ],
     "normalised": {
-      "clock": "mock timers, not the shared fixed Date.now",
+      "clock": "mock timers, not the shared fixed Date.now; performance.now reads the same mock clock (ms since the fixture started), except where a case scripts it (read tracing: 0, then 321)",
       "dataDir": "temp user-data dir not in the recording"
     },
     "protocolMethods": [],
@@ -87,6 +87,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-reentry-cases",
-  "totalBytes": 60982,
+  "totalBytes": 60980,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

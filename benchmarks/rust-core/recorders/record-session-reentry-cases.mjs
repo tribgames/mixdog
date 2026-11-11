@@ -21,6 +21,9 @@ const { setTranscriptReadDiagnosticSink } = await set.load('apps/desktop/src/sha
 const NOW = 1_800_000_000_000;
 async function sessionFixture() {
   mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now: NOW });
+  // performance.now follows the same mock clock (ms since the fixture started): it moves only with the recorded ticks.
+  const realPerformanceNow = performance.now;
+  performance.now = () => Date.now() - NOW;
   const directory = await mkdtemp(join(tmpdir(), 'session-reentry-'));
   const id = 'reentered_session';
   const ctx = { clientToken: 'reentry-view' };
@@ -83,7 +86,7 @@ async function sessionFixture() {
     persist(text) { persist([...stored.items, { id: stored.projectionStamp, kind: 'assistant', text }]); },
     nextUpdate() { updateWaiter = Promise.withResolvers(); return updateWaiter.promise; },
     holdRead() { const pending = { captured: Promise.withResolvers(), release: Promise.withResolvers() }; heldRead = pending; return pending; },
-    async dispose() { await host.dispose(); await service.stop('test complete'); await rm(directory, { recursive: true, force: true }); mock.timers.reset(); },
+    async dispose() { await host.dispose(); await service.stop('test complete'); await rm(directory, { recursive: true, force: true }); mock.timers.reset(); performance.now = realPerformanceNow; },
   };
 }
 async function run(name, fn) { await set.run(name, async () => { const f = await sessionFixture(); try { return await fn(f); } finally { await f.dispose(); } }); }
@@ -193,6 +196,6 @@ await run('a replayed submission id joins the original instead of double-submitt
 
 await set.finish({
   entry: { hops: "No wire in the Node test: the daemon client is the real session service called in process (handleCall).", runs: "apps/desktop/src/main/session-host.ts SessionHost (setVisibleSessions, submitToSession, prefetchSession, subscribeSessionStates) over the real createSessionService (idle eviction sweep, handleCall session.*) with a scripted stored session and runtime, node:test mock timers, the read-diagnostics sink", notRun: 'no real runtime or store; the daemon client is the service called in-process' },
-  replay: { entry: 'mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step', normalised: { dataDir: 'temp user-data dir not in the recording', clock: 'mock timers, not the shared fixed Date.now' } },
+  replay: { entry: 'mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step', normalised: { dataDir: 'temp user-data dir not in the recording', clock: 'mock timers, not the shared fixed Date.now; performance.now reads the same mock clock (ms since the fixture started), except where a case scripts it (read tracing: 0, then 321)' } },
 });
 process.exit(0);
