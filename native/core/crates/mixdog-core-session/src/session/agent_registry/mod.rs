@@ -90,8 +90,14 @@ pub trait WorkerStore: Send + Sync {
     /// Whether `path` is an existing directory.
     async fn is_directory(&self, path: &str) -> bool;
     /// Replaces the session's `worker` map (`None` removes it). One session's writes apply in
-    /// call order.
+    /// call order. A kept session's map is written where it is kept.
     fn write(&self, session: &str, worker: Option<Row>);
+    /// Keeps the map of a session deleted while its rows still count: Node's index file keeps every row its forget does not take
+    /// (`gone-rows.mjs:214-226`), and a restart reads it again. From now on [`worker_maps`](Self::worker_maps) lists it and
+    /// [`write`](Self::write) writes it there.
+    fn keep(&self, session: &str, worker: Option<Row>);
+    /// Whether `session`'s map is a kept one (its session record is gone).
+    fn kept(&self, session: &str) -> bool;
 }
 
 /// What this process knows of its loaded sessions now.
@@ -447,11 +453,12 @@ impl AgentRegistry {
         let mut st = self.lock();
         if st.maps != maps {
             // Node's index file keeps a deleted session's rows until its forget takes them (`gone-rows.mjs:214`) and every
-            // listing shows them with no header; the core's index drops them at the purge, so a row it stops listing stays
-            // held (a row this registry removed is no longer in `st.maps`).
+            // listing shows them with no header; the core's index drops them at the purge, so a row it stops listing is kept
+            // by the store, durably, and lives on as Node's does (a row this registry removed is no longer in `st.maps`).
             let gone: Vec<(String, Row)> = st.maps.iter().filter(|(id, _)| !maps.iter().any(|(m, _)| m == id)).cloned().collect();
             st.maps = maps;
             for (id, map) in gone {
+                self.store.keep(&id, Some(map.clone()));
                 st.put(&id, Some(map));
             }
             st.changed();
@@ -756,7 +763,24 @@ impl AgentRegistry {
                 now >= nonterminal_reap_deadline(&reap, row)
             })
             .collect();
-        self.tombstone_rows(st, &stale);
+        // `sweepGoneRows` (`gone-rows.mjs:107-115`, `:162-200`, a maintenance step of `agent-tool.mjs:207`): a kept row of a
+        // deleted session, whoever owns it, leaves once settled: terminal, no restart failure still owed, past the settled
+        // retention, no live work.
+        let gone: Vec<Row> = st
+            .maps
+            .iter()
+            .filter(|(id, _)| self.store.kept(id))
+            .filter_map(|(id, map)| st.row(id, map, now))
+            .filter(|row| {
+                !is_lead_pool_agent(row.get("agent"))
+                    && is_terminal_row(row)
+                    && !is_unnotified_restart_failure(row)
+                    && past_settled_retention(&reap, row, now)
+                    && !self.live.has_live_work(&clean(row.get("sessionId")))
+                    && !stale.iter().any(|kept| kept.get("sessionId") == row.get("sessionId"))
+            })
+            .collect();
+        self.tombstone_rows(st, &[stale, gone].concat());
     }
 
     /// `refreshTagsFromSessions` over the index as loaded.
@@ -1198,12 +1222,67 @@ pub struct StoreWorkers {
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
+    kept: Arc<KeptRows>,
 }
 
-/// What the writer task is asked: one session's map, or to say when everything before it was applied.
+/// What the writer task is asked: one session's map, a kept session's map, or to say when everything before it was applied.
 enum WriteOp {
     Write(String, Option<Row>),
+    Keep(String, Option<Row>),
     Barrier(tokio::sync::oneshot::Sender<()>),
+}
+
+/// The worker maps of sessions deleted while their rows still count (`WorkerStore::keep`), in `state/core.sqlite`'s meta
+/// (`agent-kept-worker:<session>`): they outlive the session's header and a restart, as Node's index file rows do.
+pub struct KeptRows {
+    state: mixdog_store::state::CoreState,
+    /// The kept sessions as last loaded, with this process's keeps.
+    ids: Mutex<HashSet<String>>,
+}
+
+const KEPT_PREFIX: &str = "agent-kept-worker:";
+
+impl KeptRows {
+    pub fn new(state: mixdog_store::state::CoreState) -> Self {
+        Self { state, ids: Mutex::default() }
+    }
+
+    fn ids(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.ids.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Every kept map, by session.
+    pub async fn load(&self) -> Result<Vec<(String, Row)>, String> {
+        let stored = self.state.meta_prefix(KEPT_PREFIX).await.map_err(|e| format!("kept worker rows: {e}"))?;
+        let mut out = Vec::new();
+        for (key, text) in stored {
+            let session = key.trim_start_matches(KEPT_PREFIX).to_owned();
+            let map: Row = serde_json::from_str(&text).map_err(|e| format!("kept worker row {session}: {e}"))?;
+            out.push((session, map));
+        }
+        self.ids().extend(out.iter().map(|(session, _)| session.clone()));
+        Ok(out)
+    }
+
+    pub fn holds(&self, session: &str) -> bool {
+        self.ids().contains(session)
+    }
+
+    /// Writes `session`'s kept map (`None`: it is kept no more).
+    pub async fn put(&self, session: &str, worker: Option<Row>) -> Result<(), String> {
+        let key = format!("{KEPT_PREFIX}{session}");
+        match worker {
+            Some(map) => {
+                self.ids().insert(session.to_owned());
+                let text = serde_json::to_string(&map).map_err(|e| e.to_string())?;
+                self.state.write(move |tx| tx.put_meta(&key, &text)).await.map_err(|e| format!("kept worker row {session}: {e}"))
+            }
+            None => {
+                self.ids().remove(session);
+                self.state.write(move |tx| tx.delete_meta(&key).map(drop)).await.map_err(|e| format!("kept worker row {session}: {e}"))
+            }
+        }
+    }
 }
 
 /// Whether `path` names a directory.
@@ -1214,13 +1293,19 @@ fn is_dir(_lane: &InLane<InteractiveIo>, path: &str) -> bool {
 
 impl StoreWorkers {
     /// Call on the runtime the session tasks run on.
-    pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo) -> Self {
+    pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo, kept: Arc<KeptRows>) -> Self {
         let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
-        let patcher = threads.clone();
+        let (patcher, keeper) = (threads.clone(), kept.clone());
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
             while let Some(op) = rx.recv().await {
                 let (session, worker) = match op {
                     WriteOp::Write(session, worker) => (session, worker),
+                    WriteOp::Keep(session, worker) => {
+                        if let Err(error) = keeper.put(&session, worker).await {
+                            tracing::warn!(%error, "[agent] a kept worker row was not saved");
+                        }
+                        continue;
+                    }
                     WriteOp::Barrier(done) => {
                         let _ = done.send(());
                         continue;
@@ -1239,15 +1324,31 @@ impl StoreWorkers {
                 };
             }
         }));
-        Self { index, threads, writes, io, signals: std::sync::OnceLock::new() }
+        Self { index, threads, writes, io, signals: std::sync::OnceLock::new(), kept }
     }
 }
 
 #[async_trait]
 impl WorkerStore for StoreWorkers {
+    /// The index's maps, then the kept maps of sessions the index no longer lists.
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
         let rows = self.index.worker_rows(None, WorkerScope::All).await.map_err(|e| format!("{e:?}"))?;
-        Ok(rows.into_iter().map(|row| (row.session, row.worker)).collect())
+        let mut maps: Vec<(String, Row)> = rows.into_iter().map(|row| (row.session, row.worker)).collect();
+        let kept = self.kept.load().await?;
+        let listed: HashSet<String> = maps.iter().map(|(id, _)| id.clone()).collect();
+        maps.extend(kept.into_iter().filter(|(id, _)| !listed.contains(id)));
+        Ok(maps)
+    }
+
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        if worker.is_some() {
+            self.kept.ids().insert(session.to_owned());
+        }
+        let _ = self.writes.send(WriteOp::Keep(session.to_owned(), worker));
+    }
+
+    fn kept(&self, session: &str) -> bool {
+        self.kept.holds(session)
     }
 
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
@@ -1270,7 +1371,8 @@ impl WorkerStore for StoreWorkers {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        let _ = self.writes.send(WriteOp::Write(session.to_owned(), worker));
+        let op = if self.kept.holds(session) { WriteOp::Keep(session.to_owned(), worker) } else { WriteOp::Write(session.to_owned(), worker) };
+        let _ = self.writes.send(op);
         // Node's registry announces a row change where it makes it, not when the file settles.
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);

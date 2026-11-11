@@ -183,7 +183,9 @@ impl Daemon {
         let rig = Rig::new();
         let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let workers = Arc::new(StoreWorkers::new(index, threads.clone(), tokens.interactive_io));
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.roots.data.join("core.sqlite")).expect("core state");
+        let kept = Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(state));
+        let workers = Arc::new(StoreWorkers::new(index, threads.clone(), tokens.interactive_io, kept));
         let registry = Arc::new(AgentRegistry::new(workers, directory, Arc::new(NoReap), Arc::new(Held(now))));
         let pool = AgentPool::new(Arc::new(RegistryPoolStore::new(registry, threads.clone())), Arc::new(Live { now, running: running.clone() }));
         Self { pool, threads, _rig: rig }

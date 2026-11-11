@@ -26,7 +26,10 @@ fn at(ms: i64) -> String {
 
 #[derive(Default)]
 struct Store {
+    /// The index: one map per stored session.
     maps: Mutex<Vec<(String, Row)>>,
+    /// The kept maps of deleted sessions (`StoreWorkers`' `KeptRows`): they outlive the index's rows and a restart.
+    kept: Mutex<Vec<(String, Row)>>,
     sessions: Mutex<Vec<Row>>,
     headers: Mutex<HashMap<String, Row>>,
     dirs: Mutex<HashSet<String>>,
@@ -37,11 +40,26 @@ struct Store {
 #[async_trait]
 impl WorkerStore for Store {
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
-        Ok(self.maps.lock().unwrap().clone())
+        let mut maps = self.maps.lock().unwrap().clone();
+        let kept: Vec<(String, Row)> = self.kept.lock().unwrap().iter().filter(|(id, _)| !maps.iter().any(|(m, _)| m == id)).cloned().collect();
+        maps.extend(kept);
+        Ok(maps)
     }
 
     async fn agent_sessions(&self) -> Result<Vec<Row>, String> {
         Ok(self.sessions.lock().unwrap().clone())
+    }
+
+    fn keep(&self, session: &str, worker: Option<Row>) {
+        let mut kept = self.kept.lock().unwrap();
+        kept.retain(|(id, _)| id != session);
+        if let Some(map) = worker {
+            kept.push((session.to_owned(), map));
+        }
+    }
+
+    fn kept(&self, session: &str) -> bool {
+        self.kept.lock().unwrap().iter().any(|(id, _)| id == session)
     }
 
     async fn header(&self, session: &str) -> Option<Row> {
@@ -54,6 +72,9 @@ impl WorkerStore for Store {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
+        if WorkerStore::kept(self, session) {
+            return self.keep(session, worker);
+        }
         let mut maps = self.maps.lock().unwrap();
         let at = maps.iter().position(|(id, _)| id == session);
         match (at, worker) {
@@ -69,7 +90,9 @@ impl WorkerStore for Store {
 
 impl Store {
     fn map(&self, session: &str) -> Option<Row> {
-        self.maps.lock().unwrap().iter().find(|(id, _)| id == session).map(|(_, m)| m.clone())
+        let maps = self.maps.lock().unwrap();
+        let kept = self.kept.lock().unwrap();
+        maps.iter().chain(kept.iter()).find(|(id, _)| id == session).map(|(_, m)| m.clone())
     }
 }
 
@@ -764,6 +787,90 @@ async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
         let tombstones = after.0["tombstones"].as_array().unwrap();
         assert_eq!(tombstones.iter().filter(|t| t["tag"] == "done").count(), 1, "listing {listing}: its tombstone: {tombstones:?}");
     }
+}
+
+/// A row kept for a session deleted while the core runs lives on as Node's does. Node's index file keeps it
+/// (`gone-rows.mjs:214-226`, `forgetDeletedSession` takes only settled rows); `notifyRestartFailures` (`restart-notify.mjs:136`,
+/// run at start and on each restart settlement, `agent-tool.mjs:103-105`, `:408-409`) tells its owner once and stamps it; and
+/// `sweepGoneRows` (`gone-rows.mjs:162-200`, a maintenance step for every owner, `agent-tool.mjs:207`) tombstones it once it
+/// is settled (`:107-115`: terminal, not owed, past the settled retention, no live work). Here: the owed failure is told
+/// once after a restart of the core, and the told row leaves at the retention's end on the injected clock, by a refresh of
+/// another owner's scope.
+#[tokio::test]
+async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
+    struct Frozen(i64);
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            self.0
+        }
+    }
+    #[derive(Default)]
+    struct Told(Mutex<Vec<(String, String)>>);
+    #[async_trait]
+    impl mixdog_tools::exec::TaskNotifier for Told {
+        async fn finished(&self, owner: &ThreadId, _: &str, task_id: &str, _: &str, _: String) {
+            self.0.lock().unwrap().push((owner.as_str().to_owned(), task_id.to_owned()));
+        }
+    }
+
+    let rig = Rig::new();
+    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
+    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
+    let registry = rig.registry();
+    registry.pool_index().await;
+    // The delete: the index lists no row of the deleted session any more.
+    rig.store.maps.lock().unwrap().clear();
+    assert!(!registry.forget_deleted_session("s-owed").await, "an owed failure stays");
+    assert!(WorkerStore::kept(&*rig.store, "s-owed"), "the row is kept apart from the index");
+    drop(registry);
+
+    // A restart of the core: a new registry over what was stored.
+    let restarted = rig.registry();
+    let pending: Vec<String> = restarted.pending_restart_failures().await.unwrap().into_iter().map(|(id, _)| id).collect();
+    assert_eq!(pending, ["s-owed"], "the kept row is owed after the restart");
+    let (told, board) = (Told::default(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen(NOW)), None, None));
+    assert_eq!(restart::notify_restart_failures(&restarted, &told, &board, &at(NOW)).await.unwrap(), 1);
+    assert_eq!(restart::notify_restart_failures(&restarted, &told, &board, &at(NOW)).await.unwrap(), 0, "told once");
+    assert_eq!(*told.0.lock().unwrap(), [("lead-a".to_owned(), "restart:t-1".to_owned())]);
+    assert_eq!(rig.store.map("s-owed").unwrap()["restartNotified"], json!(at(NOW)), "the stamp is kept with the row");
+
+    async fn listed(registry: &AgentRegistry) -> bool {
+        let (agents, _) = registry.pool_index().await;
+        agents["workers"].as_array().unwrap().iter().any(|row| row["sessionId"] == "s-owed")
+    }
+    let other = lead("lead-b");
+    rig.clock.0.store(NOW + DAY - 1, Ordering::SeqCst);
+    restarted.refresh_tags_from_sessions(false, &other).await;
+    assert!(listed(&restarted).await, "1 ms before the settled retention ends the row stays");
+    rig.clock.0.store(NOW + DAY, Ordering::SeqCst);
+    restarted.refresh_tags_from_sessions(false, &other).await;
+    assert!(!listed(&restarted).await, "at the retention's end the told row leaves");
+    let map = rig.store.map("s-owed").expect("its tombstone stays until its own end");
+    assert!(!map.contains_key("sessionId") && map.contains_key("tombstone"), "{map:?}");
+    // And a restart after that lists it no more.
+    assert!(!listed(&rig.registry()).await);
+}
+
+/// The production keeper of those rows: what it kept is read back by a new keeper over the core's state database opened
+/// again (a restart), and a row kept no more is gone from it.
+#[tokio::test]
+async fn kept_rows_are_read_back_after_the_core_state_is_opened_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("core.sqlite");
+    let t = mixdog_rt::testing::tokens();
+    let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
+    {
+        let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+        KeptRows::new(state.clone()).put("s-owed", Some(row.clone())).await.unwrap();
+        state.close();
+    }
+    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+    let again = KeptRows::new(state);
+    assert_eq!(again.load().await.unwrap(), [("s-owed".to_owned(), row)]);
+    assert!(again.holds("s-owed"));
+    again.put("s-owed", None).await.unwrap();
+    assert_eq!(again.load().await.unwrap(), Vec::new());
+    assert!(!again.holds("s-owed"));
 }
 
 /// Releasing a tag whose session was deleted: Node's `closeSession` counts a record that is
