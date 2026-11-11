@@ -111,6 +111,8 @@ pub struct TestCompaction {
     pub heir_fails: std::sync::atomic::AtomicBool,
     /// Each `prune_offloads`: the thread and the transcripts it was given.
     pub pruned: Mutex<Vec<(String, String)>>,
+    /// How many of its candidates each `prune_offloads` deleted, recorded before its `pruned` entry.
+    pub pruned_deleted: Mutex<Vec<usize>>,
     /// The data dir whose `tool-results/<thread>` sidecars the host's own listing and prune
     /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on, and the clock's now (ms) they age at, as the host's
     /// `parts.clock` (`manual_compaction.rs`). None lists nothing.
@@ -177,11 +179,14 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         self.listed.send_modify(|count| *count += 1);
         candidates
     }
+    #[allow(clippy::disallowed_methods, reason = "test counts the sidecars the prune deleted")]
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: super::turn_ops::OffloadCopies) {
         let offloads = lock(&self.offloads).clone();
+        let listed: Vec<std::path::PathBuf> = candidates.iter().filter(|path| path.exists()).cloned().collect();
         if let Some((data, now)) = offloads {
             offload_store(&data, thread).prune(candidates, transcripts.clone(), copies, now).await;
         }
+        lock(&self.pruned_deleted).push(listed.iter().filter(|path| !path.exists()).count());
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
     async fn rearm(&self, _: &ThreadId) {
@@ -562,13 +567,14 @@ impl ThreadStore for MemStore {
 
     /// As the index's `offload_referencers`: every other thread not deleted whose set (its header's, else a current
     /// scan's, else any earlier scan's) names `id`, and every one whose header holds no set without a scan at its
-    /// current length (a log the catalog lists but that cannot be read, `unscannable`, among them), in id order; an
-    /// error naming the first damaged session while one is, or the first copy naming `id` this boot is still making.
+    /// current length (a log the catalog lists but that cannot be read, `unscannable`, among them), in id order, or
+    /// only the first damaged session while one is; an error naming the first copy naming `id` this boot is still
+    /// making.
     fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
         use mixdog_store::offload_sources as sets;
         let damaged = lock(&self.damaged).first().cloned();
         let answer = match damaged {
-            Some(damaged) => Err(Self::unreadable(&damaged)),
+            Some(damaged) => Ok(super::seams::OffloadCopies { unreadable: Some(damaged), ..Default::default() }),
             None => {
                 let segment = sets::segment_key(&sets::safe_segment(id.as_str()));
                 let names = |sources: &[String]| sources.iter().any(|source| sets::segment_key(source) == segment);
@@ -588,8 +594,12 @@ impl ThreadStore for MemStore {
                             continue;
                         }
                     };
+                    // A set of earlier rules counts with the scan's (a set only grows), as the index keeps its rows.
                     let held = sets::holds_set(&header);
-                    let sources = if held { sets::sources(&header) } else { scan.as_ref().map(|(_, sources)| sources.clone()).unwrap_or_default() };
+                    let mut sources = sets::sources(&header);
+                    if !held {
+                        sources.extend(scan.as_ref().map(|(_, sources)| sources.clone()).unwrap_or_default());
+                    }
                     if !held && scan.as_ref().is_none_or(|(scanned, _)| *scanned != at) {
                         found.unknown.push((thread.as_str().to_owned(), at));
                     }
@@ -1811,7 +1821,8 @@ impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
     }
 }
 
-/// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`.
+/// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`,
+/// `offload-prune-blocked:<session>`.
 #[derive(Default)]
 pub struct TestNotices(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
 
@@ -1828,6 +1839,11 @@ impl super::notices::SessionNotices for TestNotices {
 
     fn save_failed(&self) {
         lock(&self.0).push("save-failed".to_owned());
+        self.1.notify_waiters();
+    }
+
+    fn offload_prune_blocked(&self, session: &str) {
+        lock(&self.0).push(format!("offload-prune-blocked:{session}"));
         self.1.notify_waiters();
     }
 }

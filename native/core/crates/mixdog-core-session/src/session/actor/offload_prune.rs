@@ -40,14 +40,18 @@ async fn stored_messages(deps: &SessionDeps, thread: &ThreadId) -> Result<Option
     }
 }
 
+/// How many sessions whose reference set is unknown one pass reads (Node's `OFFLOAD_CHECK_BATCH`).
+pub(crate) const OFFLOAD_SCAN_BATCH: usize = 32;
+
 /// `offloadCopies`: the stored messages of the sessions whose reference set names `own` (the copies of its
 /// conversation, and the copies of those: one catalog read, no session between them needed, so a copy whose source
-/// was deleted counts), read when the prune asks for them (`OffloadCopies`). A session whose set is unknown (its header
-/// holds none: an older build wrote it) is read first, and what its transcript names stored as its set
-/// (`record_offload_scan`): it counts when that names `own`. A copy deleted since names nothing. A session the catalog
-/// or the store cannot read (whether it names `own` is not known then), or a copy still being made (its rows not
-/// stored yet), answers `None`: nothing is deleted, and the skip says why.
-async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId) -> Option<String> {
+/// was deleted counts), read when the prune asks for them (`OffloadCopies`). A copy deleted since names nothing. While
+/// a session's set is unknown (its header holds none under the present rules: an older build wrote it), whether it
+/// names `own` is not known: nothing is deleted, and those sessions are read off the actor (`scan_unknown`), after
+/// which the prune runs again. A session the catalog or the store cannot read keeps everything as well, and the
+/// desktop is told (`offload_prune_blocked`): nothing is pruned on its account until it can be read. A copy still
+/// being made (its rows not stored yet) answers `None` too; every skip says why.
+async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId, jobs: mpsc::UnboundedSender<JobDone>) -> Option<String> {
     let skipped = |why: String| {
         tracing::warn!(thread = own.as_str(), "offload prune skipped: {why}");
         None
@@ -56,38 +60,56 @@ async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId) -> Option<Strin
         Ok(found) => found,
         Err(error) => return skipped(format!("the copies of the conversation could not be listed: {error:?}")),
     };
-    let segment = mixdog_store::offload_sources::segment_key(&mixdog_store::offload_sources::safe_segment(own.as_str()));
-    let mut read = std::collections::BTreeSet::new();
-    let mut out = Vec::new();
-    for (session, ordinal) in found.unknown {
-        let thread = ThreadId::from(session.clone());
-        let messages = match stored_messages(&deps, &thread).await {
-            Ok(Some(messages)) => messages,
-            Ok(None) => continue,
-            Err(why) => return skipped(why),
-        };
-        let named = mixdog_store::offload_sources::named_in(&serde_json::to_string(&messages).unwrap_or_default());
-        let sources = mixdog_store::offload_sources::transcript_sources(named, &session);
-        let names_own = sources.contains(&segment);
-        if let Err(error) = deps.store.record_offload_scan(&session, ordinal, sources).await {
-            return skipped(format!("the set of the session {session} could not be stored: {error:?}"));
-        }
-        if names_own {
-            read.insert(session);
-            out.push(Value::Array(messages));
-        }
+    if let Some(session) = found.unreadable {
+        deps.notices.offload_prune_blocked(&session);
+        return skipped(format!("the session {session} cannot be read"));
     }
+    if let Some((first, _)) = found.unknown.first() {
+        let why = format!("the reference set of the session {first} is not known ({} such sessions): they are read first", found.unknown.len());
+        tokio::spawn(scan_unknown(deps.clone(), own.clone(), found.unknown, jobs));
+        return skipped(why);
+    }
+    let mut out = Vec::new();
     for copy in found.copies {
-        if !read.insert(copy.clone()) {
-            continue;
-        }
-        match stored_messages(&deps, &ThreadId::from(copy)).await {
+        match stored_messages(&deps, &ThreadId::from(copy.clone())).await {
             Ok(Some(messages)) => out.push(Value::Array(messages)),
             Ok(None) => {}
-            Err(why) => return skipped(why),
+            Err(why) => {
+                deps.notices.offload_prune_blocked(&copy);
+                return skipped(why);
+            }
         }
     }
     Some(mixdog_js::json_stringify(&Value::Array(out)))
+}
+
+/// Off the actor and off every request: up to [`OFFLOAD_SCAN_BATCH`] of the `unknown` sessions are read and what
+/// their transcripts name stored as their set (`record_offload_scan`). One that cannot be read stays unknown, and the
+/// desktop is told. Once the batch made some known, `own`'s prune runs again (on its actor, as every prune), which
+/// reads the next batch while unknown sessions remain: the scan resumes until none is left or none it reads becomes
+/// known.
+async fn scan_unknown(deps: Arc<SessionDeps>, own: ThreadId, unknown: Vec<(String, i64)>, jobs: mpsc::UnboundedSender<JobDone>) {
+    let before = unknown.len();
+    for (session, ordinal) in unknown.into_iter().take(OFFLOAD_SCAN_BATCH) {
+        match stored_messages(&deps, &ThreadId::from(session.clone())).await {
+            Ok(Some(messages)) => {
+                let named = mixdog_store::offload_sources::named_in(&serde_json::to_string(&messages).unwrap_or_default());
+                let sources = mixdog_store::offload_sources::transcript_sources(named, &session);
+                if let Err(error) = deps.store.record_offload_scan(&session, ordinal, sources).await {
+                    tracing::warn!(thread = own.as_str(), "the reference set of the session {session} could not be stored: {error:?}");
+                }
+            }
+            Ok(None) => {}
+            Err(why) => {
+                deps.notices.offload_prune_blocked(&session);
+                tracing::warn!(thread = own.as_str(), "offload prune blocked: {why}");
+            }
+        }
+    }
+    if deps.store.copies_of(&own).await.is_ok_and(|after| after.unknown.len() < before) {
+        let (told, _) = oneshot::channel();
+        let _ = jobs.send(JobDone::PruneOffloads(told));
+    }
 }
 
 impl SessionActor {
@@ -145,7 +167,7 @@ impl SessionActor {
             // messages.
             let lists = vec![json!(transcript), Value::Null, json!(queued), json!(unreleased)];
             let transcripts = mixdog_js::json_stringify(&Value::Array(lists));
-            let copies = Box::pin(copy_transcripts(self.deps.clone(), self.id.clone()));
+            let copies = Box::pin(copy_transcripts(self.deps.clone(), self.id.clone(), self.jobs_tx.clone()));
             self.deps.compaction.prune_offloads(&self.id, candidates, transcripts, copies).await;
         }
         let _ = told.send(());

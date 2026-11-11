@@ -107,7 +107,7 @@ impl World {
 
     /// `handle`'s actor has run the `count`-th prune.
     async fn pruned(&self, handle: &SessionHandle, count: usize) {
-        within("the prune runs", eventually_on!(&[&handle.cell.stepped], || (lock(&self.rig.compaction.pruned).len() == count).then_some(()))).await;
+        within("the prune runs", eventually_on!(&[&handle.cell.stepped], || (lock(&self.rig.compaction.pruned).len() >= count).then_some(()))).await;
     }
 
     /// A completion naming `queued`; told once queued.
@@ -471,6 +471,9 @@ async fn an_heir_its_source_never_recorded_keeps_the_sidecars_it_names() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
+/// Signalled at each write to [`logged`].
+static LOGGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
 /// The warnings this test process logged (`tracing`, as the product's subscriber writes them), from the first call on.
 fn logged() -> String {
     #[derive(Clone)]
@@ -478,6 +481,7 @@ fn logged() -> String {
     impl std::io::Write for Captured {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             lock(&self.0).extend_from_slice(bytes);
+            LOGGED.notify_waiters();
             Ok(bytes.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
@@ -514,6 +518,7 @@ async fn a_copy_that_cannot_be_read_keeps_every_sidecar() {
     assert_eq!(unreadable, world.case["points"][1], "a copy that cannot be read: the open deletes nothing");
     let skipped = logged().lines().filter(|line| line.contains("offload prune skipped") && line.contains(id.as_str()) && line.contains(fork.as_str())).count();
     assert_eq!(skipped, 1, "the skip is logged once, naming the session and the copy it could not read:\n{}", logged());
+    assert!(lock(&world.rig.notices.0).contains(&format!("offload-prune-blocked:{fork}")), "the desktop is told nothing is pruned while the copy cannot be read");
     within("the directory shuts down", directory.shutdown_for("test close")).await;
     lock(&world.rig.store.damaged).remove(&fork);
     let _reopened = world.reopened(2).await;
@@ -658,34 +663,97 @@ async fn a_session_let_go_while_its_reconcile_lists_is_left_to_its_next_owner() 
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_close, after_resume]), world.case);
 }
 
-/// A session an older core build stored as `transcript`: its header holds no reference set (the create's empty one is
-/// taken out again), its rows as recorded.
-async fn older_core_session(world: &World, id: &ThreadId, transcript: Value) {
+/// A session an older core build stored as `transcript`: its header holds no reference set under the present rules
+/// (the create's one is taken out again; `held`, when given, is the set it holds under no rules number), its rows as
+/// recorded.
+async fn older_core_session(world: &World, id: &ThreadId, transcript: Value, held: Option<Value>) {
+    use mixdog_store::offload_sources as sets;
     let (header, rows) = migrated(transcript);
     let sessions = SessionDirectory::new(world.rig.deps());
     within("the session is created", sessions.create_with_id(id.clone(), header, json!({}))).await.expect("create");
     let handle = within("the session opens", sessions.open_handle(id, &CallContext::internal("test"))).await.expect("open");
-    let params = json!({ "threadId": id, "set": {}, "unset": [mixdog_store::offload_sources::SOURCES] });
+    let params = match held {
+        Some(held) => json!({ "threadId": id, "set": { sets::SOURCES: held }, "unset": [sets::SOURCES_RULES] }),
+        None => json!({ "threadId": id, "set": {}, "unset": [sets::SOURCES, sets::SOURCES_RULES] }),
+    };
     let unset = CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") };
     within("its set is taken out", handle.request(unset)).await.expect("thread/header/patch");
     world.rig.store.seed(id, rows.as_array().expect("rows").iter().enumerate().map(|(index, body)| item(format!("{}{index}", id.as_str()), body)).collect());
     within("its directory shuts down", sessions.shutdown_for("test close")).await;
 }
 
+/// The linkless fork's recorded transcript naming `named` in upper case (a model quoting its path), and naming
+/// `tool-results/sess_b/` as well.
+fn upper_case_transcript(world: &World) -> Value {
+    let text = serde_json::to_string(&unmask(world.data.path(), &world.case["seed"]["fork"]["transcript"])).expect("json");
+    let quoted = serde_json::to_string(world.path("named")).expect("json");
+    let path = &quoted[1..quoted.len() - 1];
+    assert!(text.contains(path), "the fork names `named`");
+    let mut transcript: Value = serde_json::from_str(&text.replace(path, &path.to_uppercase())).expect("the transcript");
+    transcript.as_array_mut().expect("messages").push(json!({ "role": "user", "content": "see tool-results/sess_b/x.txt" }));
+    transcript
+}
+
+/// The source of `world` (Node's `linkless-fork`) is cleared and opened again, its prune runs (the `pruned`-th):
+/// whether `named` (only the fork names it, in upper case) is still on disk, compared with the recording where the
+/// file system ignores case (Windows, where the fork's text names it).
+async fn cleared_and_reopened(world: &World, pruned: usize) {
+    let id = world.handle.id.as_str().to_owned();
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let (_directory, handle) = world.reopened(1).await;
+    if pruned > 1 {
+        assert_eq!(lock(&world.rig.compaction.pruned_deleted)[0], 0, "a pass that finds a set unknown deletes nothing");
+    }
+    world.pruned(&handle, pruned).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(std::path::Path::new(world.path("named")).exists(), cfg!(windows), "the sidecar the fork names in another letter case");
+    if cfg!(windows) {
+        assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+    }
+}
+
+/// A fork naming its source's sidecar in another letter case (stored as the migration stores it, its set computed
+/// from its transcript): where the file system ignores case the sidecar is the same file, so it is kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_naming_the_sources_sidecar_in_another_letter_case_keeps_it_on_disk() {
+    let world = world("linkless-fork").await;
+    let fork_id = ThreadId::from(world.case["seed"]["fork"]["sessionId"].as_str().expect("the fork id").to_owned());
+    shipped_session(&world, &fork_id, upper_case_transcript(&world), json!({})).await;
+    cleared_and_reopened(&world, 1).await;
+}
+
+/// The review's counter-example: the fork's header holds the set an earlier build computed under rules that matched
+/// case everywhere (`["sess_b"]`, no rules number), although its transcript names the source's sidecar in upper case.
+/// A set of earlier rules is unknown: the transcript is read again before the prune, and the sidecar is kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_stored_under_earlier_rules_is_read_again_and_the_file_it_misses_is_kept() {
+    let world = world("linkless-fork").await;
+    let fork_id = ThreadId::from(world.case["seed"]["fork"]["sessionId"].as_str().expect("the fork id").to_owned());
+    older_core_session(&world, &fork_id, upper_case_transcript(&world), Some(json!(["sess_b"]))).await;
+    // The first prune finds the fork's set unknown and reads it; the second prunes.
+    cleared_and_reopened(&world, 2).await;
+    let scanned = lock(&world.rig.store.scans).get(fork_id.as_str()).map(|(_, sources)| sources.clone());
+    assert!(scanned.is_some(), "the fork's set is read again under the present rules");
+}
+
 /// Node's `linkless-fork` with the fork an older core build stored (its header holds no set at all, not an empty one):
-/// its set is unknown, so the prune reads its transcript first and stores what it names (`record_offload_scan`); the
-/// fork keeps `named` as Node's check of a record without a set does.
+/// its set is unknown, so the prune reads its transcript first (off the actor) and stores what it names
+/// (`record_offload_scan`), then runs again; the fork keeps `named` as Node's check of a record without a set does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_stored_without_a_set_is_read_before_the_prune_and_its_set_stored() {
     let world = world("linkless-fork").await;
     let id = world.handle.id.as_str().to_owned();
     let fork = &world.case["seed"]["fork"];
     let fork_id = ThreadId::from(fork["sessionId"].as_str().expect("the fork id").to_owned());
-    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"])).await;
+    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"]), None).await;
     within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
     let after_clear = world.point("after-clear", false).await;
     within("the directory shuts down", world.directory.shutdown_for("test close")).await;
-    let _reopened = world.reopened(1).await;
+    let (_directory, handle) = world.reopened(1).await;
+    world.pruned(&handle, 2).await;
+    assert!(std::path::Path::new(world.path("named")).exists(), "the sidecar the fork names is on disk");
     let after_resume = world.point("after-resume", false).await;
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
     let own = mixdog_store::offload_sources::segment_key(&mixdog_store::offload_sources::safe_segment(&id));
@@ -694,8 +762,8 @@ async fn a_session_stored_without_a_set_is_read_before_the_prune_and_its_set_sto
 }
 
 /// As above, with the fork's log unreadable (the catalog lists it as readable): its set cannot be known, so the open
-/// deletes nothing and the skip is logged once, naming the session and the fork. Readable again, the next open prunes as
-/// Node does.
+/// deletes nothing, the block is logged once naming the session and the fork, and the desktop is told. Readable again,
+/// the next open prunes as Node does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_without_a_set_that_cannot_be_read_stops_the_prune() {
     logged();
@@ -703,20 +771,57 @@ async fn a_session_without_a_set_that_cannot_be_read_stops_the_prune() {
     let id = world.handle.id.as_str().to_owned();
     let fork = &world.case["seed"]["fork"];
     let fork_id = ThreadId::from(fork["sessionId"].as_str().expect("the fork id").to_owned());
-    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"])).await;
+    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"]), None).await;
     lock(&world.rig.store.unscannable).insert(fork_id.as_str().to_owned());
     within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
     let after_clear = world.point("after-clear", false).await;
     within("the directory shuts down", world.directory.shutdown_for("test close")).await;
-    let skipped = || logged().lines().filter(|line| line.contains("offload prune skipped") && line.contains(id.as_str()) && line.contains(fork_id.as_str())).count();
+    // Other tests of this recording (same ids) log their own unknown-set skips; only this one's fork cannot be read.
+    let skipped = || logged().lines().filter(|line| line.contains("offload prune blocked") && line.contains(id.as_str()) && line.contains(fork_id.as_str())).count();
     let before = skipped();
-    let (directory, _handle) = world.reopened(1).await;
+    let (directory, handle) = world.reopened(1).await;
+    let blocked = format!("offload-prune-blocked:{}", fork_id.as_str());
+    // The scan off the actor reads the fork, fails, tells the desktop and logs it, in that order.
+    within("the block is logged", eventually_on!(&[&handle.cell.stepped, &LOGGED], || (skipped() > before).then_some(()))).await;
+    assert!(lock(&world.rig.notices.0).contains(&blocked), "the desktop is told the prune is blocked: {:?}", lock(&world.rig.notices.0));
     assert_eq!(world.point("after-clear", false).await, world.case["points"][0], "nothing is deleted while a session holding no set cannot be read");
+    assert!(std::path::Path::new(world.path("named")).exists(), "the sidecar the fork may name is on disk");
     assert_eq!(skipped() - before, 1, "the open's skip is logged once, naming the session and the one it could not read:\n{}", logged());
     within("the directory shuts down", directory.shutdown_for("test close")).await;
     lock(&world.rig.store.unscannable).remove(fork_id.as_str());
-    let _reopened = world.reopened(2).await;
+    // Readable again: the next open reads the fork's set (its first prune skips) and prunes.
+    let (_directory, handle) = world.reopened(2).await;
+    world.pruned(&handle, 3).await;
     let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+}
+
+/// More sessions of unknown set than one pass reads (`OFFLOAD_SCAN_BATCH`): each pass reads one batch off the actor
+/// and the prune runs again, so the sets are read over passes that resume where the last stopped, and only once every
+/// one is known is anything deleted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_unknown_sets_are_read_in_bounded_batches_that_resume() {
+    let batch = super::actor::OFFLOAD_SCAN_BATCH;
+    let world = world("linkless-fork").await;
+    let fork = &world.case["seed"]["fork"];
+    let fork_id = ThreadId::from(fork["sessionId"].as_str().expect("the fork id").to_owned());
+    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"]), None).await;
+    for other in 0..batch {
+        let id = ThreadId::from(format!("{}_other_{other:02}", world.handle.id.as_str()));
+        older_core_session(&world, &id, json!([{ "role": "user", "content": "hello" }, { "role": "assistant", "content": "noted" }]), None).await;
+    }
+    let id = world.handle.id.as_str().to_owned();
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let (_directory, handle) = world.reopened(1).await;
+    // A pass that finds unknown sets deletes nothing: one reads `batch` of them, the next the last one, the third prunes.
+    world.pruned(&handle, 2).await;
+    assert_eq!(lock(&world.rig.compaction.pruned_deleted)[..2], [0, 0], "the passes that found sets unknown deleted nothing");
+    world.pruned(&handle, 3).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(lock(&world.rig.store.scans).len(), batch + 1, "every set was read");
+    assert_eq!(lock(&world.rig.compaction.pruned).len(), 3, "two passes read a batch each, the third pruned");
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
