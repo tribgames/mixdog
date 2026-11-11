@@ -308,7 +308,7 @@ impl Run {
             // Calls a dead attempt started are dropped with it.
             self.drop_eager();
             let request = Arc::new(self.build_request());
-            self.prepare_prefix_guard(&request);
+            self.prepare_prefix_guard(&request)?;
             // A restarted process compares its first request with the last prefix fingerprint the record kept.
             mixdog_ai::providers::anthropic::prefix_trace::seed(self.config.thread_id.as_str(), self.carry.cache.prefix_baseline.as_ref());
             self.last_request = Some(request.clone());
@@ -355,8 +355,9 @@ impl Run {
     }
 
     /// `projectProviderRequest`'s prefix guard: the request's fingerprint against the one the session last settled on; a
-    /// break is traced once per turn (`cacheBreakTracer`). The tail reminder rides the request alone and is not part of it.
-    fn prepare_prefix_guard(&mut self, request: &ModelRequest) {
+    /// break is traced once per turn (`cacheBreakTracer`), and an unexpected one refuses the send as Node's guard throws
+    /// (`ProviderPrefixMutationError`, traced first). The tail reminder rides the request alone and is not part of it.
+    fn prepare_prefix_guard(&mut self, request: &ModelRequest) -> Result<(), AgentError> {
         let messages = match request.messages.split_last() {
             Some((last, rest)) if last.source == Some(mixdog_core_api::domain::provider::MessageSource::TailReminder) => rest,
             _ => &request.messages[..],
@@ -370,18 +371,30 @@ impl Run {
             intent: intent.as_deref(),
             mutation_source: (intent.as_deref() == Some("transcript_rebuild")).then_some("transcript_rebuild"),
         };
-        if let Some(details) = crate::prefix_guard::compare(self.carry.prefix_guard.as_ref(), &next, &options)
-            && self.cache_break_keys.insert(crate::prefix_guard::trace_key(&details))
-            && let Some(log) = &self.env.failures
-        {
-            let mut record = serde_json::Map::new();
-            record.insert("sessionId".into(), serde_json::json!(self.config.thread_id.as_str()));
-            record.insert("iteration".into(), serde_json::json!(self.iterations + 1));
-            record.insert("intentionalTransition".into(), intent.map_or(serde_json::Value::Null, serde_json::Value::String));
-            record.extend(details);
-            log.cache_break(record);
+        let mut refused = None;
+        if let Some(details) = crate::prefix_guard::compare(self.carry.prefix_guard.as_ref(), &next, &options) {
+            if details.get("classification").and_then(serde_json::Value::as_str) == Some("unexpected") {
+                refused = Some(match details.get("reason").and_then(serde_json::Value::as_str) {
+                    Some("history_shrink") => "provider message history shrank outside compaction",
+                    _ => "provider message prefix changed outside compaction",
+                });
+            }
+            if self.cache_break_keys.insert(crate::prefix_guard::trace_key(&details))
+                && let Some(log) = &self.env.failures
+            {
+                let mut record = serde_json::Map::new();
+                record.insert("sessionId".into(), serde_json::json!(self.config.thread_id.as_str()));
+                record.insert("iteration".into(), serde_json::json!(self.iterations + 1));
+                record.insert("intentionalTransition".into(), intent.map_or(serde_json::Value::Null, serde_json::Value::String));
+                record.extend(details);
+                log.cache_break(record);
+            }
+        }
+        if let Some(message) = refused {
+            return Err(AgentError::PrefixMutation(message.to_owned()));
         }
         self.guard_candidate = Some(next);
+        Ok(())
     }
 
     /// `settleSendResult` for a completed send: the request becomes the session's prefix baseline, the usage-based cache

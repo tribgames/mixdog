@@ -2435,8 +2435,88 @@ async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
     }
 }
 
+/// `fixtures/cache-break` `routes` (record-cache-break.mjs): Node's loop over sessions whose turns change what the guard
+/// compares: a history that shrank and a prefix that was rewritten (each an unexpected break Node traces and then refuses
+/// with `ProviderPrefixMutationError`, before anything is sent), a session routed to another provider (`provider_changed`)
+/// and a native tool added (`native_tool_schema_changed`). Each step is a real turn of the loop over the transcript the step
+/// names, the session's guard carried from the last send that settled, as the loop keeps it: the rows, the stderr lines, what
+/// reached the provider and the refusal are Node's. `deferred_body_compaction` and `request_properties_changed` have no
+/// product path, and the compactions are not recorded through a real compaction; the manifest's `exclusions` name each.
+#[tokio::test]
+async fn real_turns_trace_and_refuse_the_breaks_node_does() {
+    use mixdog_core_api::domain::provider::HostedTool;
+    use mixdog_core_api::domain::provider::HostedWebSearch;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::Usage;
+    let golden = cache_break_golden();
+    let now = golden["now"].as_i64().unwrap();
+    let mut refused = 0;
+    for scenario in golden["routes"].as_array().unwrap() {
+        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+        let mut guard = None;
+        for step in scenario["steps"].as_array().unwrap() {
+            let name = format!("{}: {}", scenario["name"].as_str().unwrap(), step["name"].as_str().unwrap());
+            let messages: Vec<AgentMessage> = step["convo"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let text = row[1].as_str().unwrap();
+                    match row[0].as_str().unwrap() {
+                        "system" => AgentMessage::new(Message::new(Role::System, Content::Text(text.into()))),
+                        "assistant" => AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into()))),
+                        _ => AgentMessage::user(text),
+                    }
+                })
+                .collect();
+            let reported = Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
+            let mut h = Harness::new(Vec::new());
+            h.provider = Arc::new(Scripted {
+                id: ProviderId::from(step["provider"].as_str().unwrap()),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text("answer"), done(StopReason::EndTurn)])].into()),
+                requests: Mutex::new(Vec::new()),
+                settled: Mutex::new(Vec::new()),
+            });
+            let breaks = Arc::new(CacheBreaks::default());
+            h.failures = Some(breaks.clone());
+            let mut config = RunConfig::new(ThreadId::from(scenario["session"].as_str().unwrap()), TurnId::from("r"), scenario["model"].as_str().unwrap());
+            config.options.hosted_tools = step["nativeTools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| HostedTool::WebSearch(HostedWebSearch { tool_type: tool["type"].as_str().unwrap().into(), allowed_domains: Vec::new(), user_location: None, max_uses: None, context_size: None, include_sources: false }))
+                .collect();
+            let carry = RunCarry { prefix_guard: guard.clone(), ..RunCarry::from_saved(&serde_json::Map::new()) };
+            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages, carry);
+            match (run.run().await, step["thrown"].is_null()) {
+                (Ok(output), true) => guard = output.carry.prefix_guard.clone(),
+                (Err(failure), false) => {
+                    let AgentError::PrefixMutation(message) = &failure.error else { panic!("{name}: refused as {:?}", failure.error) };
+                    assert_eq!(message, step["thrown"]["message"].as_str().unwrap(), "{name}: the refusal");
+                    refused += 1;
+                }
+                (Ok(_), false) => panic!("{name}: Node refused ({}), the core sent", step["thrown"]),
+                (Err(failure), true) => panic!("{name}: Node sent, the core failed: {}", failure.error),
+            }
+            assert_eq!(h.provider.requests().len() as u64, step["sent"].as_u64().unwrap(), "{name}: what reached the provider");
+            let records = breaks.0.lock().unwrap().clone();
+            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+            assert_eq!(rows, want, "{name}: the trace rows");
+            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+            assert_eq!(lines, want, "{name}: the stderr lines");
+        }
+    }
+    assert_eq!(refused, 2, "a shrunk history and a rewritten prefix");
+}
+
 /// `fixtures/cache-break` `guard`: the comparison over Node's own request fingerprints tells each break Node told, with the
-/// same details; an unexpected break, which Node also refuses, is traced and not refused.
+/// same details. The comparison alone: the loop's use of it is `real_turns_trace_and_refuse_the_breaks_node_does`.
 #[test]
 fn the_prefix_guard_tells_every_break_node_tells() {
     use mixdog_agent::prefix_guard::GuardOptions;
@@ -3232,7 +3312,8 @@ fn system_message(text: &str) -> AgentMessage {
     AgentMessage::new(Message::new(Role::System, Content::Text(text.to_owned())))
 }
 
-/// Migrates at the second boundary only (a tool call waited for its result at the first).
+/// Migrates at the first boundary only. A migration after a send settled would rewrite the prefix the loop's guard holds
+/// (`request-boundary.mjs:68-76` leaves the loop's `prefixGuardState` as it is), which the guard refuses outside a compaction.
 struct MigrateMcp(AtomicU64);
 
 #[async_trait::async_trait]
@@ -3242,7 +3323,7 @@ impl mixdog_agent::env::McpCatalog for MigrateMcp {
     async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
         let boundary = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         assert!(messages.iter().any(|m| m.role() == mixdog_core_api::domain::provider::Role::System), "the transcript the request is built from carries its system prompt");
-        Ok((boundary == 1).then(|| vec![system_message("migrated rules")]))
+        Ok((boundary == 0).then(|| vec![system_message("migrated rules")]))
     }
 }
 
@@ -3260,7 +3341,7 @@ async fn the_exposure_migration_runs_at_every_request_boundary() {
     assert_eq!(boundaries.0.load(std::sync::atomic::Ordering::SeqCst), 2);
     let sent = h.provider.requests();
     let first_system = |request: &mixdog_core_api::domain::provider::ModelRequest| request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content));
-    assert!(first_system(&sent[0]).unwrap().contains("old rules"));
+    assert!(first_system(&sent[0]).unwrap().contains("migrated rules"), "the first request is built from the migrated prompt");
     assert!(first_system(&sent[1]).unwrap().contains("migrated rules"));
 }
 

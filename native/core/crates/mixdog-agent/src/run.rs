@@ -262,6 +262,10 @@ pub enum AgentError {
     Admission(String),
     /// A message could not be committed to the transcript.
     Commit(crate::env::CommitError),
+    /// `ProviderPrefixMutationError` (provider-prefix-guard.mjs:231-238): a request whose earlier messages are not the ones
+    /// the session last sent, outside a compaction. Node refuses the send; the text is the error's `message`, and the
+    /// turn shows `Session state changed unexpectedly.` (`err-text.mjs:274`).
+    PrefixMutation(String),
 }
 
 #[derive(Debug)]
@@ -307,7 +311,7 @@ impl std::fmt::Display for AgentError {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
-            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) => f.write_str(message),
+            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::PrefixMutation(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
                 f,

@@ -1349,6 +1349,10 @@ async fn drive(
             if let AgentError::Provider(error) = &failure.error {
                 return RunOutcome::Failed(provider_turn_error(error, &provider_id, data));
             }
+            // The guard's refusal reads as `Session state changed unexpectedly.` (`err-text.mjs:274`, by its code).
+            if matches!(failure.error, AgentError::PrefixMutation(_)) {
+                return failed("Session state changed unexpectedly.".to_owned(), data);
+            }
             failed(failure.error.to_string(), data)
         }
     }

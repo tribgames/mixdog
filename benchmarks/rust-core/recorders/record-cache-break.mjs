@@ -163,6 +163,61 @@ for (const [index, step] of steps.entries()) {
   });
 }
 
+// The routes: the breaks only a real turn reaches, each through `agentLoop` over one session, the loop keeping the guard state
+// on the session record between turns as it settles a send. A step names the whole transcript the turn starts from, the
+// session's provider and the loop's native tools; a refused step (the guard throws before the send) is kept with the error.
+const routeSessions = [
+  {
+    name: 'a history that shrank, a prefix that was rewritten',
+    provider: 'anthropic',
+    steps: [
+      { name: 'first', convo: [['system', 'Stable instructions.'], ['user', 'one']] },
+      { name: 'continued', convo: [['system', 'Stable instructions.'], ['user', 'one'], ['assistant', 'answer'], ['user', 'two']] },
+      { name: 'shrunk', convo: [['system', 'Stable instructions.'], ['user', 'one'], ['assistant', 'answer']] },
+      { name: 'rewritten', convo: [['system', 'Stable instructions.'], ['user', 'ONE'], ['assistant', 'answer'], ['user', 'two'], ['assistant', 'answer'], ['user', 'three']] },
+      { name: 'continued again', convo: [['system', 'Stable instructions.'], ['user', 'one'], ['assistant', 'answer'], ['user', 'two'], ['assistant', 'answer'], ['user', 'three']] },
+    ],
+  },
+  {
+    name: 'a route to another provider, a native tool added',
+    provider: 'anthropic',
+    steps: [
+      { name: 'first', convo: [['system', 'Stable instructions.'], ['user', 'one']] },
+      { name: 'another provider', provider: 'openai', convo: [['system', 'Stable instructions.'], ['user', 'one'], ['assistant', 'answer'], ['user', 'two']] },
+      { name: 'a native tool', provider: 'openai', nativeTools: [{ type: 'web_search' }], convo: [['system', 'Stable instructions.'], ['user', 'one'], ['assistant', 'answer'], ['user', 'two'], ['assistant', 'answer'], ['user', 'three']] },
+    ],
+  },
+];
+const routes = [];
+for (const [at, scenario] of routeSessions.entries()) {
+  const routeSession = { id: `sess_cache_route_${at}`, owner: 'user', provider: scenario.provider, cwd: root, messages: [] };
+  const done = [];
+  for (const step of scenario.steps) {
+    routeSession.provider = step.provider ?? routeSession.provider;
+    const convo = step.convo.map(([role, content]) => ({ role, content }));
+    const before = traceRows().length;
+    stderrLines.splice(0);
+    let sent = 0;
+    let thrown = null;
+    try {
+      await agentLoop(
+        { name: routeSession.provider, async send() { sent += 1; return { content: 'answer', toolCalls: [], stopReason: 'end_turn', usage: usage(10, 0, 0) }; } },
+        convo,
+        'claude-test',
+        [],
+        null,
+        root,
+        { session: routeSession, sessionId: routeSession.id, ...(step.nativeTools ? { nativeTools: step.nativeTools } : {}) }
+      );
+    } catch (error) {
+      thrown = { name: error.name, code: error.code ?? null, message: error.message };
+    }
+    await drainAgentTrace();
+    done.push({ name: step.name, convo: step.convo, provider: routeSession.provider, nativeTools: step.nativeTools ?? [], sent, thrown, rows: traceRows().slice(before).filter((line) => JSON.parse(line).kind === 'cache_break'), stderr: stderrLines.splice(0) });
+  }
+  routes.push({ name: scenario.name, session: routeSession.id, model: 'claude-test', steps: done });
+}
+
 // The guard's comparison (`prepareProviderPrefixGuard`) over request fingerprints that reach each of its breaks: the
 // previous and next fingerprints, the options, the details handed to `onCacheBreak`, and whether it refused the send.
 const { prepareProviderPrefixGuard } = await importFrom(tree, `${orch}/session/provider-prefix-guard.mjs`);
@@ -248,6 +303,7 @@ writeJson(join(out, 'golden.json'), {
   loop: { session: session.id, model: 'claude-test', provider: 'anthropic', requests, rows: loopRows, stderr: loopStderr },
   payloads,
   turns: { session: turnSession.id, provider: 'anthropic', cacheStrategy: turnSession.providerCacheOpts.cacheStrategy, system: convo[0].content, steps: turns },
+  routes,
   guard,
   prefix,
   seeded,
@@ -267,7 +323,12 @@ writeSetManifest(out, {
       'the guard cases: synthetic transcripts and request prefixes reaching every prepareProviderPrefixGuard branch',
       'the prefix bodies: synthetic Anthropic request bodies moving each fingerprinted block, marker and message breakpoint',
     ],
-    keptWhole: 'the cache_break lines of the local trace file, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
+    exclusions: {
+      deferred_body_compaction: 'no product path sets it: provider-prefix-guard.mjs:5-10 only accepts it as a compaction intent; the setters of a cache-break intent are pre-send-compact.mjs:461,613 (automatic_compaction), compaction-runner.mjs:737 (post_turn_compaction, manual_compaction), request-boundary.mjs:75,88 (tool_surface_bridge_migration, transcript_rebuild)',
+      request_properties_changed: 'no product path reaches it: request-projection.mjs:52-58 hands the guard a prefix of the two tool lists only, and provider-prefix-guard.mjs:176-196 digests each list on its own, so a changed prefix with the same provider, model and both list digests cannot occur (the guard cases give the guard a prefix with another key)',
+      'automatic_compaction, post_turn_compaction, manual_compaction by a real compaction': 'the compaction pipeline (a summarizer over the session) is not recorded here: the turns section sets the intent a compaction leaves (manual_compaction) and the guard cases give the comparison each compaction intent',
+    },
+    keptWhole: 'the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
   },
 });
 commitStage(out, finalOut);
