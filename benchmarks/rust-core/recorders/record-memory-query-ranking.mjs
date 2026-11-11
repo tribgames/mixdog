@@ -96,9 +96,9 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'rankLatestRecallRows, mergeHistoricalRecallRows, boundRecallRowsToTemporal, uniqueRowsById, topicTermCoverage (query-ranking.mjs) and interleaveRawRows (recall-format.mjs)', notRun: 'the handlers that call them (query-handlers)' },
-    replay: 'mixdog-services memory: mem/recall/ranking.rs (latest/historical/bound), mem/recall/format.rs interleave_raw_rows, mem/recall/mod.rs unique_rows_by_id; compares the returned rows in order (whole rows, including _historicalRootSummary on merged rows)',
+    replay: "mixdog-services memory/recall/ranking.rs (pub): rank_latest_rows (:162), merge_historical_rows (:217), bound_rows_to_temporal (:311), and memory/recall/browse.rs merge_event_rows (:986, the interleave); all reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay feeds the recorded rows and compares the returned rows whole, in returned order",
     exclusions: 'each case holds the probes of the test file first, then further shapes',
-    normalised: { 'undefined arguments': 'written as {"$undefined":true}' },
+    normalised: { 'values': 'every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent' },
   },
 });
 process.exit(0);

@@ -581,7 +581,7 @@
             ],
             "limit": 3,
             "options": {
-              "$undefined": true
+              "$exact": "undefined"
             }
           },
           "result": [
