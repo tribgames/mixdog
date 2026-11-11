@@ -1,0 +1,380 @@
+{
+  "domain": "memory-session-ingest-runtime",
+  "source": "src/runtime/memory/lib/session-ingest-runtime.test.mjs",
+  "clock": {
+    "dateNowMs": 1800000000000,
+    "reason": "Date.now() the runtime may read; never advanced"
+  },
+  "cases": [
+    {
+      "name": "the durable untimestamped high-water is saved when a repeat appears and lifts a warm append after restart (test line 111)",
+      "steps": [
+        {
+          "args": {
+            "sessionId": "s5",
+            "messages": [
+              {
+                "role": "user",
+                "content": "ping"
+              },
+              {
+                "role": "assistant",
+                "content": "pong"
+              },
+              {
+                "role": "user",
+                "content": "ping"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=3 inserted=3 session=s5"
+          },
+          "savedAfter": [
+            [
+              "s5",
+              {
+                "c97e917f1ada2dc2352061f0": 2
+              }
+            ]
+          ],
+          "rows": [
+            {
+              "id": 1,
+              "ts": 1799999999997,
+              "role": "user",
+              "content": "ping",
+              "source_ref": "session:s5:984ad800266d43c63c321c42",
+              "source_turn": 1,
+              "time_source": "collected"
+            },
+            {
+              "id": 2,
+              "ts": 1799999999998,
+              "role": "assistant",
+              "content": "pong",
+              "source_ref": "session:s5:0b041acdde1e7d5cdb9f183c",
+              "source_turn": 2,
+              "time_source": "collected"
+            },
+            {
+              "id": 3,
+              "ts": 1799999999999,
+              "role": "user",
+              "content": "ping",
+              "source_ref": "session:s5:6e49e1804c65dc503c3c5698",
+              "source_turn": 3,
+              "time_source": "collected"
+            }
+          ]
+        },
+        {
+          "args": {
+            "sessionId": "s5",
+            "messages": [
+              {
+                "role": "user",
+                "content": "ping"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=1 inserted=0 session=s5"
+          },
+          "phase": "restarted runtime, compacted array: the cold replay counts one survivor",
+          "rowCount": 3
+        },
+        {
+          "args": {
+            "sessionId": "s5",
+            "messages": [
+              {
+                "role": "user",
+                "content": "ping"
+              },
+              {
+                "role": "user",
+                "content": "ping"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=2 inserted=1 session=s5"
+          },
+          "phase": "warm append after the restart",
+          "rowCount": 4,
+          "rows": [
+            {
+              "id": 1,
+              "ts": 1799999999997,
+              "role": "user",
+              "content": "ping",
+              "source_ref": "session:s5:984ad800266d43c63c321c42",
+              "source_turn": 1,
+              "time_source": "collected"
+            },
+            {
+              "id": 2,
+              "ts": 1799999999998,
+              "role": "assistant",
+              "content": "pong",
+              "source_ref": "session:s5:0b041acdde1e7d5cdb9f183c",
+              "source_turn": 2,
+              "time_source": "collected"
+            },
+            {
+              "id": 3,
+              "ts": 1799999999999,
+              "role": "user",
+              "content": "ping",
+              "source_ref": "session:s5:6e49e1804c65dc503c3c5698",
+              "source_turn": 3,
+              "time_source": "collected"
+            },
+            {
+              "id": 4,
+              "ts": 1799999999999,
+              "role": "user",
+              "content": "ping",
+              "source_ref": "session:s5:459f6723667f0ede12784d2c",
+              "source_turn": 4,
+              "time_source": "collected"
+            }
+          ]
+        }
+      ],
+      "statements": [
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s5"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999997,
+            "user",
+            "ping",
+            "session:s5:984ad800266d43c63c321c42",
+            "s5",
+            1,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "assistant",
+            "pong",
+            "session:s5:0b041acdde1e7d5cdb9f183c",
+            "s5",
+            2,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "ping",
+            "session:s5:6e49e1804c65dc503c3c5698",
+            "s5",
+            3,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s5"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "ping",
+            "session:s5:984ad800266d43c63c321c42",
+            "s5",
+            4,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s5"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "user",
+            "ping",
+            "session:s5:984ad800266d43c63c321c42",
+            "s5",
+            4,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "ping",
+            "session:s5:459f6723667f0ede12784d2c",
+            "s5",
+            4,
+            null,
+            "collected"
+          ]
+        }
+      ],
+      "saved": [
+        [
+          "s5",
+          {
+            "c97e917f1ada2dc2352061f0": 2
+          }
+        ]
+      ]
+    },
+    {
+      "name": "excluded and empty messages are skipped; the flush is scoped to this call and then sweeps the backlog (test line 134)",
+      "steps": [
+        {
+          "args": {
+            "sessionId": "s6",
+            "messages": [
+              {
+                "role": "system",
+                "content": "hidden"
+              },
+              {
+                "role": "user",
+                "content": "   "
+              },
+              {
+                "role": "user",
+                "content": "visible",
+                "ts": 1700000000000
+              },
+              null
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=1 inserted=1 session=s6"
+          },
+          "flushes": [
+            {
+              "limit": 200,
+              "ids": [
+                1
+              ]
+            },
+            {
+              "limit": 200
+            }
+          ]
+        },
+        {
+          "args": {
+            "sessionId": "s6",
+            "messages": [
+              {
+                "role": "user",
+                "content": "later"
+              }
+            ],
+            "embedWait": false
+          },
+          "result": {
+            "text": "ingest_session: considered=1 inserted=1 session=s6"
+          },
+          "flushes": [
+            {
+              "limit": 200,
+              "ids": [
+                2
+              ]
+            },
+            {
+              "limit": 200
+            }
+          ],
+          "rows": [
+            {
+              "id": 1,
+              "ts": 1700000000000,
+              "role": "user",
+              "content": "visible",
+              "source_ref": "session:s6:65fc0e91ff6e8e9c100390ba",
+              "source_turn": 1,
+              "time_source": "recorded"
+            },
+            {
+              "id": 2,
+              "ts": 1799999999999,
+              "role": "user",
+              "content": "later",
+              "source_ref": "session:s6:465061f3d3c6e39e3d7b3475",
+              "source_turn": 2,
+              "time_source": "collected"
+            }
+          ]
+        }
+      ],
+      "statements": [
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s6"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1700000000000,
+            "user",
+            "visible",
+            "session:s6:65fc0e91ff6e8e9c100390ba",
+            "s6",
+            1,
+            null,
+            "recorded"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s6"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "later",
+            "session:s6:465061f3d3c6e39e3d7b3475",
+            "s6",
+            2,
+            null,
+            "collected"
+          ]
+        }
+      ]
+    }
+  ]
+}
