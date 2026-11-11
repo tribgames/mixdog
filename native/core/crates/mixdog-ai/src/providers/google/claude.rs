@@ -63,7 +63,8 @@ pub fn wire(caps: &CapsLookup, request: &ModelRequest, model: &VertexModel, base
         transport: TransportKind::Http1,
         method: "POST".into(),
         url: format!("{base}/publishers/anthropic/models/{}:streamRawPredict", path_id(&model.id)),
-        headers: vec![("content-type".into(), "application/json".into())],
+        // Node's spelling (vertex-ai.mjs:483), which undici keeps on the wire.
+        headers: vec![("Content-Type".into(), "application/json".into())],
         body,
     })
 }

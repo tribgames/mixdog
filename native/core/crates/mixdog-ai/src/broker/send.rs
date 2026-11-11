@@ -145,8 +145,7 @@ impl ModelBroker {
                 (&mut request_state, RetryClass::Request)
             };
             let policy = adapter.retry_policy_for(&send.request.model);
-            let decision = self.decider.verdict(&failure, state, policy, random_samples());
-            // `emitProviderRetryStage`'s attempt: the one about to run, of the row's attempts.
+            let decision = self.decider.verdict(&failure, state, policy, random_samples());            // `emitProviderRetryStage`'s attempt: the one about to run, of the row's attempts.
             let attempt = decision.next.count(None).retries + 1;
             *state = decision.next;
             // `runGeminiStreamAttempts` marks every failure after its stream opened as its connection ladder's spent
@@ -165,8 +164,19 @@ impl ModelBroker {
                         let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
                         sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
                     }
-                    if let Some(tag) = adapter.retry_log_tag(&model) {
-                        mixdog_rt::node_stderr!("{tag} retry attempt {attempt} after {}", failure.message);
+                    if let Some(line) = adapter.retry_line(&model) {
+                        // `lastErr?.message || lastErr?.code || 'transient error'`, then `retryDelayLabel(delayMs, delayReason)`.
+                        let cause = [Some(failure.message.as_str()), failure.code.as_deref()]
+                            .into_iter()
+                            .flatten()
+                            .find(|text| !text.is_empty())
+                            .unwrap_or("transient error");
+                        let wait = match (line.delay, failure.retry_after.is_some()) {
+                            (false, _) => String::new(),
+                            (true, false) => format!(", delay {}ms", delay.as_millis()),
+                            (true, true) => format!(", delay {}ms (retry-after)", delay.as_millis()),
+                        };
+                        mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
                     }
                     if let Some(usage) = &failure.partial_usage {
                         sink.abandoned(usage, failure.partial_model.as_deref());

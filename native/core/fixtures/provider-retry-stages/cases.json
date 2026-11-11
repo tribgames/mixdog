@@ -1,0 +1,1138 @@
+{
+  "set": "provider-retry-stages",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "anthropic-api-key-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:200",
+      "input": {
+        "provider": "anthropic"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "workspaceID": null,
+            "error": {
+              "type": "error",
+              "error": {
+                "type": "invalid_request_error",
+                "message": "bad field"
+              }
+            },
+            "type": "invalid_request_error",
+            "httpStatus": 400,
+            "initialResponseError": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "anthropic",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "overloaded",
+              "attempt": 2,
+              "max": 11,
+              "waitMs": 2000,
+              "retryAt": 1794225602000,
+              "reason": "Provider overloaded",
+              "classifier": "overloaded_error",
+              "message": "Provider overloaded · retry 2/11 in 2s"
+            }
+          }
+        ],
+        "stderr": [
+          "[anthropic] retry attempt 2 after 503 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}, delay 2000ms (retry-after)\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 0,
+          "fired": [
+            {
+              "dueMs": 499
+            },
+            {
+              "dueMs": 2000
+            }
+          ],
+          "toMs": 2000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "156"
+            ]
+          ],
+          "body": "{\"model\":\"claude\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "156"
+            ]
+          ],
+          "body": "{\"model\":\"claude\",\"max_tokens\":8192,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "xai-responses-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-xai-send.mjs:154",
+      "input": {
+        "provider": "xai"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 bad field",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "error": {
+              "message": "bad field",
+              "type": "invalid_request_error"
+            },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "invalid_request_error"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 15,
+              "waitMs": 2305,
+              "retryAt": 1794225604305,
+              "reason": "Provider server error",
+              "classifier": "server_error",
+              "message": "Provider server error · retry 2/15 in 2s"
+            }
+          }
+        ],
+        "stderr": [
+          "[xai:responses] retry attempt 2 after 503 busy, delay 2305ms (retry-after)\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "xai",
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2305,
+          "fromMs": 2000,
+          "fired": [
+            {
+              "dueMs": 2499
+            },
+            {
+              "dueMs": 4305
+            }
+          ],
+          "toMs": 4305
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.x.ai",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "api.x.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "160"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"error\":{\"message\":\"busy\",\"type\":\"server_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.x.ai",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "api.x.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "160"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"bad field\",\"type\":\"invalid_request_error\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "xai-chat-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs:222",
+      "input": {
+        "provider": "xai"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 bad field",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "error": {
+              "message": "bad field",
+              "type": "invalid_request_error"
+            },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "invalid_request_error"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 15,
+              "waitMs": 1897,
+              "retryAt": 1794225606202,
+              "reason": "Provider server error",
+              "classifier": "server_error",
+              "message": "Provider server error · retry 2/15 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[xai] retry attempt 2 after 503 busy, delay 1897ms (retry-after)\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "xai",
+            {
+              "apiKey": "fixture-key",
+              "apiMode": "chat",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1897,
+          "fromMs": 4305,
+          "fired": [
+            {
+              "dueMs": 5000
+            },
+            {
+              "dueMs": 6202
+            }
+          ],
+          "toMs": 6202
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.x.ai",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "api.x.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "x-grok-conv-id",
+              "4bf3795b-d6fe-431f-bf80-0cfe7e0f7131"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "116"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"error\":{\"message\":\"busy\",\"type\":\"server_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.x.ai",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "api.x.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "x-grok-conv-id",
+              "4bf3795b-d6fe-431f-bf80-0cfe7e0f7131"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "116"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"bad field\",\"type\":\"invalid_request_error\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vertex-gemini-retries-its-stream-without-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/vertex-ai.mjs:382",
+      "input": {
+        "provider": "vertex-ai"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Vertex AI Gemini streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "bad field",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "bad field",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          }
+        ],
+        "stderr": []
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/vertex-ai.mjs.VertexAIProvider",
+          "args": [
+            {
+              "authMode": "api-key",
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/vertex-ai.mjs.VertexAIProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1000,
+          "fromMs": 6202,
+          "fired": [
+            {
+              "dueMs": 7202
+            }
+          ],
+          "toMs": 7202
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://aiplatform.googleapis.com",
+          "path": "/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "aiplatform.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://aiplatform.googleapis.com",
+          "path": "/v1/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "aiplatform.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    }
+  ]
+}

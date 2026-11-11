@@ -22,6 +22,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::RetryLine;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
@@ -180,6 +181,11 @@ impl ProviderAdapter for ResponsesEngine {
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.account.keepalive()
     }
+    /// `compatStreamRetryReporter` of the Responses send: `<name>:responses` (openai-compat-responses.mjs:319, :267;
+    /// xAI's own send names the same, openai-compat-xai-send.mjs:154).
+    fn retry_line(&self, _model: &str) -> Option<RetryLine> {
+        Some(RetryLine { tag: format!("[{}:responses]", self.account.id()), delay: true })
+    }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.account.attempt_with(&self.codec, request).await
     }
@@ -203,12 +209,14 @@ pub struct GatewayAdapter {
     /// The Messages wire's output ceiling for a model (`config.modelMaxOutputTokens(model)`), handed to the Anthropic
     /// request builder when the caller named none (`gatewayMessagesOpts`).
     messages_ceiling: Option<Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>>,
+    /// The wire each model's last attempt went out on: its engine's ladder writes the retry line that follows it.
+    last_wire: Mutex<std::collections::HashMap<String, Wire>>,
 }
 
 impl GatewayAdapter {
     /// `engines` serve the wires other than Chat, which is `account` itself.
     pub fn new(account: Arc<CompatAdapter>, engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>, pick: WirePick) -> Self {
-        Self { account, engines, pick, session_header: false, messages_ceiling: None }
+        Self { account, engines, pick, session_header: false, messages_ceiling: None, last_wire: Mutex::default() }
     }
 
     pub fn with_messages_ceiling(mut self, ceiling: Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>) -> Self {
@@ -267,6 +275,7 @@ impl GatewayAdapter {
     /// One attempt on `wire`, with the send's own headers.
     async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
+        self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(request.model.clone(), wire);
         let request = self.with_ceiling(wire, request);
         if !self.session_header {
             return engine.attempt(request).await;
@@ -314,6 +323,15 @@ impl ProviderAdapter for GatewayAdapter {
     /// Every gateway lowers a PDF to text (`WireGatewayProvider.nativePdf`, `OpenCodeGoProvider.nativePdf`).
     fn native_pdf(&self) -> bool {
         false
+    }
+    /// The line of the ladder of the wire `model`'s last attempt went out on; OpenCode Go's Gemini engine writes
+    /// `[opencode-go:gemini]` (opencode-go-gemini.mjs:143), with no wait.
+    fn retry_line(&self, model: &str) -> Option<RetryLine> {
+        let wire = *self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model)?;
+        match wire {
+            Wire::Gemini => Some(RetryLine { tag: "[opencode-go:gemini]".into(), delay: false }),
+            other => self.engine(other)?.retry_line(model),
+        }
     }
     fn release_session(&self, session_id: &str) {
         self.account.release_session(session_id);
