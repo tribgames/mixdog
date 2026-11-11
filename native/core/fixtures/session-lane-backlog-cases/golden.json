@@ -1,0 +1,50 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a backed-up session stream still delivers a lane the desktop decoder can apply",
+      "observed": {
+        "openedItemChars": 300000,
+        "maxPendingBytes": 8388608,
+        "writesAfterOpen": 2,
+        "writesAfterLive": 2,
+        "writesTotal": 3,
+        "writes": [
+          {
+            "writeHead": [
+              200,
+              {
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+              }
+            ]
+          },
+          {
+            "chars": 12,
+            "head": ": attached\n\n",
+            "tail": ": attached\n\n"
+          },
+          {
+            "chars": 300537,
+            "head": "data: {\"type\":\"desktop-event\",\"key\":\"desktop-event:desktop:session-state:S\",\"desktopId\":\"desktop\",\"message\":{\"kind\":\"session-state\",\"sessionId\":\"S\",\"wire\":{\"items\":[{\"id\":\"a\",\"text\":\"xxxxxxxxxxxxxxxxx",
+            "tail": ":\"live\"}]},\"__statePatch\":{\"base\":1,\"revision\":2,\"changed\":{},\"removed\":[]}}}}\n\n"
+          }
+        ],
+        "dataEvents": 2,
+        "decodedOk": [
+          true,
+          true
+        ],
+        "lastItemIds": [
+          "a",
+          "b"
+        ]
+      }
+    }
+  ]
+}
