@@ -103,10 +103,10 @@ async function driven(virtual, label, promise, timersMs) {
   return settled(`${label}: the promise to settle`, promise);
 }async function run(name, fn, extra) {
   await set.run(name, async () => {
-    const virtual = virtualTimers();
+    const virtual = virtualTimers({ ordered: () => wireLog });
     wireLog = [];
     Date.now = () => FIXED_NOW + virtual.elapsed(); // the daemon side reads Date.now for its deadlines: it follows the virtual clock
-    try { const observed = await fn(virtual); while (deliveries.length) await settled('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
+    try { const observed = await fn(virtual); while (deliveries.length) await settled('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
   }, extra);
 }
 
