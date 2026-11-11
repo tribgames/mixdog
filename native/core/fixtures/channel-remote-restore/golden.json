@@ -4,7 +4,7 @@
     {
       "name": "a pinned session that exists",
       "sessionId": "sess_live",
-      "deleted": false,
+      "record": "live",
       "restored": true,
       "calls": [
         {
@@ -101,7 +101,7 @@
     {
       "name": "a pinned session that was deleted",
       "sessionId": "sess_deleted",
-      "deleted": true,
+      "record": "deleted",
       "restored": false,
       "calls": [],
       "logs": [
@@ -174,6 +174,104 @@
           "enabled": false,
           "sessionId": null,
           "cwd": null
+        }
+      }
+    },
+    {
+      "name": "a pinned session whose record cannot be read",
+      "sessionId": "sess_unreadable",
+      "record": "unreadable",
+      "restored": true,
+      "calls": [
+        {
+          "name": "activate_channel_bridge",
+          "args": {
+            "active": true,
+            "sessionId": "sess_unreadable",
+            "transcriptPath": "/work/sess_unreadable.jsonl",
+            "restore": true
+          },
+          "answer": {
+            "content": [
+              {
+                "type": "text",
+                "text": "channel bridge activated"
+              }
+            ]
+          }
+        }
+      ],
+      "logs": [
+        "remote intent restore kept session=sess_unreadable: the session record could not be read",
+        "remote intent restored session=sess_unreadable"
+      ],
+      "checkpoints": [
+        {
+          "at": "boot",
+          "pinnedSession": "sess_unreadable",
+          "remoteSession": null,
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_unreadable\",\"transcriptPath\":\"/work/sess_unreadable.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        },
+        {
+          "at": "restored",
+          "pinnedSession": "sess_unreadable",
+          "remoteSession": "sess_unreadable",
+          "file": {
+            "kind": "file",
+            "text": "{\"version\":1,\"sessionId\":\"sess_unreadable\",\"transcriptPath\":\"/work/sess_unreadable.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+          }
+        }
+      ],
+      "inbound": {
+        "routed": true,
+        "submitted": [],
+        "log": [
+          "channel session delivery unavailable session=none"
+        ]
+      },
+      "send": {
+        "status": 200,
+        "body": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "unknown tool: reply"
+              }
+            ],
+            "isError": true
+          }
+        },
+        "calls": [
+          {
+            "name": "reply",
+            "args": {
+              "chat_id": "c1",
+              "text": "hi back"
+            },
+            "answer": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "unknown tool: reply"
+                }
+              ],
+              "isError": true
+            }
+          }
+        ]
+      },
+      "list": {
+        "sessions": [
+          "sess_live"
+        ],
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess_unreadable",
+          "cwd": "/work"
         }
       }
     }

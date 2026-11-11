@@ -70,13 +70,15 @@ async function post(endpoint, path, body) {
   return { status: response.status, body: await response.json() };
 }
 
-async function restoreCase(name, sessionId, deleted) {
+async function restoreCase(name, sessionId, record) {
   const dir = fs.mkdtempSync(join(work, 'case-'));
   const intentPath = join(dir, 'channel-remote-intent.json');
   // The pin a manual Remote ON saved for a stored session; a deletion afterwards removes the record, not the pin.
   writeSession(sessionId);
   fs.writeFileSync(intentPath, JSON.stringify({ version: 1, sessionId, transcriptPath: `/work/${sessionId}.jsonl`, cwd: '/work', updatedAt: 123 }));
-  if (deleted) fs.rmSync(join(sessionsDir, `${sessionId}.json`));
+  if (record === 'deleted') fs.rmSync(join(sessionsDir, `${sessionId}.json`));
+  // A record that is there but cannot be read (a torn write): no proof the session is gone.
+  if (record === 'unreadable') fs.writeFileSync(join(sessionsDir, `${sessionId}.json`), '{"id":"' + sessionId + '","messages":[');
   const calls = [];
   const logs = [];
   let remoteSessionState = { enabled: false, sessionId: null };
@@ -91,7 +93,7 @@ async function restoreCase(name, sessionId, deleted) {
     onRemoteStateChange: (state) => {
       remoteSessionState = { enabled: state?.enabled === true, sessionId: state?.sessionId ?? null, cwd: state?.cwd ?? null };
     },
-    sessionExists: (id) => storedSessionViews.sessionExists(id),
+    ...(identity.patch ? { sessionPresence: (id) => storedSessionViews.sessionPresence(id) } : {}),
   });
   const checkpoint = (at) => ({ at, pinnedSession: transport.remoteIntentSessionId, remoteSession: transport.remoteSessionId, file: fileState(intentPath) });
   const boot = checkpoint('boot');
@@ -131,7 +133,7 @@ async function restoreCase(name, sessionId, deleted) {
   return {
     name,
     sessionId,
-    deleted,
+    record,
     restored,
     calls: calls.slice(0, callsBefore),
     logs: logs.filter((line) => /^(channel )?remote intent /.test(line)),
@@ -143,8 +145,9 @@ async function restoreCase(name, sessionId, deleted) {
 }
 
 const cases = [
-  await restoreCase('a pinned session that exists', 'sess_live', false),
-  await restoreCase('a pinned session that was deleted', 'sess_deleted', true),
+  await restoreCase('a pinned session that exists', 'sess_live', 'live'),
+  await restoreCase('a pinned session that was deleted', 'sess_deleted', 'deleted'),
+  await restoreCase('a pinned session whose record cannot be read', 'sess_unreadable', 'unreadable'),
 ];
 fs.rmSync(work, { recursive: true, force: true });
 const result = { frozenNow: FROZEN, cases };
@@ -165,8 +168,9 @@ if (out) {
       exclusions: [
         'logs keeps only the lines starting "remote intent " or "channel remote intent ", as channel-remote-intent does',
         'calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)',
-        'inbound: the router is wired as daemon.mjs wires it (getSessionId always null: channel-remote session pinning is retired), so the session service it is handed is never reached; `submitted` shows that',
-        'send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead',
+        'inbound: the router is wired as daemon.mjs wires it (daemon.mjs:924-929, getSessionId always null: channel-remote session pinning is retired) and the sink it is installed in returns once it routed (daemon.mjs:930-933), so in b6f10295a no channel notification reaches any session through the daemon, a live one included: the live case shows that (`submitted` empty, "session=none"); it is the same for every case, not a consequence of the restore',
+        'send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead. b6f10295a has no bot send: the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:1-3,29-96), so `reply` is "unknown tool" for every case, the live one included',
+        'what differs by the restore is the Remote binding itself: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)',
         'list: the session ids and remoteSession of session.list; remoteSession keeps enabled, sessionId and cwd (daemonPid and updatedAt are the process and the clock)',
       ],
     },
