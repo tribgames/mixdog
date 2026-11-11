@@ -43,6 +43,9 @@ fn settings_signature(config: &Config, secrets: &SecretChanges) -> String {
     json!([root, secrets.tokens()]).to_string()
 }
 
+/// `CONFIG_CHANGE_DEBOUNCE_MS` (config.mjs:652).
+const CONFIG_CHANGE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
+
 pub struct SettingsChanges {
     announced: watch::Sender<u64>,
 }
@@ -57,6 +60,14 @@ impl SettingsChanges {
         let sender = this.announced.clone();
         drop(mixdog_rt::spawn("settings-changes", TaskClass::Work, async move {
             while ticks.changed().await.is_ok() {
+                // config.mjs notifyConfigChanged: a trailing debounce, the pass reads after the last change of a burst.
+                loop {
+                    match tokio::time::timeout(CONFIG_CHANGE_DEBOUNCE, ticks.changed()).await {
+                        Ok(Ok(())) => continue,
+                        Ok(Err(_)) => return,
+                        Err(_) => break,
+                    }
+                }
                 let next = settings_signature(&config, &secrets);
                 if next != applied {
                     applied = next;

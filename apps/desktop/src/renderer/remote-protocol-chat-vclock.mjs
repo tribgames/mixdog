@@ -14,8 +14,8 @@ import { createHook, executionAsyncId } from 'node:async_hooks';
 import childProcess, { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
-import fs, { appendFileSync, statSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import fs, { appendFileSync, existsSync, statSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
 import timers from 'node:timers';
@@ -445,6 +445,8 @@ function installWatch() {
     try { if (statSync(path).isDirectory()) dir = resolve(String(path)).toLowerCase(); } catch {}
     if (!dir) return watcher;
     const entry = { dir, seen: new Set(), wake: () => {} };
+    // A fence already on disk when the watch began was written before it: the watcher owes nothing from before it.
+    try { for (const n of fs.readdirSync(dir)) if (n.startsWith(FENCE)) entry.seen.add(n); } catch {}
     watchers.add(entry);
     const emit = watcher.emit;
     watcher.emit = function (event, type, name, ...more) {
@@ -454,6 +456,15 @@ function installWatch() {
         entry.seen.add(basename(String(name)));
         entry.wake();
         return true;
+      }
+      // A change without a name: the OS's buffer for this directory overflowed and its events were dropped (libuv reports the overflow
+      // as one nameless change, after the changes it covers). Node's listeners get it as they would; a fence already on disk was among
+      // the changes it covers.
+      if (event === 'change' && name == null && entry.pending && existsSync(join(entry.dir, entry.pending))) {
+        entry.seen.add(entry.pending);
+        const delivered = emit.call(this, event, type, name, ...more);
+        entry.wake();
+        return delivered;
       }
       return emit.call(this, event, type, name, ...more);
     };
@@ -465,6 +476,7 @@ function installWatch() {
 /** Resolves once every watcher of each directory in `names` (directory -> fence file name) was told of its fence (or closed). */
 export function fenced(names) {
   return Promise.all([...watchers].filter((w) => names[w.dir]).map((w) => own(() => new Promise((resolve) => {
+    w.pending = names[w.dir];
     const check = () => { if (w.seen.has(names[w.dir]) || !watchers.has(w)) resolve(); else w.wake = check; };
     check();
   }))));

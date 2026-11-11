@@ -1001,6 +1001,8 @@ impl SessionActor {
                 self.seed = seed;
                 self.uncreated = true;
                 created_at = settings;
+                self.projected.status_pending = true;
+                self.acked.status_pending = true;
                 self.accept_record(
                     session,
                     Class::Normal,
@@ -4811,6 +4813,25 @@ impl SessionActor {
     fn agent_status(&mut self, agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool) {
         if self.tombstoned || self.cell.closed.load(SeqCst) {
             return;
+        }
+        // Before a created thread's first pass its status scope is not noted (agent-tool.mjs `noteStatusScope`, by the pass's `getStatus`):
+        // a signal finds no scope whose answer changed and tells no listener (`statusMayHaveChanged`, :287-313).
+        if listener && self.projected.status_pending {
+            return;
+        }
+        // The first pass of a thread created here publishes its route and context windows with the agent status
+        // (context-state.mjs `routeState` with `agentStatusState`): what the runtime held from its start.
+        if !listener && self.projected.status_pending {
+            let (before_route, before_context) = (self.projected.route(), self.projected.context());
+            self.projected.status_pending = false;
+            self.acked.status_pending = false;
+            let (route, context) = (self.projected.route(), self.projected.context());
+            if route != before_route {
+                self.accept_view(Change::Section(Section::Route(route)), Vec::new());
+            }
+            if context != before_context {
+                self.accept_view(Change::Section(Section::Context(context)), Vec::new());
+            }
         }
         if self.projected.sections.agents.clone().unwrap_or_default() != agents {
             self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());

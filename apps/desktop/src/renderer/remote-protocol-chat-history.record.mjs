@@ -133,9 +133,10 @@ async function settle(what) {
       // The pid keeps the fences of worlds side by side apart in the directories they share (the source tree, the temp folder).
       names[dir] = `.vclock-fence-${process.pid}-${(fences += 1)}`;
       writeFileSync(join(dir, names[dir]), '');
-      rmSync(join(dir, names[dir]));
     }
+    // The fences stay on disk until every watcher was told: a watcher opened after its fence was written finds it there (vclock.mjs).
     await deadline.race(Promise.all([fenced(names), ...remotes.map((r) => r.call('fenced', { names }))]), `the directory watchers to be told of the fence (${what}): ${watched.join(', ')}`);
+    for (const dir of watched) rmSync(join(dir, names[dir]), { force: true });
     fencedRound = true;
   }
 }
@@ -229,8 +230,30 @@ Object.assign(process.env, daemonEnv(envPaths));
 process.env.NODE_OPTIONS = `--import=${new URL('./remote-protocol-chat-vclock.mjs', import.meta.url).href}`;
 process.env.VCLOCK_PORT = String(controlServer.address().port);
 process.env.VCLOCK_SEED = `history:${caseName}`;
-// The top of supervisor.mjs's range (PG_PORT_MIN 55432 .. PG_PORT_MAX 55632): its bottom is where the machine's own stores are.
-process.env.VCLOCK_PG_PORT = String(55600 + ABORT_CASES.findIndex((k) => k.name === caseName));
+// The top of supervisor.mjs's range (PG_PORT_MIN 55432 .. PG_PORT_MAX 55632): its bottom is where the machine's own stores are. The range
+// lies inside Windows' ephemeral ports, so a case's own port may be held by some loopback connection's local end: then a spare from the
+// top of the range is claimed (an exclusively created file per port, removed at the end) among the cases side by side.
+const portFree = (port) => new Promise((resolve) => {
+  const probe = asOwn(() => net.createServer());
+  markOwn(probe);
+  probe.once('error', () => resolve(false));
+  probe.listen({ port, host: '127.0.0.1', exclusive: true }, () => probe.close(() => resolve(true)));
+});
+const claimsDir = join(harness, 'run', 'pg-port-claims');
+mkdirSync(claimsDir, { recursive: true });
+let pgClaim = null;
+let pgPort = 55600 + ABORT_CASES.findIndex((k) => k.name === caseName);
+if (!(await portFree(pgPort))) {
+  pgPort = 0;
+  for (let spare = 55600 + ABORT_CASES.length; spare <= 55632 && !pgPort; spare += 1) {
+    const claim = join(claimsDir, String(spare));
+    try { writeFileSync(claim, String(process.pid), { flag: 'wx' }); } catch { continue; }
+    if (await portFree(spare)) { pgPort = spare; pgClaim = claim; } else rmSync(claim, { force: true });
+  }
+  if (!pgPort) throw new Error(`${caseName}: no free memory-store port: ${55600 + ABORT_CASES.findIndex((k) => k.name === caseName)} and every spare up to 55632 are held`);
+}
+process.on('exit', () => { if (pgClaim) rmSync(pgClaim, { force: true }); });
+process.env.VCLOCK_PG_PORT = String(pgPort);
 process.execArgv = [];
 
 const load = (path) => import(pathToFileURL(join(exportDir, 'apps/desktop/src', path)).href);
