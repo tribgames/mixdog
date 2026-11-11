@@ -145,7 +145,7 @@ mod pg {
             let args = step.get("args").to_plain().expect("JSON args");
             let what = format!("{name}: step {at} {args}");
             searches.borrow_mut().clear();
-            let (outcome, statements, _) = read_path(tokio::time::timeout(std::time::Duration::from_secs(60), recall.recall(&args))).await;
+            let (outcome, statements, _) = read_path(tokio::time::timeout(std::time::Duration::from_secs(60), recall.recall_cancellable(&args, &tokio_util::sync::CancellationToken::new()))).await;
             let outcome = outcome.unwrap_or_else(|_| panic!("{what}: did not settle within 60 s"));
             same(&format!("{what}: searches"), step.get("searches"), &Exact::Array(searches.borrow().clone()));
             let sent = Exact::Array(

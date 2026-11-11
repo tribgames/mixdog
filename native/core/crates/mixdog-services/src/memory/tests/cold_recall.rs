@@ -71,7 +71,7 @@ async fn a_recall_while_the_model_loads_answers_as_node_and_the_load_goes_on() {
     let begun = tokio::time::Instant::now();
     let asking = memory.clone();
     let args = steps[0]["args"].clone();
-    let answering = tokio::spawn(async move { asking.recall(args).await });
+    let answering = tokio::spawn(async move { asking.recall(args, &tokio_util::sync::CancellationToken::new()).await });
     awaiting("the recall to start the model's load", started.notified()).await;
     let wait = Duration::from_millis(steps[0]["coldWaitMs"].as_u64().expect("wait"));
     tokio::time::advance(wait - Duration::from_millis(1)).await;
@@ -96,7 +96,7 @@ async fn a_recall_while_the_model_loads_answers_as_node_and_the_load_goes_on() {
     release.send(true).expect("the load is held");
     let ended = awaiting("the held load to end", provider.warmup()).await;
     assert_eq!(ended.err().as_deref(), Some("model load failed"));
-    let text = awaiting("the recall after the load ended", memory.recall(steps[1]["args"].clone())).await;
+    let text = awaiting("the recall after the load ended", memory.recall(steps[1]["args"].clone(), &tokio_util::sync::CancellationToken::new())).await;
     assert_eq!(text, steps[1]["result"]["text"].as_str().expect("text"), "{}", steps[1]["label"]);
 }
 

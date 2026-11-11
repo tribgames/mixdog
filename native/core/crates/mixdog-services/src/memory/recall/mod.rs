@@ -263,12 +263,9 @@ impl Recall {
         self.clock().now_ms
     }
 
-    /// The `recall` tool with a request no one cancels.
-    pub async fn recall(&self, args: &Value) -> RecallOutcome {
-        self.recall_cancellable(args, &CancellationToken::new()).await
-    }
-
-    /// The `recall` tool; `cancel` is the request's signal (the turn's stop).
+    /// The `recall` tool; `cancel` is the request's signal (the turn's stop). A cancelled request answers `recall failed: <reason>`: Node's
+    /// `handleToolCall` catches everything the search throws into `${name} failed: ${msg}` (`tool-call-handler.mjs:78-80`); the outer
+    /// `api/tool error:` catch (`tool-routes.mjs:50-55`) only sees a cancel before `handleToolCall` starts, and no reply reaches the cancelling client.
     pub async fn recall_cancellable(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
         match self.handle_search(&recall_search_args(args), cancel).await {
             Ok(mut outcome) => {
@@ -280,8 +277,8 @@ impl Recall {
     }
 
     /// The internal `search_memories` tool.
-    pub async fn search_memories(&self, args: &Value) -> RecallOutcome {
-        match self.handle_search(args, &CancellationToken::new()).await {
+    pub async fn search_memories(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
+        match self.handle_search(args, cancel).await {
             Ok(outcome) => outcome,
             Err(error) => {
                 RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true }
