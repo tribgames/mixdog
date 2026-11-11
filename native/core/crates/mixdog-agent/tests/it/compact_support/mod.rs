@@ -250,9 +250,10 @@ impl PreviewArchive {
     fn artifact(&self, content: &str) -> mixdog_agent::offload::Artifact {
         use sha2::Digest;
         let sha256: String = sha2::Sha256::digest(content.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        let path = format!("<DATA>/tool-results/{}/{sha256}.txt", self.session);
         mixdog_agent::offload::Artifact {
-            display_path: format!("<DATA>/tool-results/{}/{sha256}.txt", self.session),
-            path: format!("<DATA>/tool-results/{}/{sha256}.txt", self.session),
+            display_path: path.clone(),
+            path,
             lines: content.lines().count(),
             sha256,
         }

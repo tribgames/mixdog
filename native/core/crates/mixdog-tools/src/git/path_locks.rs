@@ -109,11 +109,11 @@ mod tests {
             tasks.push(tokio::spawn(async move {
                 let _held = lock_paths(&[Path::new("/r/a")], &cancel).await.unwrap();
                 assert_eq!(running.fetch_add(1, Ordering::SeqCst), 0);
-                tokio::time::sleep(Duration::from_millis(5)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(5)).await;
                 order.lock().unwrap().push(n);
                 running.fetch_sub(1, Ordering::SeqCst);
             }));
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(5)).await;
         }
         // A different path is not blocked by the first holder.
         let other = lock_paths(&[Path::new("/r/b")], &cancel).await.unwrap();
@@ -130,7 +130,7 @@ mod tests {
         let cancel = CancellationToken::new();
         // A git write holds the work tree; an edit locks its target file (and its real path).
         let git_write = lock_paths(&[Path::new("/r/work")], &cancel).await.unwrap();
-        let edit = tokio::time::timeout(
+        let edit = mixdog_rt::time::timeout(
             Duration::from_millis(200),
             lock_paths(&[Path::new("/r/work/src/a.rs"), Path::new("/r/work/src/a.rs")], &cancel),
         )
@@ -139,13 +139,13 @@ mod tests {
         .unwrap();
         assert_eq!(edit.len(), 1, "the target and its real path are one key");
         // The same key does wait: a second git write in the folder, and a second edit of the file.
-        let second_git = tokio::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work")], &cancel)).await;
+        let second_git = mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work")], &cancel)).await;
         assert!(second_git.is_err());
         let second_edit =
-            tokio::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/src/a.rs")], &cancel)).await;
+            mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/src/a.rs")], &cancel)).await;
         assert!(second_edit.is_err());
         // Spelling differences of one folder (separators, trailing slash) are one key.
-        let alias = tokio::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/")], &cancel)).await;
+        let alias = mixdog_rt::time::timeout(Duration::from_millis(100), lock_paths(&[Path::new("/r/work/")], &cancel)).await;
         assert!(alias.is_err());
         drop((git_write, edit));
     }
@@ -160,7 +160,7 @@ mod tests {
         let waiting = CancellationToken::new();
         let stop = waiting.clone();
         let waiter = tokio::spawn(async move { lock_paths(&[Path::new("/r/only-here")], &stop).await.is_none() });
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         waiting.cancel();
         assert!(waiter.await.unwrap());
         drop(held);

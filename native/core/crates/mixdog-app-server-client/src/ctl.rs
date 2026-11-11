@@ -70,7 +70,7 @@ impl Call {
 
     /// One connection operation under the inactivity bound (Node's socket `timeout`, reset by every byte moved).
     async fn idle<T>(&self, op: impl Future<Output = std::io::Result<T>>) -> Result<T, CtlError> {
-        tokio::time::timeout(self.bound.inactivity, op)
+        mixdog_rt::time::timeout(self.bound.inactivity, op)
             .await
             .map_err(|_| self.timed_out())?
             .map_err(CtlError::Io)
@@ -401,7 +401,7 @@ impl CtlClient {
             bound,
         };
         let reply = match bound.total {
-            Some(total) => tokio::time::timeout(total, self.exchange(&call, body))
+            Some(total) => mixdog_rt::time::timeout(total, self.exchange(&call, body))
                 .await
                 .map_err(|_| call.timed_out())??,
             None => self.exchange(&call, body).await?,
@@ -692,7 +692,7 @@ mod tests {
             match reply["kind"].as_str().unwrap() {
                 "silent" => {}
                 "after" => {
-                    tokio::time::sleep_until(at(reply["ms"].as_u64().unwrap())).await;
+                    mixdog_rt::time::sleep_until(at(reply["ms"].as_u64().unwrap())).await;
                     let _ = stream.write_all(format!("{head}{body}").as_bytes()).await;
                 }
                 "trickle" => {
@@ -704,7 +704,7 @@ mod tests {
                     let first = pieces.next().unwrap();
                     let _ = stream.write_all(&[head.as_bytes(), first].concat()).await;
                     for (k, rest) in pieces.enumerate() {
-                        tokio::time::sleep_until(at(every * (k as u64 + 1))).await;
+                        mixdog_rt::time::sleep_until(at(every * (k as u64 + 1))).await;
                         if stream.write_all(rest).await.is_err() {
                             return;
                         }
@@ -763,7 +763,7 @@ mod tests {
                 let port = scripted_listener(&case["reply"], draining_status().to_string()).await;
                 let started = tokio::time::Instant::now();
                 // The outer bound only keeps a client without a deadline from hanging the test.
-                let outcome = tokio::time::timeout(Duration::from_secs(60), invoke(call, &client(port)))
+                let outcome = mixdog_rt::time::timeout(Duration::from_secs(60), invoke(call, &client(port)))
                     .await
                     .unwrap_or_else(|_| panic!("{what}: never ended"));
                 let elapsed = started.elapsed();
@@ -833,7 +833,7 @@ mod tests {
             let begun = tokio::time::Instant::now();
             let mut buf = [0u8; 16];
             for k in 1..=3 {
-                tokio::time::sleep_until(begun + every * k).await;
+                mixdog_rt::time::sleep_until(begun + every * k).await;
                 far.read_exact(&mut buf).await.unwrap();
             }
             far

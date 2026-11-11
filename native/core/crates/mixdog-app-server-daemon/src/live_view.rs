@@ -25,7 +25,6 @@ use std::sync::Weak;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
@@ -709,14 +708,14 @@ impl HostEnv for LiveEnv {
     }
 
     fn now(&self) -> f64 {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
+        mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
     }
 
     fn set_timer(&self, ms: u64, run: Arc<dyn Fn(u64) + Send + Sync>) -> u64 {
         let Some(inner) = self.inner() else { return 0 };
         let handle = inner.timer_seq.fetch_add(1, Ordering::Relaxed) + 1;
         let task = mixdog_rt::spawn("live-view-timer", TaskClass::Work, async move {
-            tokio::time::sleep(Duration::from_millis(ms)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(ms)).await;
             run(handle);
         });
         lock(&inner.state).timers.insert(handle, task);
@@ -927,7 +926,7 @@ mod tests {
 
     use super::*;
 
-    const HOST: &str = include_str!("../../../fixtures/live-view-host/host.json");
+    const HOST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view-host/host.json");
 
     /// A phone's stream options in the host scenarios (Node's host recording starts from a streamed page, whatever its size).
     fn stream_options() -> Value {
@@ -983,7 +982,7 @@ mod tests {
                 if lock(&self.log).len() >= count {
                     return;
                 }
-                tokio::time::timeout(Duration::from_secs(10), arrived).await.unwrap_or_else(|_| panic!("a peer command never arrived"));
+                mixdog_rt::time::timeout(Duration::from_secs(10), arrived).await.unwrap_or_else(|_| panic!("a peer command never arrived"));
             }
         }
     }
@@ -1174,7 +1173,7 @@ mod tests {
                 .collect();
             let mut got_pushes = Vec::new();
             for _ in 0..expected_pushes.len() {
-                let (to, signal) = tokio::time::timeout(Duration::from_secs(10), pushes.recv()).await.unwrap_or_else(|_| panic!("{what}: a signal never reached its phone")).unwrap();
+                let (to, signal) = mixdog_rt::time::timeout(Duration::from_secs(10), pushes.recv()).await.unwrap_or_else(|_| panic!("{what}: a signal never reached its phone")).unwrap();
                 got_pushes.push((to, without_ice(signal)));
             }
             // Each phone has its own delivery lane, so the order between two phones is not a contract; each phone's own order is.
@@ -1204,7 +1203,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn the_service_serves_nodes_recorded_host_scenarios_end_to_end() {
         mixdog_rt::testing::tokens();
-        let recorded: Value = serde_json::from_str(HOST).unwrap();
+        let recorded: Value = serde_json::from_str(&HOST).unwrap();
         let scenarios = recorded["scenarios"].as_array().unwrap();
         let dir = tempfile::tempdir().unwrap();
         for name in REPLAYED {

@@ -58,7 +58,7 @@ use super::oauth_suite::form;
 use super::oauth_suite::read_request;
 use super::oauth_suite::respond;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/oauth-mcp-lifecycle/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-mcp-lifecycle/golden.json");
 const SEED_TOKEN: &str = "fixture-token";
 const MAIN_TOKEN: &str = "fixture-token-2";
 
@@ -391,7 +391,7 @@ async fn stage(client: &str) -> Stage {
         });
     }
     hub.apply(vec![config]);
-    tokio::time::timeout(Duration::from_secs(30), fixture.connected.notified()).await.expect("the hub connected");
+    mixdog_rt::time::timeout(Duration::from_secs(30), fixture.connected.notified()).await.expect("the hub connected");
     Stage { hub, fixture, spy, origin_port, name, _dir: dir, _server: server }
 }
 
@@ -497,7 +497,7 @@ async fn seed(stage: &Stage, client: &str) -> u16 {
     let flow = stage.hub.login_flow(stage.name, AccountMode::Connect).unwrap().with_challenge(Some(&challenge));
     let run = run_flow(flow.start().await.unwrap(), "code");
     let callback = authorized(&run).await;
-    let end = tokio::time::timeout(Duration::from_secs(30), run.ended).await.unwrap().unwrap();
+    let end = mixdog_rt::time::timeout(Duration::from_secs(30), run.ended).await.unwrap().unwrap();
     assert!(matches!(end, LoginState::Done { .. }), "{client}: the seed sign-in ended with {end:?}");
     callback.port
 }
@@ -516,7 +516,7 @@ const GROUPS: [&[&str]; 8] = [
 ];
 
 async fn replay_group(group: usize) {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let mut failures = Vec::new();
     let mut replayed = 0;
     for case in golden["cases"].as_array().unwrap() {
@@ -525,7 +525,7 @@ async fn replay_group(group: usize) {
             continue;
         }
         replayed += 1;
-        let outcome = match tokio::time::timeout(Duration::from_secs(40), tokio::spawn(replay(case.clone()))).await {
+        let outcome = match mixdog_rt::time::timeout(Duration::from_secs(40), tokio::spawn(replay(case.clone()))).await {
             Ok(joined) => joined,
             Err(_) => {
                 failures.push(format!("{title}: hung"));
@@ -545,7 +545,7 @@ async fn replay_group(group: usize) {
 #[test]
 fn every_case_belongs_to_a_group() {
     mixdog_rt::testing::assert_chunks_registered(GROUP_TESTS, GROUPS.len(), 1);
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let title = case["title"].as_str().unwrap();
         let owners = GROUPS.iter().filter(|group| group.iter().any(|prefix| title.starts_with(prefix))).count();
@@ -683,7 +683,7 @@ async fn replay(case: Value) {
         seam::PAGE_RELEASE.fire();
     }
 
-    let mut ended = tokio::time::timeout(Duration::from_secs(30), run.ended).await.expect("the flow ended").unwrap();
+    let mut ended = mixdog_rt::time::timeout(Duration::from_secs(30), run.ended).await.expect("the flow ended").unwrap();
     let settled_without_release = run.settled.load(Ordering::SeqCst);
     // The main-line retry of the request that started the sign-in, as the SDK client makes it.
     let mut outcome_status = None;
@@ -698,7 +698,7 @@ async fn replay(case: Value) {
         _ => None,
     };
     let server_saw_close = match held_hold {
-        Some(hold) => json!(tokio::time::timeout(Duration::from_secs(3), hold.closed.notified()).await.is_ok()),
+        Some(hold) => json!(mixdog_rt::time::timeout(Duration::from_secs(3), hold.closed.notified()).await.is_ok()),
         None => Value::Null,
     };
     // What the listener did while the case ran; releasing a page the case leaves held must not add to it. With
@@ -710,7 +710,7 @@ async fn replay(case: Value) {
     seam::PAGE_RELEASE.fire();
     let mut socket_results = Vec::new();
     for (kind, handle) in sockets.0 {
-        let closed = tokio::time::timeout(Duration::from_secs(10), handle).await.expect("the socket ended").unwrap();
+        let closed = mixdog_rt::time::timeout(Duration::from_secs(10), handle).await.expect("the socket ended").unwrap();
         socket_results.push(json!({"kind": kind, "closed": closed}));
     }
     if !socket_results.is_empty() {
@@ -722,7 +722,7 @@ async fn replay(case: Value) {
         (held.held, denied)
     };
     let held_page = match held_answer.0 {
-        Some(handle) => page(tokio::time::timeout(Duration::from_secs(5), handle).await.expect("the held page ended").unwrap()),
+        Some(handle) => page(mixdog_rt::time::timeout(Duration::from_secs(5), handle).await.expect("the held page ended").unwrap()),
         None => Value::Null,
     };
     let denied_page = held_answer.1.unwrap_or(Value::Null);

@@ -400,7 +400,7 @@ impl ExtensionConfig for ConfigExtensions {
         };
         let (config, pending) = (self.config.clone(), self.pending.clone());
         mixdog_rt::spawn("skills-save", TaskClass::Work, async move {
-            tokio::time::sleep(SKILLS_SAVE_DEBOUNCE).await;
+            mixdog_rt::time::sleep(SKILLS_SAVE_DEBOUNCE).await;
             let current = pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).generation;
             if current == generation {
                 flush(&config, &pending).await;

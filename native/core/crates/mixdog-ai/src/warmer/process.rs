@@ -79,7 +79,7 @@ impl WarmTimers for TokioTimers {
         mixdog_rt::spawn("cache-warm-timer", mixdog_rt::TaskClass::Work, async move {
             tokio::select! {
                 () = stop.cancelled() => {}
-                () = tokio::time::sleep(delay) => task.await,
+                () = mixdog_rt::time::sleep(delay) => task.await,
             }
         });
         Box::new(Armed(token))

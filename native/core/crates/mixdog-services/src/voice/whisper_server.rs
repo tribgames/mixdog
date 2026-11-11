@@ -179,7 +179,7 @@ impl Core {
         }
         let commands = commands.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(after).await;
+            mixdog_rt::time::sleep(after).await;
             if let Some(commands) = commands.upgrade() {
                 let _ = commands.send(Command::IdleRelease(armed)).await;
             }
@@ -335,7 +335,7 @@ impl Core {
             let readiness = readiness.clone();
             async move {
                 tokio::select! {
-                    () = tokio::time::sleep(READY_TIMEOUT) => readiness.cancel(),
+                    () = mixdog_rt::time::sleep(READY_TIMEOUT) => readiness.cancel(),
                     () = readiness.cancelled() => {}
                 }
             }
@@ -354,11 +354,11 @@ impl Core {
                 teardown_running(running).await;
                 return Err(VoiceError(format!("whisper-server bound port {printed} but contract requires {port}")));
             }
-            let bound = matches!(tokio::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
+            let bound = matches!(mixdog_rt::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
             if bound && pid.is_some_and(|pid| pid > 0) && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await && !running.exited() {
                 return Ok(running);
             }
-            tokio::time::sleep(READY_POLL).await;
+            mixdog_rt::time::sleep(READY_POLL).await;
         }
         teardown_running(running).await;
         Err(VoiceError(format!("whisper-server did not become ready within {}ms", READY_TIMEOUT.as_millis())))
@@ -499,7 +499,7 @@ async fn teardown_running(running: Running) {
     running.detached.store(true, Ordering::SeqCst);
     clear_pid_file(running.lane, running.pid_file.clone()).await;
     running.process.kill();
-    let _ = tokio::time::timeout(STOP_GRACE, running.process.wait()).await;
+    let _ = mixdog_rt::time::timeout(STOP_GRACE, running.process.wait()).await;
 }
 
 /// ffmpeg and ffprobe as children of the shared process manager.
@@ -565,7 +565,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let contract = ServerContract { server_cmd: dir.path().join("no-such-whisper-server"), model_path: dir.path().join("m.bin"), thread_count: 1, host: "127.0.0.1".into() };
         let server = WhisperServer::new(0, Some(Duration::from_millis(1)), &Processes::for_tests());
-        let outcome = tokio::time::timeout(Duration::from_secs(60), async {
+        let outcome = mixdog_rt::time::timeout(Duration::from_secs(60), async {
             for _ in 0..20 {
                 let (starts, stops, handles, teardowns) = tokio::join!(
                     async { futures::future::join_all((0..3).map(|_| server.ensure_ready(&contract))).await },
@@ -638,7 +638,7 @@ mod tests {
             if manager.servers.lock().unwrap().is_empty() {
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("the cancelled request kept the child pinned");
     }
@@ -648,7 +648,7 @@ mod tests {
     async fn an_abandoned_start_still_arms_the_idle_release() {
         let (_dir, manager, server, contract) = scripted_server(Some(Duration::from_millis(200)));
         // Polled once, so the command is queued, then dropped.
-        assert!(tokio::time::timeout(Duration::ZERO, server.ensure_ready(&contract)).await.is_err());
+        assert!(mixdog_rt::time::timeout(Duration::ZERO, server.ensure_ready(&contract)).await.is_err());
         let started = tokio::time::Instant::now();
         let mut seen = false;
         while started.elapsed() < Duration::from_secs(30) {
@@ -657,7 +657,7 @@ mod tests {
             if seen && live == 0 {
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("the abandoned start's child (seen: {seen}) was never released");
     }

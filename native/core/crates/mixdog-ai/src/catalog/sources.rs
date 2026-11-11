@@ -453,7 +453,7 @@ mod floor_tests {
     /// route's real `listModels` answering `MODELS`, lib/anthropic-models.mjs, after its roster fetch failed).
     fn node_offline_listing(route: &str, with_env: bool) -> serde_json::Value {
         let golden: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../fixtures/claude-floors/golden.json")).expect("the recording");
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("the recording");
         let listings = golden["offlineListings"].as_array().expect("offline listings");
         listings
             .iter()

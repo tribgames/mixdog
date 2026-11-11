@@ -19,7 +19,7 @@ use crate::providers::compat::schema::wire_input_schema;
 use crate::providers::compat::schema::wire_problem;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/providers/schema-wording/cases.json")).expect("recorded cases")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/providers/schema-wording/cases.json")).expect("recorded cases")
 }
 
 fn section(name: &str) -> Vec<Value> {
@@ -85,7 +85,7 @@ fn definitions(case: &Value) -> Vec<ToolDefinition> {
 /// flat schema it advertises (`actionInputUnionFor`); a tool nothing registered keeps its schema.
 #[test]
 fn a_registered_union_goes_out_in_its_nested_form() {
-    let unions: Value = serde_json::from_str(include_str!("../../../../../fixtures/providers/action-input-union/cases.json")).expect("recorded cases");
+    let unions: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/providers/action-input-union/cases.json")).expect("recorded cases");
     for case in unions["flatten"].as_array().expect("flatten") {
         advertise_action_input_union(&case["nested"]);
     }

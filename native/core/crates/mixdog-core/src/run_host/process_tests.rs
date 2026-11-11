@@ -43,11 +43,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
-// Read at run time: an `include_str!` put the 3 MB recording into every test build of the crate.
-#[allow(clippy::disallowed_methods)] // test fixture loading
-static WIRE_ANTHROPIC: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/wire-anthropic-gemini/anthropic.json")).unwrap()
-});
+const WIRE_ANTHROPIC: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/wire-anthropic-gemini/anthropic.json");
 const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
 const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 

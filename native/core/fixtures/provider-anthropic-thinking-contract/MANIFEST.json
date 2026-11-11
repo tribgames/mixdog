@@ -1,0 +1,156 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-anthropic-thinking-contract.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-core run_host/builder_env.rs (adaptive-only generation floor, :197-224) and mixdog-ai providers::anthropic body.rs (:670-684): the refusal text per model id and the whole request `body` per model/effort.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "src/runtime/agent/orchestrator/providers/anthropic-effort.mjs applyAnthropicEffortToBody(body, { model, opts, maxTokens, clampThinkingBudgetTokens }) and anthropic-oauth.mjs _buildRequestBodyForCacheSmoke(history, model, [], { effort }) after setModelEffortCapabilities([]). Not run: a send.",
+  "exclusions": [
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 24080,
+      "path": "cases.json",
+      "sha256": "0791161f62ceb5f7d5661c2a007cab6ef52a0935e961d393d645c7a223487cf8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-fable-5-1",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-fable-5.1-20260901",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-mythos-5-1",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-opus-4-7",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-opus-4-8",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-opus-5",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "adaptive-only-rejects-manual-budget:claude-sonnet-5",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:low",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:high",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:xhigh",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5-1:max",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:low",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:high",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:xhigh",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "mythos-adaptive-no-catalog:claude-mythos-5.1-20260901:max",
+      "level": "pure",
+      "rust": null
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-anthropic-thinking-contract.mjs",
+  "recorderSha256": "10ecc2e61f3582264fb8e405d0a222f4559503e847684832f3c2cfbd6c53f7e8",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). The adaptive-only floor (`manual_thinking`, `adaptive_thinking`, effort levels per model id with an empty catalog) is mixdog_core::run_host::builder_env::CatalogCaps::new(..).caps(model) (run_host/builder_env.rs:184, pub; module `pub mod run_host` lib.rs:1): replay `caps(model)` for the floor per model id; the refusal of a manual budget and the request body are produced by the codec (anthropic/body.rs:656, :690 inside AnthropicCodec, reached through the adapter above).",
+  "set": "provider-anthropic-thinking-contract",
+  "totalBytes": 24080,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

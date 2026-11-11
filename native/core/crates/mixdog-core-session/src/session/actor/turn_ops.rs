@@ -483,7 +483,7 @@ impl SessionActor {
     }
 
     /// `isSessionCompactionBlocked`: a turn's provider or tool work runs now, or the thread is going.
-    fn compaction_blocked(&self) -> bool {
+    pub(super) fn compaction_blocked(&self) -> bool {
         self.deleting || self.cell.closed.load(SeqCst) || self.ui_busy()
     }
 
@@ -511,12 +511,20 @@ impl SessionActor {
             Box::new(move |current: &_| header(current, &appended)) as super::super::run::DeferredHeader
         });
         compaction.replacement.extend(appended);
+        let jobs = self.jobs_tx.clone();
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
         self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });
         tokio::spawn(async move {
             let answer = match durable.await {
-                Ok(Ok(())) => Ok(CompactionCommit::Applied),
+                Ok(Ok(())) => {
+                    // `pruneCompactedOffloads(session)` on the actor (`prune_offloads`); the commit answers after it.
+                    let (told, pruned) = oneshot::channel();
+                    if jobs.send(JobDone::PruneOffloads(told)).is_ok() {
+                        let _ = pruned.await;
+                    }
+                    Ok(CompactionCommit::Applied)
+                }
                 _ => Err(CoreError::Internal { incident_id: "compaction-commit".into() }),
             };
             let _ = tx.send(answer);

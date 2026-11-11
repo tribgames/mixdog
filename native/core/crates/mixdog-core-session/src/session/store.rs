@@ -216,7 +216,7 @@ impl Projector {
     /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
     async fn caught_up(&self) -> Result<(), CoreError> {
         let bound = self.bound;
-        if tokio::time::timeout(bound, self.drained()).await.is_err() {
+        if mixdog_rt::time::timeout(bound, self.drained()).await.is_err() {
             return Err(internal("index-behind", &format_args!("the index has not taken the writes acknowledged before this read within {bound:?}")));
         }
         if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {
@@ -530,7 +530,8 @@ impl StoreThreads {
     }
 
     /// Holds the index projections (as a rewrite does), for a test of what waits on them.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn hold_index(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
         self.projector.hold()
     }
@@ -669,7 +670,8 @@ impl StoreThreads {
     }
 
     /// Returns once the index holds every write acked so far (the projection runs behind the ack).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) async fn projected(&self) {
         self.projector.drained().await;
     }
@@ -1529,6 +1531,23 @@ impl ThreadStore for StoreThreads {
             // already over when the job takes its thread. A failure is the job's to report.
             let _ = projector.caught_up().await;
         })
+    }
+
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        let (projector, index, id) = (self.projector.clone(), self.index.clone(), id.as_str().to_owned());
+        Box::pin(async move {
+            projector.caught_up().await?;
+            let found = index.offload_referencers(&id, mixdog_store::offload_sources::boot()).await.map_err(|e| internal("copies", &e))?;
+            if let Some((heir, source)) = found.copying {
+                return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation of {source}")));
+            }
+            Ok(super::seams::OffloadCopies { copies: found.sessions, unknown: found.unknown, unreadable: found.unreadable })
+        })
+    }
+
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (index, session) = (self.index.clone(), session.to_owned());
+        Box::pin(async move { index.record_offload_scan(&session, ordinal, sources).await.map_err(|e| internal("copies", &e)) })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
