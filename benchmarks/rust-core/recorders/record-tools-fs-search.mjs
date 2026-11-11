@@ -16,7 +16,7 @@
 //
 // Output: native/core/fixtures/tools-fs-search/<scenario>.json (+ MANIFEST.json); with --only the one scenario is recorded and printed.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -30,11 +30,17 @@ const FIXED = '2026-01-02T03:04:05Z';
 
 // A scenario: the workspace (`files`: path -> text; `junctions`: path -> the workspace directory it points at; `mtimes`: path -> ISO
 // time), the folder the calls run in (`cwd`, under the workspace), unrecorded `warmup` calls and the calls, in order. `<ROOT>` in an input is the workspace
-// path, written with forward slashes; `<ROOTW>` is the same path as Windows spells it (backslashes).
+// path, written with forward slashes; `<ROOTW>` is the same path as Windows spells it (backslashes). A call Node answers by throwing
+// names the exception it expects (`throws`: a part of its message); the exception is then its recorded outcome (`thrown`). Any other
+// exception, or none where one is expected, fails the recording, naming the scenario and the call.
 const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
 // A 1x1 PNG, and its base64 cut into `width`-character lines.
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const wrap = (text, width, eol) => text.match(new RegExp(`.{1,${width}}`, 'g')).join(eol);
+// The exceptions calls expect (`throws`): code_graph's refusal of file anchors under no one project, and path.resolve's of a path that
+// is not a string.
+const NOT_IN_PROJECT = 'is not inside a project';
+const PATH_NOT_STRING = 'The "path" argument must be of type string.';
 const SCENARIOS = [
   // The public read's `mode` (read-tool.mjs, read-single-tool.mjs): the legacy `path` form reads every glance mode, the
   // `file_path` form only `count` and `hex`; an entry object of a `file_path` array may not carry one.
@@ -219,9 +225,9 @@ const SCENARIOS = [
     },
     warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'] } }],
     calls: [
-      { tool: 'code_graph', input: { mode: 'nope' } },
-      { tool: 'code_graph', input: { files: ['src/missing.mjs'], mode: 'symbols' } },
-      { tool: 'code_graph', input: { mode: 'find_symbol' } },
+      { tool: 'code_graph', input: { mode: 'nope' }, throws: 'code_graph: unknown mode "nope"' },
+      { tool: 'code_graph', input: { files: ['src/missing.mjs'], mode: 'symbols' }, throws: NOT_IN_PROJECT },
+      { tool: 'code_graph', input: { mode: 'find_symbol' }, throws: 'find_symbol: provide "symbol"' },
       { tool: 'code_graph', input: { file: 'src/lib/math.mjs', mode: 'symbols' } },
       { tool: 'code_graph', input: { mode: 'callees', symbols: ['main'] } },
       { tool: 'code_graph', input: { depth: 2, mode: 'callers', symbols: ['add'] } },
@@ -985,13 +991,16 @@ const SCENARIOS = [
         ...shapes.map((file_path) => ({ tool: 'edit', input: { file_path, old_string: 'nothing-here', new_string: 'y' } })),
         ...shapes.map((cwd) => ({ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['xa'], cwd } })),
         ...shapes.map((files) => ({ tool: 'code_graph', input: { mode: 'symbols', files } })),
-        ...shapes.map((file) => ({ tool: 'code_graph', input: { mode: 'symbols', file } })),
+        // A `file` that is neither a string nor dropped (a falsy one) reaches path.resolve, which throws.
+        ...shapes.map((file) => ({ tool: 'code_graph', input: { mode: 'symbols', file }, ...(file && typeof file !== 'string' ? { throws: PATH_NOT_STRING } : {}) })),
         ...[false, 0].map((file) => ({ tool: 'code_graph', input: { mode: 'symbols', file } })),
         ...['find_symbol', 'references', 'callers', 'overview', 'imports', 'dependents', 'search'].map((mode) => ({
           tool: 'code_graph',
           input: { mode, symbols: ['xa'], file: 3 },
+          throws: PATH_NOT_STRING,
         })),
-        ...[[3], [true], [{ p: 'a' }], [['a', 'b']], ['a', null]].map((files) => ({ tool: 'code_graph', input: { mode: 'symbols', files } })),
+        ...[[3], [true], [{ p: 'a' }], [['a', 'b']]].map((files) => ({ tool: 'code_graph', input: { mode: 'symbols', files }, throws: NOT_IN_PROJECT })),
+        { tool: 'code_graph', input: { mode: 'symbols', files: ['a', null] } },
       ],
     }];
   })(),
@@ -1003,6 +1012,13 @@ const deadline = (promise, ms, what) => {
 };
 
 const STANDIN_WAIT_MS = 60_000;
+// Node's answer when its search server did not come up (native-search-client.mjs `unavailableError`), and how many times a
+// warmup so answered is made.
+const SERVER_UNAVAILABLE = 'native search server unavailable';
+const WARMUP_TRIES = 5;
+// A warmup's answers that are the machine's cold start: the search server not up, a code graph's build past Node's bound
+// (code-graph.mjs, "mixdog-graph timed out after 20000ms").
+const COLD_START = [SERVER_UNAVAILABLE, '[code-graph] mixdog-graph timed out after'];
 
 /** JSON with every object's keys in order. */
 const canonical = (value) => JSON.stringify(value, (_, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
@@ -1016,6 +1032,8 @@ async function startStandin(realBin) {
   // Captured before the silent call mocks Node's timers: every wait on the stand-in has one bound on the real clock.
   const { setTimeout: realSetTimeout, clearTimeout: realClearTimeout } = globalThis;
   const events = [];
+  // How many events of each name were reported, so a wait on a count does not go through every event at each wake.
+  const counts = new Map();
   let control = null;
   // Every wait in progress, woken by each event the stand-in reports and by `poke` (a change the recorder sees itself).
   const wakers = new Set();
@@ -1025,6 +1043,7 @@ async function startStandin(realBin) {
   };
   const push = (event) => {
     events.push(event);
+    counts.set(event.event, (counts.get(event.event) ?? 0) + 1);
     poke();
   };
   await new Promise((resolve, reject) => {
@@ -1068,6 +1087,9 @@ async function startStandin(realBin) {
     until,
     waitFor,
     poke,
+    count: (name) => counts.get(name) ?? 0,
+    // Once a stand-in is connected (a server the client started is up): a script sent before would reach none.
+    connected: (what) => waitFor(() => control && !control.destroyed, what),
     async script(script) {
       const from = events.length;
       control.write(`${JSON.stringify(script)}\n`);
@@ -1104,6 +1126,9 @@ async function silentServerCall(run, standin, from, beside) {
   }
 }
 
+// The deadline a grep's request carries to Node's server: native-search-client.mjs softDeadlineMs(REQUEST_TIMEOUT_MS 17,500), less
+// its margin of min(2,000, max(250, 7.5 %)).
+const SERVER_DEADLINE_MS = 17_500 - 1_312;
 // Holds the batch oplocks of `recordBurst`'s held searches.
 const OPLOCK_HOLDER = join(dirname(SELF), 'lib', 'oplock-holder.ps1');
 // The pattern of the calls whose cancel ends a stuck server in `recordStalled`.
@@ -1139,9 +1164,14 @@ async function recordBurst(scenario, standin, runOf, settle) {
   for (let n = 1; n <= holds; n += 1) await tell(`hold ${n} ${join(process.env.RECORDER_WORKSPACE, `h${n}`, 'f.ts')}`, `held ${n}`);
   await standin.script({ observe: true });
   const from = standin.events.length;
+  const requestsBefore = standin.count('request');
   const seen = (name) => standin.events.slice(from).filter((e) => e.event === name);
   const calls = [];
   const outcomes = [];
+  // When each hold's request reached the server and when it was released, on the real clock (`performance` is not
+  // mocked): Node's server ends a search at the deadline its request carries, counted from its arrival on the real clock.
+  const heldAt = [];
+  const releasedAt = [];
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
   try {
     for (let i = 1; i <= holds + count; i += 1) {
@@ -1155,13 +1185,18 @@ async function recordBurst(scenario, standin, runOf, settle) {
         outcomes[index] = outcome;
         standin.poke();
       });
-      await standin.waitFor(() => seen('request').length >= i, `${scenario.name}: call #${index}'s request at the server`);
-      if (i <= holds) await standin.waitFor(() => said.includes(`broken ${i}`), `${scenario.name}: hold #${index}'s open at the server`);
+      await standin.waitFor(() => standin.count('request') - requestsBefore >= i, `${scenario.name}: call #${index}'s request at the server`);
+      if (i <= holds) {
+        heldAt[index] = performance.now();
+        await standin.waitFor(() => said.includes(`broken ${i}`), `${scenario.name}: hold #${index}'s open at the server`);
+      }
     }
     await tell('release 1', 'released 1');
+    releasedAt[0] = performance.now();
     await standin.waitFor(() => outcomes.every((o, i) => o || (i > 0 && i < holds)), `${scenario.name}: every queued call's answer once the first hold is released`);
     for (let hold = 1; hold < holds; hold += 1) {
       await tell(`release ${hold + 1}`, `released ${hold + 1}`);
+      releasedAt[hold] = performance.now();
       await standin.waitFor(() => outcomes[hold], `${scenario.name}: hold #${hold}'s answer`);
     }
   } finally {
@@ -1177,7 +1212,10 @@ async function recordBurst(scenario, standin, runOf, settle) {
     throw new Error(`${scenario.name}: ${answerOrder.length} answers for ${calls.length} calls`);
   }
   for (let hold = 0; hold < holds; hold += 1) {
-    if (!String(outcomes[hold].text ?? '').includes('needle held')) throw new Error(`${scenario.name}: hold #${hold} did not hold its read: ${JSON.stringify(outcomes[hold])}`);
+    if (!String(outcomes[hold].text ?? '').includes('needle held')) {
+      const waited = Math.round(releasedAt[hold] - heldAt[hold]);
+      throw new Error(`${scenario.name}: hold #${hold} did not hold its read (released ${waited} ms of real time after its request reached the server; Node's server ends a search at its request's deadline, ${SERVER_DEADLINE_MS} ms): ${JSON.stringify(outcomes[hold])}`);
+    }
   }
   return { answerOrder, calls: calls.map((call, i) => ({ ...call, ...outcomes[i] })) };
 }
@@ -1220,7 +1258,7 @@ async function recordStalled(scenario, standin, runOf, settle) {
       const from = standin.events.length;
       const own = () => standin.events.slice(from).filter((e) => e.event === 'request' && !e.patterns.includes(STALL_HELPER));
       let done = null;
-      settle(runOf(call), call.tool, true).then((outcome) => {
+      settle(runOf(call), call.tool, { shape: true }).then((outcome) => {
         done = outcome;
         standin.poke();
       });
@@ -1233,7 +1271,7 @@ async function recordStalled(scenario, standin, runOf, settle) {
         const at = standin.events.length;
         const abort = new AbortController();
         const helper = { tool: 'grep', input: { pattern: STALL_HELPER, path: 't' } };
-        const helped = settle(runOf(helper, { signal: abort.signal }), helper.tool);
+        const helped = settle(runOf(helper, { signal: abort.signal }), helper.tool, { throws: 'operation aborted' });
         await standin.waitFor(
           () => standin.events.slice(at).some((e) => e.event === 'request' && e.patterns.includes(STALL_HELPER)),
           `${scenario.name}: the helper's request`,
@@ -1300,24 +1338,44 @@ if (process.argv[2] === '--child') {
   const { classifyResultKind } = await imp('src/runtime/agent/orchestrator/session/result-classification.mjs');
   const fwd = ws.replace(/\\/g, '/');
   // A rich answer is its JSON text, where the workspace's backslashes are escaped.
-  const scrub = (text) => String(text).replaceAll(JSON.stringify(ws).slice(1, -1), '<ROOT>').replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
+  // The search server answers with the workspace's canonical path, which differs from `ws` where a folder on the way is a link
+  // (the scratch folder lies behind one on the recording machine), so that spelling is the root too.
+  const real = realpathSync.native(ws);
+  const spellings = [ws, real].flatMap((path) => [JSON.stringify(path).slice(1, -1), path, path.replace(/\\/g, '/')]);
+  const scrub = (text) => spellings.reduce((scrubbed, spelling) => scrubbed.replaceAll(spelling, '<ROOT>'), String(text));
   const cwd = scenario.cwd ? join(ws, scenario.cwd) : ws;
   const standin = scenario.standin ? await startStandin(process.env.MIXDOG_GRAPH_BIN) : null;
-  // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound, which is a cold-start
-  // artefact of the recording machine, not an answer.
+  // A call as it runs, its input's `<ROOT>` and `<ROOTW>` spelled out (warmups' too).
+  const runOf = (call, options = {}) => {
+    const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
+    return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd, options));
+  };
+  // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound (SERVER_READY_TIMEOUT_MS),
+  // and a code graph's first build Node's 20 s bound, cold-start artefacts of a loaded recording machine, not answers. A
+  // warmup so answered (COLD_START) is made again, at most WARMUP_TRIES times; any other exception fails the recording, as
+  // the calls after it would run on a state the warmup did not make. With a stand-in, the calls then wait until it is
+  // connected, as a script sent before would reach no server.
+  const cold = (answer) => COLD_START.some((text) => answer.includes(text));
   for (const call of scenario.warmup ?? []) {
-    const run = call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', call.input, cwd) : executeBuiltinTool(call.tool, call.input, cwd);
-    await run.catch(() => {});
+    for (let tries = 1; ; tries += 1) {
+      const answer = await runOf(call)().then(
+        (raw) => JSON.stringify(raw) ?? '',
+        (error) => {
+          const message = String(error?.message ?? error);
+          if (!cold(message)) throw new Error(`${scenario.name}: warmup ${call.tool} ${JSON.stringify(call.input)} threw: ${error?.stack ?? message}`);
+          return message;
+        },
+      );
+      if (!cold(answer)) break;
+      if (tries === WARMUP_TRIES) throw new Error(`${scenario.name}: warmup ${call.tool}: cold ${tries} times: ${answer}`);
+    }
   }
+  if (standin) await standin.connected(`${scenario.name}: the search stand-in's connection after the warmup`);
   if (scenario.drainAfterWarmup) {
     const { drainCodeGraphCache } = await imp('src/runtime/agent/orchestrator/tools/code-graph/disk-cache.mjs');
     drainCodeGraphCache();
   }
   const calls = [];
-  const runOf = (call, options = {}) => {
-    const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
-    return () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd, options));
-  };
   // Node's outcome of a call: an explicit failure, or a text its one classifier calls an error (a navigation miss is a
   // zero-match there, not a failure).
   const outcomeOf = (raw, tool) => {
@@ -1326,12 +1384,25 @@ if (process.argv[2] === '--child') {
     const isError = env.explicitFailure || (!env.explicitSuccess && classifyResultKind(text, false, tool) === 'error');
     return { text: scrub(text), isError };
   };
+  // The exception a call threw as its outcome, when it is the one the call expects (`throws`); any other fails the
+  // recording, naming the scenario and the call.
+  const thrown = (error, what, throws) => {
+    const message = String(error?.message ?? error);
+    if (!throws || !message.includes(throws)) throw new Error(`${scenario.name}: ${what} threw what it does not expect${throws ? ` ("${throws}")` : ''}: ${error?.stack ?? message}`);
+    return { thrown: scrub(message) };
+  };
+  const answered = (what, throws) => {
+    if (throws) throw new Error(`${scenario.name}: ${what} answered where it expects an exception ("${throws}")`);
+  };
   // A call's outcome; with `shape`, also what the tool returned besides its text: `string` when it returned the text
   // alone, else the returned object's keys.
-  const settle = (run, tool, shape = false) =>
+  const settle = (run, tool, { shape = false, throws } = {}) =>
     run().then(
-      (raw) => ({ ...outcomeOf(raw, tool), ...(shape ? { returned: typeof raw === 'string' ? 'string' : Object.keys(raw).sort() } : {}) }),
-      (error) => ({ thrown: scrub(String(error?.message ?? error)) }),
+      (raw) => {
+        answered(tool, throws);
+        return { ...outcomeOf(raw, tool), ...(shape ? { returned: typeof raw === 'string' ? 'string' : Object.keys(raw).sort() } : {}) };
+      },
+      (error) => thrown(error, tool, throws),
     );
   if (scenario.burst) {
     writeFileSync(process.env.RECORDER_RESULT, JSON.stringify(await recordBurst(scenario, standin, runOf, settle)));
@@ -1355,8 +1426,11 @@ if (process.argv[2] === '--child') {
         outcome = outcomeOf(await runOf(call)(), call.tool);
       }
     } catch (error) {
-      outcome = { thrown: scrub(String(error?.message ?? error)) };
+      outcome = thrown(error, `#${calls.length} ${call.tool} ${JSON.stringify(call.input)}`, call.throws);
     }
+    if (!('thrown' in outcome)) answered(`#${calls.length} ${call.tool} ${JSON.stringify(call.input)}`, call.throws);
+    // A server that did not come up is the recording machine's cold start, not Node's answer.
+    if (String(outcome.text ?? '').includes(SERVER_UNAVAILABLE)) throw new Error(`${scenario.name} #${calls.length}: the search server was unavailable: ${outcome.text}`);
     if (call.server) {
       // The control pipe is ordered: once the stand-in acknowledges a script sent now, every report it made before is in.
       if (!call.server.silent) await standin.script(call.server);
@@ -1446,7 +1520,9 @@ async function recordScenario(scenario) {
     await deadline(exited, 30_000, `scenario ${scenario.name}'s job host ending`);
     throw new Error(`${error.message}\n${output}`);
   }
-  const job = readJobReport(report);
+  // The job only ends the scenario's whole tree with it; what outlived the program is not recorded, so its membership is not asked
+  // (a short-lived member whose exit report came after the program's leaves it unknown, which failed a whole recording).
+  const job = readJobReport(report, { membership: false });
   if (job.exitCode !== 0) throw new Error(`scenario ${scenario.name} failed (${job.exitCode}):\n${output}`);
   const { calls: _calls, resizerImages: _images, ...rest } = scenario;
   const { calls, resizer, ...recorded } = JSON.parse(readFileSync(join(sandbox, 'result.json'), 'utf8'));

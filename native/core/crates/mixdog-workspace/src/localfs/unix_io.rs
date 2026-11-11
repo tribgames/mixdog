@@ -168,24 +168,25 @@ impl Read for Opened {
 /// The volume `path` lies on: the device of the mount whose mount point is the longest prefix of `path` ([`MountTable`]).
 /// Empty when the table cannot be read.
 pub fn volume_of(path: &Path) -> String {
-    MountTable::read().volume_of(path)
+    mount_table().map(|mounts| MountTable { mounts }.volume_of(path)).unwrap_or_default()
 }
 
 /// The mounts, each its mount point and its device: Linux `/proc/self/mountinfo`, its `major:minor` (the `st_dev` of
 /// the files on it); macOS `getfsstat` with MNT_NOWAIT, the mounted device's name. Read from the kernel's table, which
 /// never waits on a filesystem, so a dead mount cannot hold the reader. A later mount on the same point is mounted over
-/// the earlier and comes after it.
-pub struct MountTable {
+/// the earlier and comes after it. `None` when the table cannot be read: which paths are mount points is then unknown,
+/// not "none" ([`super::charged`]).
+pub fn mount_table() -> Option<Vec<(PathBuf, String)>> {
+    mounts()
+}
+
+struct MountTable {
     mounts: Vec<(PathBuf, String)>,
 }
 
 impl MountTable {
-    pub fn read() -> Self {
-        Self { mounts: mounts() }
-    }
-
     /// The device of the mount whose mount point is the longest prefix of `path` (the last of those on one point).
-    pub fn volume_of(&self, path: &Path) -> String {
+    fn volume_of(&self, path: &Path) -> String {
         let mut best: Option<(usize, &str)> = None;
         for (point, device) in &self.mounts {
             if path.starts_with(point) {
@@ -199,7 +200,7 @@ impl MountTable {
     }
 
     /// The mount points strictly under `root`, each with the device a walk of `root` reads on below it, in path order.
-    pub fn under(&self, root: &Path) -> Vec<(PathBuf, String)> {
+    fn under(&self, root: &Path) -> Vec<(PathBuf, String)> {
         let mut under: Vec<(PathBuf, String)> =
             self.mounts.iter().filter(|(point, _)| point.starts_with(root) && point != root).map(|(point, _)| (point.clone(), self.volume_of(point))).collect();
         under.sort();
@@ -209,25 +210,27 @@ impl MountTable {
 }
 
 #[cfg(target_os = "linux")]
-fn mounts() -> Vec<(PathBuf, String)> {
-    let Ok(table) = std::fs::read_to_string("/proc/self/mountinfo") else { return Vec::new() };
+fn mounts() -> Option<Vec<(PathBuf, String)>> {
+    let table = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
     // `id parent major:minor root mount-point …`.
-    table
-        .lines()
-        .filter_map(|line| {
-            let fields: Vec<&str> = line.split(' ').collect();
-            let (device, point) = (fields.get(2)?, fields.get(4)?);
-            Some((PathBuf::from(unescape_mount_point(point)), (*device).to_owned()))
-        })
-        .collect()
+    Some(
+        table
+            .lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split(' ').collect();
+                let (device, point) = (fields.get(2)?, fields.get(4)?);
+                Some((PathBuf::from(unescape_mount_point(point)), (*device).to_owned()))
+            })
+            .collect(),
+    )
 }
 
 #[cfg(target_os = "macos")]
-fn mounts() -> Vec<(PathBuf, String)> {
+fn mounts() -> Option<Vec<(PathBuf, String)>> {
     // SAFETY: with a null buffer the call only counts the mounts.
     let count = unsafe { libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT) };
     if count <= 0 {
-        return Vec::new();
+        return None;
     }
     let room = count as usize + 8;
     // SAFETY: statfs is plain data; a zeroed one is valid.
@@ -236,81 +239,51 @@ fn mounts() -> Vec<(PathBuf, String)> {
     // SAFETY: `mounts` has room for `bytes` bytes of entries.
     let got = unsafe { libc::getfsstat(mounts.as_mut_ptr(), bytes, libc::MNT_NOWAIT) };
     if got <= 0 {
-        return Vec::new();
+        return None;
     }
     mounts.truncate(got as usize);
-    mounts
-        .iter()
-        .map(|mount| {
-            // SAFETY: the kernel writes NUL-terminated names into these arrays.
-            unsafe {
-                (
-                    PathBuf::from(std::ffi::CStr::from_ptr(mount.f_mntonname.as_ptr()).to_string_lossy().into_owned()),
-                    std::ffi::CStr::from_ptr(mount.f_mntfromname.as_ptr()).to_string_lossy().into_owned(),
-                )
-            }
-        })
-        .collect()
+    Some(
+        mounts
+            .iter()
+            .map(|mount| {
+                // SAFETY: the kernel writes NUL-terminated names into these arrays.
+                unsafe {
+                    (
+                        PathBuf::from(std::ffi::CStr::from_ptr(mount.f_mntonname.as_ptr()).to_string_lossy().into_owned()),
+                        std::ffi::CStr::from_ptr(mount.f_mntfromname.as_ptr()).to_string_lossy().into_owned(),
+                    )
+                }
+            })
+            .collect(),
+    )
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn mounts() -> Vec<(PathBuf, String)> {
-    Vec::new()
+fn mounts() -> Option<Vec<(PathBuf, String)>> {
+    None
 }
 
-/// A walk's volumes, from its canonical root: the volume of the folder it reads in and of the mount points below it.
-pub struct Crossings {
-    root: PathBuf,
-    canonical: PathBuf,
-    table: MountTable,
-    under: Vec<(PathBuf, String)>,
-    /// The mount points already read once ([`Crossings::step`]).
-    probed: std::collections::HashSet<PathBuf>,
-}
-
-impl Crossings {
-    /// `root` resolved as the filesystem resolves it (`realpath`, which reads on the volumes it passes), and the mounts.
-    pub fn new(root: &Path) -> io::Result<Self> {
-        let canonical = std::fs::canonicalize(root)?;
-        let table = MountTable::read();
-        let under = table.under(&canonical);
-        Ok(Self { root: root.to_path_buf(), canonical, table, under, probed: std::collections::HashSet::new() })
-    }
-
-    /// `path`, under the root as given, as it lies under the canonical root (the walk follows no link).
-    fn canonical(&self, path: &Path) -> PathBuf {
-        path.strip_prefix(&self.root).map_or_else(|_| path.to_path_buf(), |rel| self.canonical.join(rel))
-    }
-
-    pub fn root_volume(&self) -> String {
-        self.table.volume_of(&self.canonical)
-    }
-
+/// A walk's root as [`tell`] tells it.
+pub struct Told {
+    /// The volume of its canonical path: empty with no mount table.
+    pub volume: String,
     /// Whether no link lies in the root's path, so its volume is the mount table's for its text ([`super::Known`]).
-    pub fn fixed(&self) -> bool {
-        self.canonical == self.root
-    }
+    pub fixed: bool,
+    /// The mount points below it, as the walk names them (under the root as given; the walk follows no link), each
+    /// with the device below it; `None` with no mount table.
+    pub mounts: Option<Vec<(PathBuf, String)>>,
+}
 
-    pub fn volume_of(&self, path: &Path) -> String {
-        self.table.volume_of(&self.canonical(path))
-    }
-
-    /// Before the walk's next step from `last`: the mount point it may enter at that step, if not read before, with its
-    /// volume (the caller reads it first, on that volume: a dead mount holds that read, not the walk's), and the volume
-    /// of the folder the walk reads in.
-    /// `excluded` tells, of a mount point as the walk names it, whether the walk's rules leave it out.
-    pub fn step(&mut self, last: &Path, last_is_dir: bool, excluded: &mut dyn FnMut(&Path) -> bool) -> (Option<(PathBuf, String)>, String) {
-        let last = self.canonical(last);
-        let here = if last_is_dir { last.clone() } else { last.parent().map_or_else(|| last.clone(), Path::to_path_buf) };
-        let (root, canonical) = (&self.root, &self.canonical);
-        let walked = |point: &Path| point.strip_prefix(canonical).map_or_else(|_| point.to_path_buf(), |rel| root.join(rel));
-        let crossing =
-            super::next_crossing(&self.under, &last, last_is_dir, |point| excluded(&walked(point))).filter(|(point, _)| !self.probed.contains(point)).cloned();
-        if let Some((point, _)) = &crossing {
-            self.probed.insert(point.clone());
-        }
-        (crossing, self.table.volume_of(&here))
-    }
+/// `root` resolved as the filesystem resolves it (`realpath`, which reads on the volumes it passes), told by the mount
+/// table `table` ([`mount_table`]).
+pub fn tell(root: &Path, table: Option<Vec<(PathBuf, String)>>) -> io::Result<Told> {
+    let canonical = std::fs::canonicalize(root)?;
+    let table = table.map(|mounts| MountTable { mounts });
+    let volume = table.as_ref().map(|table| table.volume_of(&canonical)).unwrap_or_default();
+    let mounts = table.map(|table| {
+        table.under(&canonical).into_iter().filter_map(|(point, device)| point.strip_prefix(&canonical).ok().map(|rel| (root.join(rel), device))).collect()
+    });
+    Ok(Told { volume, fixed: canonical == root, mounts })
 }
 
 /// A mount point as mountinfo writes it: a space, a tab, a newline and a backslash as `\` and three octal digits.
