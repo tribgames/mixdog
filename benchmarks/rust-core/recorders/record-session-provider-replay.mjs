@@ -10,7 +10,7 @@ const rec = await startRecording({
   net: false,
   entry: 'session/manager/provider-replay.mjs stripProviderReplayMessages(history); openai-responses-input.mjs convertMessagesToResponsesInput(history, { replayEncryptedReasoning: true }); lib/anthropic-request-utils.mjs toAnthropicMessages(history, [{ name: "read" }], "anthropic"); gemini-schema.mjs toGeminiContents(history, "gemini-3-pro"). lib/provider-replay.mjs createProviderReplay builds the native state of the scripted turns.',
   compare: 'mixdog-core-api domain/provider.rs replay_for (:197-204), mixdog-ai providers::{openai input.rs, anthropic body.rs, google request.rs}: feed `input.turns` (messages with their native replay state) and compare `stripped` and each target lowering whole.',
-  replay: "Rust entry (pub, on o1): mixdog_core_api domain Message::replay_for (domain/provider.rs:226) and the codecs of the target providers (AnthropicCodec anthropic/codec.rs:148, OpenAiCodec openai/codec.rs:36, GoogleCodec google/codec.rs:71).",
+  replay: "Rust entry (pub, on o1): mixdog_core_api domain Message::replay_for (domain/provider.rs:226) and the codecs of the target providers (AnthropicCodec anthropic/codec.rs:148, OpenAiCodec openai/codec.rs:36, GoogleCodec google/codec.rs:63).",
 });
 const { stripProviderReplayMessages } = await rec.P('agent/orchestrator/session/manager/provider-replay.mjs');
 const { createProviderReplay } = await rec.P('agent/orchestrator/providers/lib/provider-replay.mjs');
