@@ -27,7 +27,7 @@ async function fixture(close, sessions = []) {
     { userDataPath: root, resourcesPath: root, appPath: root, packaged: false },
     { attachSessionClient: async () => ({ list: async () => ({ sessions }), close }), loadProjects: async () => ({}), loadSessionStore: async () => ({}), loadStatuslineSegments: async () => ({}), executeCodeGraphTool: async () => ({}) },
   );
-  return { host, root, cleanup: async () => { await host.dispose().catch(() => {}); await rm(root, { recursive: true, force: true }); } };
+  return { host, root, cleanup: async () => { await within(host.dispose().catch(() => {}), 10_000, 'the host disposal at cleanup'); await rm(root, { recursive: true, force: true }); } };
 }
 const sub = (id, ownerSessionId) => ({ id, owner: 'agent', agent: 'worker', visibility: 'agent-only', ownerSessionId, messageCount: 2, preview: 'work' });
 

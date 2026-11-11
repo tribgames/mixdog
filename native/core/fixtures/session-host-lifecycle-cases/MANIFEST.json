@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-lifecycle-cases.mjs",
-  "recorderSha256": "65211bf88e30fc5df47479010a3fc052306c3d03058461cf8ec70b2050cfe521",
+  "recorderSha256": "fd21d999d861edf3dc4b345ddf2edc090884b012c09005e7aaaf311a7682d9d5",
   "replay": {
     "compare": "mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case's calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome",
     "entry": "Drive these public items on o1: mixdog-app-server-daemon/src/compose_flip.rs:214 start_sub_agent_retention; mixdog-app-server-daemon/src/compose_flip.rs:223 sub_agent_retention_step.",
