@@ -1163,7 +1163,7 @@ async fn drive(
         sink: sink.clone(),
         gate,
         guards,
-        compactor,
+        compactor: compactor.map(|inner| Arc::new(super::goal_reminder_compactor::GoalReminderCompactor::new(inner, port.clone())) as Arc<dyn Compactor>),
         route,
         skills,
         hooks,

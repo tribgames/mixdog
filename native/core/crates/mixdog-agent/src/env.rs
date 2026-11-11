@@ -479,6 +479,9 @@ pub struct CompactRequest<'a> {
     /// The provider refused the request as too long: the latest request's
     /// attachments now travel by reference.
     pub reference_latest_attachments: bool,
+    /// Node `goalReminderText` (`latestUserPrefix`): the session's Goal and open todo snapshot the
+    /// kept latest request carries; empty for none.
+    pub latest_user_prefix: &'a str,
 }
 
 pub struct CompactOutput {
