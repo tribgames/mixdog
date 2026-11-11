@@ -19,7 +19,7 @@
     {
       "bytes": 34145,
       "path": "cases.json",
-      "sha256": "942b33b4cc4f2d88556bdfcee684f75c29881b4206a06b6f2950b876b26b668d"
+      "sha256": "2aa3d20ce5641eb27bcc8e1c1bd7cfb5069f1fee6ff5094fd4316628b73b8f18"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-auth-api.mjs",
-  "recorderSha256": "a1c24513ffbf154ffcc842f432f81962ff40b7b391b8c594ca1686a3459fdc51",
+  "recorderSha256": "c18ac9d2b2d2294016320d6dee4510053f3ed202b573636e99bdfb277f4edf9d",
   "replay": "Rust entry (pub, on o1): mixdog_core_domains ai_admin AccountActions (account_actions.rs:61, constructors new/over :113/:117) and ai_account spawn_provider_changes (provider_changes.rs:96) with LiveProviderEffects (provider_changes.rs:71). The catalog refresh after a key save is OPEN (K1 G8, dec:828): work for the Rust side.",
   "set": "provider-auth-api",
   "totalBytes": 34145,

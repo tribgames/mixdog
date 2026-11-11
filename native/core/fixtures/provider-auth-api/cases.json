@@ -672,7 +672,7 @@
     },
     {
       "id": "usage-only-credentials-skip-admission-cooldowns",
-      "source": "src/session-runtime/provider-auth-api.test.mjs:172",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:164",
       "input": {
         "op": "saveOpenAIUsageSessionKey",
         "args": [
@@ -1132,7 +1132,7 @@
     },
     {
       "id": "provider-setup-quick-snapshot-then-forced",
-      "source": "src/session-runtime/provider-auth-api.test.mjs:234",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:219",
       "input": {},
       "result": {
         "quick": {
