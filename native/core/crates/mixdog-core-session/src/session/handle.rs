@@ -300,20 +300,18 @@ impl SessionHandle {
     /// `thread/read`: the acked view, encoded on cpu-interactive (it can be a 2 MiB window).
     async fn read(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let view = self.cell.view.load_full();
-        let job = self
-            .deps
-            .lanes
-            .cpu
-            .submit(&req.ctx.cancel, move |_lane| {
-                serde_json::to_value(SnapshotParams {
-                    thread: &view.summary,
-                    state: &view.state,
-                    items: view.items.iter().map(|item| item.as_ref()).collect(),
-                    has_older: view.has_older,
-                })
-                .expect("protocol types serialize")
-            })?;
-        job.await.map(Reply::Value).map_err(|_| CoreError::ConnectionClosed)
+        // A read waits for room on a full lane, bounded by the caller's cancel (never `QueueFull`).
+        mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, move |_lane| {
+            serde_json::to_value(SnapshotParams {
+                thread: &view.summary,
+                state: &view.state,
+                items: view.items.iter().map(|item| item.as_ref()).collect(),
+                has_older: view.has_older,
+            })
+            .expect("protocol types serialize")
+        })
+        .await
+        .map(Reply::Value)
     }
 
     /// `thread/reactions/set {agentId, emoji, messagesBack?, othersKeep?}`: a bot's reaction
@@ -364,25 +362,24 @@ impl SessionHandle {
         let iid = ids[done.index].as_str().to_owned();
         self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), self.id.clone());
-        let found = self.deps.lanes.io.submit(&req.ctx.cancel, {
+        // The reaction is a bot's data: a full lane is waited out, never refused.
+        let found = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, {
             let iid = iid.clone();
             move |lane| store.history_row(lane, &thread, &iid)
-        })?;
-        let dropped = || CoreError::Internal { incident_id: "session-reaction-job-dropped".into() };
-        let (_, mut row) = found.await.map_err(|_| dropped())??.ok_or_else(|| CoreError::ItemNotFound {
+        });
+        let (_, mut row) = found.await??.ok_or_else(|| CoreError::ItemNotFound {
             thread_id: self.id.clone(),
             item_id: ids[done.index].clone(),
         })?;
         row.body = mixdog_store::schema::blob::Slot::Inline(message.clone());
         let transcript = self.deps.transcript.clone();
-        let shown = self.deps.lanes.cpu.submit(&req.ctx.cancel, {
+        let shown = mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &req.ctx.cancel, {
             let row = row.clone();
             move |lane| transcript.items(lane, &row)
-        })?;
+        });
         // Only the lines that carry reactions are re-shown; a row's other items are unchanged.
         let items: Vec<mixdog_protocol::ThreadItem> = shown
-            .await
-            .map_err(|_| dropped())?
+            .await?
             .into_iter()
             .filter_map(|shown| match shown {
                 super::seams::Shown::Item(

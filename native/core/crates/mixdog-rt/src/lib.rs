@@ -200,6 +200,27 @@ pub mod testing {
 
     thread_local! {
         static REFUSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// [`refuse_nth_job_on_this_thread`]: the attempt to refuse, and the attempts made so far.
+        static REFUSE_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+        static ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// While alive, only the `n`th (0-based) job submit attempt from THIS thread is refused, as a lane that cannot run it
+    /// (no room and no way to signal any): a fault put on one lane job at a time, the others run.
+    pub fn refuse_nth_job_on_this_thread(n: usize) -> RefuseJobs {
+        REFUSE_AT.set(Some(n));
+        ATTEMPTS.set(0);
+        RefuseJobs(())
+    }
+
+    /// The submit attempts made from this thread since [`refuse_nth_job_on_this_thread`].
+    pub fn attempts_on_this_thread() -> usize {
+        ATTEMPTS.get()
+    }
+
+    /// Whether the next submit attempt from this thread is the one to refuse.
+    fn refusing_next() -> bool {
+        REFUSE.get() || REFUSE_AT.get() == Some(ATTEMPTS.get())
     }
 
     /// While alive, every job submitted from THIS thread to [`InlineBackend`] is refused
@@ -218,17 +239,28 @@ pub mod testing {
     impl Drop for RefuseJobs {
         fn drop(&mut self) {
             REFUSE.set(false);
+            REFUSE_AT.set(None);
         }
     }
 
-    /// The lanes held full ([`hold_full`]), each with the notify its waiters park on.
-    static FULL: std::sync::Mutex<Vec<(LaneKind, Arc<tokio::sync::Notify>)>> = std::sync::Mutex::new(Vec::new());
-
-    fn full(lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
-        FULL.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(kind, _)| *kind == lane).map(|(_, freed)| freed.clone())
+    thread_local! {
+        /// The lanes held full ([`hold_full`]) for this thread, once per guard: a test holding a lane does not refuse
+        /// the jobs of tests running beside it.
+        static FULL: std::cell::RefCell<Vec<LaneKind>> = const { std::cell::RefCell::new(Vec::new()) };
     }
 
-    /// While alive, `lane` is full for every thread, as a lane whose threads and queue gated jobs fill: a plain submit is
+    /// Notified whenever a held lane is freed. Every lane signals room through it, held or not, as the production lanes
+    /// do: a waiting submit that meets a lane another test just filled waits, it is never refused.
+    fn freed() -> Arc<tokio::sync::Notify> {
+        static FREED: OnceLock<Arc<tokio::sync::Notify>> = OnceLock::new();
+        FREED.get_or_init(Arc::default).clone()
+    }
+
+    fn full(lane: LaneKind) -> bool {
+        FULL.with_borrow(|held| held.contains(&lane))
+    }
+
+    /// While alive, `lane` is full for jobs submitted from this thread (a current-thread test runtime), as a lane whose threads and queue gated jobs fill: a plain submit is
     /// refused (`LaneFull`) and [`crate::tokens::LaneToken::submit_wait`] waits; dropping the guard frees the lane and wakes
     /// the waiters, as a gate that lets its jobs end does.
     #[must_use]
@@ -236,20 +268,18 @@ pub mod testing {
 
     /// Holds `lane` full until the guard is dropped.
     pub fn hold_full(lane: LaneKind) -> HeldFull {
-        FULL.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((lane, Arc::new(tokio::sync::Notify::new())));
+        FULL.with_borrow_mut(|held| held.push(lane));
         HeldFull(lane)
     }
 
     impl Drop for HeldFull {
         fn drop(&mut self) {
-            let freed = {
-                let mut held = FULL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                let at = held.iter().position(|(kind, _)| *kind == self.0);
-                at.map(|at| held.remove(at).1)
-            };
-            if let Some(freed) = freed {
-                freed.notify_waiters();
-            }
+            FULL.with_borrow_mut(|held| {
+                if let Some(at) = held.iter().position(|kind| *kind == self.0) {
+                    held.remove(at);
+                }
+            });
+            freed().notify_waiters();
         }
     }
 
@@ -278,15 +308,18 @@ pub mod testing {
         fn record_poll(&self, _task: &'static str, _class: TaskClass, _elapsed: Duration) {}
 
         fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
-            if REFUSE.get() || full(job.lane()).is_some() {
+            let refused = refusing_next();
+            ATTEMPTS.set(ATTEMPTS.get() + 1);
+            if refused || full(job.lane()) {
                 return Err(LaneFull { lane: job.lane() });
             }
             job.run();
             Ok(())
         }
 
-        fn capacity_notify(&self, lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
-            full(lane)
+        // A refused attempt has no room to wait for: `submit_wait` answers it at once, as a lane that cannot run it.
+        fn capacity_notify(&self, _lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
+            (!refusing_next()).then(freed)
         }
 
         fn enter_thread(&self, _kind: ThreadKind) {}
