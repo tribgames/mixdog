@@ -58,6 +58,9 @@ await set.run('running pool rows carry their turn progress, stage and warn point
 });
 await set.finish({
   entry: { runs: 'shared/quiet-progress.mjs (quietProgress, quietWaitKind, quietProgressParts, quietProgressLabel, awaitingModelResponse, displayProgressStage, lastProgressAt), withTurnProgress over isTurnInFlight, resolveAgentStallThresholds', notRun: 'the pool listing itself: the rows and the entry lookup are the test\'s' },
-  replay: { entry: 'mixdog-agent agent_tool/progress.rs (quiet progress parts, labels, display stage, withTurnProgress row decoration, stall warn seconds): feed each recorded input and compare the result whole', note: 'also compares packages/protocol-client/src/rows/quiet-progress.mjs, the JS copy, on the same inputs' },
-});
+  replay: {
+    entry: 'NO RUST ENTRY ON o1 FOR THE QUIET CUE: this is work for the Rust side. Nothing in native/ produces the quiet labels ("quiet for 3m · running shell"), quietProgress / quietProgressParts / quietWaitKind or the pool-row decoration withTurnProgress adds (stall warn seconds, display stage): a search of native/**/*.rs for those strings finds none. agent_tool/progress.rs progress_fields (mixdog-agent, native/core/crates/mixdog-agent/src/agent_tool/progress.rs:380) is a different contract (task progress) and is NOT the target. A new public function is needed; this recording is the contract it must replay: feed each recorded input and compare the result whole.',
+    nearestOnO1: 'only the model-thinking stage exists: mixdog-core-run run_host/progress.rs MODEL_THINKING_STAGE (:68) and awaiting_model_response (:396), and mixdog-core-agents agents/pool_list.rs:820 (progressStage "model_thinking"): they cover the stage-name part of the third case, not the cue, the labels or the pool-row decoration',
+    note: 'also compares packages/protocol-client/src/rows/quiet-progress.mjs, the JS copy, on the same inputs',
+  },});
 process.exit(0);

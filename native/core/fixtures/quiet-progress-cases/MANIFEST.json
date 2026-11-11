@@ -17,18 +17,34 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "ce9c896ef37bd5ad6f3706b6dd74afd6eea3b1fea0b3b59f74f754a3c8f8c1fc"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,11 +63,19 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-quiet-progress-cases.mjs",
-  "recorderSha256": "44a2af57d87e332a5c9bdb344722392db99950da8a35fd4d04a75cd1a3c441fd",
+  "recorderSha256": "932889148dca28e7905c3b4667fd6c4eb5a61b455f01c5cefdb9eb7601de9e95",
   "replay": {
-    "entry": "mixdog-agent agent_tool/progress.rs (quiet progress parts, labels, display stage, withTurnProgress row decoration, stall warn seconds): feed each recorded input and compare the result whole",
-    "note": "also compares packages/protocol-client/src/rows/quiet-progress.mjs, the JS copy, on the same inputs"
+    "entry": "NO RUST ENTRY ON o1 FOR THE QUIET CUE: this is work for the Rust side. Nothing in native/ produces the quiet labels (\"quiet for 3m · running shell\"), quietProgress / quietProgressParts / quietWaitKind or the pool-row decoration withTurnProgress adds (stall warn seconds, display stage): a search of native/**/*.rs for those strings finds none. agent_tool/progress.rs progress_fields (mixdog-agent, native/core/crates/mixdog-agent/src/agent_tool/progress.rs:380) is a different contract (task progress) and is NOT the target. A new public function is needed; this recording is the contract it must replay: feed each recorded input and compare the result whole.",
+    "missingOnO1": [
+      "the whole recording: no Rust code produces the quiet cue, its labels or the pool-row decoration (see replay.entry)"
+    ],
+    "nearestOnO1": "only the model-thinking stage exists: mixdog-core-run run_host/progress.rs MODEL_THINKING_STAGE (:68) and awaiting_model_response (:396), and mixdog-core-agents agents/pool_list.rs:820 (progressStage \"model_thinking\"): they cover the stage-name part of the third case, not the cue, the labels or the pool-row decoration",
+    "note": "also compares packages/protocol-client/src/rows/quiet-progress.mjs, the JS copy, on the same inputs",
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "quiet-progress-cases",
-  "totalBytes": 5439
+  "totalBytes": 5439,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
