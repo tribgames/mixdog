@@ -128,7 +128,7 @@ impl p::ProviderAdapter for Script {
             && hold.armed.swap(false, std::sync::atomic::Ordering::SeqCst)
         {
             hold.entered.notify_one();
-            hold.release.notified().await;
+            tokio::time::timeout(std::time::Duration::from_secs(5), hold.release.notified()).await.expect("the test to release the first attempt it holds");
         }
         Ok(Box::new(Scripted {
             events: self.events.iter().cloned().collect(),
