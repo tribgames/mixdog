@@ -10,17 +10,24 @@
 import { rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { T0, startRecording } from './lib/provider-case-recorder.mjs';
-import { gateway, json } from './lib/scripted-gateway.mjs';
+import { gateway as startGateway, json } from './lib/scripted-gateway.mjs';
 
+// A gateway this recorder starts is reached directly (its port is registered); every other address goes to the scripted endpoint.
+let registerPort = () => {};
+const gateway = async (respond) => {
+  const gw = await startGateway(respond);
+  registerPort(new URL(gw.baseUrl).port);
+  return gw;
+};
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-mimo-oauth-wire',
-  net: false,
-  entry: 'src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false, ... }).send/.listModels/.isAvailable, mimo-oauth-tokens.mjs probeTokenPlanBaseUrl / ensureTokenPlanBaseUrl / loadTokens, mimo-oauth-profile.mjs chooseDefaultModel / SEED_MODELS, provider-catalog-cache.mjs providerCachedModelsSync, model-catalog.mjs getModelMetadataSync, runtime-core/effort.mjs effortOptionsFor, over a scripted loopback gateway (real fetch + the OpenAI SDK; credentials file MIMO_OAUTH_CREDENTIALS_PATH in the data directory). Not run: the widened stream waits and the private-hook supersession race (see the recorder header).',
+  entry: 'src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false, ... }).send/.listModels/.isAvailable, mimo-oauth-tokens.mjs probeTokenPlanBaseUrl / ensureTokenPlanBaseUrl / loadTokens, mimo-oauth-profile.mjs chooseDefaultModel / SEED_MODELS, provider-catalog-cache.mjs providerCachedModelsSync, model-catalog.mjs getModelMetadataSync, runtime-core/effort.mjs effortOptionsFor, over a scripted loopback gateway (real fetch + the OpenAI SDK; credentials file MIMO_OAUTH_CREDENTIALS_PATH in the data directory). Not run: the private-hook supersession race of the stale-publish test (see the recorder header). The widened stream waits are recorded (widened-stream-waits-and-explicit-first-byte-allowance).',
   compare: 'mixdog-ai providers::compat (chat/options.rs, listing.rs, creds.rs, login/mimo.rs:51-107, error.rs:298-304, adapter.rs) and mixdog-ai catalog store.rs:201-205: replay each case\'s scripted answers and compare `requests` (method, url, header pairs, body) in order, the results/errors (message, status, reauthRequired, mimoGatewayCode), the cached roster and the credentials file. `requests[*].headers` are the headers the gateway received over the real client: host, connection, accept-encoding, accept-language, sec-fetch-mode and a `user-agent: node` come from undici, the rest from the product.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   exclusions: ['result.persisted.mtimeMs of the token-plan probe case is the real modification time of a file the product rewrote, written as a marker (it is not part of the behaviour)', 'the n-th gateway of the recording listens on 127.0.0.1:47831+n (0-based, file order); the address appears literally in urls and stored credentials'],
 });
+registerPort = rec.allowDirect;
 const P = 'agent/orchestrator/providers/';
 process.env.MIMO_OAUTH_CREDENTIALS_PATH = join(rec.dataDir, 'mimo-oauth.json');
 const { MimoOAuthProvider } = await rec.P(`${P}mimo-oauth.mjs`);
@@ -152,13 +159,13 @@ await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:242`,
     const newerRows = await newer;
     answer(0, 'mimo-v2.6-pro');
     const olderRows = await older;
-    const afterOlder = { cachedModels: cachedModels(), liveModels: provider._inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const afterOlder = { cachedModels: cachedModels(), liveModels: provider._inner._enrichedModels, rosterItems: provider._rosterItems };
     const switched = provider.listModels();
     await gw.arrived(3);
     signIn(gw.baseUrl, 'sk-other');
     answer(2, 'mimo-v2.6-pro');
     const switchedRows = await switched;
-    const afterSwitch = { cachedModels: cachedModels(), liveModels: provider._inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const afterSwitch = { cachedModels: cachedModels(), liveModels: provider._inner._enrichedModels, rosterItems: provider._rosterItems };
     // Supersession during catalog enrichment (after the fetch settled): `name` is read once more right after enrichment finishes, and the
     // test hooks that read (private _inner members) to supersede the request at exactly that point.
     signIn(gw.baseUrl);
@@ -167,7 +174,7 @@ await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:242`,
     answer(3, 'mimo-v2.6-flash');
     await base;
     const inner = provider._inner;
-    const afterBase = { innerModels: inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const afterBase = { innerModels: inner._enrichedModels, rosterItems: provider._rosterItems };
     const innerName = inner.name;
     let onEnriched = null;
     let reads = 0;
@@ -187,33 +194,33 @@ await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:242`,
     await gw.arrived(6);
     answer(5, 'mimo-v2.6-flash');
     await newerFetch;
-    const afterNewerClaimed = { innerModels: inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const afterNewerClaimed = { innerModels: inner._enrichedModels, rosterItems: provider._rosterItems };
     const gotSwitched = await duringEnrichment(() => signIn(gw.baseUrl, 'sk-other'), 6);
-    const afterKeySwitchedDuringEnrichment = { innerModels: inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const afterKeySwitchedDuringEnrichment = { innerModels: inner._enrichedModels, rosterItems: provider._rosterItems };
     return { order: 'request 2 answered first, then request 1; then the key switches while request 3 is in flight; then supersession during enrichment', newerRows, olderRows, afterOlder, switchedRows, afterSwitch, afterBase, gotOlder, afterNewerClaimed, gotSwitched, afterKeySwitchedDuringEnrichment, requests: gw.requests };
   } finally {
     gw.close();
   }
 });
-await rec.run('token-plan-probe-sgp-ams-cn-persists', `${SRC}:360`, {}, async () => {
-  const calls = [];
-  const fetchImpl = async (url, init) => {
-    calls.push({ url, signal: init.signal, auth: init.headers.Authorization });
-    if (calls.length === 1) throw new Error('region down');
-    if (calls.length === 2) return new Response('{"error":"denied"}', { status: 401 });
-    return new Response('{}', { status: 200 });
-  };
-  const probed = await probeTokenPlanBaseUrl('tp-abc', { fetchImpl });
-  const first = { probed, urls: calls.map((c) => c.url), distinctSignals: new Set(calls.map((c) => c.signal)).size, auth: calls[0].auth, regions: TOKEN_PLAN_BASE_URLS };
+// WIRE: the product's own default fetch (redirected to the loopback endpoint) makes the regional probes; the endpoint's answer for request n is the scripted behaviour
+// (1: the connection is reset, 2: HTTP 401, then 200); the probes that arrived are `requests` of the case (URL, Authorization header, body).
+const ok200 = { status: 200, contentType: 'application/json', body: '{}' };
+await rec.run('token-plan-probe-sgp-ams-cn-persists', `${SRC}:360`, { answers: ['connection reset', '401 {"error":"denied"}', '200 {}'], then: ['persist through ensureTokenPlanBaseUrl', 'no probe for a non-token-plan key or a known URL', 'a 500 answer'] }, async ({ net }) => {
+  net.reply = (_record, n) => (n === 1 ? { destroy: true } : n === 2 ? { status: 401, contentType: 'application/json', body: '{"error":"denied"}' } : ok200);
+  const probed = await probeTokenPlanBaseUrl('tp-abc');
+  const first = { probed, regions: TOKEN_PLAN_BASE_URLS };
   signIn('', 'tp-abc');
-  calls.length = 0;
-  const tokens = await ensureTokenPlanBaseUrl(loadTokens(), { fetchImpl });
+  const before = net.records.length;
+  net.reply = (_record, n) => (n === before + 1 ? { destroy: true } : n === before + 2 ? { status: 401, contentType: 'application/json', body: '{"error":"denied"}' } : ok200);
+  const tokens = await ensureTokenPlanBaseUrl(loadTokens());
   const persisted = loadTokens();
-  calls.length = 0;
-  await ensureTokenPlanBaseUrl({ apiKey: 'sk-1', uid: '', baseUrl: '' }, { fetchImpl });
-  await ensureTokenPlanBaseUrl({ apiKey: 'tp-1', uid: '', baseUrl: 'https://x.test/v1' }, { fetchImpl });
-  const nonAuth = await attempt(probeTokenPlanBaseUrl('tp-abc', { fetchImpl: async () => new Response('nope', { status: 500 }) }));
-  return { first, ensured: tokens, persisted: stamped(persisted), probesForNonTokenPlanOrKnownUrl: calls.length, nonAuth };
+  const afterEnsure = net.records.length;
+  await ensureTokenPlanBaseUrl({ apiKey: 'sk-1', uid: '', baseUrl: '' });
+  await ensureTokenPlanBaseUrl({ apiKey: 'tp-1', uid: '', baseUrl: 'https://x.test/v1' });
+  const probesForNonTokenPlanOrKnownUrl = net.records.length - afterEnsure;
+  net.reply = () => ({ status: 500, contentType: 'text/plain', body: 'nope' });
+  const nonAuth = await attempt(probeTokenPlanBaseUrl('tp-abc'));
+  return { first, ensured: tokens, persisted: stamped(persisted), probesForNonTokenPlanOrKnownUrl, nonAuth };
 });
 await rec.run('caller-cannot-move-mimo-to-responses', `${SRC}:382`, { opts: { compatWireApi: 'responses', responsesTransport: 'ws' } }, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl);
@@ -257,14 +264,15 @@ await rec.run('plain-compat-provider-no-mimo-sampling-defaults', `${SRC}:488`, {
   await plain.send(hi, 'deepseek-chat', [], {});
   return {};
 }));
-await rec.run('regional-probe-continues-past-failure', `${SRC}:499`, {}, async () => {
-  const calls = [];
-  const probed = await probeTokenPlanBaseUrl('tp-abc', { fetchImpl: async (url) => (calls.push(url), calls.length === 1 ? new Response('busy', { status: 503 }) : new Response('{}', { status: 200 })) });
-  const down = await attempt(probeTokenPlanBaseUrl('tp-abc', { fetchImpl: async () => new Response('gone', { status: 503 }) }));
+await rec.run('regional-probe-continues-past-failure', `${SRC}:499`, { answers: ['503 busy', '200 {}'], then: ['every region 503', 'a pre-aborted signal'] }, async ({ net }) => {
+  net.reply = (_record, n) => (n === 1 ? { status: 503, contentType: 'text/plain', body: 'busy' } : ok200);
+  const probed = await probeTokenPlanBaseUrl('tp-abc');
+  net.reply = () => ({ status: 503, contentType: 'text/plain', body: 'gone' });
+  const down = await attempt(probeTokenPlanBaseUrl('tp-abc'));
   const ctl = new AbortController();
   ctl.abort();
-  const aborted = await attempt(probeTokenPlanBaseUrl('tp-abc', { signal: ctl.signal, fetchImpl: async (_u, init) => { init.signal.throwIfAborted(); } }));
-  return { probed, urls: calls, down, aborted };
+  const aborted = await attempt(probeTokenPlanBaseUrl('tp-abc', { signal: ctl.signal }));
+  return { probed, down, aborted };
 });
 await rec.run('topP-topK-forwarded', `${SRC}:521`, {}, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl);
@@ -378,13 +386,15 @@ await rec.run('abort-during-regional-probe-is-cancellation', `${SRC}:684`, {}, a
   const err = await provider.send(hi, 'm', [], { signal: ctl.signal }).catch((e) => e);
   return { error: err, isTheCallersReason: err === reason, urls };
 });
-await rec.run('widened-stream-waits-and-explicit-first-byte-allowance', `${SRC}:466`, { firstByteTimeoutMs: 30, label: 'x', providerName: 'x', stream: 'an async iterable whose next() never settles', advanceMs: [30], plainSend: { provider: 'deepseek', model: 'deepseek-chat' } }, async () => {
+await rec.run('widened-stream-waits-and-explicit-first-byte-allowance', `${SRC}:466`, { gateway: 'answers 200 with the SSE head and never writes a body byte', clock: 'every armed timer in due order until the send ends', plainSend: { provider: 'deepseek', model: 'deepseek-chat' } }, async () => {
   const stall = await rec.P('agent/orchestrator/stall-policy.mjs');
   const policy = { shared: { PROVIDER_FIRST_BYTE_TIMEOUT_MS: stall.PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS: stall.PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS }, mimo: { MIMO_FIRST_BYTE_TIMEOUT_MS: profile.MIMO_FIRST_BYTE_TIMEOUT_MS, MIMO_SEMANTIC_IDLE_TIMEOUT_MS: profile.MIMO_SEMANTIC_IDLE_TIMEOUT_MS, MIMO_CHAT_PROFILE: profile.MIMO_CHAT_PROFILE } };
-  const silent = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}), return: async () => ({}) }) };
-  const pending = consumeCompatChatCompletionStream(silent, { label: 'x', providerName: 'x', firstByteTimeoutMs: 30 }).then((response) => ({ response }), (error) => ({ error }));
-  await rec.clock.advance(30);
-  const stalled = await pending;
+  // WIRE: the MiMo provider sends to a gateway that answers 200 with the SSE head and never writes a body byte; the virtual clock moves to every timer the send arms (its widened first-byte wait, then its retries) until the send ends.
+  const stalled = await withGateway((_req, _body, res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.flushHeaders(); }, async (silentGw) => {
+    signIn(silentGw.baseUrl);
+    const settled = newProvider().send([{ role: 'user', content: 'hi' }], 'mimo-v2.6-pro', [], {}).then((response) => ({ response }), (error) => ({ error }));
+    return rec.clock.followRetries(settled, { sites: /./, what: 'mimo widened stream waits' });
+  });
   const gw = await gateway(streamOk);
   try {
     const plain = new OpenAICompatProvider('deepseek', { baseURL: gw.baseUrl, apiKey: 'k', preconnect: false });
