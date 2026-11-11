@@ -6,7 +6,7 @@
         "threw": {
           "$exact": "error",
           "name": "Error",
-          "message": "the running job to reach the pane: the watcher's 5000 ms timer to be armed: no answer within 60000 ms",
+          "message": "the running job to reach the pane: the pane row to be published: no answer within 60000 ms",
           "props": {}
         }
       }

@@ -20,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 418,
+      "bytes": 407,
       "path": "golden.json",
-      "sha256": "2da5640f2e053129668e11624d43f090f7ed24db50e77aa248a22e0314503cb8"
+      "sha256": "896766d618272326efd2249b81387d9b44ff8c947950d0fe60f9c3bec6d80e29"
     }
   ],
   "inputs": [
@@ -82,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
-  "recorderSha256": "423ed71621fb44b382ae78dcdc63339f038f31f9501fa3f81c806a7b1abe41c1",
+  "recorderSha256": "06363062b67b222d4f819ce0c49acfcdeb56b4e72080589304ec0a9a4608adb6",
   "replay": {
     "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
     "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs; thread/shellJobs/updated (mixdog-core-session/src/session/actor.rs:2053; the ShellJobs section, mixdog-core-session/src/session/exec_events.rs:79).",
@@ -108,6 +108,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "shell-job-stop-lifecycle-cases",
-  "totalBytes": 418,
+  "totalBytes": 407,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
