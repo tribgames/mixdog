@@ -296,8 +296,10 @@ async fn every_recorded_native_request_step_is_nodes() {
                     }
                     // The model's call: the `load_tool` tool, not the function under it.
                     let output = LoadTool::new(Arc::new(catalog)).call(&call_context(), step["args"].clone()).await.expect("an answer");
-                    let [ToolPart::Text(text)] = output.parts.as_slice() else { panic!("{at}: one text part") };
-                    assert_eq!(text, step["result"].as_str().expect("text"), "{at}: the answer");
+                    // Node's `renderToolSearch` returns the text, no error: the call answers `Ok` (`expect` above), the text is the
+                    // only part, and nothing else (attachments, meta, an unknown outcome) rides with it.
+                    let answered = mixdog_core_api::domain::tool::ToolOutput { parts: vec![ToolPart::Text(step["result"].as_str().expect("text").to_owned())], ..Default::default() };
+                    assert_eq!(output, answered, "{at}: the answer");
                     *session = store.session();
                 }
                 "reconcile" => {
