@@ -692,6 +692,8 @@ pub(crate) struct SessionActor {
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
     /// was named: the next turn names a new one (`mintTranscriptEpoch`, `turn-checkpoint.mjs`).
     transcript_rewritten: bool,
+    /// A compaction's prune a running turn stopped: it runs once that turn has ended (`offload_prune`).
+    prune_deferred: bool,
     /// The failed turn's provenance a retry row carries as `meta.provenance` (`retryProvenance`,
     /// `ask-session.mjs:199`, `ask-turn-execute.mjs:27-34`); taken by the next turn start like `retry_hidden`.
     /// `None`: not read yet (a plain `turn/start` carrying the retry flags reads it first);
@@ -983,6 +985,7 @@ impl SessionActor {
             compactions: 0,
             retry_hidden: false,
             transcript_rewritten: false,
+            prune_deferred: false,
             retry_provenance: None,
             retry_prior: None,
             runs_begun: 0,
@@ -2627,6 +2630,7 @@ impl SessionActor {
         if self.deleting {
             self.delete_turn_ended();
         }
+        self.run_deferred_prune();
         // The queue moves on, and the thread may unload, once the settlement is back
         // (`JobDone::GoalSettled`).
     }
