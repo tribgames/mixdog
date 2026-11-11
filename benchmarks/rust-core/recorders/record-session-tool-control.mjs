@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Records Node's `session` tool answers for the actions a model triggers (list, read, compact, fork, send), success and each
+// Records Node's `session` tool answers for the actions a model triggers (list, read, compact, fork, send, create), success and each
 // refusal, and the compactions a call leaves scheduled:the real `createWorkspaceToolHandlers(...).session` over the real `createSessionControl`, for a caller record
 // (its scope decides what a list shows). Only the session service's two reads are stood in, each over the scenario's
 // data through Node's own code:
@@ -234,6 +234,28 @@ const SEND_TARGETS = {
 const ANN_TASK = { id: 'sess_task_ann', sourceType: 'lead', taskOrigin: ANN_TASK_ORIGIN };
 const sendTo = (sessionId, extra = {}) => ({ action: 'send', session_id: sessionId, prompt: 'Please check the build.', ...extra });
 
+// `create`: the Projects registered (`listProjects`), the Lead route (`configLeadRoute`), the id the session service
+// gives the task session it creates; `create.catalog` is what the session catalog lists for the last-used model,
+// `create.worktree` how the new session answers its worktree request, `create.drop` its deletion.
+const CREATED_ID = 'sess_task_new';
+const PROJECTS = [
+  { name: 'proj', path: 'C:/proj' },
+  { name: 'dup', path: 'C:/dup1' },
+  { name: 'Dup', path: 'C:/dup2' },
+];
+const LEAD_ROUTE = { provider: 'anthropic', model: 'opus' };
+// How the new session answers its worktree request (`configureSession({ action: 'requestWorktree' })`): a value, or a
+// typed failure; and why its deletion fails.
+const WORKTREE_OUTCOMES = {
+  ok: { value: { pending: false, workspace: { worktreeId: 'wt_1' } } },
+  pending: { value: { pending: true } },
+  large: { code: 'WORKTREE_LARGE_REPO_CONFIRM', message: 'The repository is large.', details: { estimateBytes: 3 * 1024 * 1024 * 1024, thresholdBytes: 1024 * 1024 * 1024 } },
+  unsupported: { code: 'WORKTREE_UNSUPPORTED_REPO', message: 'The folder is not a git repository.' },
+};
+const DROP_FAILURE = 'the store is locked';
+const BRIEF = 'Fix the parser.\nThe failing test is parser_test.';
+const createWith = (extra = {}) => ({ action: 'create', brief: BRIEF, ...extra });
+
 const compacted = await compactForReal();
 const base = {
   caller: HUMAN,
@@ -402,6 +424,52 @@ const SCENARIOS = [
   { name: 'send-bot-task-hop', send: {}, caller: { ...ANN_CHAT, turnHop: 3 }, args: sendTo('sess_task_ann') },
   { name: 'send-bot-watch-cap', send: { watch: 'cap' }, caller: ANN_CHAT, args: sendTo('sess_b') },
   { name: 'send-bot-watch-fails', send: { watch: 'fails' }, caller: ANN_CHAT, args: sendTo('sess_b') },
+  // `create` (`agentTasks.create`): a bot's attended conversation starts a task session on a route (an explicit model,
+  // else the Lead route, else the last-used model) in a Project or the caller's folder, optionally in its own worktree,
+  // and sends it the brief as the bot's turn; "Started" goes to the bot's home before the brief's report.
+  ...[
+    ['create-lead', { caller: HUMAN, args: createWith() }],
+    ['create-no-brief', { args: { action: 'create' } }],
+    ['create-blank-brief', { args: createWith({ brief: '  \n ' }) }],
+    ['create-basic', { args: createWith() }],
+    ['create-title', { args: createWith({ title: '  Parser fix  ' }) }],
+    ['create-long-title', { args: createWith({ brief: `${'Long first line '.repeat(8)}\nrest` }) }],
+    ['create-quiet', { args: createWith({ notify: false }) }],
+    ['create-project', { args: createWith({ project: 'PROJ' }) }],
+    ['create-project-ambiguous', { args: createWith({ project: 'dup' }) }],
+    ['create-project-unknown', { args: createWith({ project: 'nowhere-xyz' }) }],
+    ['create-model-ref', { args: createWith({ model: 'openai/gpt' }) }],
+    ['create-model-ref-options', { args: createWith({ model: 'anthropic/opus@high+fast+noauto?temperature=0.2' }) }],
+    ['create-model-display', { args: createWith({ model: 'opus' }) }],
+    ['create-model-display-effort', { args: createWith({ model: 'Opus high' }) }],
+    ['create-model-display-explicit-effort', { args: createWith({ model: 'Opus high', effort: 'low' }) }],
+    ['create-model-display-unknown', { args: createWith({ model: 'Gemini Pro' }) }],
+    ['create-model-display-unknown-effort', { args: createWith({ model: 'Gemini max' }) }],
+    ['create-effort', { args: createWith({ effort: 'high' }) }],
+    ['create-effort-auto', { args: createWith({ effort: 'auto' }) }],
+    ['create-effort-unsupported', { args: createWith({ effort: 'max' }) }],
+    ['create-effort-invalid', { args: createWith({ effort: 'huge' }) }],
+    ['create-no-route', { create: { lead: null, catalog: [] }, args: createWith() }],
+    ['create-last-used', { create: { lead: null, catalog: [{ id: 's1', sessionMode: 'agent', provider: 'x', model: 'y' }, { id: 's2', provider: ' openai ', model: 'gpt ' }] }, args: createWith() }],
+    ['create-worktree-not-object', { args: createWith({ worktree: 'yes' }) }],
+    ['create-worktree-bad-mode', { args: createWith({ worktree: { mode: 'other' } }) }],
+    ['create-worktree-name-on-branch', { args: createWith({ worktree: { mode: 'branch', name: 'x' } }) }],
+    ['create-worktree-bad-name', { args: createWith({ worktree: { mode: 'worktree', name: 'bad name' } }) }],
+    ['create-worktree-unregistered', { args: createWith({ worktree: { mode: 'worktree' } }) }],
+    ['create-worktree', { create: { worktree: 'ok' }, args: createWith({ project: 'proj', worktree: { mode: 'worktree', name: 'feat' }, confirm_large: true }) }],
+    ['create-worktree-pending', { create: { worktree: 'pending' }, args: createWith({ project: 'proj', worktree: { mode: 'worktree' } }) }],
+    ['create-worktree-large', { create: { worktree: 'large' }, args: createWith({ project: 'proj', worktree: { mode: 'worktree' } }) }],
+    ['create-worktree-unsupported', { create: { worktree: 'unsupported' }, args: createWith({ project: 'proj', worktree: { mode: 'worktree' } }) }],
+    ['create-worktree-drop-fails', { create: { worktree: 'unsupported', drop: 'fails' }, args: createWith({ project: 'proj', worktree: { mode: 'worktree' } }) }],
+    ['create-worktree-drop-refused', { create: { worktree: 'pending', drop: 'refused' }, args: createWith({ project: 'proj', worktree: { mode: 'worktree' } }) }],
+    ['create-default-worktree', { create: { newTaskDefault: 'worktree', worktree: 'ok' }, args: createWith({ project: 'proj' }) }],
+    ['create-default-worktree-unsupported', { create: { newTaskDefault: 'worktree', worktree: 'unsupported' }, args: createWith({ project: 'proj' }) }],
+    ['create-default-worktree-no-project', { create: { newTaskDefault: 'worktree' }, args: createWith() }],
+    ['create-branch-mode', { create: { newTaskDefault: 'worktree' }, args: createWith({ project: 'proj', worktree: { mode: 'branch' } }) }],
+    ['create-hop', { caller: { ...ANN_CHAT, turnHop: 2 }, args: createWith() }],
+    ['create-bot-chain', { caller: { ...ANN_CHAT, turnBotChain: ['bob'] }, args: createWith() }],
+    ['create-watch-cap', { send: { watch: 'cap' }, args: createWith() }],
+  ].map(([name, scenario]) => ({ name, caller: ANN_CHAT, send: {}, create: {}, ...scenario })),
 ].map((scenario) => ({ ...base, ...scenario }));
 
 // ---- `agentTasks` over a send scenario: the real `createAgentTaskSessions` (report origin, watch, envelope, turn,
@@ -410,6 +478,9 @@ const SCENARIOS = [
 // task session has no pending agent work and its answer is final at once (`settleMs: 0`).
 function sendWorldOf(scenario) {
   const seen = { submitted: [], effort: [], watches: [], unwatched: [], owned: [], disowned: [], delivered: [] };
+  // `create`: the sessions it creates and the worktree it asks of them (`configureSession`).
+  const creating = scenario.create ?? null;
+  if (creating) Object.assign(seen, { created: [], configured: [] });
   let settle = () => {};
   const settled = new Promise((resolveSettled) => {
     settle = resolveSettled;
@@ -421,8 +492,26 @@ function sendWorldOf(scenario) {
       return { full: stored ? { provider: stored.provider, model: stored.model } : null };
     },
     async configureSession(params) {
+      if (params.action === 'requestWorktree' || params.action === 'deleteSession') {
+        seen.configured.push({ sessionId: params.sessionId, action: params.action, args: clone(params.args) });
+        if (params.action === 'deleteSession') {
+          if (creating.drop === 'fails') throw new Error(DROP_FAILURE);
+          return { value: creating.drop !== 'refused' };
+        }
+        const outcome = WORKTREE_OUTCOMES[creating.worktree];
+        if (!outcome) throw new Error(`recorder: no worktree outcome for ${scenario.name}`);
+        if (outcome.value) return { value: clone(outcome.value) };
+        throw Object.assign(new Error(outcome.message), { code: outcome.code, ...(outcome.details ? { details: clone(outcome.details) } : {}) });
+      }
       seen.effort.push({ sessionId: params.sessionId, action: params.action, args: clone(params.args) });
       return { value: true };
+    },
+    async createSession(params) {
+      seen.created.push(clone(params));
+      return { sessionId: CREATED_ID };
+    },
+    async listSessionCatalog({ page }) {
+      return { sessions: page.cursor ? [] : clone(creating?.catalog ?? []), nextCursor: null };
     },
     async submitSession({ sessionId, prompt, options }) {
       const { onSettled, follow: _follow, ...kept } = options;
@@ -439,7 +528,8 @@ function sendWorldOf(scenario) {
     getSessionService: () => service,
     deliver: async (agentId, report) => {
       seen.delivered.push({ agentId, report: clone(report) });
-      settle();
+      // create's "Started" line comes before the brief's report.
+      if (report.status !== 'started') settle();
     },
     watches: {
       add: async (watch) => {
@@ -461,6 +551,9 @@ function sendWorldOf(scenario) {
       },
     },
     loadSession: async (id) => clone(SEND_TARGETS[id] ?? null),
+    listProjects: async () => clone(PROJECTS),
+    newTaskDefault: async () => creating?.newTaskDefault,
+    leadRoute: async () => clone(creating ? (creating.lead === undefined ? LEAD_ROUTE : creating.lead) : null),
     agentName: async (agentId) => BOTS.find((bot) => bot.id === agentId)?.name ?? agentId,
     pendingWork: async () => false,
     settleMs: 0,
@@ -564,6 +657,7 @@ if (only) {
     bots: BOTS,
     compaction: compacted.result,
     send: { targets: SEND_TARGETS, modelRows: MODEL_ROWS, final: SEND_FINAL },
+    create: { sessionId: CREATED_ID, projects: PROJECTS, lead: LEAD_ROUTE, worktree: WORKTREE_OUTCOMES, dropFailure: DROP_FAILURE },
     scenarios,
   });
   writeSetManifest(stage, {
@@ -579,6 +673,7 @@ if (only) {
         'Room sends, members and asks are not recorded (out of scope).',
         "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
         "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded.",
+        "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above plus: `listProjects` (`create.projects`), `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
         "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",
       ],
       scenarios: scenarios.length,

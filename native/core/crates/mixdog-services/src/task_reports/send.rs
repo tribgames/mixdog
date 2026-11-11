@@ -191,6 +191,11 @@ impl TaskSends {
         &self.host
     }
 
+    /// `deliver(agentId, payload)` once, no retry (create's "Started" line).
+    pub async fn deliver_once(&self, agent_id: &str, payload: Value) -> Result<(), String> {
+        RearmHost::deliver(&*self.host, agent_id, payload).await
+    }
+
     /// `watchTurn`: stores the durable watch of turn `id` before it can start; a turn whose watch
     /// could not be stored runs without a report. `(notify, noReport)`.
     async fn watch_turn(&self, session_id: &str, origin: &Origin, id: &str) -> (bool, String) {
@@ -230,13 +235,21 @@ impl TaskSends {
     /// `runAgentTurn(sessionId, prompt, origin)`: submits `prompt` as the origin agent's turn and
     /// answers on intake (`sendResult`); the turn's end reports to the agent's home.
     pub async fn send(self: &Arc<Self>, session_id: &str, prompt: &Value, origin: &Origin) -> Result<Map<String, Value>, String> {
-        let id = format!("atask_{}", uuid::Uuid::new_v4());
+        self.send_as(session_id, prompt, origin, &format!("atask_{}", uuid::Uuid::new_v4()), None).await
+    }
+
+    /// `runAgentTurn(sessionId, prompt, origin, id, beforeReport)`: [`Self::send`] under the
+    /// given id; with `before_report`, every report waits until it reads true (create's
+    /// "Started" line lands in the home before any report of the brief's turn).
+    pub async fn send_as(self: &Arc<Self>, session_id: &str, prompt: &Value, origin: &Origin, id: &str, before_report: Option<tokio::sync::watch::Receiver<bool>>) -> Result<Map<String, Value>, String> {
+        let id = id.to_owned();
         let (notify, no_report) = self.watch_turn(session_id, origin, &id).await;
         let turn = Arc::new(SendTurn {
             sends: Arc::clone(self),
             session_id: session_id.to_owned(),
             id: id.clone(),
             origin: origin.clone(),
+            before_report,
             notify,
             runtime: Mutex::new(None),
             follow: Mutex::new(None),
@@ -283,6 +296,8 @@ struct SendTurn {
     session_id: String,
     id: String,
     origin: Origin,
+    /// `beforeReport`: reports wait until it reads true.
+    before_report: Option<tokio::sync::watch::Receiver<bool>>,
     notify: bool,
     runtime: Mutex<Option<Arc<dyn RuntimeView>>>,
     follow: Mutex<Option<Arc<Follow>>>,
@@ -375,6 +390,10 @@ impl SendTurn {
     /// The report of `status` (`sendReporter.deliverReport`): a progress update (`working`)
     /// names its answer; an end names the watch and brings the turn's files unless text only.
     async fn deliver_report(&self, status: &str, text: &str, answer_id: &str) -> Result<(), String> {
+        if let Some(mut ready) = self.before_report.clone() {
+            // A gate dropped unopened (the create failed after the turn was taken) holds nothing back.
+            let _ = ready.wait_for(|open| *open).await;
+        }
         let (origin, session) = (&self.origin, &self.session_id);
         let mut payload = Map::new();
         payload.insert("runId".into(), json!(turn_report_run_id(session, &self.id, status, "", answer_id)));

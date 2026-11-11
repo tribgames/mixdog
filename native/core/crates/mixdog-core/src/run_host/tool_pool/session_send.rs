@@ -57,11 +57,11 @@ pub struct CallerChains {
 }
 
 impl CallerChains {
-    fn hop(&self, caller: &str) -> u32 {
+    pub(super) fn hop(&self, caller: &str) -> u32 {
         (self.turn)(caller).0
     }
 
-    fn bot_chain(&self, caller: &str) -> Vec<String> {
+    pub(super) fn bot_chain(&self, caller: &str) -> Vec<String> {
         let turn_bots = |id: &str| (self.turn)(id).1;
         delegation_chain(caller, &*self.record, &turn_bots)
     }
@@ -179,6 +179,8 @@ pub struct SessionSend {
     pub catalog: Arc<dyn ModelRows>,
     pub effort: Arc<dyn SessionEffort>,
     pub rebind: Arc<dyn Rebind>,
+    /// What `session action=create` starts a task session through.
+    pub create: Arc<dyn super::session_create::CreateHost>,
 }
 
 /// The send's intake, bound once the directory, the report host and the route service exist

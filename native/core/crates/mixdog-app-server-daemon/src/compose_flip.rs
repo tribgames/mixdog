@@ -2818,6 +2818,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 catalog: Arc::new(mixdog_core::run_host::tool_pool::session_send::ModelListRows(model_list.clone())),
                 effort: Arc::new(mixdog_core::run_host::tool_pool::session_send::RouteEffort(route_service.clone())),
                 rebind: Arc::new(mixdog_core::run_host::tool_pool::session_send::SendWorldRebind(agent_send_world.clone())),
+                create: Arc::new(mixdog_core::run_host::tool_pool::session_create::DirectoryCreate {
+                    directory: directory.clone(),
+                    projects: project_list.clone(),
+                    config: config.clone(),
+                    routes: route_context.clone(),
+                    listing: late_listing.clone(),
+                    io: b.tokens.interactive_io,
+                }),
             }))
             .map_err(ComposeError::AlreadyBound)?;
         // `recover()`: every reporting turn an earlier process watched, and every quiet turn of a bot's it owned, re-attached.
