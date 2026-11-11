@@ -2,6 +2,7 @@
   "cases": 8,
   "command": "node benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "maskedFsStamps": "the cache record in the `corrupt` phase holds sessions.*.stamp[4], [6], [7] (inode, birth time, change time of the recording machine) as \"<fs>\"; the rest of the cache is whole",
     "notRun": "raw cache stamps are machine values and are not recorded",
     "runs": "store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir"
   },
@@ -9,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3125000,
+      "bytes": 3153126,
       "path": "golden.json",
-      "sha256": "bd24ebe3d883682cdc53fc8b57e344509802cc599dc4b2467101312489c37b89"
+      "sha256": "d7c6f984e230ab60cc03743ee753a222af868110f9d870b8d1dea220ad9229ed"
     }
   ],
   "inputs": [
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs",
-  "recorderSha256": "4cb62df696ba9a37011851d7ab6c92992795a2ed63bc55db032a4c50357af878",
+  "recorderSha256": "6d15b21560fa52f4ffcd3bb9cb3e161d6c17328847f0fe3cf3a95c66e554c0ce",
   "replay": {
     "compare": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
     "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624)).",
@@ -85,6 +86,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "store-agent-worker-pool-cases",
-  "totalBytes": 3125000,
+  "totalBytes": 3153126,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
