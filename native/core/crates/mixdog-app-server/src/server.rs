@@ -892,16 +892,7 @@ impl Shared {
         let JsonRpcResponse { id, result, lone_surrogates } = response;
         // A `host/*` answer that held a lone surrogate outside its free-text fields ([`free_text`]) fails its request.
         let free = conn.host_request_method(&id).is_some_and(|method| free_text::refused(free_text::Kind::Answer, method.as_str(), &lone_surrogates).is_none());
-        let (reply, decision) = if lone_surrogates.is_empty() || free {
-            (Ok(result), None)
-        } else {
-            let failed = HostError::Rpc {
-                code: mixdog_app_protocol::error::INVALID_PARAMS,
-                message: "The answer contains unpaired Unicode surrogates.".into(),
-                data: None,
-            };
-            (Err(failed), Some(result))
-        };
+        let (reply, decision) = if lone_surrogates.is_empty() || free { (Ok(result), None) } else { (Err(lone_answer()), Some(result)) };
         let Err(back) = conn.complete_host_request(&id, reply) else {
             return;
         };
@@ -943,10 +934,16 @@ impl Shared {
     /// An error response of a client does not resolve a server request (P §8.4 step 6); for a
     /// `host/*` request it is the request's failure.
     fn on_error_response(&self, conn: &Connection, response: JsonRpcError) {
-        let failed = HostError::Rpc {
-            code: response.error.code,
-            message: response.error.message.clone(),
-            data: response.error.data.clone(),
+        // An error answer has no free-text field: one that held a lone surrogate fails its request as a refused answer does,
+        // so no consumer reads its U+FFFD-substituted message or data.
+        let failed = if response.lone_surrogates.is_empty() {
+            HostError::Rpc {
+                code: response.error.code,
+                message: response.error.message.clone(),
+                data: response.error.data.clone(),
+            }
+        } else {
+            lone_answer()
         };
         let _ = conn.complete_host_request(&response.id, Err(failed));
     }
@@ -988,6 +985,15 @@ impl Shared {
 fn lone_refusal(what: &str, at: &str) -> ErrorData {
     let path = at.strip_prefix('#').map_or_else(|| format!("{what}{at}"), str::to_owned);
     ErrorData::InvalidParams { path, expected: "text without unpaired surrogates (a lone \\ud800-\\udfff escape)".into() }
+}
+
+/// The failure of a `host/*` request whose answer held a lone surrogate outside its free-text fields.
+fn lone_answer() -> HostError {
+    HostError::Rpc {
+        code: mixdog_app_protocol::error::INVALID_PARAMS,
+        message: "The answer contains unpaired Unicode surrogates.".into(),
+        data: None,
+    }
 }
 
 /// The answer for a method no service claims.

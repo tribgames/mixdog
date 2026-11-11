@@ -102,6 +102,30 @@ async fn a_host_answer_holding_a_lone_surrogate_fails_the_request() {
     );
 }
 
+/// An error answer whose message or data held a lone surrogate fails the request as an answer holding one does: the
+/// substituted text never reaches the caller.
+#[tokio::test(start_paused = true)]
+async fn a_host_error_answer_holding_a_lone_surrogate_fails_the_request() {
+    let rig = Rig::new();
+    let host = claimed(&rig, 1).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move {
+        outgoing
+            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }))
+            .await
+    });
+    let request = host.frames(1).await.remove(0).body;
+    host.send_text(&format!(r#"{{"id":{},"error":{{"code":-32603,"message":"no","data":{{"path":"a\ud800"}}}}}}"#, request["id"]));
+    assert_eq!(
+        call.await.unwrap(),
+        Err(HostError::Rpc {
+            code: -32602,
+            message: "The answer contains unpaired Unicode surrogates.".into(),
+            data: None,
+        })
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_failed_host_request_is_a_domain_error() {
     let rig = Rig::new();
