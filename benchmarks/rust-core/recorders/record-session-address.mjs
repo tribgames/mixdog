@@ -7,6 +7,7 @@
 // captures it (virtual clock: each arming and each explicit run is a recorded step) instead of waiting for the loop.
 //
 //   node benchmarks/rust-core/recorders/record-session-address.mjs --tree <dir>
+import { exact } from './lib/exact.mjs';
 import { runSessionRecorder } from './lib/session-rec.mjs';
 
 await runSessionRecorder(import.meta.url, {
@@ -14,6 +15,7 @@ await runSessionRecorder(import.meta.url, {
   testFile: 'src/session-runtime/session-address.test.mjs',
   entry: 'Ran session-address.mjs, lifecycle/teardown/session-close.mjs (closeCanonicalSession) and notification-bus.mjs (createNotificationBus, createCompletionWakeScheduler) with scripted manager / turn api; setImmediate captured and run by the recorder. Did not run a real runtime facade nor the real manager close.',
   replay: 'mixdog-core-session close fence (S/close.rs detach/close/tombstone, admission open->closing->terminal, lifecycle generation) and the completion-notification routing of a closed owner: drive the same ordered steps per case and compare every step outcome (value or error name/message/props), the runtime snapshot after each step, the manager calls, listener events, enqueued entries and wake asks.',
+  values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: ['the wake scheduler\'s setImmediate is captured and run by the recorder; the 20 ms WAKE_DELAY stderr note is not triggered (queuedAt = now) and not recorded'],
 }, async ({ imp }) => {
   const A = await imp('src/session-runtime/session-address.mjs');
@@ -21,18 +23,14 @@ await runSessionRecorder(import.meta.url, {
   const { createCompletionWakeScheduler, createNotificationBus } = await imp('src/session-runtime/notification-bus.mjs');
   const { SessionClosedError } = await imp('src/runtime/agent/orchestrator/session/manager/session-errors.mjs');
 
-  const props = (error) => ({
-    name: error?.name ?? null,
-    message: String(error?.message ?? error),
-    instanceOf: { SessionAddressError: error instanceof A.SessionAddressError, SessionClosedError: error instanceof SessionClosedError },
-    own: Object.fromEntries(Object.entries(error ?? {}).sort(([a], [b]) => (a < b ? -1 : 1))),
-  });
+  // The error as xact stores it (name, message, code, own props), plus which Node classes it is an instance of.
+  const props = (error) => ({ error: exact(error), instanceOf: { SessionAddressError: error instanceof A.SessionAddressError, SessionClosedError: error instanceof SessionClosedError } });
   const step = async (label, fn) => {
     let result;
     try {
       const value = await fn();
-      result = { ok: value === undefined ? null : value };
-    } catch (error) { result = { error: props(error) }; }
+      result = { ok: exact(value) };
+    } catch (error) { result = props(error); }
     return { step: label, ...result };
   };
   const makeRt = () => {
@@ -40,7 +38,7 @@ await runSessionRecorder(import.meta.url, {
     A.initSessionAddress(rt);
     return rt;
   };
-  const snap = (rt) => ({ addressedSessionId: rt.addressedSessionId, admission: rt.admission, lifecycleGeneration: rt.lifecycleGeneration });
+  const snap = (rt) => exact({ addressedSessionId: rt.addressedSessionId, admission: rt.admission, lifecycleGeneration: rt.lifecycleGeneration });
   const cases = [];
   const add = (name, line, input, steps, extra = {}) => cases.push({ name, testLine: line, input, result: { steps, ...extra } });
 
@@ -63,7 +61,7 @@ await runSessionRecorder(import.meta.url, {
   const closeDeps = (rt, observed, getCurrent, setCurrent, closeSession) => ({
     getSession: getCurrent,
     setSession: setCurrent,
-    mgr: { closeSession: (...args) => { observed.push({ admission: rt.admission, args }); return closeSession(); } },
+    mgr: { closeSession: (...args) => { observed.push(exact({ admission: rt.admission, args })); return closeSession(); } },
     beginCanonicalClose: (id) => A.beginCanonicalClose(rt, id),
     finishCanonicalClose: (previous, ok) => A.finishCanonicalClose(rt, previous, ok),
     isCanonicallyClosed: () => rt.admission === 'terminal',
@@ -76,8 +74,8 @@ await runSessionRecorder(import.meta.url, {
     let current = { id: 'sess_a' };
     const deps = closeDeps(rt, observed, () => current, (v) => { current = v; }, () => true);
     const steps = [];
-    steps.push({ ...(await step('closeCanonicalSession', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: current, managerCalls: observed.slice() });
-    steps.push({ ...(await step('closeCanonicalSession again (terminal)', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: current, managerCalls: observed.slice() });
+    steps.push({ ...(await step('closeCanonicalSession', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: exact(current), managerCalls: observed.slice() });
+    steps.push({ ...(await step('closeCanonicalSession again (terminal)', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: exact(current), managerCalls: observed.slice() });
     add('close-fences-before-the-manager-close-and-goes-terminal-after-a-durable-close', 35, { session: { id: 'sess_a' }, manager: 'closeSession returns true' }, steps);
   }
 
@@ -90,9 +88,9 @@ await runSessionRecorder(import.meta.url, {
     const deps = closeDeps(rt, observed, () => current, (v) => { current = v; }, () => behaviour());
     delete deps.isCanonicallyClosed;
     const steps = [];
-    steps.push({ ...(await step('closeCanonicalSession (manager returns false)', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: current, managerCalls: observed.slice() });
+    steps.push({ ...(await step('closeCanonicalSession (manager returns false)', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: exact(current), managerCalls: observed.slice() });
     behaviour = () => { throw new Error('boom'); };
-    steps.push({ ...(await step('closeCanonicalSession (manager throws boom)', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: current, managerCalls: observed.slice() });
+    steps.push({ ...(await step('closeCanonicalSession (manager throws boom)', () => closeCanonicalSession(deps))), rt: snap(rt), currentSession: exact(current), managerCalls: observed.slice() });
     add('failed-durable-close-restores-admission-and-keeps-the-session', 65, { session: { id: 'sess_a' }, manager: ['closeSession returns false', 'closeSession throws Error(boom)'] }, steps);
   }
 
@@ -104,9 +102,9 @@ await runSessionRecorder(import.meta.url, {
     const woke = [];
     const bus = createNotificationBus({
       listeners: new Set(),
-      mgr: { enqueuePendingMessage: (id, entry) => { enqueued.push({ id, entry }); return 1; } },
+      mgr: { enqueuePendingMessage: (id, entry) => { enqueued.push(exact({ id, entry })); return 1; } },
       getOwnerLifecycle: (id) => A.ownerLifecycle(rt, id),
-      onCompletionQueued: (detail) => woke.push(detail),
+      onCompletionQueued: (detail) => woke.push(exact(detail)),
     });
     return { bus, woke, enqueued };
   };
@@ -117,10 +115,10 @@ await runSessionRecorder(import.meta.url, {
     A.bindSessionAddress(rt, 'sess_a');
     const { bus, woke, enqueued } = makeBus(rt);
     const seen = [];
-    bus.subscribeRuntimeNotification('sess_a', (event) => { seen.push(event.meta); return true; });
+    bus.subscribeRuntimeNotification('sess_a', (event) => { seen.push(exact(event.meta)); return true; });
     const notify = bus.notifyFnForSession('sess_a');
     const steps = [];
-    const rec = async (label, fn) => steps.push({ ...(await step(label, fn)), rt: snap(rt), lastSeenMeta: seen.at(-1) ?? null, seenCount: seen.length, enqueuedCount: enqueued.length, wakeCount: woke.length });
+    const rec = async (label, fn) => steps.push({ ...(await step(label, fn)), rt: snap(rt), lastSeenMeta: exact(seen.at(-1)), seenCount: seen.length, enqueuedCount: enqueued.length, wakeCount: woke.length });
     await rec('notify(SHELL_DONE, shell_1) while open', () => notify(SHELL_DONE, SHELL_META));
     await rec('beginCanonicalClose', () => A.beginCanonicalClose(rt, 'sess_a'));
     await rec('notify(shell_2) while closing', () => notify(SHELL_DONE, { ...SHELL_META, execution_id: 'shell_2' }));
@@ -162,7 +160,7 @@ await runSessionRecorder(import.meta.url, {
     const asks = [];
     const wake = createCompletionWakeScheduler({
       getCurrentSessionId: () => 'sess_a',
-      getTurnApi: () => ({ ask: async (...args) => { asks.push(args); } }),
+      getTurnApi: () => ({ ask: async (...args) => { asks.push(exact(args)); } }),
       getOwnerLifecycle: (id) => A.ownerLifecycle(rt, id),
     });
     const realImmediate = globalThis.setImmediate;

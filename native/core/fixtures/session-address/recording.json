@@ -36,16 +36,17 @@
           {
             "step": "bindSessionAddress(sess_b)",
             "error": {
+              "$exact": "error",
               "name": "SessionAddressError",
               "message": "runtime is addressed as sess_a; it cannot be re-keyed to sess_b (use a new session entry)",
-              "instanceOf": {
-                "SessionAddressError": true,
-                "SessionClosedError": false
-              },
-              "own": {
+              "props": {
                 "name": "SessionAddressError",
                 "sessionId": "sess_a"
               }
+            },
+            "instanceOf": {
+              "SessionAddressError": true,
+              "SessionClosedError": false
             },
             "rt": {
               "addressedSessionId": "sess_a",
@@ -56,16 +57,17 @@
           {
             "step": "assertNotAddressed(newSession)",
             "error": {
+              "$exact": "error",
               "name": "SessionAddressError",
               "message": "newSession would re-key addressed session sess_a; create a new session entry instead",
-              "instanceOf": {
-                "SessionAddressError": true,
-                "SessionClosedError": false
-              },
-              "own": {
+              "props": {
                 "name": "SessionAddressError",
                 "sessionId": "sess_a"
               }
+            },
+            "instanceOf": {
+              "SessionAddressError": true,
+              "SessionClosedError": false
             },
             "rt": {
               "addressedSessionId": "sess_a",
@@ -76,16 +78,17 @@
           {
             "step": "assertResumeTarget(sess_b)",
             "error": {
+              "$exact": "error",
               "name": "SessionAddressError",
               "message": "runtime is addressed as sess_a; it cannot resume sess_b (use a new session entry)",
-              "instanceOf": {
-                "SessionAddressError": true,
-                "SessionClosedError": false
-              },
-              "own": {
+              "props": {
                 "name": "SessionAddressError",
                 "sessionId": "sess_a"
               }
+            },
+            "instanceOf": {
+              "SessionAddressError": true,
+              "SessionClosedError": false
             },
             "rt": {
               "addressedSessionId": "sess_a",
@@ -95,7 +98,9 @@
           },
           {
             "step": "assertResumeTarget(sess_a)",
-            "ok": null,
+            "ok": {
+              "$exact": "undefined"
+            },
             "rt": {
               "addressedSessionId": "sess_a",
               "admission": "open",
@@ -204,13 +209,14 @@
           {
             "step": "closeCanonicalSession (manager throws boom)",
             "error": {
+              "$exact": "error",
               "name": "Error",
               "message": "boom",
-              "instanceOf": {
-                "SessionAddressError": false,
-                "SessionClosedError": false
-              },
-              "own": {}
+              "props": {}
+            },
+            "instanceOf": {
+              "SessionAddressError": false,
+              "SessionClosedError": false
             },
             "rt": {
               "addressedSessionId": "sess_a",
@@ -317,7 +323,9 @@
           },
           {
             "step": "finishCanonicalClose(open, true)",
-            "ok": null,
+            "ok": {
+              "$exact": "undefined"
+            },
             "rt": {
               "addressedSessionId": "sess_a",
               "admission": "terminal",
@@ -422,7 +430,9 @@
         "steps": [
           {
             "step": "finishCanonicalClose(beginCanonicalClose(sess_bare), true)",
-            "ok": null
+            "ok": {
+              "$exact": "undefined"
+            }
           },
           {
             "step": "notifySessionCompletion",
@@ -499,7 +509,9 @@
           },
           {
             "step": "run the delayed callback",
-            "ok": null,
+            "ok": {
+              "$exact": "undefined"
+            },
             "asks": []
           },
           {
@@ -521,7 +533,9 @@
         "steps": [
           {
             "step": "assertAdmissionOpen (open)",
-            "ok": null,
+            "ok": {
+              "$exact": "undefined"
+            },
             "rt": {
               "addressedSessionId": "sess_a",
               "admission": "open",
@@ -540,18 +554,19 @@
           {
             "step": "assertAdmissionOpen (closing)",
             "error": {
+              "$exact": "error",
               "name": "SessionClosedError",
               "message": "Session \"sess_a\" closed: session is closed to new work",
-              "instanceOf": {
-                "SessionAddressError": false,
-                "SessionClosedError": true
-              },
-              "own": {
-                "cancelled": true,
+              "props": {
                 "name": "SessionClosedError",
-                "reason": "canonical-close",
-                "sessionId": "sess_a"
+                "sessionId": "sess_a",
+                "cancelled": true,
+                "reason": "canonical-close"
               }
+            },
+            "instanceOf": {
+              "SessionAddressError": false,
+              "SessionClosedError": true
             },
             "rt": {
               "addressedSessionId": "sess_a",
