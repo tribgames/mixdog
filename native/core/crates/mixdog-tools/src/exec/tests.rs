@@ -1521,12 +1521,15 @@ async fn a_log_drain_the_saturated_lane_never_admits_ends_with_the_output_incomp
     let dir = tempfile::tempdir().unwrap();
     let logs = [dir.path().join("w.stdout.log"), dir.path().join("w.stderr.log")];
     let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
-    let run = async {
+    let mut run = Box::pin(async {
         writer.open().await;
         writer.push(0, b"never admitted\n".to_vec()).await;
         writer.close(super::spill::LOG_STALL).await
-    };
-    let closed = tokio::time::timeout(super::spill::LOG_STALL * 3, run).await.expect("the writer gives the drain up instead of waiting for ever");
+    });
+    assert!(futures::FutureExt::now_or_never(&mut run).is_none(), "the writer waits for an io-pty thread");
+    // The clock moves only here, past the admission's deadline (a timer is a millisecond coarse).
+    tokio::time::advance(super::spill::LOG_STALL + std::time::Duration::from_millis(1)).await;
+    let closed = futures::FutureExt::now_or_never(&mut run).expect("the writer gives the drain up at its deadline instead of waiting for ever");
     drop(release);
     assert_eq!(closed, super::spill::LogsClosed::Incomplete);
     assert_eq!(writer.gaps(), [Some(0), None]);
