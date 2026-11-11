@@ -62,7 +62,6 @@ windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win3
 count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
 
 [dev-dependencies]
-mixdog-testkit = { workspace = true }
 mixdog-core = { path = ".", features = ["count-work"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
