@@ -318,10 +318,11 @@ async fn echo_matches_the_golden_fixture() {
     assert_eq!(text, golden["text"].as_str().unwrap());
 }
 
-/// The first job of a runtime removes the logs older than a week (`sweepExpiredShellOutput`);
-/// later jobs sweep nothing.
+/// The first job of a runtime removes the job logs older than a week (`sweepExpiredShellOutput`), beside
+/// the command and never on its path: the command completes while the sweep is held. Nothing in the
+/// directory that is not a job log is touched, and later jobs sweep nothing.
 #[tokio::test]
-async fn the_first_job_sweeps_the_logs_older_than_a_week_once() {
+async fn the_first_job_sweeps_the_logs_older_than_a_week_once_beside_the_command() {
     let rig = rig();
     let logs = rig.dir.path().join("l");
     std::fs::create_dir_all(&logs).unwrap();
@@ -332,14 +333,38 @@ async fn the_first_job_sweeps_the_logs_older_than_a_week_once() {
         std::fs::File::create(&path).unwrap().set_modified(now - age).unwrap();
         path
     };
-    let expired = aged("job_old.stdout.log", day * 8);
-    let kept = aged("job_recent.stdout.log", day * 6);
+    let expired = aged("task-old.stdout.log", day * 8);
+    let expired_err = aged("task-old.stderr.log", day * 8);
+    let kept = aged("task-recent.stdout.log", day * 6);
+    let foreign = aged("notes.txt", day * 8);
+    let gate = super::spill::sweep_gate::hold(&logs);
     let golden = fixture("shell", "shell-echo");
-    rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()).await.unwrap();
-    assert!(!expired.exists() && kept.exists(), "the week-old log went, the newer one stayed");
-    let later = aged("job_later.stdout.log", day * 8);
+    tokio::time::timeout(std::time::Duration::from_secs(60), rig.shell.call(&ctx(&rig, "c1"), golden["input"].clone()))
+        .await
+        .expect("the command completes while the log sweep is held")
+        .unwrap();
+    assert!(expired.exists(), "the held sweep has removed nothing yet");
+    gate.notify_one();
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+    assert!(!expired.exists() && !expired_err.exists() && kept.exists(), "the week-old logs went, the newer one stayed");
+    assert!(foreign.exists(), "a file that is not a job log stays");
+    let later = aged("task-later.stdout.log", day * 8);
     rig.shell.call(&ctx(&rig, "c2"), golden["input"].clone()).await.unwrap();
+    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
     assert!(later.exists(), "the sweep runs once per runtime");
+}
+
+/// A running job whose log another process's sweep removed keeps spilling: its next append recreates the log.
+#[tokio::test]
+async fn an_append_recreates_a_log_another_sweep_removed() {
+    let rig = rig();
+    let log = rig.dir.path().join("task-live.stdout.log");
+    let lane = rig.runtime.config.lanes.maintenance;
+    let cancel = CancellationToken::new();
+    assert!(super::spill::append(lane, &cancel, &log, b"first\n".to_vec()).await);
+    std::fs::remove_file(&log).unwrap();
+    assert!(super::spill::append(lane, &cancel, &log, b"later\n".to_vec()).await, "the stream still spills");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "later\n");
 }
 
 /// A hoisted script stays while its command runs; one whose tree never settled is removed when
