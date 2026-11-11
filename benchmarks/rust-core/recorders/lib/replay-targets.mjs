@@ -35,6 +35,14 @@ export const REPLAY_TARGETS = {
     notPublic: ['describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private', 'anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)'],
     missing: ['providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds'],
   },
+  'first-response-budgets': {
+    rust: [r('mixdog-ai/src/providers/first_byte.rs', 58, 'FirstByteSettings::from_env'), r('mixdog-ai/src/providers/first_byte.rs', 109, 'FirstByteSettings::antigravity_budget')],
+    missing: [],
+  },
+  'local-send-queue': {
+    rust: [r('mixdog-ai/src/providers/local/mod.rs', 150, 'RegisteredAdapter::new'), r('mixdog-services/src/local_provider/installed_models.rs', 40, 'ManagedRuntime')],
+    missing: [],
+  },
   'git-launch-cases': {
     rust: [r('mixdog-scm/src/git_launch.rs', 119, 'resolve_layout'), r('mixdog-scm/src/git_launch.rs', 207, 'launch_environment'), r('mixdog-scm/src/git_launch.rs', 267, 'launch_for'), r('mixdog-scm/src/git_launch.rs', 287, 'git_command'), r('mixdog-scm/src/git_launch.rs', 295, 'forget_missing'), r('mixdog-scm/src/git.rs', 90, 'start_git')],
     missing: ['startGitSync (the synchronous start with the same retry): no function'],
@@ -72,8 +80,8 @@ export const REPLAY_TARGETS = {
     missing: ['the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930'],
   },
   'model-proxy-host-trust-cases': {
-    rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references')],
-    missing: ['the PC host (claims bounded by maxSnapshotEntries, in-flight byte limits, projected callbacks): no counterpart found'],
+    rust: [r('mixdog-ai/src/service/model_proxy.rs', 76, 'without_attachment_references'), r('mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs', 184, 'ModelProxyService::call', 'the `modelProxy/run` request: admission by payload size, then the run and its typed events')],
+    missing: [],
   },
   'project-recency-failure-cases': {
     rust: [r('mixdog-store/src/registry.rs', 282, 'add'), r('mixdog-store/src/registry.rs', 309, 'touch_selected'), r('mixdog-store/src/registry.rs', 335, 'remove'), r('mixdog-store/src/registry.rs', 354, 'rename')],

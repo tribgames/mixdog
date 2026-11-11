@@ -76,6 +76,8 @@ pub struct CompatAdapter {
     pub(super) roster_wires: ArcSwap<HashMap<String, Wire>>,
     /// The rows the last listing stored (`provider._enrichedModels`), which `getCachedModelInfo` answers.
     pub(super) rows: crate::catalog::RowStore,
+    /// The first-byte ceiling a profile's window is held to (`PROVIDER_MAX_BEFORE_WARN_MS`), from the environment as Node reads it.
+    first_byte: crate::providers::first_byte::FirstByteSettings,
 }
 
 /// What the router is told about a model that the profile cannot know: the
@@ -120,7 +122,14 @@ impl CompatAdapter {
             lookup: ListingLookup::new(),
             roster_wires: ArcSwap::from_pointee(HashMap::new()),
             rows: crate::catalog::RowStore::default(),
+            first_byte: crate::providers::first_byte::FirstByteSettings::process(),
         }
+    }
+
+    /// The first-byte settings of this adapter, when they are not the process environment's.
+    pub fn with_first_byte(mut self, settings: crate::providers::first_byte::FirstByteSettings) -> Self {
+        self.first_byte = settings;
+        self
     }
 
     /// The handle the catalog service publishes its tables into.
@@ -189,7 +198,7 @@ impl ProviderAdapter for CompatAdapter {
     /// `compatFirstResponseBudget(this.name, chatProfile)`: a profile with a first-byte window of its own states the
     /// worst case over its retry ladder; one on the shared window leaves the watchdog's default.
     fn first_response_budget(&self, _model: &str, _parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
-        let policy = self.profile().chat.first_byte?;
+        let policy = self.first_byte.compat(self.profile().chat.first_byte?);
         Some(crate::providers::first_byte::first_byte_budget(&policy, &self.policy.request.schedule))
     }
 
