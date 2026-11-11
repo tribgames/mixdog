@@ -928,13 +928,15 @@ async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
         for event in h.observer.events() {
             stream.extend(callbacks_of(event));
         }
-        // Two events of the loop's own have no Node callback: `Stage(Streaming)` when the stream opens and the send's
-        // `Usage` when it ends (Node's loop keeps its usage in the result and makes no `onUsage` call; the recording
-        // shows neither). They are part of the compared stream at their place, so any other event, or either one
-        // anywhere else, is a difference.
+        // Three events of the loop's own have no Node callback: the turn's effort when the run starts (Node's
+        // `runtime.turnEffort` is a getter the client reads, not a callback), `Stage(Streaming)` when the stream opens
+        // and the send's `Usage` when it ends (Node's loop keeps its usage in the result and makes no `onUsage` call;
+        // the recording shows neither). They are part of the compared stream at their place, so any other event, or
+        // one of them anywhere else, is a difference.
         let mut node: Vec<JsonValue> = scenario["observed"].as_array().expect("observed").clone();
+        node.insert(1, json!(["no Node callback", "TurnEffort(None)"]));
         if scenario["outcome"]["content"].is_string() {
-            node.insert(1, json!(["no Node callback", "Stage(Streaming)"]));
+            node.insert(2, json!(["no Node callback", "Stage(Streaming)"]));
             node.push(json!(["no Node callback", "Usage"]));
         }
         if JsonValue::Array(stream.clone()) != JsonValue::Array(node.clone()) {
