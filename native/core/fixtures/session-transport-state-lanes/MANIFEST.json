@@ -6,10 +6,16 @@
     "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
     "case 303: written through the transport's `_writeRemoteStateToForTest` hook (the same function the pointer uses) because the production writer needs a displaced client",
     "cases 446 and 493 move virtual clocks: 446 ticks the mocked global setTimeout (only setTimeout is faked; sockets keep their own timers), 493 moves Date.now() by recorded steps while the client's own 5-20 ms timers run in real time and the scripted daemon holds every reconnect until released",
-    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
-    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)",
-    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\""
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\"",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step"
   ],
   "fileCount": 1,
   "files": [
@@ -42,7 +48,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
+      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-remote-state-null-session.patch",
@@ -72,8 +78,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-state-lanes.mjs",
-  "recorderSha256": "1d5eae9ee75360f5a45e3d4960660e552fed3c44d17cc411e54ec316f29df357",
-  "replay": "App-server behaviour of the Rust core (mixdog-app-server over WebSocket; native/core/crates/mixdog-app-protocol): case 48 compare the transcript patch for the same two states byte for byte (thread/updated patches); 67/94 compare the refusal (error name/message) and the pushed thread frames after thread/resume of the same session; 192/275/446/493 are Node SSE/HTTP transport contracts recorded at the level a client sees (what a reconnect reuses and sends, what is replayed or resynced, when a lane is declared dead and after which budget): the Rust WebSocket client must show the same observable order, resync and liveness verdicts (list as Rust-side work where the WebSocket server has no counterpart); 303/327 compare the latest pending remote-state frame and the ordered state callbacks (remote/pointer, remote/connectionTimeline), case 327-fixed is the expected Rust behaviour; 365 compare each view's folded items and frames; 428 compare client/connection counts and the clients-empty signal.",
+  "recorderSha256": "72defe192a67043f3a33938ce4b0c3ab71c68c0b0b88c16117e43a7062f91ac4",
+  "replay": "App-server behaviour of the Rust core (mixdog-app-server over WebSocket; native/core/crates/mixdog-app-protocol): case 48 compare the transcript patch for the same two states byte for byte (thread/updated notifications); 67/94 compare the refusal (error name/message) and the pushed thread frames after thread/resume of the same session; 192/275/446/493 are Node SSE/HTTP transport contracts recorded at the level a client sees (what a reconnect reuses and sends, what is replayed or resynced, when a lane is declared dead and after which budget): the Rust WebSocket client must show the same observable order, resync and liveness verdicts (list as Rust-side work where the WebSocket server has no counterpart); 303/327 compare the latest pending remote-state frame and the ordered state callbacks (the remote/pointer and remote/connectionTimeline notifications), case 327-fixed is the expected Rust behaviour; 365 compare each view's folded items and frames; 428 compare client and connection counts and the clients-empty signal.",
   "set": "session-transport-state-lanes",
   "testFile": "scripts/session-transport/state-lanes.test.mjs",
   "totalBytes": 1231508,
