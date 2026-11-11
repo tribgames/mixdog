@@ -9,6 +9,7 @@ mod dispatch;
 mod errors;
 mod handshake;
 mod host;
+mod inventory_rule;
 mod lane_pushes;
 mod phone_chat;
 mod queues;
