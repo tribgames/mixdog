@@ -1082,6 +1082,12 @@ pub struct TracedCall {
     /// The text a failure row is cut from (`toolTraceText(result)`).
     pub result_text: String,
     pub timing: Option<crate::message::ToolTiming>,
+    /// Every run of the call as (started, completed) epoch ms, in run order (`executionIntervals`).
+    pub execution_intervals: Vec<(i64, i64)>,
+    /// What the tool reported about its result (Node's `resultTelemetry`: a listing's `integrity`).
+    pub result_telemetry: Option<serde_json::Value>,
+    /// What the tool reported about its local search (Node's `localSearchTelemetry`).
+    pub local_search: Option<serde_json::Value>,
 }
 
 /// The host's tool log: the agent trace's `batch` and `tool` rows (`agent-trace.jsonl`) and the failure log

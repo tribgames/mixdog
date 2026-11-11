@@ -8,6 +8,7 @@
 //   - a batch id (`payload.batch_id` of a batch row, `payload.batch.batch_id` of a tool row): a v4 UUID, `<batch:K>`, K the order
 //     of its batch row in the scenario;
 //   - `tool_ms` and every `payload.timing` value: a non-negative integer, `<ms>`;
+//   - each `local_search` value named `*_ms` (a duration the search took or waited): a non-negative number, `<ms>`;
 //   - the workspace folder, in every form a text writes it, `<WS>` (lib/tool-failure-rows.mjs maskWorkspace).
 // A row must be the line JavaScript writes for it, and the text a whole file (every row a line ended by a newline).
 import { maskWorkspace } from './tool-failure-rows.mjs';
@@ -16,6 +17,11 @@ export const TRACED_KINDS = ['batch', 'tool', 'tool_slow'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ms = (v, line) => {
   if (!Number.isInteger(v) || v < 0) throw new Error(`not a non-negative integer (${v}): ${line}`);
+  return '<ms>';
+};
+// `local_search` durations (`addNumber`, local-search-telemetry.mjs): a non-negative number kept to one decimal.
+const searchMs = (v, line) => {
+  if (typeof v !== 'number' || !(v >= 0) || Math.round(v * 10) / 10 !== v) throw new Error(`not a non-negative tenth of a ms (${v}): ${line}`);
   return '<ms>';
 };
 const epoch = (v, line) => {
@@ -64,6 +70,9 @@ export function traceRowsByScenario(text, sessions, workspace) {
     if (row.kind === 'batch' && row.payload?.batch_id !== undefined) out.payload = { ...row.payload, batch_id: batchName(row.payload.batch_id) };
     if (row.kind === 'tool' || row.kind === 'tool_slow') {
       out.tool_ms = ms(row.tool_ms, line);
+      if (row.local_search) {
+        out.local_search = Object.fromEntries(Object.entries(row.local_search).map(([k, v]) => [k, k.endsWith('_ms') ? searchMs(v, line) : v]));
+      }
       const payload = { ...row.payload };
       if (payload.timing) payload.timing = Object.fromEntries(Object.entries(payload.timing).map(([k, v]) => [k, ms(v, line)]));
       if (payload.batch) payload.batch = { ...payload.batch, batch_id: batchName(payload.batch.batch_id) };
