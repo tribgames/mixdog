@@ -1,0 +1,167 @@
+{
+  "seed": {
+    "schedules": [
+      {
+        "name": "alpha",
+        "prompt": "Check the build",
+        "whenCron": "0 9 * * *",
+        "ownerAgentId": "gh-bot"
+      },
+      {
+        "name": "theirs",
+        "prompt": "Check the build",
+        "whenCron": "0 9 * * *",
+        "ownerAgentId": "other-bot"
+      },
+      {
+        "name": "zeta",
+        "prompt": "Check the build",
+        "whenCron": "0 9 * * *",
+        "ownerAgentId": "gh-bot"
+      }
+    ],
+    "endpoints": [
+      {
+        "name": "hook",
+        "instructions": "Triage.",
+        "ownerAgentId": "gh-bot"
+      },
+      {
+        "name": "their-hook",
+        "instructions": "Triage.",
+        "ownerAgentId": "other-bot"
+      }
+    ],
+    "deliveries": [
+      {
+        "endpoint": "hook",
+        "deliveryId": "d1"
+      },
+      {
+        "endpoint": "their-hook",
+        "deliveryId": "d2"
+      }
+    ]
+  },
+  "before": {
+    "schedules": [
+      {
+        "name": "alpha",
+        "ownerAgentId": "gh-bot"
+      },
+      {
+        "name": "theirs",
+        "ownerAgentId": "other-bot"
+      },
+      {
+        "name": "zeta",
+        "ownerAgentId": "gh-bot"
+      }
+    ],
+    "endpoints": [
+      {
+        "name": "hook",
+        "ownerAgentId": "gh-bot"
+      },
+      {
+        "name": "their-hook",
+        "ownerAgentId": "other-bot"
+      }
+    ],
+    "deliveries": [
+      {
+        "endpoint": "hook",
+        "deliveryId": "d1"
+      },
+      {
+        "endpoint": "their-hook",
+        "deliveryId": "d2"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "agentId": "gh-bot",
+      "reply": {
+        "schedules": [
+          "alpha",
+          "zeta"
+        ],
+        "webhooks": [
+          "hook"
+        ]
+      },
+      "after": {
+        "schedules": [
+          {
+            "name": "theirs",
+            "ownerAgentId": "other-bot"
+          }
+        ],
+        "endpoints": [
+          {
+            "name": "their-hook",
+            "ownerAgentId": "other-bot"
+          }
+        ],
+        "deliveries": [
+          {
+            "endpoint": "their-hook",
+            "deliveryId": "d2"
+          }
+        ]
+      }
+    },
+    {
+      "agentId": "lead",
+      "error": "the routines of \"lead\" cannot be deleted with a bot",
+      "after": {
+        "schedules": [
+          {
+            "name": "theirs",
+            "ownerAgentId": "other-bot"
+          }
+        ],
+        "endpoints": [
+          {
+            "name": "their-hook",
+            "ownerAgentId": "other-bot"
+          }
+        ],
+        "deliveries": [
+          {
+            "endpoint": "their-hook",
+            "deliveryId": "d2"
+          }
+        ]
+      }
+    },
+    {
+      "agentId": "gh-bot",
+      "reply": {
+        "schedules": [],
+        "webhooks": []
+      },
+      "after": {
+        "schedules": [
+          {
+            "name": "theirs",
+            "ownerAgentId": "other-bot"
+          }
+        ],
+        "endpoints": [
+          {
+            "name": "their-hook",
+            "ownerAgentId": "other-bot"
+          }
+        ],
+        "deliveries": [
+          {
+            "endpoint": "their-hook",
+            "deliveryId": "d2"
+          }
+        ]
+      }
+    }
+  ]
+}
