@@ -6,6 +6,11 @@
 // the core gets what the phone's own adapter sends for it (apps/desktop/src/renderer/remote-protocol-files.ts). The strings carry
 // their escapes into both frames. A `raw` step is a frame sealed as it stands (raw-frame-bytes.mjs `frame`), for frames that are not
 // a request of either protocol: Node refuses them, and so must the core, with what the phone is told.
+//
+// A step marked `refused` holds a lone surrogate where no shipped client sends one (an identifier, a path, a selector, a key):
+// the core refuses the frame whole before any service runs (mixdog-app-protocol free_text.rs, decisions.md "frame-lone-surrogate").
+// Input no shipped client can send has no recording: Node never gets the step, and the replay checks the core's refusal and, by the
+// project folder and preferences compared at the end with Node's (which never ran it), that it had no effect.
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { bom, byte } from './raw-frame-bytes.mjs';
@@ -39,17 +44,17 @@ const LOW = '\ude00';
 // Steps added after the first recording, with frame ids of their own (from 1001), so every other step keeps the bytes it was
 // recorded with.
 const ADDED = [
-  // ── client text that held a lone unit compared with what is on disk: it equals, matches and selects nothing there, even text
-  //    or a name holding a real U+FFFD (replaced.txt holds `a\ufffdb\n`, l\ufffd.txt holds `hi\n`) ──
-  { name: 'expected-content-lone', call: 'writeProjectFile', params: [P, 'replaced.txt', 'new\n', `a${HIGH}b\n`] },
-  { name: 'batch-expected-content-lone', call: 'lspApplyWorkspaceEdit', params: [P, [{ relPath: 'replaced.txt', content: 'new\n', expectedContent: `a${LOW}b\n` }]] },
-  { name: 'search-include-lone', call: 'searchWorkspaceText', params: [P, { query: 'hi', include: `l${HIGH}.txt` }] },
-  { name: 'search-exclude-lone', call: 'searchWorkspaceText', params: [P, { query: 'hi', exclude: `l${HIGH}.txt` }] },
-  { name: 'replace-include-lone', call: 'replaceWorkspaceText', params: [P, { query: 'hi', include: `l${HIGH}.txt` }, 'yo'] },
-  { name: 'replace-rel-paths-lone', call: 'replaceWorkspaceText', params: [P, { query: 'hi' }, 'yo', [`l${HIGH}.txt`]] },
+  // ── a lone unit where text is compared with what is on disk (replaced.txt holds `a\ufffdb\n`, l\ufffd.txt holds `hi\n`): an
+  //    expected content, a selector, a path or a name is refused by the core; a file-name query (free text) matches nothing ──
+  { name: 'expected-content-lone', refused: true, call: 'writeProjectFile', params: [P, 'replaced.txt', 'new\n', `a${HIGH}b\n`] },
+  { name: 'batch-expected-content-lone', refused: true, call: 'lspApplyWorkspaceEdit', params: [P, [{ relPath: 'replaced.txt', content: 'new\n', expectedContent: `a${LOW}b\n` }]] },
+  { name: 'search-include-lone', refused: true, call: 'searchWorkspaceText', params: [P, { query: 'hi', include: `l${HIGH}.txt` }] },
+  { name: 'search-exclude-lone', refused: true, call: 'searchWorkspaceText', params: [P, { query: 'hi', exclude: `l${HIGH}.txt` }] },
+  { name: 'replace-include-lone', refused: true, call: 'replaceWorkspaceText', params: [P, { query: 'hi', include: `l${HIGH}.txt` }, 'yo'] },
+  { name: 'replace-rel-paths-lone', refused: true, call: 'replaceWorkspaceText', params: [P, { query: 'hi' }, 'yo', [`l${HIGH}.txt`]] },
   { name: 'file-search-lone', call: 'searchProjectFiles', params: [P, HIGH, 50, false, false] },
   { name: 'file-search-real-replacement', call: 'searchProjectFiles', params: [P, '\ufffd', 50, false, false] },
-  { name: 'rename-case-only-lone', call: 'renameProjectEntry', params: [P, 'l\ufffd.txt', `L${HIGH}.txt`] },
+  { name: 'rename-case-only-lone', refused: true, call: 'renameProjectEntry', params: [P, 'l\ufffd.txt', `L${HIGH}.txt`] },
   { name: 'rename-case-only-lone-listed', call: 'listProjectDir', params: [P, ''] },
   // ── escape forms, sent as these exact bytes to Node (`json`: the params' JSON text); the phone holds the string Node parsed and
   //    its adapter writes the core's frame from it ──
@@ -86,27 +91,27 @@ export const STEPS = [
   // ── a nested value written to a file as text, and read back; a file name ──
   { name: 'file-content-lone', call: 'writeProjectFile', params: [P, NOTES, `x${HIGH}y\n${LOW}`, NOTES_BEFORE] },
   { name: 'file-content-read', call: 'readProjectFile', params: [P, NOTES] },
-  { name: 'file-name-lone', call: 'createProjectEntry', params: [P, '', `n${LOW}.txt`, false] },
+  { name: 'file-name-lone', refused: true, call: 'createProjectEntry', params: [P, '', `n${LOW}.txt`, false] },
   { name: 'file-name-listed', call: 'listProjectDir', params: [P, ''] },
   // ── a save refused for its content's lone surrogate (project-files.ts:96, :744); and a real U+FFFD in the content beside a lone
   //    surrogate in another field of the same call (a file name: the file `n\ufffd.txt` exists) ──
   { name: 'batch-content-lone', call: 'lspApplyWorkspaceEdit', params: [P, [{ relPath: NOTES, content: `y${LOW}`, expectedContent: NOTES_BEFORE }]] },
   { name: 'replace-lone-replacement', call: 'replaceWorkspaceText', params: [P, { query: 'old' }, `new${HIGH}`] },
   {
-    name: 'batch-real-replacement-lone-name',
+    name: 'batch-real-replacement-lone-name', refused: true,
     call: 'lspApplyWorkspaceEdit',
     params: [P, [{ relPath: NOTES, content: 'b\ufffd\n', expectedContent: NOTES_BEFORE }, { relPath: `n${LOW}.txt`, content: 'c', expectedContent: '' }]],
   },
   { name: 'batch-real-replacement', call: 'lspApplyWorkspaceEdit', params: [P, [{ relPath: NOTES, content: 'b\ufffd\n', expectedContent: NOTES_BEFORE }]] },
   // ── a file name holding a lone surrogate on the phone's file lanes (Node's authorized open refuses it,
   //    opened-file-authorization.ts:77; a stat is no authorized open), beside the same file named with a real U+FFFD ──
-  { name: 'read-lone-name', call: 'readProjectFile', params: [P, `l${HIGH}.txt`] },
-  { name: 'read-missing-lone-name', call: 'readProjectFile', params: [P, `m${HIGH}.txt`] },
+  { name: 'read-lone-name', refused: true, call: 'readProjectFile', params: [P, `l${HIGH}.txt`] },
+  { name: 'read-missing-lone-name', refused: true, call: 'readProjectFile', params: [P, `m${HIGH}.txt`] },
   { name: 'read-real-replacement-name', call: 'readProjectFile', params: [P, 'l\ufffd.txt'] },
-  { name: 'stat-lone-name', call: 'statProjectFile', params: [P, `l${LOW}.txt`] },
-  { name: 'write-lone-name', call: 'writeProjectFile', params: [P, `l${HIGH}.txt`, 'z', 'hi\n'] },
-  { name: 'preview-lone-name', call: 'previewProjectFile', params: [P, `p${HIGH}.png`] },
-  { name: 'preview-range-lone-name', call: 'previewProjectFileRange', params: [P, `p${LOW}.png`, null, 0, 4] },
+  { name: 'stat-lone-name', refused: true, call: 'statProjectFile', params: [P, `l${LOW}.txt`] },
+  { name: 'write-lone-name', refused: true, call: 'writeProjectFile', params: [P, `l${HIGH}.txt`, 'z', 'hi\n'] },
+  { name: 'preview-lone-name', refused: true, call: 'previewProjectFile', params: [P, `p${HIGH}.png`] },
+  { name: 'preview-range-lone-name', refused: true, call: 'previewProjectFileRange', params: [P, `p${LOW}.png`, null, 0, 4] },
   { name: 'preview-range-real-replacement-name', call: 'previewProjectFileRange', params: [P, 'p\ufffd.png', null, 0, 4] },
   // ── a search for a lone surrogate, and for a real U+FFFD, in text that holds a real U+FFFD; a replace with a lone query ──
   { name: 'search-lone-query', call: 'searchWorkspaceText', params: [P, { query: HIGH }] },
@@ -126,6 +131,8 @@ export const STEPS = [
   // own frame id keeps the frames of the later steps the bytes they were recorded with.
   { name: 'search-regex-real-replacement-query', call: 'searchWorkspaceText', params: [P, { query: 'a\ufffd', regex: true }], id: 1000 },
   // ── in a key ──
+  // The phone's own argument check refuses the unknown key before any frame is sent (shared/remote-files-arguments.ts:58), on
+  // Node's side as on the core's.
   { name: 'key-lone', call: 'searchWorkspaceText', params: [P, { query: 'x', [HIGH]: true }] },
   ...ADDED,
   // ── invalid UTF-8 and a BOM inside the sealed frame (Node decodes with a non-fatal TextDecoder, remote-e2ee.ts:9, :692) ──

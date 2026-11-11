@@ -169,7 +169,7 @@ impl FileLeases {
             let lease = &leases[at];
             (lease.location.clone(), lease.mime.clone(), lease.within.clone(), lease.identity)
         };
-        let opened = open_authorized_ro(&location, &within, false).ok()?;
+        let opened = open_authorized_ro(&location, &within).ok()?;
         if opened.id != identity {
             return None;
         }
@@ -178,12 +178,11 @@ impl FileLeases {
     }
 }
 
-/// `previewProjectFile`: what the file is for a preview, its size and time, and a lease of it when the kind streams. `lone_name`:
-/// the name held an unpaired surrogate escape (`inplace::open_authorized_ro`).
-pub fn preview_file(leases: &FileLeases, root: &Path, rel: &str, lone_name: bool) -> WsResult<Value> {
+/// `previewProjectFile`: what the file is for a preview, its size and time, and a lease of it when the kind streams.
+pub fn preview_file(leases: &FileLeases, root: &Path, rel: &str) -> WsResult<Value> {
     let absolute = project_entry_path(root, rel)?;
     let (kind, mime) = file_preview_type(&absolute).ok_or_else(|| WsError::plain(UNSUPPORTED))?;
-    let opened = open_authorized_ro(&absolute, root, lone_name)?;
+    let opened = open_authorized_ro(&absolute, root)?;
     let meta = opened.file.metadata().at("fstat", &absolute)?;
     let mut answer = json!({ "kind": kind, "mime": mime, "mtimeMs": mtime_ms(&meta), "size": meta.len() });
     if kind != "pdf" {
@@ -195,13 +194,13 @@ pub fn preview_file(leases: &FileLeases, root: &Path, rel: &str, lone_name: bool
 }
 
 /// `readPreviewRange`: up to `length` bytes of the file from `offset`, base64, with the file's size and time.
-pub fn preview_range(root: &Path, rel: &str, offset: u64, length: u64, lone_name: bool) -> WsResult<Value> {
+pub fn preview_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsResult<Value> {
     let absolute = project_entry_path(root, rel)?;
     let mime = match file_preview_type(&absolute) {
         Some((_, mime)) => mime,
         None => page_asset_type(root, &absolute).ok_or_else(|| WsError::plain(UNSUPPORTED))?,
     };
-    let mut opened = open_authorized_ro(&absolute, root, lone_name)?;
+    let mut opened = open_authorized_ro(&absolute, root)?;
     let meta = opened.file.metadata().at("fstat", &absolute)?;
     let wanted = length.min(meta.len().saturating_sub(offset)) as usize;
     let mut bytes = vec![0u8; wanted];

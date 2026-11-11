@@ -5,6 +5,7 @@
 //
 // Expected values are Node's, with one rule applied: under the decision of decisions.md "frame-lone-surrogate" (a), the core reads an
 // unpaired surrogate escape as U+FFFD, so a lone code unit Node echoed back is expected as U+FFFD (`String.prototype.toWellFormed`).
+// A step marked `refused` (lone surrogate where no shipped client sends one) has no Node counterpart: the core must refuse it.
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -108,6 +109,26 @@ export async function replay({ exe, golden, only }) {
     let compared = 0;
     for (const step of STEPS) {
       if (only && step.name !== only && step.name !== 'register-project') continue;
+      if (step.refused) {
+        // No Node counterpart (input no shipped client sends): the call must fail with the core's refusal of a lone surrogate
+        // outside free text, and the connection stay open; its lack of effect is in the folder and preferences compared below.
+        const closing = relay.whenClosed(phone.clientId).then((closed) => ({ closed }));
+        const outcome = await within(
+          Promise.race([
+            phone.router.call(step.call, step.json !== undefined ? JSON.parse(step.json) : clone(step.params)).then(
+              (value) => ({ ok: true, value: value === undefined ? null : clone(value) }),
+              (error) => ({ ok: false, error: error.message }),
+            ),
+            closing,
+          ]),
+          `the answer to ${step.name}`,
+        );
+        compared += 1;
+        const refused = outcome.ok === false && outcome.error.includes('text without unpaired surrogates');
+        if (!refused) unexpected.push({ step: `${step.name} (refused by the rule, no Node counterpart)`, node: 'the core refuses it: text without unpaired surrogates', core: outcome });
+        if (outcome.closed !== undefined) phone = await openRouter();
+        continue;
+      }
       const node = golden.steps.find((recorded) => recorded.name === step.name);
       if (!node) throw new Error(`the recording has no step ${step.name}`);
       let got;

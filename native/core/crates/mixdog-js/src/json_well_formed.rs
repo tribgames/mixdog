@@ -4,21 +4,6 @@
 //! core reads each as U+FFFD, the character every UTF-8 conversion of Node gives it.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::collections::HashSet;
-
-#[cfg(test)]
-thread_local! {
-    /// Keys looked at by [`collect`] (each read, count or lookup), for the test that bounds its work.
-    static KEY_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// One key looked at by [`collect`]; counted in tests only.
-#[inline]
-fn key_step() {
-    #[cfg(test)]
-    KEY_STEPS.with(|steps| steps.set(steps.get() + 1));
-}
 
 fn hex_value(b: u8) -> Option<u16> {
     match b {
@@ -102,34 +87,19 @@ pub fn well_formed_str(text: &str) -> Cow<'_, str> {
 }
 
 /// Where JSON text held an unpaired surrogate escape that [`well_formed_str`] reads as U+FFFD. Each
-/// pointer (RFC 6901) names keys as the core reads them (U+FFFD in place of the lone unit). Node kept
-/// the code unit, so a value or key named here equals, matches or selects nothing the core reads from
-/// disk (a name, a text), and a caller refuses what Node refuses for it (`toUSVString(value) !== value`).
+/// pointer (RFC 6901) names keys as the core reads them (U+FFFD in place of the lone unit).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LoneAt {
-    /// The string value at the pointer held one: the indices, in `char`s of the string as read, of every U+FFFD that was a
-    /// lone unit (a real U+FFFD beside them is not listed), so a caller that splits the string (a list, a path) can tell
-    /// which part held one.
-    Value(String, Vec<usize>),
+    /// The string value at the pointer held one.
+    Value(String),
     /// The key the pointer ends with held one (the value under it is the key's own).
     Key(String),
-    /// Two or more keys of one object, distinct in the text (Node kept each with its value), read as the
-    /// one key the pointer ends with: the core's object keeps one value where Node kept several.
-    MergedKey(String),
 }
 
 impl LoneAt {
     pub fn pointer(&self) -> &str {
         match self {
-            Self::Value(pointer, _) | Self::Key(pointer) | Self::MergedKey(pointer) => pointer,
-        }
-    }
-
-    /// For a string value, where in it (`char` indices) lone units were read as U+FFFD; empty for a key.
-    pub fn units(&self) -> &[usize] {
-        match self {
-            Self::Value(_, units) => units,
-            Self::Key(_) | Self::MergedKey(_) => &[],
+            Self::Value(pointer) | Self::Key(pointer) => pointer,
         }
     }
 
@@ -137,9 +107,8 @@ impl LoneAt {
     pub fn under(&self, prefix: &str) -> Option<Self> {
         let rest = self.pointer().strip_prefix(prefix).filter(|rest| rest.is_empty() || rest.starts_with('/'))?.to_owned();
         Some(match self {
-            Self::Value(_, units) => Self::Value(rest, units.clone()),
+            Self::Value(_) => Self::Value(rest),
             Self::Key(_) => Self::Key(rest),
-            Self::MergedKey(_) => Self::MergedKey(rest),
         })
     }
 }
@@ -162,20 +131,18 @@ pub fn lone_surrogate_pointers(text: &str) -> Vec<String> {
     lone_surrogates(text)
         .into_iter()
         .filter_map(|at| match at {
-            LoneAt::Value(pointer, _) => Some(pointer),
-            _ => None,
+            LoneAt::Value(pointer) => Some(pointer),
+            LoneAt::Key(_) => None,
         })
         .collect()
 }
 
-/// Parsed text (json_parse.rs) as the core reads it, and the `char` indices in it of each lone surrogate read as U+FFFD.
-fn read_parsed(text: &str) -> (String, Vec<usize>) {
+/// Parsed text (json_parse.rs) as the core reads it, and whether it held a lone surrogate (read as U+FFFD).
+fn read_parsed(text: &str) -> (String, bool) {
     let mut out = String::with_capacity(text.len());
-    let mut lone = Vec::new();
-    let mut read = 0;
+    let mut lone = false;
     let mut chars = text.char_indices();
     while let Some((at, c)) = chars.next() {
-        read += 1;
         if !crate::json_parse::is_esc(c) {
             out.push(c);
             continue;
@@ -183,7 +150,7 @@ fn read_parsed(text: &str) -> (String, Vec<usize>) {
         let rest = &text[at + c.len_utf8()..];
         let (kept, len) = match crate::json_parse::escape_at(rest) {
             Some((crate::json_parse::Escape::Surrogate(_), len)) => {
-                lone.push(read - 1);
+                lone = true;
                 ('\u{fffd}', len)
             }
             Some((crate::json_parse::Escape::Escaped, len)) => (c, len),
@@ -202,9 +169,8 @@ fn collect(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<LoneAt
     let len = pointer.len();
     match value {
         serde_json::Value::String(text) => {
-            let units = read_parsed(text).1;
-            if !units.is_empty() {
-                out.push(LoneAt::Value(pointer.clone(), units));
+            if read_parsed(text).1 {
+                out.push(LoneAt::Value(pointer.clone()));
             }
         }
         serde_json::Value::Array(items) => {
@@ -216,38 +182,14 @@ fn collect(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<LoneAt
             }
         }
         serde_json::Value::Object(map) => {
-            // The map's keys are the parsed text's (a lone unit kept apart from U+FFFD): keys equal in the
-            // text are already one, as in Node; keys that differ there but read the same are merged here.
-            // Only a key that held a lone unit reads differently from its text, so two keys can read as one
-            // only when one of them held one: the replaced keys are counted first, and every key is then
-            // looked up among them once (linear in the keys).
-            let mut replaced: HashMap<String, usize> = HashMap::new();
-            for key in map.keys() {
-                key_step();
-                let (as_read, lone) = read_parsed(key);
-                if !lone.is_empty() {
-                    *replaced.entry(as_read).or_default() += 1;
-                }
-            }
-            // (merged, key as read) already named: a place is named once.
-            let mut named: HashSet<(bool, String)> = HashSet::new();
+            // The map's keys are the parsed text's (escape markers and all, json_parse.rs): every key is
+            // named as the core reads it.
             for (key, item) in map {
                 pointer.push('/');
-                if replaced.is_empty() {
-                    pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
-                } else {
-                    key_step();
-                    let (as_read, lone) = read_parsed(key);
-                    pointer.push_str(&as_read.replace('~', "~0").replace('/', "~1"));
-                    // Read as a replaced key and not the only key read so: a lone key beside another, or a key
-                    // whose text holds a real U+FFFD where a replaced one has the lone unit.
-                    let merged = replaced.get(&as_read).is_some_and(|&count| count + usize::from(lone.is_empty()) > 1);
-                    if !lone.is_empty() && named.insert((false, as_read.clone())) {
-                        out.push(LoneAt::Key(pointer.clone()));
-                    }
-                    if merged && named.insert((true, as_read)) {
-                        out.push(LoneAt::MergedKey(pointer.clone()));
-                    }
+                let (as_read, lone) = read_parsed(key);
+                pointer.push_str(&as_read.replace('~', "~0").replace('/', "~1"));
+                if lone {
+                    out.push(LoneAt::Key(pointer.clone()));
                 }
                 collect(item, pointer, out);
                 pointer.truncate(len);
@@ -270,51 +212,33 @@ mod tests {
         assert!(lone_surrogate_pointers(r#"{"a":"\ud800"#).is_empty());
     }
 
-    /// A key that held a lone unit is named as a key, apart from a value at the same place; keys distinct in the text that
-    /// read as one are named as merged (Node kept each); keys equal in the text are one key to Node too.
+    /// A key that held a lone unit is named as a key, apart from a value at the same place; keys equal in the text are one
+    /// key to Node too.
     #[test]
-    fn lone_surrogate_keys_are_named_and_merged_keys_told() {
-        let text = r#"{"\ud800":"\ud800","k":{"\ud83d":1,"\udc00":2,"\ufffd":3},"d":{"a":1,"a":2},"s":{"\ud83d":1,"\ud83d":2}}"#;
+    fn lone_surrogate_keys_are_named_apart_from_values() {
+        let text = r#"{"\ud800":"\ud800","k":{"\ufffd":3},"s":{"\ud83d":1,"\ud83d":2}}"#;
         let r = "\u{fffd}";
         let mut found = lone_surrogates(text);
         found.sort();
-        let mut expected = vec![
-                LoneAt::Key(format!("/{r}")),
-                LoneAt::Value(format!("/{r}"), vec![0]),
-                LoneAt::Key(format!("/k/{r}")),
-                LoneAt::MergedKey(format!("/k/{r}")),
-                LoneAt::Key(format!("/s/{r}")),
-        ];
+        let mut expected = vec![LoneAt::Key(format!("/{r}")), LoneAt::Value(format!("/{r}")), LoneAt::Key(format!("/s/{r}"))];
         expected.sort();
         // A set of places: the order is the map's, which no consumer reads.
         assert_eq!(found, expected);
         assert_eq!(LoneAt::Key("/params/a".into()).under("/params"), Some(LoneAt::Key("/a".into())));
-        assert_eq!(LoneAt::Value("/paramsx".into(), vec![0]).under("/params"), None);
+        assert_eq!(LoneAt::Value("/paramsx".into()).under("/params"), None);
     }
 
-    /// Only the lone units are listed, by `char` index in the string as read: a real U+FFFD and the characters before
-    /// (an astral one is one `char`) are not.
+    /// A key holding a character the parser marks (U+F0000, json_parse.rs) is named as the core reads it, whether or not
+    /// any key of its object held a lone unit.
     #[test]
-    fn a_value_names_where_its_lone_units_were() {
-        let text = r#"{"a":"\ufffd,\ud800,\ud83d\ude00x,\udc00"}"#;
-        assert_eq!(lone_surrogates(text), [LoneAt::Value("/a".into(), vec![2, 7])]);
-    }
-
-    /// The merged-key check looks at each key a bounded number of times: a wide object (50,000 distinct keys, one of them
-    /// replaced, one replaced value) costs work linear in its keys, not a comparison of every pair.
-    #[test]
-    fn a_wide_object_is_checked_in_work_linear_in_its_keys() {
-        let keys = 50_000;
-        let mut text = String::from(r#"{"v":"\ud800","\udbff":1"#);
-        for index in 0..keys {
-            text.push_str(&format!(",\"k{index}\":{index}"));
-        }
-        text.push('}');
-        KEY_STEPS.with(|steps| steps.set(0));
-        let found = lone_surrogates(&text);
-        let steps = KEY_STEPS.with(std::cell::Cell::get);
-        assert_eq!(found, [LoneAt::Value("/v".into(), vec![0]), LoneAt::Key("/\u{fffd}".into())]);
-        assert!(steps <= 2 * (keys + 2), "{steps} key steps for {} keys", keys + 2);
+    fn a_key_holding_the_parsers_marker_is_named_as_read() {
+        let e = '\u{F0000}';
+        let text = format!(r#"{{"{e}":{{"x":"\ud800"}},"a{e}":{{"\udc00":1}}}}"#);
+        let mut found = lone_surrogates(&text);
+        found.sort();
+        let mut expected = vec![LoneAt::Key(format!("/a{e}/\u{fffd}")), LoneAt::Value(format!("/{e}/x"))];
+        expected.sort();
+        assert_eq!(found, expected);
     }
 
     #[test]

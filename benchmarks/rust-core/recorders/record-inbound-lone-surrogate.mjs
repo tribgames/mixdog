@@ -186,6 +186,9 @@ const steps = [];
 for (const step of STEPS) {
   if (ONLY && step.name !== ONLY && step.name !== 'register-project') continue;
   const id = step.raw === undefined ? (step.id ?? ++frameId) : null;
+  // Input no shipped client sends (lib/inbound-lone-surrogate-cases.mjs `refused`): not recorded; its frame id is still taken, so
+  // the later steps keep their bytes.
+  if (step.refused) continue;
   const text = step.raw ?? (step.json !== undefined ? `{"id":${id},"method":${JSON.stringify(step.call)},"params":${step.json}}` : JSON.stringify({ id, method: step.call, params: step.params }));
   const token = frame(text);
   const sealed = await phone.channel.encryptJson(token);
@@ -237,7 +240,7 @@ writeSetManifest(stage, {
     normalisations: [
       {
         what: "every string and object key of Node's answers (wellFormed): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the replay",
-        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs:38 wellFormed(), applied at :152 (answers) and :180 (preferences)',
+        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs:38 wellFormed(), applied at :172 (answers) and :200 (preferences)',
         why: 'the core reads an unpaired surrogate escape as U+FFFD, so what it echoes holds U+FFFD where Node echoed the lone unit',
         allowedBy: 'decisions.md "frame-lone-surrogate" (a)',
       },
@@ -254,6 +257,14 @@ writeSetManifest(stage, {
         allowedBy: 'not a value change: both sides get the same string',
       },
     ],
+    // Steps Node never got: a lone surrogate where no shipped client sends one (decisions.md "frame-lone-surrogate": refused whole
+    // before any service runs, mixdog-app-protocol free_text.rs).
+    refusedByRule: {
+      steps: STEPS.filter((step) => step.refused).map((step) => step.name),
+      check:
+        "the phone's call fails with the core's invalidParams refusal of a lone surrogate outside free text (its message names the field and says 'text without unpaired surrogates'), the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
+      why: 'input no shipped client can send only has to be refused with no side effect, with no recording (AGENT-RULES.md)',
+    },
     // Steps with no Node counterpart: compared with the core's own answer to a stand-in, whole.
     coreOnly: STEPS.filter((step) => step.coreStandIn).map((step) => ({
       step: step.name,

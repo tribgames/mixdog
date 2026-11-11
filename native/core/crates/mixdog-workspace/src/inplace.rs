@@ -35,18 +35,16 @@ pub struct Opened {
 /// Opens `path` read-write (never creating or truncating) and proves from the
 /// open file that it is a regular file whose real location is inside `root`.
 /// A path swapped for a link between resolving and opening reaches nothing.
-/// `lone_name`: a paired device named the file with an unpaired surrogate
-/// escape, read as U+FFFD (see [`verify_opened`]).
-pub fn open_authorized_rw(path: &Path, root: &Path, lone_name: bool) -> WsResult<Opened> {
+pub fn open_authorized_rw(path: &Path, root: &Path) -> WsResult<Opened> {
     let file = OpenOptions::new().read(true).write(true).open(path).at("open", path)?;
-    let id = verify_opened(&file, path, root, lone_name)?;
+    let id = verify_opened(&file, path, root)?;
     Ok(Opened { file, id, path: path.to_path_buf() })
 }
 
 /// The read-only form of [`open_authorized_rw`].
-pub fn open_authorized_ro(path: &Path, root: &Path, lone_name: bool) -> WsResult<Opened> {
+pub fn open_authorized_ro(path: &Path, root: &Path) -> WsResult<Opened> {
     let file = open_read(path).at("open", path)?;
-    let id = verify_opened(&file, path, root, lone_name)?;
+    let id = verify_opened(&file, path, root)?;
     Ok(Opened { file, id, path: path.to_path_buf() })
 }
 
@@ -64,17 +62,9 @@ fn open_read(path: &Path) -> io::Result<File> {
     }
 }
 
-/// Node's `authorizeOpened` (opened-file-authorization.ts:73). Its Windows locator opens the path the file was opened by again
-/// (opened-file-path.ts `windowsFilePath`, `CreateFileW` on the UTF-16 string): a name that held a lone surrogate names no
-/// file there (the file opened has U+FFFD in its name), so Node refuses the open file as changed. The core reads the unit as
-/// U+FFFD and finds the file, so the request says so (`lone_name`) and the open is refused at the same step: nothing is read
-/// or written (decisions.md "frame-lone-surrogate").
-fn verify_opened(file: &File, path: &Path, root: &Path, lone_name: bool) -> WsResult<FileId> {
+fn verify_opened(file: &File, path: &Path, root: &Path) -> WsResult<FileId> {
     if !file.metadata().at("fstat", path)?.is_file() {
         return Err(WsError::plain("The preview target is not a file."));
-    }
-    if lone_name {
-        return Err(WsError::plain("The file changed while it was opened."));
     }
     let id = file_id(file)?;
     let real = canonical(path).map_err(|_| WsError::plain("The file changed while it was opened."))?;

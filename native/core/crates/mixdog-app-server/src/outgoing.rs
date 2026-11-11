@@ -268,18 +268,18 @@ impl Outgoing {
         }
     }
 
-    /// The owning thread of `id`, if `from` is a connection the request was delivered to
+    /// The owning thread and the method of `id`, if `from` is a connection the request was delivered to
     /// (P §8.4 step 1: only eligible connections decide).
     pub(crate) fn owner_for_response(
         &self,
         id: &ServerRequestId,
         from: ConnectionId,
-    ) -> Option<ThreadId> {
+    ) -> Option<(ThreadId, Method)> {
         self.pending
             .shard(id)
             .get(id)
             .filter(|pending| pending.delivered.contains(&from))
-            .map(|pending| pending.req.thread.clone())
+            .map(|pending| (pending.req.thread.clone(), pending.req.method.clone()))
     }
 
     /// Records `conn` as the newest host claimant for what it declared at `initialize`. A
