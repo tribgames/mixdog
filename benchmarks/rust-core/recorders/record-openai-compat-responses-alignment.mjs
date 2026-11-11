@@ -39,6 +39,7 @@ function scripted(name, events, output, config = {}) {
       })();
     } } },
   });
+  rec.describe(provider, { $instance: 'OpenAICompatProvider (prototype instance, fields as set)', name, config: provider.config, nativePdf: true, client: { responses: { create: { scripted: 'records (params, options) and answers with the events, then response.completed with the output', events, output } } } });
   return { provider, requests };
 }
 const hist = [{ role: 'user', content: 'hi' }];
