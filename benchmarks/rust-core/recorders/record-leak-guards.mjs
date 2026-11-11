@@ -11,7 +11,8 @@ const rec = await startRecording({
   set: 'provider-leak-guards',
   net: false,
   entry: 'gemini-stream.mjs createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolCall }) (feedText / finalize / scrubAssistantText / getLeakedToolCalls); anthropic-oauth.mjs parseSSEStream(response, null, abort, onStreamDelta, onToolCall, {}, onTextDelta, knownToolNames); openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream (with openai-compat.mjs parseToolCalls / parseResponsesToolCalls) over scripted events. Not run: a network send.',
-  replay: 'mixdog-ai providers::leak.rs (:60-163) and leak_tests.rs / anthropic/leak_tests.rs over fixtures/agent/leaked-toolcall (K1 row 3: 19 of 25 cases already replayed there): feed `input.deltas` per route and compare `result.texts` (visible text deltas), `result.captured` (dispatched calls) and `result.folded` whole.',
+  compare: 'mixdog-ai providers::leak.rs (:60-163) and leak_tests.rs / anthropic/leak_tests.rs over fixtures/agent/leaked-toolcall (K1 row 3: 19 of 25 cases already replayed there): feed `input.deltas` per route and compare `result.texts` (visible text deltas), `result.captured` (dispatched calls) and `result.folded` whole.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::leak::LeakGuard (leak.rs:359) and scan (leak.rs:310), exercised through each route's adapter driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { createGeminiTextLeakGuard } = await rec.P(`${P}gemini-stream.mjs`);

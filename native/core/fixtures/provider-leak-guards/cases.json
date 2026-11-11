@@ -1,6 +1,7 @@
 {
   "set": "provider-leak-guards",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "gemini-known-tool-recovered",
@@ -40,7 +41,29 @@
             }
           ]
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.createGeminiTextLeakGuard",
+          "args": [
+            {
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "gemini-unknown-tool-text-flushed",
@@ -64,7 +87,29 @@
           "scrubbed": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>",
           "leakedToolCalls": []
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.createGeminiTextLeakGuard",
+          "args": [
+            {
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-known-tool-recovered",
@@ -116,13 +161,63 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-tags-split-across-chunks",
@@ -173,13 +268,63 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-unknown-tool-text-flushed",
@@ -202,6 +347,9 @@
         "folded": {
           "content": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>",
           "model": "claude",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 1,
             "outputTokens": 1,
@@ -214,10 +362,16 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -234,9 +388,47 @@
               }
             ]
           },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-benign-function-prose",
@@ -259,6 +451,9 @@
         "folded": {
           "content": "Use the <function> keyword in JavaScript to declare a function.",
           "model": "claude",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 1,
             "outputTokens": 1,
@@ -271,10 +466,16 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -291,9 +492,47 @@
               }
             ]
           },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-known-tool-recovered",
@@ -357,7 +596,36 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-harmony-recovered",
@@ -422,7 +690,36 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-tags-split-across-deltas",
@@ -485,7 +782,36 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-unknown-tool-text-preserved",
@@ -523,6 +849,9 @@
           },
           "model": "",
           "content": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "reasoningContent": null,
           "reasoningSource": null,
@@ -532,7 +861,36 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-benign-prose-preserved",
@@ -570,6 +928,9 @@
           },
           "model": "",
           "content": "Use the <function> keyword in JavaScript.",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "reasoningContent": null,
           "reasoningSource": null,
@@ -579,7 +940,36 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-native-tool-calls-with-guard",
@@ -681,7 +1071,57 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.parseToolCalls",
+          "args": [
+            {
+              "finish_reason": "tool_calls",
+              "message": {
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "read",
+                      "arguments": "{\"path\":\"x\"}"
+                    }
+                  }
+                ]
+              }
+            },
+            "test"
+          ]
+        }
+      ]
     },
     {
       "id": "responses-leaked-invoke-recovered",
@@ -731,7 +1171,51 @@
           "stopReason": null,
           "reasoningEmitted": false
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseResponsesToolCalls": {
+                "callback": "parseResponsesToolCalls"
+              },
+              "responseOutputText": {
+                "callback": "responseOutputText"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.parseResponsesToolCalls",
+          "args": [
+            {
+              "id": "r1",
+              "model": "gpt",
+              "status": "completed",
+              "output": []
+            },
+            "test"
+          ]
+        }
+      ]
     },
     {
       "id": "responses-harmony-split-across-deltas",
@@ -780,7 +1264,51 @@
           "stopReason": null,
           "reasoningEmitted": false
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseResponsesToolCalls": {
+                "callback": "parseResponsesToolCalls"
+              },
+              "responseOutputText": {
+                "callback": "responseOutputText"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.parseResponsesToolCalls",
+          "args": [
+            {
+              "id": "r1",
+              "model": "gpt",
+              "status": "completed",
+              "output": []
+            },
+            "test"
+          ]
+        }
+      ]
     },
     {
       "id": "responses-benign-prose",
@@ -808,12 +1336,59 @@
             "output": []
           },
           "content": "Just some prose about functions and channels.",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "model": "gpt",
           "responseId": "r1",
           "stopReason": null,
           "reasoningEmitted": false
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseResponsesToolCalls": {
+                "callback": "parseResponsesToolCalls"
+              },
+              "responseOutputText": {
+                "callback": "responseOutputText"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.parseResponsesToolCalls",
+          "args": [
+            {
+              "id": "r1",
+              "model": "gpt",
+              "status": "completed",
+              "output": []
+            },
+            "test"
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-fence-invoke-in-code-block",
@@ -836,6 +1411,9 @@
         "folded": {
           "content": "Example:\n```\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\ndone",
           "model": "claude",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 1,
             "outputTokens": 1,
@@ -848,10 +1426,16 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -868,9 +1452,47 @@
               }
             ]
           },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-fence-opens-and-closes-across-deltas",
@@ -897,6 +1519,9 @@
         "folded": {
           "content": "Here is an example:\n```json\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\nEnd.",
           "model": "claude",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 1,
             "outputTokens": 1,
@@ -909,10 +1534,16 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -929,9 +1560,47 @@
               }
             ]
           },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-inline-code-span",
@@ -954,6 +1623,9 @@
         "folded": {
           "content": "Call it like `<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>` in the docs.",
           "model": "claude",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 1,
             "outputTokens": 1,
@@ -966,10 +1638,16 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -986,9 +1664,47 @@
               }
             ]
           },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-fence-control-outside-fence",
@@ -1040,13 +1756,63 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-harmony-inside-fence",
@@ -1084,6 +1850,9 @@
           },
           "model": "",
           "content": "Doc:\n```\n<|channel|>commentary to=functions.read <|message|>{\"path\":\"a\"}<|call|>\n```\n",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "reasoningContent": null,
           "reasoningSource": null,
@@ -1093,7 +1862,36 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-dedupe-leaked-plus-native",
@@ -1204,14 +2002,64 @@
             "promptTokens": 1
           },
           "stopReason": "tool_use",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta",
             "input_json_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chat-dedupe-leaked-plus-native",
@@ -1322,7 +2170,57 @@
           },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+            },
+            {
+              "label": "test",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "knownToolNames": {
+                "$exact": "set",
+                "values": [
+                  "shell",
+                  "read"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.parseToolCalls",
+          "args": [
+            {
+              "finish_reason": "tool_calls",
+              "message": {
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "read",
+                      "arguments": "{\"path\":\"a\"}"
+                    }
+                  }
+                ]
+              }
+            },
+            "test"
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-bare-antml-prose-streamed",
@@ -1345,6 +2243,9 @@
         "folded": {
           "content": "The tag antml:invoke is used internally; here we just mention it in a sentence.",
           "model": "claude",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 1,
             "outputTokens": 1,
@@ -1357,10 +2258,16 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -1377,9 +2284,47 @@
               }
             ]
           },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-bare-antml-control-bracket-form",
@@ -1431,13 +2376,63 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "anthropic-unmatched-backtick-in-suppressed-args",
@@ -1503,13 +2498,63 @@
             "promptTokens": 1
           },
           "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.parseSSEStream",
+          "args": [
+            {
+              "body": {
+                "getReader": {
+                  "callback": "getReader"
+                }
+              }
+            },
+            null,
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {
+              "callback": ""
+            },
+            {},
+            {
+              "callback": ""
+            },
+            {
+              "$exact": "set",
+              "values": [
+                "shell",
+                "read"
+              ]
+            }
+          ]
+        }
+      ]
     }
   ]
 }
