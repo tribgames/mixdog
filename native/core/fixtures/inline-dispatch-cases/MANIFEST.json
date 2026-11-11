@@ -5,7 +5,6 @@
     "agent graph loading retries after a failure and shares the successful graph: the load count": "not observable: the graph is a lazy `import()` inside the host (session-runtime-inline-host/agent-dispatch.mjs); a client sees each dispatch's outcome, replayed here, and the core has no module to import",
     "agentControl forwards to the injected executor and the placeholder actions stay inert": "not reachable by a client: agentControl only forwards to the daemon's canonical agent control (src/standalone/daemon.mjs:1122 `executeAgentControl: agentControl.execute`), whose answers the agent tool replays cover; agentSessionAction, agentSessionState, subscribeAgentSessionStates and refreshRuntimeWorkload have no caller outside the host (session-runtime-inline-host.mjs:96-100; no other reference in src/), and the unavailable/closed refusals need a host built without the executor or used after close, which daemon.mjs never does",
     "agentDispatch caches one dispatcher per agent and forwards the call parameters: the factory options and the dispatcher cache": "not reachable by a client: the one caller of the host's agentDispatch is the memory-cycle broker (src/standalone/daemon.mjs:1059), whose payload never names factory options beyond taskType/sourceType/brief (src/standalone/agent-dispatch-broker.mjs:105), so `options.preset` never reaches makeAgentDispatch; the per-agent dispatcher cache and the once-per-config provider preparation have no effect beyond the answers and forwarded parameters replayed here",
-    "notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the disposed runtime": "Node answers false once the owner's runtime is disposed (session-runtime-inline-host.mjs:91-94, `records.ownerRuntime`); the core has no disposal of a loaded thread's runtime, and its `OwnerNotify` answers `live` for any loaded handle (core-session agent_registry/flow.rs, `notify`), so the same call answers true there: open, not replayed",
     "notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the host closed": "the answer after `host.close()` (session-runtime-inline-host.mjs:91-93, `if (closed) return false`) is the host's own lifetime; the core's directory closes only with the daemon, whose shutdown is not a call a client makes",
     "notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the runtime counts": "`status.worker.runtimes` and `workloads.worker.runtimes` (session-runtime-inline-host.dispatch.test.mjs:159-165) count the host's in-process JS runtimes (session-runtime-inline-host.mjs:108-118), which the core, one daemon for every session, has no counterpart of"
   },
@@ -47,7 +46,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-inline-dispatch-cases.mjs",
-  "recorderSha256": "79cb1ccf1507efe453147b7f48a499f4981e5e9f83e7d96efefb58570cb0f0aa",
+  "recorderSha256": "3e647384f76201ab72019bd6d2ac919cd225f54538d2fd9916632271924b99bc",
   "set": "inline-dispatch-cases",
   "totalBytes": 4895
 }

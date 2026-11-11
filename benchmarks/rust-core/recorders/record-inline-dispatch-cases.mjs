@@ -183,10 +183,6 @@ const excluded = {
   'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the runtime counts':
     "`status.worker.runtimes` and `workloads.worker.runtimes` (session-runtime-inline-host.dispatch.test.mjs:159-165) count the " +
     "host's in-process JS runtimes (session-runtime-inline-host.mjs:108-118), which the core, one daemon for every session, has no counterpart of",
-  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the disposed runtime':
-    "Node answers false once the owner's runtime is disposed (session-runtime-inline-host.mjs:91-94, `records.ownerRuntime`); the core has no " +
-    "disposal of a loaded thread's runtime, and its `OwnerNotify` answers `live` for any loaded handle (core-session agent_registry/flow.rs, `notify`), so the " +
-    'same call answers true there: open, not replayed',
   'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the host closed':
     "the answer after `host.close()` (session-runtime-inline-host.mjs:91-93, `if (closed) return false`) is the host's own lifetime; the core's " +
     'directory closes only with the daemon, whose shutdown is not a call a client makes',
