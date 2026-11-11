@@ -35,7 +35,7 @@ const { registerBackgroundTask } = await set.load('src/runtime/shared/background
 const { execShellCommand } = await set.load(`${T}shell-command.mjs`);
 const { killShellJob, shutdownShellJobs, watchBackgroundShellJob } = await set.load(`${T}builtin/shell-jobs.mjs`);
 const { stopBackgroundShellJob } = await set.load(`${T}builtin/task-tool.mjs`);
-const { _resetNativeSpawnClientForTest, _setNativeSpawnBinaryForTest, shutdownNativeSpawnServer } = await set.load(`${T}lib/native-spawn-client.mjs`);
+const { getNativeTask, subscribeNativeTask, _resetNativeSpawnClientForTest, _setNativeSpawnBinaryForTest, shutdownNativeSpawnServer } = await set.load(`${T}lib/native-spawn-client.mjs`);
 const { SessionHost } = await set.load('apps/desktop/src/main/session-host.ts');
 _setNativeSpawnBinaryForTest(binaryAt);
 
@@ -87,18 +87,20 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     if (found) return Promise.resolve(found);
     return within(label, new Promise((resolve) => { paneWaiter = { test, resolve }; }));
   };
-  /** The pane row arrives through the job watcher's own 5 s timer, which re-arms itself once after its first run: two explicit 5000 ms advances, the
-   *  first when the watcher's timer (armed after `from`) exists, the second when that run has armed the next one; then the publication itself is awaited.
-   *  Every wait is the event the previous step causes, with a deadline; the advances are recorded by the clock (timers.advances). */
+  /** The native task registry learns of the job (and of its end) from the spawn server's own events, in real time: wait for that event, with a
+   *  deadline, before the clock moves, so the single advance that follows is what publishes the row. */
+  const nativeTaskIs = (label, jobId, test) => within(label, new Promise((resolve) => {
+    let off = () => {};
+    const check = (task) => { if (task && test(task)) { off(); resolve(task); return true; } return false; };
+    if (!check(getNativeTask(jobId))) off = subscribeNativeTask(jobId, check);
+  }));
+  /** The pane row arrives through the host's own 5 s timer: one explicit 5000 ms advance (recorded by the clock in timers.advances), then the
+   *  publication it causes is awaited. */
   const WATCH_MS = 5_000;
-  const paneAfterWatcher = async (label, test, from) => {
-    await within(`${label}: the watcher's ${WATCH_MS} ms timer to be armed`, virtual.whenArmedAfter(from, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
-    const beforeFirst = virtual.armed.length;
-    virtual.advance(WATCH_MS);
-    await within(`${label}: the watcher to arm its next ${WATCH_MS} ms timer`, virtual.whenArmedAfter(beforeFirst, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
+  const paneAfterAdvance = (label, test) => {
     const arrived = new Promise((resolve) => { paneWaiter = { test, resolve }; });
     virtual.advance(WATCH_MS);
-    try { return await within(`${label}: the pane row to be published`, arrived); } finally { paneWaiter = null; }
+    return within(`${label}: the pane row to be published`, arrived).finally(() => { paneWaiter = null; });
   };  host.subscribeSessionStates((update) => {
     if (update.sessionId === SESSION && update.snapshot?.shellJobs) {
       paneRows.push(structuredClone(update.snapshot.shellJobs));
@@ -126,14 +128,14 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
       timeoutMs: 0, autoBackgroundMs: 200, backgroundOnTimeout: true, ownerSessionId: SESSION, callerSessionId: SESSION, clientHostPid: hostPid,
     });
     await within('the auto-background timer to be armed', virtual.whenArmed((t) => t.api === 'setTimeout' && t.ms === 200));
-    const watcherFrom = virtual.armed.length; // the watcher's first 5 s timer is armed while the auto-background advance runs
     virtual.advance(200);
     const result = await within('the command to move to the background', started);
     const jobId = result.jobId;
     const context = { callerSessionId: SESSION, routingSessionId: SESSION, clientHostPid: hostPid };
     registerBackgroundTask({ taskId: jobId, surface: 'shell', operation: 'shell', label: 'serve', context, cancel: () => killShellJob(jobId) });
     watchBackgroundShellJob(jobId, context);
-    const running = await paneAfterWatcher('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId), watcherFrom);
+    await nativeTaskIs('the spawn server to report the job running', jobId, (task) => task.status === 'running');
+    const running = await paneAfterAdvance('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId));
     mark('the job runs and is on the pane', { started: result, running });
 
     // The pane leaves again: with the job running the session stays loaded well past the idle delay.
@@ -142,9 +144,9 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     await within('the idle sweeps to finish', virtual.idle());
     mark('hidden with the job running; the idle delay advanced 4x', { disposedSessions: [...disposed] });
 
-    const stopFrom = virtual.armed.length;
     const stopped = await within('the stop to answer', host.stopShellJob(SESSION, jobId));
-    const settled = await paneAfterWatcher('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId), stopFrom);
+    await nativeTaskIs('the spawn server to report the job ended', jobId, (task) => task.status !== 'running');
+    const settled = await paneAfterAdvance('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId));
     mark('stopped', { stopped, settled, lastPane: paneRows.at(-1) });
     return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } };
   } finally {

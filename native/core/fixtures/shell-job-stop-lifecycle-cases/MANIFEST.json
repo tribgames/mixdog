@@ -82,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
-  "recorderSha256": "06363062b67b222d4f819ce0c49acfcdeb56b4e72080589304ec0a9a4608adb6",
+  "recorderSha256": "9d4c6ca02ef67a01ae963a6867367ec956dc92a8c09ab23da3a47ef598ef94f5",
   "replay": {
     "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
     "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs; thread/shellJobs/updated (mixdog-core-session/src/session/actor.rs:2053; the ShellJobs section, mixdog-core-session/src/session/exec_events.rs:79).",
