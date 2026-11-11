@@ -252,6 +252,7 @@ impl PreviewArchive {
         let sha256: String = sha2::Sha256::digest(content.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
         mixdog_agent::offload::Artifact {
             display_path: format!("<DATA>/tool-results/{}/{sha256}.txt", self.session),
+            path: format!("<DATA>/tool-results/{}/{sha256}.txt", self.session),
             lines: content.lines().count(),
             sha256,
         }

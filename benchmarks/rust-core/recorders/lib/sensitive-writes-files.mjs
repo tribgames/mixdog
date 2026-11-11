@@ -1,7 +1,8 @@
 // The files of a sensitive-writes run (record-sensitive-writes.mjs, replay-sensitive-writes.mjs): the search of every file for
 // the scenario's sensitive values in each encoding a writer uses, and the normalisation of run-specific ids and times.
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { basename, join, relative, sep } from 'node:path';
 
 export function walk(dir) {
   const out = [];
@@ -69,7 +70,9 @@ const SCRATCH = /\bs\.[0-9a-f]{16}\b|\bmsg_[0-9a-f]{32}\b/g;
 // `Pid`; a file's size, `storageSize`, which follows when the saves ran): `<measured>`, in plain and escaped JSON. Epoch times
 // are `<ms>` before this runs.
 // The trace's `totalBytes` and `messagesBytes` are sizes of the messages, which hold a measured `elapsedMs`.
-const MEASURED_KEY = /(?:Ms|_ms|Pid|_bytes)$|^(?:duration|storageSize|requestOutputTokens|totalBytes|messagesBytes)$/;
+// The compaction record's token estimates (`last*Tokens`, `currentEstimatedTokens`, a check's `pressure` and `est`) count a
+// recovery reminder that names the session's archive path, whose session id holds the process id (its length varies).
+const MEASURED_KEY = /(?:Ms|_ms|Pid|_bytes)$|^(?:duration|storageSize|requestOutputTokens|totalBytes|messagesBytes|last\w*Tokens|currentEstimatedTokens|pressure|est)$/;
 // A hash over a provider projection that holds measured values (a message's `elapsedMs`): `<measured>`.
 const MEASURED_HASH_KEY = /^contextPressureBaseline\w*Signature$/;
 const MEASURED = /(\\*"([A-Za-z_]*)\\*":)\d+(?:\.\d+)?/g;
@@ -82,6 +85,7 @@ const SUMMARY = /^mixdog_data_dir\/session-summaries\.(?:json|log)$/;
  *  session a reader loads from it (`sessionLog`), the file named only. */
 const SESSION_LOG = /^mixdog_data_dir\/sessions\/[^/]+\.log\.jsonl$/;
 /** Files that are not data: the PostgreSQL runtime Node downloads and the patch tool it unpacks (named only). */
+const ARTIFACT = /^[0-9a-f]{64}\.txt$/;
 const PROGRAMS = /^mixdog_data_dir\/(?:runtime\/|patch-bin\/)/;
 
 const isText = (data) => !data.includes(0) && Buffer.from(data.toString('utf8'), 'utf8').equals(data);
@@ -91,7 +95,8 @@ const isText = (data) => !data.includes(0) && Buffer.from(data.toString('utf8'),
  * profile as `<profile>` (each in its plain, forward-slash and JSON-escaped spelling), every uuid as `<id:N>` by first
  * appearance (file order, names before contents), every ISO time as `<iso>` and every epoch time in ms as `<ms>`. A binary file
  * is `{ binary: bytes }`. `mask(text)` applies the same substitutions (the same id numbering) to other text of the run.
- * `aliases`: further [setup name, recorded name] pairs read first (a provider the two runs configure under different ids).
+ * `aliases`: further [setup name, recorded name] pairs read first (a provider the two runs configure under different ids, a data
+ * folder they lay out differently), the recorded name in the same spelling as the setup name.
  */
 export function normalizeTree(profile, { sessionId, workspace, aliases = [] }) {
   const ids = new Map();
@@ -100,18 +105,31 @@ export function normalizeTree(profile, { sessionId, workspace, aliases = [] }) {
     [workspace, '<ws>'],
     [profile, '<profile>'],
   ].flatMap(([path, name]) => [
-    [JSON.stringify(path).slice(1, -1), name],
+    [JSON.stringify(path).slice(1, -1), JSON.stringify(name).slice(1, -1)],
     [path, name],
-    [path.split(sep).join('/'), name],
+    [path.split(sep).join('/'), name.split(sep).join('/')],
   ]);
   const idOf = (id) => {
     const key = id.toLowerCase();
     if (!ids.has(key)) ids.set(key, `<id:${ids.size}>`);
     return ids.get(key);
   };
+  // A tool-results file is named by the sha256 of its raw text, which holds times: it is named instead by a hash of its text
+  // without the run's names (session, paths, ids), other such hashes and digits, `<sha:…>`, in names and in the texts that refer
+  // to it.
+  const artifacts = [];
+  for (const file of walk(profile)) {
+    const name = basename(file);
+    if (!ARTIFACT.test(name) || !relative(profile, file).split(sep).includes('tool-results')) continue;
+    let stable = readFileSync(file, 'utf8').split(sessionId).join('');
+    for (const [path, named] of paths) stable = stable.split(path).join(named);
+    stable = stable.replace(UUID, '').replace(SCRATCH, '').replace(/[0-9a-f]{64}/g, '').replace(/\d+/g, '');
+    artifacts.push([name.slice(0, 64), `<sha:${createHash('sha256').update(stable).digest('hex').slice(0, 16)}>`]);
+  }
   const mask = (text) => {
     let out = text.split(sessionId).join('<session>');
     for (const [path, name] of paths) out = out.split(path).join(name);
+    for (const [hash, name] of artifacts) out = out.split(hash).join(name);
     out = out.replace(UUID, idOf).replace(LOG_ID, (_, key, id) => `${key}${idOf(id)}`).replace(SCRATCH, idOf);
     return out.replace(ISO, '<iso>').replace(EPOCH_MS, '<ms>').replace(MEASURED, (whole, prefix, key) => (MEASURED_KEY.test(key) ? `${prefix}<measured>` : whole));
   };
@@ -144,6 +162,6 @@ export function normalizeTree(profile, { sessionId, workspace, aliases = [] }) {
     files,
     mask,
     maskValue,
-    names: { session: '<session>', workspace: '<ws>', profile: '<profile>', ids: '<id:N> (uuids, session log ids, scratch folders, message ids msg_<32 hex>)', iso: '<iso>', epochMs: '<ms>', measured: 'the number of a key ending in Ms, _ms, Pid or _bytes, or named duration, storageSize or requestOutputTokens (the count of the usage readout, which follows when the saves ran), totalBytes or messagesBytes (the trace\'s sizes of messages holding a measured elapsedMs), and a loaded session\'s contextPressureBaseline*Signature hashes (over text holding measured values), as <measured>', postgres: 'pgdata/ and pg.log: named only', programs: 'runtime/ and patch-bin/: named only', summaryIndex: 'session-summaries.json and .log: named only, compared folded', sessionLog: 'sessions/<id>.log.jsonl: named only, compared as the loaded session' },
+    names: { session: '<session>', workspace: '<ws>', profile: '<profile>', ids: '<id:N> (uuids, session log ids, scratch folders, message ids msg_<32 hex>)', iso: '<iso>', epochMs: '<ms>', artifacts: '<sha:N> (a tool-results file name, the sha256 of a text holding times: a hash of the text without digits and 64-hex names)', measured: 'the number of a key ending in Ms, _ms, Pid or _bytes, or named duration, storageSize or requestOutputTokens (the count of the usage readout, which follows when the saves ran), totalBytes or messagesBytes (the trace\'s sizes of messages holding a measured elapsedMs), the compaction record\'s token estimates (last*Tokens, currentEstimatedTokens, pressure, est: over a reminder naming the session id, whose process id varies in length),and a loaded session\'s contextPressureBaseline*Signature hashes (over text holding measured values), as <measured>', postgres: 'pgdata/ and pg.log: named only', programs: 'runtime/ and patch-bin/: named only', summaryIndex: 'session-summaries.json and .log: named only, compared folded', sessionLog: 'sessions/<id>.log.jsonl: named only, compared as the loaded session' },
   };
 }

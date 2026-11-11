@@ -278,24 +278,25 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       bad += 1;
       console.log(`NO-STORE the core wrote no ${store}, Node's recording has its memory store`);
     }
-    // 2. The model input per provider call, against Node's.
+    // The core takes a custom provider under a `custom-<uuid>` id; Node's recording registered it as `sensitive-writes`. The
+    // secret card's audit row names the answering client (this one); Node's recording answered in process, with no client.
+    // The core's data folder is `home/.mixdog/data`, Node's recording's `mixdog_data_dir` (the paths an archive reference names).
+    const aliases = [[CUSTOM, 'sensitive-writes'], ['"device":"sw-replay"', '"device":""'], [p.data, join('<profile>', 'mixdog_data_dir')]];
+    const normalized = normalizeTree(profile, { sessionId: threadId, workspace: ws, aliases });
+    // 2. The model input per provider call, against Node's, after the same normalisation.
     if (requests.length !== golden.sends.length) {
       bad += 1;
       console.log(`DIFF provider calls: the core made ${requests.length}, Node ${golden.sends.length}`);
     }
     for (let i = 0; i < Math.min(requests.length, golden.sends.length); i += 1) {
       const node = JSON.stringify(nodeText(golden.sends[i].messages));
-      const core = JSON.stringify(coreText(requests[i]));
+      const core = JSON.stringify(normalized.maskValue(coreText(requests[i])));
       if (node !== core) {
         bad += 1;
         console.log(`DIFF model input of call ${i}\n   core: ${core}\n   node: ${node}`);
       } else console.log(`SAME model input of call ${i}`);
     }
     // 3. The files both runtimes write in the same format, whole after the same normalisation.
-    // The core takes a custom provider under a `custom-<uuid>` id; Node's recording registered it as `sensitive-writes`. The
-    // secret card's audit row names the answering client (this one); Node's recording answered in process, with no client.
-    const aliases = [[CUSTOM, 'sensitive-writes'], ['"device":"sw-replay"', '"device":""']];
-    const normalized = normalizeTree(profile, { sessionId: threadId, workspace: ws, aliases });
     const coreFiles = Object.keys(normalized.files);
     writeFileSync(join(base, 'files.json'), JSON.stringify(normalized.files, null, 1));
     console.log(`the cores wrote ${coreFiles.length} files:\n  ${coreFiles.join('\n  ')}`);

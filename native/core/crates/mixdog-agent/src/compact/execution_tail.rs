@@ -12,6 +12,7 @@ use mixdog_core_api::domain::provider::Role;
 use mixdog_js::JsRegex;
 use serde_json::Value as JsonValue;
 
+use super::dropped::Redactor;
 use super::estimate::MessageMeter;
 use super::messages::is_compact_conversation_row;
 use super::messages::is_protected_context_ack;
@@ -52,6 +53,8 @@ pub struct TailContext<'a> {
     pub meter: &'a MessageMeter<'a>,
     pub rows: &'a dyn MessageRows,
     pub archive: &'a dyn ArtifactStore,
+    /// The session's sensitive-value redaction: the dump is a file like the session log.
+    pub redactor: &'a dyn Redactor,
     /// Compute archive references without writing (a preview keeps the transcript).
     pub preview: bool,
 }
@@ -156,11 +159,13 @@ fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
 
 /// One message per line (JSONL): line N + 1 holds message index N. A line that
 /// reaches `ARCHIVE_BLOB_MIN_BYTES` is stored once per session as its own
-/// content-addressed file and the dump repeats only a reference to it.
+/// content-addressed file and the dump repeats only a reference to it. The session's sensitive
+/// values are redacted in both (Node `redactSensitiveMessages`).
 async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -> Result<String, String> {
+    let rows = ctx.redactor.redact(transcript.iter().map(|m| ctx.rows.row(m)).collect());
     let mut out = String::new();
-    for message in transcript {
-        let line = format!("{}\n", mixdog_js::json_stringify(&ctx.rows.row(message)));
+    for (message, row) in transcript.iter().zip(&rows) {
+        let line = format!("{}\n", mixdog_js::json_stringify(row));
         if line.len() < ARCHIVE_BLOB_MIN_BYTES {
             out.push_str(&line);
             continue;
@@ -170,7 +175,7 @@ async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -
             .await
             .ok_or("compact: execution history could not be archived; original context preserved")?;
         let mut reference = serde_json::Map::new();
-        reference.insert("path".to_owned(), JsonValue::String(blob.display_path));
+        reference.insert("path".to_owned(), JsonValue::String(blob.path));
         if let Some(id) = message.tool_call_id() {
             reference.insert("toolCallId".to_owned(), JsonValue::String(id.to_owned()));
         }
@@ -201,7 +206,7 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMess
         .iter()
         .flat_map(recovery_archive_paths)
         .filter(|p| seen.insert(p.clone()))
-        .filter(|p| *p != archive.display_path)
+        .filter(|p| *p != archive.path)
         .collect();
     let earlier = &earlier_all[earlier_all.len().saturating_sub(MAX_EARLIER_DUMPS)..];
     let earlier_line = if earlier.is_empty() {
@@ -213,7 +218,7 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMess
         Source::CompactExecutionRecovery,
         format!(
             "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{}\n</system-reminder>",
-            archive.display_path, archive.sha256, earlier_line
+            archive.path, archive.sha256, earlier_line
         ),
     )
 }
@@ -224,7 +229,7 @@ fn shrink_group(ctx: &TailContext<'_>, group: &Group, archive: &Artifact, level:
     let reference = |offset: usize, what: &str, id: &str| {
         format!(
             "[{what} archived without interpretation: {}; message index {} (line {}); toolCallId={id}.",
-            archive.display_path,
+            archive.path,
             group.start + offset,
             group.start + offset + 1
         )
@@ -482,7 +487,7 @@ async fn keep_group(
                 Some(found) => {
                     let origin = format!(
                         "The original is archived at {} (message index {}).",
-                        dump.display_path,
+                        dump.path,
                         group.start + offset
                     );
                     supersede_observation(message, found, &origin)

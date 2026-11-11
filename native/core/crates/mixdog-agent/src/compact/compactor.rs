@@ -103,7 +103,7 @@ impl FreshParts {
 
     fn context<'a>(&'a self, meter: &'a MessageMeter<'a>, preview: bool) -> FreshContext<'a> {
         FreshContext {
-            tail: TailContext { meter, rows: &*self.rows, archive: &*self.archive, preview },
+            tail: TailContext { meter, rows: &*self.rows, archive: &*self.archive, redactor: &*self.redactor, preview },
             attachments: &*self.attachments,
         }
     }
