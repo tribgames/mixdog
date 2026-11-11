@@ -38,6 +38,8 @@ use mixdog_core_config::config::ConfigLanes;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::StoreThreads;
+use mixdog_core_session::session::ThreadStore;
+use mixdog_core_session::session::testing::CallCounted;
 use mixdog_core_session::session::testing::Rig;
 use mixdog_core_session::session::transcript::RecordTranscript;
 use mixdog_store::schema::record::Header;
@@ -110,14 +112,20 @@ fn recorded_page_rows(rows: &Exact) -> Vec<Value> {
 }
 
 async fn paged_directory(extra: &[&str]) -> (tempfile::TempDir, Arc<SessionDirectory>) {
+    let (dir, directory, _) = counted_paged_directory(extra).await;
+    (dir, directory)
+}
+
+/// The paged session over a store whose calls can be held (`CallCounted::hold`).
+async fn counted_paged_directory(extra: &[&str]) -> (tempfile::TempDir, Arc<SessionDirectory>, Arc<CallCounted>) {
     let dir = tempfile::tempdir().expect("dir");
     let rig = Rig::new();
     rig.clock.0.store(1_800_000_000_000, std::sync::atomic::Ordering::SeqCst);
-    let store = real_store(&dir.path().join("data")).await;
+    let store = CallCounted::new(real_store(&dir.path().join("data")).await);
     let seams = run_seams(dir.path()).await;
-    let directory = inheriting_directory(&rig, store, seams).await;
+    let directory = inheriting_directory(&rig, store.clone(), seams).await;
     paged_session(&directory, extra).await;
-    (dir, directory)
+    (dir, directory, store)
 }
 
 /// Case "an older page crosses the daemon hop as the revealed rows only, and the host keeps its held copy": the client holds the newest
@@ -158,40 +166,49 @@ async fn newer_than(directory: &SessionDirectory, held: &[Value]) -> Vec<Value> 
 
 /// Case "a session that changed between reads answers the page in full": the client holds the newest 32 rows; two rows are appended
 /// (the intervening change, between the opening read and the page read); the page read then reveals the 64 rows before the oldest held
-/// row and the appended rows follow the newest held one. Node's host re-read the newest 96 rows (recorded `snapshot.items`); the
-/// client's window is the revealed rows, the held ones and the appended ones, whose newest 96 are the recorded rows. The window is two
-/// rows longer at its old end (manifest `replay.normalised.windowOldEnd`).
+/// row and the appended rows follow the newest held one. Node's host then answered the page in full: the newest 96 rows (recorded
+/// `snapshot.items`). The client that finds rows after its newest held one (the session changed) reads the window in full the same way,
+/// and every row it shows is compared with the recorded ones.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_session_that_changed_between_reads_shows_the_recorded_window_as_node_recorded() {
     let name = "a session that changed between reads answers the page in full";
     let observed = observed("session-host-transcript-page-cases", name);
     let (_dir, directory) = paged_directory(&[]).await;
-    let (held, opened) = page(&directory, 32, None).await;
+    let (held, _) = page(&directory, 32, None).await;
     let appended: Vec<String> = plain(observed.get("appendedRows")).as_array().expect("appended rows").iter().map(|row| row.as_str().expect("row").to_owned()).collect();
     append_page_rows(&directory, &appended.iter().map(String::as_str).collect::<Vec<_>>()).await;
-    let (revealed, answer) = page(&directory, 64, Some(&opened["nextCursor"])).await;
     let newer = newer_than(&directory, &held).await;
-    let window: Vec<Value> = revealed.iter().chain(held.iter()).chain(newer.iter()).cloned().collect();
-    let recorded = recorded_page_rows(observed.get("snapshot").get("items"));
-    let shown = folded(&window);
-    assert_eq!(shown.len(), recorded.len() + 2, "{name}: the window is two rows longer at its old end");
-    assert_rows(&shown[shown.len() - recorded.len()..], &recorded, &format!("{name}: the newest rows of the window"));
-    assert_eq!(answer["hasOlder"], json!(plain(observed.get("snapshot"))["transcriptHasOlder"]), "{name}: older rows remain");
+    assert_eq!(newer.len(), appended.len(), "{name}: the appended rows follow the newest held row");
+    let (window, answer) = page(&directory, 96, None).await;
+    let snapshot = observed.get("snapshot");
+    assert_rows(&folded(&window), &recorded_page_rows(snapshot.get("items")), &format!("{name}: the window"));
+    assert_eq!(answer["hasOlder"], json!(plain(snapshot)["transcriptHasOlder"]), "{name}: older rows remain");
 }
 
-/// Case "held rows that move while the page is in flight fall back to a full read": the page read is answered, the client's held rows
-/// then move (the client drops its oldest held row: the page no longer joins its window) and it reads the window in full (the newest 96
-/// rows, no cursor): the recorded snapshot's rows.
+/// Case "held rows that move while the page is in flight fall back to a full read": the page read is in flight (held before it reaches
+/// the store), the held rows move (the session is cleared and its rows written again, so every row has a new id), and the read then
+/// answers `cursorInvalidated` (the core's own detection that the held rows are gone). The client falls back to the full read (the
+/// newest 96 rows, no cursor): the recorded snapshot's rows.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn held_rows_that_move_during_a_page_read_fall_back_to_a_full_read_as_node_recorded() {
     let name = "held rows that move while the page is in flight fall back to a full read";
     let observed = observed("session-host-transcript-page-cases", name);
-    let (_dir, directory) = paged_directory(&[]).await;
-    let (held, opened) = page(&directory, 32, None).await;
-    let (revealed, _) = page(&directory, 64, Some(&opened["nextCursor"])).await;
-    let moved: Vec<Value> = held[1..].to_vec();
-    let joined = revealed.last().map(|row| row["id"].clone());
-    assert_ne!(joined, moved.first().map(|row| row["id"].clone()), "{name}: the revealed rows no longer join the moved held rows");
+    let (_dir, directory, store) = counted_paged_directory(&[]).await;
+    let (_, opened) = page(&directory, 32, None).await;
+    let mut in_flight = store.hold("history_rows");
+    let reader = {
+        let (directory, cursor) = (directory.clone(), opened["nextCursor"].clone());
+        tokio::spawn(async move { call(&directory, "thread/items/list", json!({ "threadId": "sess_page_host", "limit": 64, "byteBudget": 1_000_000, "cursor": cursor })).await })
+    };
+    in_flight.entered("history_rows").await;
+    let handle = directory.open_handle(&ThreadId::from("sess_page_host"), &CallContext::internal("test")).await.expect("open");
+    let clear = CoreRequest { method: Method("thread/clear"), params: json!({ "threadId": "sess_page_host", "opId": "op-clear" }), op: Some(OpId::from("op-clear")), ctx: CallContext::internal("test") };
+    handle.request(clear).await.expect("the session is cleared");
+    let again: Vec<String> = (0..300).map(|n| format!("c{n}")).collect();
+    append_page_rows(&directory, &again.iter().map(String::as_str).collect::<Vec<_>>()).await;
+    in_flight.release();
+    let answer = reader.await.expect("the page read finished");
+    assert!(matches!(answer, Err(CoreError::CursorInvalidated { .. })), "{name}: the page read answers that the held rows moved: {answer:?}");
     let (window, answer) = page(&directory, 96, None).await;
     let snapshot = observed.get("snapshot");
     assert_rows(&folded(&window), &recorded_page_rows(snapshot.get("items")), &format!("{name}: the window"));
@@ -339,7 +356,7 @@ async fn real_store(data: &std::path::Path) -> Arc<StoreThreads> {
 }
 
 /// A session directory over the real store at `data` with the stored-record transcript and the host's inheritance fit.
-async fn inheriting_directory(rig: &Rig, store: Arc<StoreThreads>, seams: Arc<ConfigRunSeams>) -> Arc<SessionDirectory> {
+async fn inheriting_directory(rig: &Rig, store: Arc<dyn ThreadStore>, seams: Arc<ConfigRunSeams>) -> Arc<SessionDirectory> {
     let threads = Arc::new(HeirThreads::default());
     let mut deps = rig.deps_parts(store);
     deps.transcript = Arc::new(RecordTranscript::new());
