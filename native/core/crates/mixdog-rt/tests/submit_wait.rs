@@ -16,7 +16,6 @@ use std::time::Duration;
 use mixdog_rt::Backend;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::JobHandle;
-use mixdog_rt::LaneFull;
 use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::SubmitWaitError;
@@ -29,7 +28,7 @@ fn rt() -> &'static (Arc<Executors>, LaneTokens) {
     static BOOT: OnceLock<(Arc<Executors>, LaneTokens)> = OnceLock::new();
     BOOT.get_or_init(|| {
         let mut config = RtConfig::for_cores(8);
-        config.cpu_bulk = PoolParams::fixed(2, 2);
+        config.cpu_bulk = PoolParams::fixed(2, 2, 8);
         mixdog_rt::exec::boot(config).expect("boot")
     })
 }
@@ -65,7 +64,7 @@ impl Gate {
     }
 }
 
-/// Fills `cpu_bulk` (2 threads running, 2 queued) with jobs that wait for `gate`.
+/// Fills `cpu_bulk` (2 threads running, 2 queued: its room) with jobs that wait for `gate`.
 fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
     let tokens = rt().1;
     let (started_tx, started_rx) = mpsc::channel();
@@ -83,7 +82,7 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
         );
     }
     for _ in 0..2 {
-        started_rx.recv().unwrap();
+        started_rx.recv_timeout(Duration::from_secs(60)).expect("both cpu-bulk threads are held");
     }
     for _ in 0..2 {
         let gate = gate.clone();
@@ -94,15 +93,8 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
                 .unwrap(),
         );
     }
-    assert_eq!(
-        tokens
-            .cpu_bulk
-            .submit(&CancellationToken::new(), |_| ())
-            .err(),
-        Some(LaneFull {
-            lane: mixdog_rt::LaneKind::CpuBulk
-        })
-    );
+    let lane = rt().0.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::CpuBulk).unwrap();
+    assert_eq!((lane.queue_depth, lane.room), (2, 2), "the queue holds its room");
     handles
 }
 

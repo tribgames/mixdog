@@ -17,6 +17,9 @@ use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use crate::lanes::Answer;
+use crate::lanes::Entered;
+use crate::lanes::JobDropped;
 use crate::lanes::JobHandle;
 use crate::lanes::LaneFull;
 use crate::lanes::LaneKind;
@@ -24,6 +27,8 @@ use crate::lanes::LaneWedged;
 use crate::lanes::QueuedJob;
 use crate::lanes::SubmitWaitError;
 use crate::lanes::ThreadKind;
+use crate::lanes::Ticket;
+use crate::lanes::TicketEnd;
 
 mod sealed {
     pub trait Sealed {}
@@ -87,21 +92,26 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
         Ok(JobHandle::new(rx))
     }
 
-    /// Like [`submit`](Self::submit), but waits for room instead of answering [`LaneFull`].
-    /// For internal producers that can afford to wait (never a request path: those answer
-    /// `overloaded`, RL §0.2).
+    /// Like [`submit`](Self::submit), but the caller waits until its job is admitted: until fewer
+    /// than the lane's room of jobs are ahead of it. For producers that must not run ahead of
+    /// their lane (a loop that would otherwise queue without bound).
     ///
-    /// Cancel-safe: dropping the future before it resolves enqueues nothing and runs
-    /// nothing. Cancelling `cancel` while waiting resolves `Err(Cancelled)`. Once it resolves
-    /// `Ok`, the job is queued exactly as after `submit`. On a pooled lane of the executors the
-    /// waiters take the queue's room in FIFO order (the lane's [`crate::Room`]), so none
-    /// starves; on a backend without a room they retry on a wake-up with no order, and
-    /// `rejected` in the lane snapshot also counts their refused attempts.
+    /// Order is arrival: the job takes its place at the tail of the lane's one FIFO queue when the
+    /// future is first polled, and runs after every job that arrived before it, whatever order
+    /// the waiters are woken or polled in. The far bound counts waiting jobs too: a queue holding
+    /// it answers `Err(Full)` ("overloaded: <lane>") at once.
+    ///
+    /// Cancel-safe: dropping the future before it resolves takes its job out of the queue unrun.
+    /// Cancelling `cancel` while waiting does the same and resolves `Err(Cancelled)`. Once it
+    /// resolves `Ok`, the job is queued exactly as after `submit`. On a backend without an
+    /// ordered queue ([`crate::Backend::enter`]) it retries `submit` on a wake-up instead, with
+    /// no order among waiters.
     ///
     /// Bounded even with a token that is never cancelled: a wedged lane (no healthy worker, F1)
-    /// resolves `Err(Wedged)` at once and wakes parked waiters, and a queued job that no
-    /// worker will ever run resolves its handle `Err(JobDropped)` (it never ran). A job that is
-    /// running when its lane lease lapses is not abandoned: its handle resolves when it ends.
+    /// resolves `Err(Wedged)` and drops its queue, a lane that shuts down resolves
+    /// `Err(ShutDown)`, and a queued job that no worker will ever run resolves its handle
+    /// `Err(JobDropped)` (it never ran). A job that is running when its lane lease lapses is not
+    /// abandoned: its handle resolves when it ends.
     fn submit_wait<'a, R, F>(
         self,
         cancel: &'a CancellationToken,
@@ -113,36 +123,30 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
     {
         async move {
             let backend = crate::backend();
+            let wedged = || SubmitWaitError::Wedged(LaneWedged { lane: Self::KIND });
+            if cancel.is_cancelled() {
+                return Err(SubmitWaitError::Cancelled);
+            }
+            if backend.lane_wedged(Self::KIND) {
+                return Err(wedged());
+            }
+            let submitted = std::time::Instant::now();
             let (tx, rx) = oneshot::channel();
-            // A refused submit drops its `QueuedJob`; the job and its result sender stay in
-            // this slot for the next attempt. The accepted attempt's closure empties it.
-            let slot: JobSlot<R, F> =Arc::new(Mutex::new(Some((job, tx))));
-            if let Some(room) = backend.room(Self::KIND) {
-                if backend.lane_wedged(Self::KIND) {
-                    return Err(SubmitWaitError::Wedged(LaneWedged { lane: Self::KIND }));
+            // A refused attempt drops its `QueuedJob`; the job and its result sender stay in
+            // this slot for the next one. The attempt that runs empties it.
+            let slot: JobSlot<R, F> = Arc::new(Mutex::new(Some((job, tx))));
+            match backend.enter(queued(cancel, &slot, submitted)) {
+                Ok(Entered::Admitted) => return Ok(JobHandle::new(rx)),
+                Ok(Entered::Waiting(ticket)) => {
+                    return admitted(backend, Self::KIND, cancel, ticket).await.map(|()| JobHandle::new(rx));
                 }
-                // FIFO among waiters: tokio's semaphore hands a freed permit to the oldest waiter.
-                let permit = {
-                    let _waiting = Waiting::new(&room.waiters);
-                    match cancel.run_until_cancelled(room.permits.clone().acquire_owned()).await {
-                        None => return Err(SubmitWaitError::Cancelled),
-                        Some(Err(_)) => return Err(SubmitWaitError::Full(LaneFull { lane: Self::KIND })),
-                        Some(Ok(permit)) => permit,
-                    }
-                };
-                if cancel.is_cancelled() {
-                    return Err(SubmitWaitError::Cancelled);
-                }
-                let mut queued = queued(cancel, &slot);
-                queued.hold_room(permit);
-                return match backend.submit(queued) {
-                    Ok(()) => Ok(JobHandle::new(rx)),
-                    Err(_) if backend.lane_wedged(Self::KIND) => Err(SubmitWaitError::Wedged(LaneWedged { lane: Self::KIND })),
-                    Err(full) => Err(SubmitWaitError::Full(full)),
-                };
+                Ok(Entered::Refused(_)) if backend.lane_wedged(Self::KIND) => return Err(wedged()),
+                Ok(Entered::Refused(full)) => return Err(SubmitWaitError::Full(full)),
+                Ok(Entered::ShutDown) => return Err(SubmitWaitError::ShutDown(Self::KIND)),
+                Err(_unordered) => {}
             }
             let Some(freed) = backend.capacity_notify(Self::KIND) else {
-                return match backend.submit(queued(cancel, &slot)) {
+                return match backend.submit(queued(cancel, &slot, submitted)) {
                     Ok(()) => Ok(JobHandle::new(rx)),
                     Err(full) => Err(SubmitWaitError::Full(full)),
                 };
@@ -156,9 +160,9 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
                     return Err(SubmitWaitError::Cancelled);
                 }
                 if backend.lane_wedged(Self::KIND) {
-                    return Err(SubmitWaitError::Wedged(LaneWedged { lane: Self::KIND }));
+                    return Err(wedged());
                 }
-                if backend.submit(queued(cancel, &slot)).is_ok() {
+                if backend.submit(queued(cancel, &slot, submitted)).is_ok() {
                     return Ok(JobHandle::new(rx));
                 }
                 if cancel.run_until_cancelled(notified).await.is_none() {
@@ -169,54 +173,89 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
     }
 }
 
-/// The job and its result sender, kept across refused `submit_wait` attempts.
-type JobSlot<R, F> = Arc<Mutex<Option<(F, oneshot::Sender<R>)>>>;
+/// Waits until `ticket`'s job is admitted. Cancelled, or dropped before that, the job is taken out
+/// of the queue unrun; if the lane admitted it first, it stays queued (and a cancelled token
+/// drops it at dequeue).
+async fn admitted(
+    backend: &'static dyn crate::Backend,
+    lane: LaneKind,
+    cancel: &CancellationToken,
+    ticket: Ticket,
+) -> Result<(), SubmitWaitError> {
+    let mut place = Place { backend, lane, ticket: Some(ticket.clone()) };
+    loop {
+        match ticket.end() {
+            None => {}
+            Some(end) => {
+                place.ticket = None;
+                return match end {
+                    TicketEnd::Admitted => Ok(()),
+                    TicketEnd::Withdrawn => Err(SubmitWaitError::Cancelled),
+                    TicketEnd::Wedged => Err(SubmitWaitError::Wedged(LaneWedged { lane })),
+                    TicketEnd::ShutDown => Err(SubmitWaitError::ShutDown(lane)),
+                };
+            }
+        }
+        if cancel.run_until_cancelled(ticket.changed()).await.is_none() && backend.withdraw(lane, &ticket) {
+            place.ticket = None;
+            return Err(SubmitWaitError::Cancelled);
+        }
+    }
+}
 
-/// The body of a queued job: runs `job` with its lane proof and sends the result.
-fn handing<L, R, F>(tx: oneshot::Sender<R>, job: F) -> Box<dyn FnOnce() + Send>
+/// A waiting job's place in its lane's queue: given up when the wait is dropped.
+struct Place {
+    backend: &'static dyn crate::Backend,
+    lane: LaneKind,
+    ticket: Option<Ticket>,
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        if let Some(ticket) = self.ticket.take() {
+            self.backend.withdraw(self.lane, &ticket);
+        }
+    }
+}
+
+/// The job and its result sender, kept across refused `submit_wait` attempts.
+type JobSlot<R, F> = Arc<Mutex<Option<(F, oneshot::Sender<Result<R, JobDropped>>)>>>;
+
+/// The body of a queued job: runs `job` with its lane proof and sends the result, or answers
+/// that the lane shut down.
+fn handing<L, R, F>(tx: oneshot::Sender<Result<R, JobDropped>>, job: F) -> Box<dyn FnOnce(Answer) + Send>
 where
     L: LaneToken,
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
     R: Send + 'static,
 {
-    Box::new(move || {
-        let proof = InLane::<L>::new();
-        let _ = tx.send(job(&proof));
+    Box::new(move |answer: Answer| match answer {
+        Answer::Run => {
+            let proof = InLane::<L>::new();
+            let _ = tx.send(Ok(job(&proof)));
+        }
+        Answer::ShutDown => {
+            let _ = tx.send(Err(JobDropped::ShutDown));
+        }
     })
 }
 
-/// Counts a task waiting in `submit_wait` while it lives.
-struct Waiting<'a>(&'a std::sync::atomic::AtomicUsize);
-
-impl<'a> Waiting<'a> {
-    fn new(count: &'a std::sync::atomic::AtomicUsize) -> Self {
-        count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Self(count)
-    }
-}
-
-impl Drop for Waiting<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-/// One enqueue attempt of the job in `slot`; running it empties the slot.
-fn queued<L, R, F>(cancel: &CancellationToken, slot: &JobSlot<R, F>) -> QueuedJob
+/// One enqueue attempt of the job in `slot`, submitted at `submitted`; running it empties the
+/// slot.
+fn queued<L, R, F>(cancel: &CancellationToken, slot: &JobSlot<R, F>, submitted: std::time::Instant) -> QueuedJob
 where
     L: LaneToken,
     F: FnOnce(&InLane<L>) -> R + Send + 'static,
     R: Send + 'static,
 {
     let slot = slot.clone();
-    let run = Box::new(move || {
+    let run = Box::new(move |answer: Answer| {
         let taken = slot.lock().unwrap_or_else(|p| p.into_inner()).take();
         if let Some((job, tx)) = taken {
-            let proof = InLane::<L>::new();
-            let _ = tx.send(job(&proof));
+            handing::<L, R, F>(tx, job)(answer);
         }
     });
-    QueuedJob::new(L::KIND, cancel.clone(), run)
+    QueuedJob::new(L::KIND, cancel.clone(), run).submitted_at(submitted)
 }
 
 /// A dedicated-thread executor. Implemented only by the tokens of this module.

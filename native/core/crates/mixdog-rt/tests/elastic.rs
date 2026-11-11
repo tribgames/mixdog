@@ -34,8 +34,8 @@ fn rt() -> &'static (Arc<Executors>, LaneTokens) {
     static BOOT: OnceLock<(Arc<Executors>, LaneTokens)> = OnceLock::new();
     BOOT.get_or_init(|| {
         let mut config = RtConfig::for_cores(8);
-        config.interactive_io = PoolParams { threads: 2, max_threads: 4, queue: 2 };
-        config.cpu_interactive = PoolParams::fixed(2, 2);
+        config.interactive_io = PoolParams { threads: 2, max_threads: 4, room: 2, queue: 6 };
+        config.cpu_interactive = PoolParams::fixed(2, 1, 2);
         mixdog_rt::exec::boot(config).expect("boot")
     })
 }
@@ -52,10 +52,6 @@ fn block_on<F: Future>(fut: F) -> F::Output {
 
 fn snapshot(kind: LaneKind) -> LaneSnapshot {
     rt().0.diagnostics().lanes.into_iter().find(|lane| lane.kind == kind).unwrap()
-}
-
-fn never_runs() {
-    panic!("a cancelled waiter's job never runs");
 }
 
 /// Polls `fut` once.
@@ -101,8 +97,13 @@ impl Held {
     }
 }
 
+/// The lane grows to its cap; past it, two queued jobs fill its room and four `submit_wait`
+/// callers wait behind them, filling the far bound, where both `submit` and `submit_wait` are
+/// refused as overloaded. The head waiter is cancelled: its job leaves the queue unrun. Two
+/// threads then free at once and the second remaining waiter is polled first: admission and
+/// execution still follow arrival.
 #[test]
-fn an_io_lane_grows_to_its_cap_then_queues_serves_waiters_fifo_and_refuses_at_the_far_bound() {
+fn an_io_lane_grows_to_its_cap_then_runs_waiters_in_arrival_order_and_refuses_at_the_far_bound() {
     let _serial = serial();
     let tokens = rt().1;
     let mut held = Held::new();
@@ -114,59 +115,72 @@ fn an_io_lane_grows_to_its_cap_then_queues_serves_waiters_fifo_and_refuses_at_th
     }
     let lane = snapshot(LaneKind::InteractiveIo);
     assert_eq!((lane.threads, lane.grown, lane.max_threads), (4, 2, 4));
-    // At the cap: the next two wait in the queue (its far bound), and the next is refused as overloaded.
+    // At the cap: the next two wait in the queue, filling its room.
     handles.push(held.submit(4));
     handles.push(held.submit(5));
     assert_eq!(snapshot(LaneKind::InteractiveIo).queue_depth, 2);
     assert_eq!(snapshot(LaneKind::InteractiveIo).threads, 4, "no thread past the cap");
-    let refused = tokens.interactive_io.submit(&CancellationToken::new(), |_| ()).err().expect("refused at the far bound");
-    assert_eq!(refused.to_string(), "overloaded: io-interactive");
 
     block_on(async {
-        // Three waiters, in this order, and one that is cancelled while it waits.
-        let cancel = CancellationToken::new();
+        // Four waiters, jobs 6 to 9, in this order.
+        let cancels: Vec<CancellationToken> = (0..4).map(|_| CancellationToken::new()).collect();
         let mut waiters = Vec::new();
-        for n in 6..9 {
-            waiters.push(Box::pin(tokens.interactive_io.submit_wait(&cancel, held.job(n))));
+        for (i, cancel) in cancels.iter().enumerate() {
+            waiters.push(Box::pin(tokens.interactive_io.submit_wait(cancel, held.job(i + 6))));
         }
         for waiter in &mut waiters {
             assert!(poll_once(waiter).await.is_pending());
         }
-        let dropped = CancellationToken::new();
-        let mut cancelled = Box::pin(tokens.interactive_io.submit_wait(&dropped, |_| never_runs()));
-        assert!(poll_once(&mut cancelled).await.is_pending());
-        assert_eq!(snapshot(LaneKind::InteractiveIo).waiters, 4);
-        dropped.cancel();
-        assert!(matches!(poll_once(&mut cancelled).await, Poll::Ready(Err(SubmitWaitError::Cancelled))));
-        assert_eq!(snapshot(LaneKind::InteractiveIo).waiters, 3);
-        assert_eq!(snapshot(LaneKind::InteractiveIo).queue_depth, 2, "the cancelled waiter queued nothing");
+        let lane = snapshot(LaneKind::InteractiveIo);
+        assert_eq!((lane.queue_depth, lane.waiters), (6, 4));
+        // The far bound counts the waiters: both kinds of submission are refused as overloaded.
+        let refused = tokens.interactive_io.submit(&CancellationToken::new(), |_| ()).err().expect("refused at the far bound");
+        assert_eq!(refused.to_string(), "overloaded: io-interactive");
+        let mut late = Box::pin(tokens.interactive_io.submit_wait(&cancels[0], |_| ()));
+        match poll_once(&mut late).await {
+            Poll::Ready(Err(SubmitWaitError::Full(full))) => assert_eq!(full.to_string(), "overloaded: io-interactive"),
+            _ => panic!("a waiter past the far bound is refused at once"),
+        }
 
-        // One thread frees: queued job 4 starts, its room goes to the oldest waiter only.
-        for (released, first, rest) in [(0, 0, 1..3), (1, 1, 2..3), (2, 2, 3..3)] {
-            held.release(released);
-            assert_eq!(held.started(), released + 4);
-            match poll_once(&mut waiters[first]).await {
+        // The head waiter is cancelled: its job leaves the queue and never runs.
+        cancels[0].cancel();
+        assert!(matches!(poll_once(&mut waiters[0]).await, Poll::Ready(Err(SubmitWaitError::Cancelled))));
+        let lane = snapshot(LaneKind::InteractiveIo);
+        assert_eq!((lane.queue_depth, lane.waiters), (5, 3));
+
+        // Two threads free at once: jobs 4 and 5 start, and jobs 7 and 8 come within the room.
+        held.release(0);
+        held.release(1);
+        let mut first = [held.started(), held.started()];
+        first.sort_unstable();
+        assert_eq!(first, [4, 5]);
+        // The later waiter is polled first; it is admitted, but its place stays behind job 7.
+        for i in [2, 1] {
+            match poll_once(&mut waiters[i]).await {
                 Poll::Ready(Ok(handle)) => handles.push(handle),
-                _ => panic!("waiter {first} is served when room frees"),
-            }
-            for later in rest {
-                assert!(poll_once(&mut waiters[later]).await.is_pending(), "waiter {later} still waits");
+                _ => panic!("waiter {i} is admitted"),
             }
         }
+        assert!(poll_once(&mut waiters[3]).await.is_pending(), "job 9 still waits");
+        held.release(2);
+        assert_eq!(held.started(), 7, "arrival order, not the order the waiters were polled");
+        match poll_once(&mut waiters[3]).await {
+            Poll::Ready(Ok(handle)) => handles.push(handle),
+            _ => panic!("job 9 is admitted once job 7 left the queue"),
+        }
+        held.release(3);
+        assert_eq!(held.started(), 8);
+        held.release(4);
+        assert_eq!(held.started(), 9);
     });
-    // The rest run in the order they were queued.
-    for (release, starts) in [(3, 7), (4, 8), (5, 6)] {
-        held.release(release);
-        if starts != 6 {
-            assert_eq!(held.started(), starts);
-        }
-    }
-    for n in 6..9 {
+    // Job 6 was withdrawn: its body, and the receiver of its release, are gone.
+    for n in [5, 7, 8, 9] {
         held.release(n);
     }
     for handle in handles {
         assert_eq!(block_on(handle), Ok(()));
     }
+    assert!(held.started.try_recv().is_err(), "the withdrawn job 6 never ran");
 }
 
 #[test]

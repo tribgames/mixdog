@@ -32,7 +32,7 @@ fn rt() -> &'static (Arc<Executors>, LaneTokens) {
     static BOOT: OnceLock<(Arc<Executors>, LaneTokens)> = OnceLock::new();
     BOOT.get_or_init(|| {
         let mut config = RtConfig::for_cores(8);
-        let small = PoolParams::fixed(2, 2);
+        let small = PoolParams::fixed(2, 2, 2);
         config.durability_io = small;
         config.maintenance_io = small;
         config.spawn_io = small;
@@ -97,7 +97,7 @@ fn hold_lane<T: LaneToken>(
         })
         .collect();
     for _ in 0..n {
-        started_rx.recv().expect("holding job started");
+        started_rx.recv_timeout(Duration::from_secs(60)).expect("holding job started");
     }
     handles
 }
@@ -145,7 +145,7 @@ fn cancelled_job_is_dropped_at_dequeue() {
     token.cancel();
     gate.open();
 
-    assert_eq!(block_on(queued), Err(JobDropped));
+    assert_eq!(block_on(queued), Err(JobDropped::Dropped));
     assert!(!ran.load(SeqCst), "a cancelled job must not run");
     for h in holders {
         block_on(h).unwrap();
@@ -216,7 +216,7 @@ fn a_panicking_job_resolves_dropped_and_the_lane_keeps_serving() {
             .ok()
             .unwrap(),
     );
-    assert_eq!(failed, Err(JobDropped));
+    assert_eq!(failed, Err(JobDropped::Dropped));
     let after = block_on(
         tokens
             .cpu_bulk
@@ -234,18 +234,16 @@ fn pty_lane_gives_each_job_a_thread_up_to_the_cap() {
     let gate = Gate::new();
     let holders = hold_lane(tokens.pty_io, 2, &gate);
     assert_eq!(lane_snapshot(LaneKind::PtyIo).threads, 2);
-    let refused = tokens.pty_io.submit(&CancellationToken::new(), |_| ());
-    assert_eq!(
-        refused.err(),
-        Some(LaneFull {
-            lane: LaneKind::PtyIo
-        })
-    );
+    // Past the cap the job waits in the lane's queue for a thread, not refused.
+    let queued = tokens.pty_io.submit(&CancellationToken::new(), |_| 3).expect("queued behind the cap");
+    let lane = lane_snapshot(LaneKind::PtyIo);
+    assert_eq!((lane.threads, lane.queue_depth), (2, 1));
 
     gate.open();
     for h in holders {
         block_on(h).unwrap();
     }
+    assert_eq!(block_on(queued), Ok(3), "a freed thread takes the queued job");
     // The handle resolves inside the job; the slot is released when its thread ends.
     while lane_snapshot(LaneKind::PtyIo).threads != 0 {
         std::thread::yield_now();

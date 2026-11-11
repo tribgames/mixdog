@@ -76,30 +76,80 @@ impl std::fmt::Display for LaneFull {
     }
 }
 
-/// The room of a pooled lane's queue: one permit per job it may hold waiting (its far bound),
-/// taken by each queued job until a thread takes the job. [`crate::LaneToken::submit_wait`] waits
-/// for a permit in FIFO order (tokio's semaphore is fair), so no waiter starves.
-#[derive(Clone)]
-pub struct Room {
-    pub(crate) permits: std::sync::Arc<tokio::sync::Semaphore>,
-    /// Tasks waiting in `submit_wait` for a permit.
-    pub(crate) waiters: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+impl std::error::Error for LaneFull {}
+
+/// How a [`crate::LaneToken::submit_wait`] job entered its lane's queue ([`crate::Backend::enter`]).
+pub enum Entered {
+    /// Queued and admitted: fewer than the lane's room of jobs are ahead of it.
+    Admitted,
+    /// Queued in arrival order, not yet admitted: the caller waits on the ticket. Its place is
+    /// kept; it runs only after every job that arrived before it.
+    Waiting(Ticket),
+    /// The queue holds its far bound (waiting jobs counted), or the lane has no healthy worker.
+    Refused(LaneFull),
+    /// The lane shut down; the job was answered [`JobDropped::ShutDown`].
+    ShutDown,
 }
 
-impl Room {
-    pub(crate) fn new(bound: usize) -> Self {
-        Self {
-            permits: std::sync::Arc::new(tokio::sync::Semaphore::new(bound)),
-            waiters: std::sync::Arc::default(),
+/// What ended a ticket's wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TicketEnd {
+    /// The job came within the lane's room of the head (or a thread took it).
+    Admitted,
+    /// The job was taken out of the queue unrun: its caller withdrew it, or it was cancelled
+    /// while the queue held its far bound.
+    Withdrawn,
+    /// The lane lost its last healthy worker; the queued job was dropped unrun.
+    Wedged,
+    /// The lane shut down; the queued job was dropped unrun.
+    ShutDown,
+}
+
+const TICKET_WAITING: u8 = 0;
+
+/// A waiting job's place in its lane's queue ([`Entered::Waiting`]). The lane settles it under
+/// its queue's lock, at the moment the job stops waiting.
+#[derive(Clone)]
+pub struct Ticket(std::sync::Arc<TicketState>);
+
+struct TicketState {
+    end: std::sync::atomic::AtomicU8,
+    /// `notify_one`: a settle before the waiter awaits is kept as a permit, never lost.
+    changed: tokio::sync::Notify,
+}
+
+impl Ticket {
+    pub(crate) fn new() -> Self {
+        Self(std::sync::Arc::new(TicketState {
+            end: std::sync::atomic::AtomicU8::new(TICKET_WAITING),
+            changed: tokio::sync::Notify::new(),
+        }))
+    }
+
+    pub(crate) fn settle(&self, end: TicketEnd) {
+        self.0.end.store(end as u8 + 1, std::sync::atomic::Ordering::Release);
+        self.0.changed.notify_one();
+    }
+
+    /// `None` while the job waits.
+    pub(crate) fn end(&self) -> Option<TicketEnd> {
+        match self.0.end.load(std::sync::atomic::Ordering::Acquire) {
+            TICKET_WAITING => None,
+            1 => Some(TicketEnd::Admitted),
+            2 => Some(TicketEnd::Withdrawn),
+            3 => Some(TicketEnd::Wedged),
+            _ => Some(TicketEnd::ShutDown),
         }
     }
 
-    pub(crate) fn waiters(&self) -> usize {
-        self.waiters.load(std::sync::atomic::Ordering::Relaxed)
+    pub(crate) async fn changed(&self) {
+        self.0.changed.notified().await;
+    }
+
+    pub(crate) fn same(&self, other: &Ticket) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
     }
 }
-
-impl std::error::Error for LaneFull {}
 
 /// Every worker of the lane is stuck in a job that outlived its lease (F1): the lane accepts no
 /// work until a stuck job returns.
@@ -125,6 +175,8 @@ pub enum SubmitWaitError {
     Full(LaneFull),
     /// The lane has no healthy worker left, so waiting for room would never end.
     Wedged(LaneWedged),
+    /// The lane shut down while the job waited; it never ran.
+    ShutDown(LaneKind),
 }
 
 impl std::fmt::Display for SubmitWaitError {
@@ -133,6 +185,7 @@ impl std::fmt::Display for SubmitWaitError {
             SubmitWaitError::Cancelled => f.write_str("cancelled while waiting for lane capacity"),
             SubmitWaitError::Full(full) => full.fmt(f),
             SubmitWaitError::Wedged(wedged) => wedged.fmt(f),
+            SubmitWaitError::ShutDown(lane) => write!(f, "lane {} shut down", lane.name()),
         }
     }
 }
@@ -172,13 +225,20 @@ pub fn tool_label(name: &str) -> &'static str {
 /// A job waiting in a lane queue. Created only by [`crate::LaneToken::submit`].
 pub struct QueuedJob {
     lane: LaneKind,
+    /// When the job was submitted: its queue wait counts from here, a `submit_wait` caller's wait
+    /// for admission included.
     enqueued_at: Instant,
     /// The tool whose call submitted the job, if a tool call did.
     tool: Option<&'static str>,
-    /// The job's place in its lane's [`Room`] while it waits for a thread.
-    room: Option<tokio::sync::OwnedSemaphorePermit>,
     cancel: CancellationToken,
-    run: Box<dyn FnOnce() + Send>,
+    run: Box<dyn FnOnce(Answer) + Send>,
+}
+
+/// What a job's body is called for: to run, or to answer that its lane shut down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Answer {
+    Run,
+    ShutDown,
 }
 
 /// What [`QueuedJob::run`] did.
@@ -193,36 +253,27 @@ impl QueuedJob {
     pub(crate) fn new(
         lane: LaneKind,
         cancel: CancellationToken,
-        run: Box<dyn FnOnce() + Send>,
+        run: Box<dyn FnOnce(Answer) + Send>,
     ) -> Self {
         Self {
             lane,
             enqueued_at: Instant::now(),
             tool: TOOL_CALL.try_with(|tool| *tool).ok(),
-            room: None,
             cancel,
             run,
         }
     }
 
+    /// The same job, submitted at `at` (a `submit_wait` retry keeps its first attempt's time).
+    pub(crate) fn submitted_at(mut self, at: Instant) -> Self {
+        self.enqueued_at = at;
+        self
+    }
+
     /// A job of `tool` enqueued at `enqueued_at`.
     #[cfg(test)]
-    pub(crate) fn queued_at(lane: LaneKind, tool: Option<&'static str>, enqueued_at: Instant, run: Box<dyn FnOnce() + Send>) -> Self {
-        Self { lane, enqueued_at, tool, room: None, cancel: CancellationToken::new(), run }
-    }
-
-    /// The job holds `permit` of its lane's room until a thread takes it.
-    pub(crate) fn hold_room(&mut self, permit: tokio::sync::OwnedSemaphorePermit) {
-        self.room = Some(permit);
-    }
-
-    pub(crate) fn holds_room(&self) -> bool {
-        self.room.is_some()
-    }
-
-    /// A thread took the job: its place in the room is free for the next.
-    pub(crate) fn release_room(&mut self) {
-        self.room = None;
+    pub(crate) fn queued_at(lane: LaneKind, tool: Option<&'static str>, enqueued_at: Instant, run: Box<dyn FnOnce(Answer) + Send>) -> Self {
+        Self { lane, enqueued_at, tool, cancel: CancellationToken::new(), run }
     }
 
     pub fn lane(&self) -> LaneKind {
@@ -245,8 +296,8 @@ impl QueuedJob {
 
     /// The same job with its body wrapped by `wrap` (the replay's clock counts it while it is queued or running).
     #[cfg(feature = "virtual-clock")]
-    pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send>) -> Self {
-        Self { lane: self.lane, enqueued_at: self.enqueued_at, tool: self.tool, room: self.room, cancel: self.cancel, run: wrap(self.run) }
+    pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce(Answer) + Send>) -> Box<dyn FnOnce(Answer) + Send>) -> Self {
+        Self { lane: self.lane, enqueued_at: self.enqueued_at, tool: self.tool, cancel: self.cancel, run: wrap(self.run) }
     }
 
     /// Runs the job on the calling lane thread, or drops it if it was cancelled while queued.
@@ -254,19 +305,32 @@ impl QueuedJob {
         if self.cancel.is_cancelled() {
             return JobRun::DroppedCancelled;
         }
-        (self.run)();
+        (self.run)(Answer::Run);
         JobRun::Completed
+    }
+
+    /// The lane shut down with the job queued: its handle resolves [`JobDropped::ShutDown`].
+    pub(crate) fn shut_down(self) {
+        (self.run)(Answer::ShutDown);
     }
 }
 
-/// The job was dropped before producing a result: cancelled at dequeue, discarded unrun by a
-/// wedged lane, or it panicked. Except for a panic, the job never ran.
+/// The job was dropped before producing a result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct JobDropped;
+pub enum JobDropped {
+    /// Cancelled at dequeue, discarded unrun by a wedged lane, its thread could not take the
+    /// lane's priority, or it panicked. Except for a panic, the job never ran.
+    Dropped,
+    /// The lane shut down while the job was queued; it never ran.
+    ShutDown,
+}
 
 impl std::fmt::Display for JobDropped {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("lane job dropped before completion")
+        match self {
+            JobDropped::Dropped => f.write_str("lane job dropped before completion"),
+            JobDropped::ShutDown => f.write_str("lane shut down before the job ran"),
+        }
     }
 }
 
@@ -277,11 +341,11 @@ impl std::error::Error for JobDropped {}
 /// however late: a lane lease never abandons a running job, because its effect (a committed
 /// write) may still happen and the caller must not be told it did not.
 pub struct JobHandle<R> {
-    rx: oneshot::Receiver<R>,
+    rx: oneshot::Receiver<Result<R, JobDropped>>,
 }
 
 impl<R> JobHandle<R> {
-    pub(crate) fn new(rx: oneshot::Receiver<R>) -> Self {
+    pub(crate) fn new(rx: oneshot::Receiver<Result<R, JobDropped>>) -> Self {
         Self { rx }
     }
 }
@@ -292,7 +356,7 @@ impl<R> Future for JobHandle<R> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.rx)
             .poll(cx)
-            .map(|r| r.map_err(|_| JobDropped))
+            .map(|r| r.unwrap_or(Err(JobDropped::Dropped)))
     }
 }
 
@@ -301,7 +365,7 @@ mod tests {
     use super::*;
 
     fn queued() -> QueuedJob {
-        QueuedJob::new(LaneKind::SpawnIo, CancellationToken::new(), Box::new(|| {}))
+        QueuedJob::new(LaneKind::SpawnIo, CancellationToken::new(), Box::new(|_: Answer| {}))
     }
 
     #[tokio::test]

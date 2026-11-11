@@ -69,8 +69,9 @@ pub use lanes::LaneFull;
 pub use lanes::LaneKind;
 pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
-pub use lanes::Room;
+pub use lanes::Entered;
 pub use lanes::SubmitWaitError;
+pub use lanes::Ticket;
 pub use lanes::ThreadKind;
 pub use liveness::Expired;
 pub use liveness::Liveness;
@@ -130,11 +131,17 @@ pub trait Backend: Send + Sync + 'static {
     fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
         self.submit(job)
     }
-    /// The room of `lane`'s queue, which [`LaneToken::submit_wait`] waits on in FIFO order.
-    /// `None` (the default): the backend has none, and `submit_wait` waits on
-    /// [`Backend::capacity_notify`].
-    fn room(&self, _lane: LaneKind) -> Option<lanes::Room> {
-        None
+    /// Enqueues a [`LaneToken::submit_wait`] job in arrival order: it is admitted at once, or
+    /// waits on its [`lanes::Ticket`] with its place in the queue kept, or is refused at the far
+    /// bound. `Err(job)` (the default): the backend has no ordered queue, and `submit_wait` retries
+    /// [`Backend::submit`] on [`Backend::capacity_notify`].
+    fn enter(&self, job: QueuedJob) -> Result<lanes::Entered, QueuedJob> {
+        Err(job)
+    }
+    /// Takes the job of a waiting `ticket` out of `lane`'s queue unrun; `false` when the ticket no
+    /// longer waits (it was admitted or answered first).
+    fn withdraw(&self, _lane: LaneKind, _ticket: &lanes::Ticket) -> bool {
+        false
     }
     /// Called first on every thread started through a [`ThreadToken`]: sets the OS priority
     /// of `kind` and registers the thread with the instrumentation.
