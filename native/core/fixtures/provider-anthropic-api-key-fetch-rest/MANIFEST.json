@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 123043,
+      "bytes": 223219,
       "path": "cases.json",
-      "sha256": "5ebedcce446b79945b81103680d2e73e42470a5e3123e32f7b26da9790217298"
+      "sha256": "bdda49d0ba95919d6cea4dfa4596ef661a3f0f1c92c6f398fed103709de146ad"
     }
   ],
   "inputs": [
@@ -67,12 +67,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-api-key-fetch-rest.mjs",
-  "recorderSha256": "57b6db618633ff7d78ff5b20fbf808fe56460824ed12411f07979cb0124709bc",
+  "recorderSha256": "643431ac18a2c28d749dd522335ef41f8706b47ba5f6deb05eeb4f140f51857a",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) with AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the custom and gateway clients are built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). Not callable in Rust (work for the Rust side): a request that arrives as a Headers instance (:38) and an injected compressor (:130, :156): Rust has one compressor on a CPU lane (searched mixdog-ai/src/providers/anthropic and transport).",
   "replayExclusions": {
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
   },
   "set": "provider-anthropic-api-key-fetch-rest",
-  "totalBytes": 123043,
+  "totalBytes": 223219,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

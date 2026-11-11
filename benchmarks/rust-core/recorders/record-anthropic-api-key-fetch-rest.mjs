@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // anthropic-api-key-fetch.test.mjs, the cases the gzip golden of branch tests-session-providers (native/core/fixtures/anthropic-request-gzip) excludes: :38 a
 // Headers-instance request, :48 the count_tokens / kill-switch requests, :74 the provider wiring of the official, custom-baseURL, gateway and custom-name
-// clients, :130 a compressor that throws, :156 compression awaited off the main thread. The product's own `createAnthropicApiKeyFetch` and the provider
+// clients, :130 a compressor that throws, :156 compression awaited off the main thread, :102 (400/415 on a gzipped request: one plain resend, the latch
+// disables compression only after the resend succeeds) and :118 (the plain resend also fails: no latch). The product's own `createAnthropicApiKeyFetch` and the provider
 // clients' `client.fetch` send through the global fetch to the scripted loopback endpoint: every request is recorded as it arrived (origin the product
 // addressed, path, header pairs in arrival order, body bytes - the gzip bytes where the product compressed).
 //   node benchmarks/rust-core/recorders/record-anthropic-api-key-fetch-rest.mjs --tree <exact export of b6f10295a>
@@ -73,4 +74,28 @@ await rec.run('async-compress-is-awaited-request-waits-for-it', `${SRC}:156`, { 
   const response = (await statuses([await pending]))[0];
   return { requestsBeforeRelease, response };
 }));
+const answered = (statuses) => (net) => { net.reply = (_record, n) => ({ status: statuses[n - 1] ?? 200, contentType: 'application/json', body: '{}' }); };
+for (const status of [400, 415]) {
+  await rec.run(`${status}-on-gzipped-request-one-plain-resend-latch-after-success`, `${SRC}:102`, { answers: [status, 200, 200], sends: ['big body', 'big body again (after the latch)'] }, async ({ net }) => {
+    anthropicGzipLatch.reset();
+    delete process.env.MIXDOG_ANTHROPIC_REQ_GZIP;
+    answered([status, 200, 200])(net);
+    const fetchFn = createAnthropicApiKeyFetch({});
+    const first = await fetchFn(OFFICIAL, post(big()));
+    const afterFirst = net.records.length;
+    const second = await fetchFn(OFFICIAL, post(big()));
+    return { responses: await statuses([first, second]), requestsAfterFirstSend: afterFirst, latchDisabled: anthropicGzipLatch.disabled() };
+  });
+}
+await rec.run('no-latch-when-the-plain-resend-also-fails', `${SRC}:118`, { answers: [400, 401, 200], sends: ['big body', 'big body again'] }, async ({ net }) => {
+  anthropicGzipLatch.reset();
+  delete process.env.MIXDOG_ANTHROPIC_REQ_GZIP;
+  answered([400, 401, 200])(net);
+  const fetchFn = createAnthropicApiKeyFetch({});
+  const first = await fetchFn(OFFICIAL, post(big()));
+  const afterFirst = net.records.length;
+  const latchAfterFirst = anthropicGzipLatch.disabled();
+  const second = await fetchFn(OFFICIAL, post(big()));
+  return { responses: await statuses([first, second]), requestsAfterFirstSend: afterFirst, latchDisabledAfterFirst: latchAfterFirst, latchDisabledAfterSecond: anthropicGzipLatch.disabled() };
+});
 await rec.finish();
