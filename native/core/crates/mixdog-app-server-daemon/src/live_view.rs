@@ -927,7 +927,7 @@ mod tests {
 
     use super::*;
 
-    const HOST: &str = include_str!("../../../fixtures/live-view-host/host.json");
+    const HOST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view-host/host.json");
 
     /// A phone's stream options in the host scenarios (Node's host recording starts from a streamed page, whatever its size).
     fn stream_options() -> Value {
@@ -1204,7 +1204,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn the_service_serves_nodes_recorded_host_scenarios_end_to_end() {
         mixdog_rt::testing::tokens();
-        let recorded: Value = serde_json::from_str(HOST).unwrap();
+        let recorded: Value = serde_json::from_str(&HOST).unwrap();
         let scenarios = recorded["scenarios"].as_array().unwrap();
         let dir = tempfile::tempdir().unwrap();
         for name in REPLAYED {

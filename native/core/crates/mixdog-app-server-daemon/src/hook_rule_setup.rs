@@ -354,7 +354,7 @@ mod tests {
     /// system's (`osText`) is compared by shape.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_hook_rule_actions_answer_as_node_does() {
-        let golden: Value = serde_json::from_str(include_str!("../tests/golden/hook_rules.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/hook_rules.json")).unwrap();
         let tokens = mixdog_rt::testing::tokens();
         for case in golden["cases"].as_array().unwrap() {
             let dir = recorded_length_dir();

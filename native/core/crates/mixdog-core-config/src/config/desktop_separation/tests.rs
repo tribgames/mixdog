@@ -18,7 +18,7 @@ const DESKTOP_MS: i64 = NOW_MS + 60_000;
 const LATER_MS: i64 = NOW_MS + 120_000;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/desktop-separation/twin.json")).expect("twin.json")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-separation/twin.json")).expect("twin.json")
 }
 
 /// The file at `path` as text; `None` when there is none.

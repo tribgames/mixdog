@@ -41,7 +41,7 @@ fn masked(base: &str, value: &Value) -> Value {
 async fn every_registry_edit_answers_and_leaves_what_node_does() {
     let scratch = tempfile::tempdir().unwrap();
     let base = scratch.path().to_string_lossy().into_owned();
-    let golden: Value = serde_json::from_str(&support::relocate(include_str!("../golden/plugins.json"), &base)).unwrap();
+    let golden: Value = serde_json::from_str(&support::relocate(mixdog_testkit::fixture!("tests/golden/plugins.json"), &base)).unwrap();
     for (name, files) in golden["fixtures"].as_object().unwrap() {
         let root = std::path::Path::new(&base).join("src").join(name);
         std::fs::create_dir_all(&root).unwrap();

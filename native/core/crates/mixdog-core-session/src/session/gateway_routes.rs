@@ -389,7 +389,7 @@ mod tests {
     /// step are the recorded bytes. A step's calls run in one tick, so they land in one update.
     #[tokio::test]
     async fn the_route_store_bytes_equal_nodes() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/statusline-route/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/statusline-route/golden.json")).unwrap();
         let cases = golden["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 8);
         for case in cases {

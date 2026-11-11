@@ -17,7 +17,7 @@ use crate::domains::ai_account::collaborators::ProviderSetup;
 use crate::domains::ai_account::failure::Failure;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/provider-status/provider-status-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/provider-status/provider-status-twin.json")).unwrap()
 }
 
 struct Replay {

@@ -16,7 +16,7 @@ use serde_json::json;
 
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/agent-dispatch/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-dispatch/golden.json");
 
 #[path = "inline_node_cases.rs"]
 mod inline_node_cases;
@@ -338,7 +338,7 @@ fn listed_tools(stderr: &Value) -> Vec<String> {
 #[tokio::test(start_paused = true)]
 async fn every_recorded_dispatch_converses_with_its_collaborators_as_nodes_did() {
     mixdog_rt::testing::tokens();
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["dispatches"].as_array().unwrap() {
         let id = case["id"].as_str().unwrap();
         let input = &case["input"];
@@ -459,7 +459,7 @@ async fn go(host: &InlineAgentDispatch, input: &Value) -> Value {
 #[tokio::test]
 async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     mixdog_rt::testing::tokens();
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let case = |id: &str| golden["host"].as_array().unwrap().iter().find(|case| case["id"] == id).unwrap().clone();
     let world = Arc::new(HostFake { closed: false, calls: Mutex::default() });
     let watch = Arc::new(Watch::default());
