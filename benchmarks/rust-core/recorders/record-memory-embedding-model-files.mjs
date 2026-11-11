@@ -1,0 +1,116 @@
+#!/usr/bin/env node
+// Node's embedding model file cache (src/runtime/memory/lib/embedding-model-files.test.mjs, 2 cases) from the real
+// `ensureModelGraph` and `ensureModelFile` over a real cache directory. The Hugging Face Hub is a scripted `fetch`
+// (the service boundary) that records every request (URL, init) in order and answers a scripted status and body.
+// Per step: the returned path (relative to the cache), the requests, and every file left in the cache (path, bytes hex).
+//
+//   node benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs --tree <dir>
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, sep } from 'node:path';
+import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+
+const ctx = begin();
+const { ensureModelFile, ensureModelGraph } = await importFrom(ctx.tree, 'src/runtime/memory/lib/embedding-model-files.mjs');
+const realFetch = globalThis.fetch;
+
+function files(dir) {
+  const out = [];
+  const walk = (d) => {
+    for (const name of readdirSync(d).sort()) {
+      const full = join(d, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else out.push({ path: relative(dir, full).split(sep).join('/').replace(`.${process.pid}.part`, '.<pid>.part'), bytesHex: readFileSync(full).toString('hex') });
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+// `hub`: url tail -> { status, body } ; unknown -> 404.
+async function session(setup, steps, hub) {
+  const cacheDir = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-embedding-')));
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    const tail = String(url).replace('https://huggingface.co/', '');
+    requests.push({ url: String(url), init });
+    const answer = hub[tail] ?? { status: 404, body: 'not found' };
+    return new Response(answer.body, { status: answer.status });
+  };
+  const out = { setup: setup.map(({ path, bytesHex }) => ({ path, bytesHex })), steps: [] };
+  try {
+    for (const { path, bytesHex } of setup) {
+      mkdirSync(dirname(join(cacheDir, path)), { recursive: true });
+      writeFileSync(join(cacheDir, path), Buffer.from(bytesHex, 'hex'));
+    }
+    for (const step of steps) {
+      if (step.write) {
+        mkdirSync(dirname(join(cacheDir, step.write.path)), { recursive: true });
+        writeFileSync(join(cacheDir, step.write.path), Buffer.from(step.write.bytesHex, 'hex'));
+      }
+      const before = requests.length;
+      const answer = await capture(async () => relative(cacheDir, await (step.call === 'graph' ? ensureModelGraph : ensureModelFile)(cacheDir, step.model, step.file)).split(sep).join('/'));
+      out.steps.push({ ...step, ...answer, requests: requests.slice(before), cacheAfter: files(cacheDir) });
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+  return out;
+}
+const hex = (text) => Buffer.from(text).toString('hex');
+const nul = (n) => Buffer.alloc(n).toString('hex');
+const GRAPH = 'org/model/onnx/model.onnx';
+
+const graphCase = await session(
+  [{ path: GRAPH, bytesHex: hex('graph') }],
+  [
+    { call: 'graph', model: 'org/model', file: 'onnx/model.onnx', write: { path: `${GRAPH}_data`, bytesHex: '' } },
+    { call: 'graph', model: 'org/model', file: 'onnx/model.onnx', write: { path: `${GRAPH}_data`, bytesHex: nul(64) } },
+    { call: 'graph', model: 'org/model', file: 'onnx/model.onnx' },
+  ],
+  { 'org/model/resolve/main/onnx/model.onnx_data': { status: 200, body: 'weights' } },
+);
+const fileCase = await session(
+  [],
+  [
+    { call: 'file', model: 'org/model', file: 'tokenizer_config.json', write: { path: 'org/model/tokenizer_config.json', bytesHex: '' } },
+    { call: 'file', model: 'org/model', file: 'tokenizer_config.json', write: { path: 'org/model/tokenizer_config.json', bytesHex: nul(48) } },
+    { call: 'file', model: 'org/model', file: 'tokenizer_config.json', write: { path: 'org/model/tokenizer_config.json', bytesHex: hex('{"model_max') } },
+    { call: 'file', model: 'org/model', file: 'tokenizer_config.json' },
+  ],
+  { 'org/model/resolve/main/tokenizer_config.json': { status: 200, body: '{"model_max_length":256}' } },
+);
+const further = [
+  await session([], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], {
+    'org/model/resolve/main/onnx/model.onnx_data': { status: 200, body: 'weights' }, 'org/model/resolve/main/onnx/model.onnx': { status: 200, body: 'graph' } }),
+  await session([], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], { 'org/model/resolve/main/onnx/model.onnx': { status: 200, body: 'graph' } }),
+  await session([], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], {}),
+  await session([], [{ call: 'file', model: 'org/model', file: 'config.json' }], { 'org/model/resolve/main/config.json': { status: 503, body: 'busy' } }),
+  await session([{ path: 'org/model/config.json', bytesHex: hex('not json') }, { path: 'org/model/vocab.txt', bytesHex: hex('exact text') }],
+    [{ call: 'file', model: 'org/model', file: 'config.json' }, { call: 'file', model: 'org/model', file: 'vocab.txt' }],
+    { 'org/model/resolve/main/config.json': { status: 200, body: '{}' } }),
+  await session([{ path: GRAPH, bytesHex: hex('graph') }], [{ call: 'graph', model: 'org/model', file: 'onnx/model.onnx' }], {}),
+];
+
+finish(ctx, {
+  url: import.meta.url,
+  set: 'memory-embedding-model-files',
+  golden: {
+    domain: 'memory-embedding-model-files',
+    source: 'src/runtime/memory/lib/embedding-model-files.test.mjs',
+    cases: [
+      { name: 'an intact cached graph with empty or NUL external weights fetches only the weights', session: graphCase },
+      { name: 'empty, NUL-filled or unparsable cached model files are fetched again', session: fileCase },
+      { name: 'further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, exact-text file, healthy cache', sessions: further },
+    ],
+  },
+  extra: {
+    entry: { runs: 'ensureModelFile and ensureModelGraph (embedding-model-files.mjs) over a real temp cache directory, with the real atomic-file/file-has-data helpers', notRun: 'the Hugging Face Hub: globalThis.fetch is a scripted endpoint (status and body per URL), recorded with every request' },
+    rustWork: "The Rust install (mixdog-services memory/embed/install.rs:131 install, :140 body) cannot be pointed at the arbitrary config.json / vocab.txt downloads these recordings hold, and its request order differs from Node's. Rust: tokenizer.json, tokenizer_config.json (each only when unusable), then the graph's `_data` weights, then the graph. Node, as recorded: only the files its readiness check found missing or damaged, in this order per session: the external weights `onnx/model.onnx_data`, then the graph `onnx/model.onnx` (cold cache); `tokenizer_config.json` and `config.json` / `vocab.txt` as the sessions that start from those file sets request them (see each session's steps[].requests, in order). Work for the Rust side: decide whether config.json / vocab.txt belong in the install (Rust has no counterpart today) and the tokenizer-first order; a replay compares requests in the recorded order only for the sessions whose files Rust also downloads",
+    replay: "mixdog-services memory/embed/install.rs (pub): HUB (:16), required_files (:26), model_path (:30), missing (:65), installed (:81), install (:131; the hub download goes through Fetch::file :111). A replay serves the recorded hub requests from a scripted server and compares the requests sent (url, init) in order and the files left in the cache",
+    exclusions: 'request init is recorded as passed (null: Node passes none, so no header is sent)',
+    normalised: { 'temp cache dir': 'paths are relative to the cache dir', 'partial file name': 'process id in "<file>.<pid>.part" written as <pid> (no partial remains after a step)' },
+  },
+});
+process.exit(0);

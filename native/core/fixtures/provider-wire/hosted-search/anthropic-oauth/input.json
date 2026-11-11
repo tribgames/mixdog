@@ -1,0 +1,58 @@
+{
+  "provider": "anthropic-oauth",
+  "config": {},
+  "credential": {
+    "file": "anthropic-oauth-credentials.json",
+    "document": {
+      "claudeAiOauth": {
+        "accessToken": "fixture-access-token",
+        "refreshToken": "fixture-refresh-token",
+        "expiresAt": 4000000000000,
+        "scopes": [
+          "user:inference",
+          "user:profile"
+        ],
+        "subscriptionType": "max"
+      }
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+      "role": "user",
+      "content": "find x"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "role": "web-search",
+    "sessionId": "lead-1:native-web-search:loyw3v28",
+    "sourceType": "native-web-search",
+    "sourceName": "web_search",
+    "nativeTools": [
+      {
+        "type": "web_search_20250305",
+        "name": "web_search",
+        "max_uses": 3,
+        "allowed_domains": [
+          "a.com",
+          "b.com"
+        ]
+      }
+    ],
+    "nativeInclude": [],
+    "toolChoice": "required",
+    "fast": false,
+    "modelParameters": {}
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
+}
