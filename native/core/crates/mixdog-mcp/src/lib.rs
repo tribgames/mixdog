@@ -19,7 +19,6 @@ pub mod hooks;
 pub mod http;
 pub mod hub;
 pub mod launcher;
-pub mod lone_headers;
 pub mod connector_model;
 pub mod connectors;
 pub mod mcp_glue;

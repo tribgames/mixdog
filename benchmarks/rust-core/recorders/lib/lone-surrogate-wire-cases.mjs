@@ -5,7 +5,7 @@
 //
 // A case with `refused` is one the core refuses by decision before any service runs (mixdog-app-protocol free_text.rs: the field
 // is not free text); `refused` is the field the core names. Node's answer is recorded beside it as the declared difference. Every
-// other case is compared whole with Node's answer.
+// other case is compared whole with Node's answer, through the one mapping its manifest lists (lib/lone-mapping.mjs).
 import { join } from 'node:path';
 
 /** The scratch world (fixed paths: they are in the answers). */
@@ -36,18 +36,21 @@ export function loneRefusal(field) {
 
 export const CASES = [
   // ── MCP: a header value is sent on every request to the server. Node saves the server and its fetch refuses the value when it
-  //    connects (a ByteString holds no unit over 255), sending nothing: the call answers the status with that failure, and the server
-  //    is listed with it. `after`: the server's name, whose status and config are read after the call ──
+  //    connects (a ByteString holds no unit over 255), sending nothing; the core refuses the call naming the field and saves
+  //    nothing (decisions.md "Lone UTF-16 surrogates in client strings"). `after`: the server's name, whose status and config
+  //    are read after the call (Node's are recorded; the core's must be what they were before the call) ──
   {
     name: 'mcp-add-header-lone',
     node: { run: 'mcpRuntime', op: 'addMcpServer', input: mcpServer('lone-header') },
     core: { method: 'mcp/addMcpServer', params: { input: mcpServer('lone-header') } },
+    refused: 'mcp/addMcpServer.params/input/headers/X-Token',
     after: 'lone-header',
   },
   {
     name: 'mcp-save-header-lone',
     node: { run: 'mcpRuntime', op: 'saveMcpServer', input: mcpServer('lone-header-save') },
     core: { method: 'mcp/saveMcpServer', params: { input: mcpServer('lone-header-save') } },
+    refused: 'mcp/saveMcpServer.params/input/headers/X-Token',
     after: 'lone-header-save',
   },
   // ── the auth probe never sends a configured header: any header is configured authentication ──
@@ -102,12 +105,12 @@ export const CASES = [
     refused: 'lsp/request.params/request/params/command',
   },
   // ── a code action request as the editor sends it (apps/desktop/src/renderer/editor-lsp-providers.ts: each marker's message,
-  //    source and code), for a diagnostic whose message quotes document text holding a lone unit: forwarded by both. `lone`:
-  //    Node's answer holds the unit the server read back, the core's U+FFFD (the manifest's normalisation) ──
+  //    source and code), for a diagnostic whose message quotes document text holding a lone unit: forwarded by both, the unit by
+  //    Node and U+FFFD by the core (the manifest's `mapping`). The server reports the request it received to the local server
+  //    (lib/lsp-echo-stub.mjs), so the case's requests hold it ──
   {
     name: 'lsp-code-action-diagnostic-lone',
     node: { run: 'lsp', input: lsp('textDocument/codeAction', codeAction) },
     core: { method: 'lsp/request', params: { projectPath: PROJECT, root: PROJECT, request: { relPath: 'a.rs', languageId: 'rust', method: 'textDocument/codeAction', params: codeAction } } },
-    lone: true,
   },
 ];
