@@ -401,14 +401,16 @@ function _fileSizeOrNull(file) {
 function _persistDiskEntry(dir, cwd, entry, preserved, writeJson) {
   const hash = _hashCwd(cwd);
   const file = join(dir, `${hash}.json`);
-  writeJson(file, entry, { compact: true, lock: false });
+  // Piece by piece: one record of `nodes` (entry) or `files` (sidecar) at a
+  // time, never the whole graph as one string (writeJsonAtomicSync pieceDepth).
+  writeJson(file, entry, { compact: true, lock: false, pieceDepth: 2 });
   const bytes = _fileSizeOrNull(file);
   _noteDiskEntryBytes(cwd, bytes);
   let callsBytes = Number(preserved?.[cwd]?.callsBytes);
   const sidecar = _pendingCallsSidecars.get(cwd);
   if (sidecar) {
     const sidecarFile = callsSidecarPath(dir, hash);
-    writeJson(sidecarFile, sidecar, { compact: true, lock: false });
+    writeJson(sidecarFile, sidecar, { compact: true, lock: false, pieceDepth: 2 });
     _pendingCallsSidecars.delete(cwd);
     callsBytes = _fileSizeOrNull(sidecarFile) ?? undefined;
   }

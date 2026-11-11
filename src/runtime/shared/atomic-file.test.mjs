@@ -224,6 +224,68 @@ test('sync and async atomic creation preserve existing bytes and remove staging 
   }
 });
 
+test('JSON written in pieces is the document JSON.stringify writes, each write within the batch bound', (t) => {
+  const { path } = fixture(t);
+  const keyed = () => ({
+    toJSON(key) {
+      return `seen:${key}`;
+    },
+  });
+  // Each call builds the value again: a getter below changes it while it is serialized.
+  const values = [
+    () => ({ plain: [1, 'two', null, { three: [3] }], empty: {}, none: [] }),
+    // `list` has a hole at 2.
+    () => ({
+      kept: 1,
+      dropped: undefined,
+      call: () => 1,
+      sym: Symbol('s'),
+      list: Object.assign([undefined, () => 1], { 3: 4 }),
+    }),
+    () => ({ when: new Date(0), object: keyed(), list: [keyed(), [keyed()]], deep: { a: { b: keyed() } } }),
+    () => Object.assign([1, 2], { toJSON: () => 'an array of its own' }),
+    () => ({ rows: Object.assign([1, 2], { toJSON: (key) => `rows as ${key}` }) }),
+    () => {
+      const grown = [0, 1];
+      Object.defineProperty(grown, 0, { enumerable: true, get: () => grown.push(2) && 0 });
+      return grown;
+    },
+    () => ({ 'quote"d': [2], 10: 'ten', 2: 'two', b: 'b', a: 'a' }),
+    () => 'a string',
+    () => undefined,
+  ];
+  const written = [];
+  const write = fs.writeFileSync;
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  t.mock.method(fs, 'writeFileSync', (target, data, ...rest) => {
+    if (typeof target === 'number' && typeof data === 'string') written.push(data.length);
+    return write.call(fs, target, data, ...rest);
+  });
+  syncBuiltinESMExports();
+  for (const make of values) {
+    for (const pieceDepth of [1, 2, 3]) {
+      const expected = `${JSON.stringify(make())}\n`;
+      writeJsonAtomicSync(path, make(), { compact: true, pieceDepth });
+      assert.equal(readFileSync(path, 'utf8'), expected, `depth ${pieceDepth}: ${expected.slice(0, 80)}`);
+    }
+  }
+  // A write is one batch of at most 1M characters, or one member that is longer by itself: never that member
+  // joined to its neighbours, and never two members that pass the bound together.
+  const batch = 1024 * 1024;
+  const long = { rows: ['…'.repeat(3 * batch), 'x'.repeat(700_000), 'y'.repeat(700_000), 'z'] };
+  written.length = 0;
+  writeJsonAtomicSync(path, long, { compact: true, pieceDepth: 2 });
+  assert.equal(readFileSync(path, 'utf8'), `${JSON.stringify(long)}\n`);
+  assert.deepEqual(
+    written.filter((length) => length > batch),
+    [3 * batch + 2]
+  );
+  assert.ok(written.length >= 4, `${written.length} writes`);
+});
+
 test('a failed holder releases its file lock for the next queued owner', async (t) => {
   const { lock } = fixture(t);
   const failure = new Error('mutation failed');

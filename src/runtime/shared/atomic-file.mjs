@@ -303,6 +303,10 @@ async function fsyncPathAsync(path, tolerated) {
   }
 }
 
+// Characters of pieces joined per write: bounds the string each write
+// flattens while keeping the write count low.
+const WRITE_BATCH_CHARS = 1024 * 1024;
+
 // Writes a file and flushes it through the handle that wrote it. Reopening to
 // flush does not work: Windows refuses fsync on a read-only handle (EPERM) and
 // may refuse a read-write reopen while AV scans the new file, and a 0o400 file
@@ -311,7 +315,24 @@ async function fsyncPathAsync(path, tolerated) {
 function writeFileDurableSync(path, data, opts) {
   const fd = openSync(path, opts.flag || 'wx', opts.mode !== undefined ? opts.mode : 0o600);
   try {
-    writeFileSync(fd, data, { encoding: opts.encoding || 'utf8' });
+    const encoding = opts.encoding || 'utf8';
+    if (typeof data === 'string' || ArrayBuffer.isView(data)) writeFileSync(fd, data, { encoding });
+    else {
+      // String pieces (jsonDocumentPieces), joined into bounded batches and
+      // written one after another at the file position. A piece that would
+      // carry a batch past the bound starts the next one, and a piece over
+      // the bound is written as it is, never joined to another.
+      let batch = '';
+      for (const piece of data) {
+        if (batch && batch.length + piece.length > WRITE_BATCH_CHARS) {
+          writeFileSync(fd, batch, { encoding });
+          batch = '';
+        }
+        if (piece.length >= WRITE_BATCH_CHARS) writeFileSync(fd, piece, { encoding });
+        else batch += piece;
+      }
+      if (batch) writeFileSync(fd, batch, { encoding });
+    }
     if (opts.fsync !== false) {
       try {
         fsyncSync(fd);
@@ -477,8 +498,65 @@ function publishFileSync(filePath, data, opts) {
 const jsonBackupOpts = (opts) =>
   opts.backup === true && !opts.backupAccepts ? { ...opts, backupAccepts: isJsonContent } : opts;
 
+// A container with its own toJSON is JSON.stringify's to serialize.
+const isPlainContainer = (value) =>
+  value !== null &&
+  typeof value === 'object' &&
+  typeof value.toJSON !== 'function' &&
+  (Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)));
+
+// One member as JSON.stringify writes it under `key`, or undefined where it
+// leaves the member out: serialized inside a one-member object, so a toJSON
+// is called with the key it would get in the document.
+function jsonMember(key, member) {
+  const text = JSON.stringify({ [key]: member });
+  return text === '{}' ? undefined : text.slice(JSON.stringify(String(key)).length + 2, -1);
+}
+
+// JSON.stringify(value) in pieces: a plain array or object is opened and
+// closed here and each member serialized on its own, `depth` levels down, so
+// the longest piece is one member there, never the whole document.
+function* jsonPieces(value, depth) {
+  if (depth === 0 || !isPlainContainer(value)) {
+    yield `${JSON.stringify(value)}`;
+    return;
+  }
+  const array = Array.isArray(value);
+  // The members are fixed before the first is read, as JSON.stringify does.
+  const keys = array ? Array.from({ length: value.length }, (_, index) => index) : Object.keys(value);
+  yield array ? '[' : '{';
+  let first = true;
+  for (const key of keys) {
+    const member = value[key];
+    const nested = depth > 1 && isPlainContainer(member);
+    const text = nested ? '' : jsonMember(key, member);
+    // Skipped in an object, null in an array: JSON.stringify's own rule.
+    if (text === undefined && !array) continue;
+    if (!first) yield ',';
+    first = false;
+    if (!array) yield `${JSON.stringify(key)}:`;
+    if (nested) yield* jsonPieces(member, depth - 1);
+    else yield text ?? 'null';
+  }
+  yield array ? ']' : '}';
+}
+
+function* jsonDocumentPieces(value, depth) {
+  yield* jsonPieces(value, depth);
+  yield '\n';
+}
+
+/** `opts.pieceDepth` (compact JSON only): written in pieces (jsonPieces) of
+ *  that depth instead of as one string. One string as large as the document
+ *  is one allocation as large as it: in Electron's Node every isolate shares
+ *  one 4 GB pointer-compression cage, and flattening a 33M-char code-graph
+ *  entry failed there and aborted the daemon. */
 export function writeJsonAtomicSync(filePath, value, opts = {}) {
-  return writeFileAtomicSync(filePath, `${JSON.stringify(value, null, opts.compact ? 0 : 2)}\n`, jsonBackupOpts(opts));
+  const text =
+    opts.pieceDepth > 0
+      ? jsonDocumentPieces(value, opts.pieceDepth)
+      : `${JSON.stringify(value, null, opts.compact ? 0 : 2)}\n`;
+  return writeFileAtomicSync(filePath, text, jsonBackupOpts(opts));
 }
 
 // Windows editors and PowerShell 5 save UTF-8 with a leading byte order mark,
