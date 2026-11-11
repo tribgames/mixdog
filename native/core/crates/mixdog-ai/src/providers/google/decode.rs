@@ -223,7 +223,7 @@ pub struct GeminiDecoder {
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
-fn chunk_progress(chunk: &Value) -> Option<ProgressKind> {
+pub fn chunk_progress(chunk: &Value) -> Option<ProgressKind> {
     let parts = chunk.pointer("/candidates/0/content/parts").and_then(Value::as_array)?;
     let has_text = |part: &Value| part.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty());
     let thought = |part: &Value| part.get("thought") == Some(&Value::Bool(true));
