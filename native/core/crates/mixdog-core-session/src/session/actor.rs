@@ -213,6 +213,9 @@ pub(crate) enum Inbox {
         /// The thread was loaded when the job finished (Node's owner is the runtime's live
         /// session, `notification-bus.mjs:41`); one opened for the completion is never woken.
         live: bool,
+        /// Answered once the queued entry is durable (Node's `settlePendingMessageWrites` after
+        /// `enqueuePendingMessage`), or once the same entry, already queued, is.
+        durable: Option<oneshot::Sender<Result<(), RunError>>>,
     },
     /// The job board's activity signal: a job of this thread was added or finished
     /// (`agent_activity.rs`).
@@ -3900,7 +3903,8 @@ impl SessionActor {
                 text,
                 origin,
                 live,
-            } => self.task_notification(&surface, task_id, status, text, origin, live),
+                durable,
+            } => self.task_notification(&surface, task_id, status, text, origin, live, durable),
             Inbox::AgentActivity => self.agent_activity(),
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
@@ -4818,21 +4822,38 @@ impl SessionActor {
     /// its next model-call boundary ([`RunPort::take_steers`]). An idle thread is woken: the
     /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
     /// unless the thread was opened only for it (Node wakes only the live session).
-    fn task_notification(&mut self, surface: &str, task_id: String, status: String, text: String, origin: Option<&'static str>, live: bool) {
+    #[allow(clippy::too_many_arguments)]
+    fn task_notification(
+        &mut self,
+        surface: &str,
+        task_id: String,
+        status: String,
+        text: String,
+        origin: Option<&'static str>,
+        live: bool,
+        durable: Option<oneshot::Sender<Result<(), RunError>>>,
+    ) {
         let now = self.deps.clock.now_ms();
         let built = match origin {
             None => completions::entry(surface, &task_id, &status, &text, now),
             Some(_) => completions::channel_entry(&text, now).map(|entry| (new_id(), entry)),
         };
         let Some((qid, mut entry)) = built else {
+            if let Some(durable) = durable {
+                let _ = durable.send(Err(RunError::NotApplied));
+            }
             return;
         };
+        let acks = |durable: Option<oneshot::Sender<Result<(), RunError>>>| durable.map(Effect::ItemAck).into_iter().collect::<Vec<_>>();
         // Queued by the listener that showed it (`execution-delivery.mjs` `suppressDisplay`).
         if self.listened.remove(&task_id) {
             entry["suppressDisplay"] = Value::Bool(true);
         }
-        // The same completion queued twice is one entry (`pendingIdStillQueued`).
+        // The same completion queued twice is one entry (`pendingIdStillQueued`); its waiter hears when that one is durable.
         if self.projected.queue.iter().any(|q| q.qid == qid) {
+            if durable.is_some() {
+                self.outbox.push(None, Change::Barrier, Vec::new(), acks(durable));
+            }
             return;
         }
         let record = Record::Queue(QueueRecord {
@@ -4842,7 +4863,7 @@ impl SessionActor {
             op: None,
             entry: Some(Slot::Inline(entry)),
         });
-        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+        self.accept_record(record, Class::Normal, Display::None, Vec::new(), acks(durable));
         self.deps
             .wakes
             .interrupt(&self.id, WakeReason::Notification, Some(task_id).filter(|id| !id.is_empty()));

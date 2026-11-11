@@ -433,10 +433,12 @@ impl SessionRoutes {
             self.threads.patch_header(thread, set, Vec::new()).await?;
             return Ok(Followed::default());
         }
-        self.pending_lock().remove(&key);
+        // A held pick this selection replaces is dropped from memory only once its record is: a failed write leaves the
+        // selection for the next turn, which applies the live route (this one).
         if header.contains_key("pendingRoute") {
             self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
         }
+        self.pending_lock().remove(&key);
         let same_model = text(&route, "provider") == text(&header, "provider") && text(&route, "model") == text(&header, "model");
         if self.route_committed(thread).await? {
             if !options.switch_established() {
@@ -464,30 +466,41 @@ impl SessionRoutes {
 
     /// `setRoute.applyPendingRoute`: the model pick held for the next turn takes effect. The
     /// recorded boundary, or `None` when nothing switched.
+    /// The held pick is taken off (memory and record) only once it took effect, or was superseded: a failed switch, or a
+    /// record write that failed, leaves it in place for the next turn.
     pub async fn apply_pending(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
         let mut header = self.threads.header(thread).await?;
-        let held = header.get("pendingRoute").and_then(Value::as_object).cloned();
-        if held.is_some() {
-            self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
-            header.shift_remove("pendingRoute");
-        }
-        let selection = self.pending_lock().remove(thread.as_str());
-        match (selection, &held) {
-            (Some(token), _) => {
-                // The live route is the latest selection: effort/Fast tuned after the deferred
-                // model choice replace it.
-                if token != Some(self.session.generation(thread)) {
-                    return Ok(None);
-                }
-            }
+        let stored = header.shift_remove("pendingRoute");
+        let held = stored.as_ref().and_then(Value::as_object).cloned();
+        let selection = self.pending_lock().get(thread.as_str()).copied();
+        let adopt = match (selection, &held) {
+            // The live route is the latest selection: effort/Fast tuned after the deferred
+            // model choice replace it.
+            (Some(token), _) => token == Some(self.session.generation(thread)),
             (None, Some(held)) if truthy(held.get("provider")) && truthy(held.get("model")) => {
                 // Held by an earlier process: the saved pick becomes the live route again.
                 self.live.adopt_held(thread, held);
+                true
             }
-            _ => return Ok(None),
+            _ => false,
+        };
+        let model_switch = if adopt {
+            let switched = self.switch_in_place(thread, &header).await?;
+            self.session.invalidate_context_status(thread);
+            switched
+        } else {
+            None
+        };
+        {
+            let mut pending = self.pending_lock();
+            // A pick made meanwhile is the next turn's.
+            if pending.get(thread.as_str()).copied() == selection {
+                pending.remove(thread.as_str());
+            }
         }
-        let model_switch = self.switch_in_place(thread, &header).await?;
-        self.session.invalidate_context_status(thread);
+        if stored.is_some() {
+            self.threads.patch_header(thread, Map::new(), vec!["pendingRoute".into()]).await?;
+        }
         Ok(model_switch)
     }
 
@@ -664,6 +677,8 @@ mod tests {
     struct Session {
         calls: Arc<Calls>,
         generation: u64,
+        /// The next route update fails (a session write that did not go through).
+        fail_update: std::sync::atomic::AtomicBool,
     }
     #[async_trait]
     impl RouteSession for Session {
@@ -677,6 +692,9 @@ mod tests {
             messages.iter().any(|m| m["role"] == "user")
         }
         async fn update_route(&self, _: &ThreadId, fields: Route, cross: bool) -> Result<bool, PortError> {
+            if self.fail_update.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return Err(PortError::Failed { capability: "session".into(), message: "index-write-failed".into() });
+            }
             self.calls.log(format!("update {} cross={cross}", fields["model"]));
             Ok(true)
         }
@@ -700,9 +718,26 @@ mod tests {
     fn routes(header: Value, messages: Vec<Value>, live: Value) -> (SessionRoutes, Arc<Calls>) {
         let calls = Arc::new(Calls::default());
         let threads = Threads { header: Mutex::new(obj(header)), calls: calls.clone() };
-        let session = Session { calls: calls.clone(), generation: 3 };
+        let session = Session { calls: calls.clone(), generation: 3, fail_update: Default::default() };
         let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(messages)), Arc::new(session), Arc::new(Live(obj(live))));
         (routes, calls)
+    }
+
+    /// A pick held by an earlier process (`pendingRoute` on the record, nothing in memory after the restart) whose switch fails
+    /// is still held: the next turn adopts it, and only then is it taken off.
+    #[tokio::test]
+    async fn a_held_pick_whose_switch_failed_is_kept_for_the_next_turn() {
+        let calls = Arc::new(Calls::default());
+        let header = json!({"provider": "openai", "model": "gpt-a", "pendingRoute": {"provider": "anthropic", "model": "claude-x"}});
+        let threads = Threads { header: Mutex::new(obj(header)), calls: calls.clone() };
+        let session = Session { calls: calls.clone(), generation: 3, fail_update: std::sync::atomic::AtomicBool::new(true) };
+        let live = json!({"provider": "anthropic", "model": "claude-x"});
+        let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(established())), Arc::new(session), Arc::new(Live(obj(live))));
+        assert!(routes.apply_pending(&thread()).await.is_err(), "the switch failed");
+        assert!(routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"), "the held pick is still held");
+        let switched = routes.apply_pending(&thread()).await.unwrap().expect("the retry switches");
+        assert_eq!(switched["modelId"], "claude-x");
+        assert!(!routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"));
     }
 
     fn thread() -> ThreadId {

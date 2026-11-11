@@ -167,9 +167,14 @@ impl Projector {
                 match msg {
                     Projecting::Frames(number, projection) => {
                         let session = projection.session.clone();
-                        if let Err(error) = project(*projection).await {
-                            tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
-                            failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
+                        match project(*projection).await {
+                            Err(error) => {
+                                tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
+                                failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
+                            }
+                            // A later projection carries the session's whole head (its header), so the index holds the header
+                            // writes again: the header waits stop failing.
+                            Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
                         }
                         done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     }
@@ -1245,6 +1250,24 @@ mod projector_tests {
         failed(projector.indexed("sess_bad").await);
         projector.indexed("sess_ok").await.expect("the write that went in");
         failed(projector.indexed("sess_bad").await);
+    }
+
+    /// Once a later projection of the session goes in, the index holds its head again (a projection carries the whole header),
+    /// so the header waits after it answer done instead of failing until a restart.
+    #[tokio::test]
+    async fn a_session_the_index_took_again_is_answered_as_indexed() {
+        let refused = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let projector = Projector::spawn_with({
+            let refused = refused.clone();
+            move |_: Projection| {
+                let refuse = refused.swap(false, std::sync::atomic::Ordering::SeqCst);
+                async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+            }
+        });
+        projector.send(empty_projection("sess_bad"));
+        assert!(projector.indexed("sess_bad").await.is_err(), "the refused write");
+        projector.send(empty_projection("sess_bad"));
+        projector.indexed("sess_bad").await.expect("the index holds the session again");
     }
 
     /// The exact class's wait: behind a projection that never ends it still waits one tick before
