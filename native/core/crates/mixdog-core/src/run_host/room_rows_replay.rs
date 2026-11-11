@@ -53,6 +53,8 @@ pub(super) struct Log {
     pub(super) directory: Arc<SessionDirectory>,
     pub(super) daemon: Arc<DirectoryRoomDaemon>,
     pub(super) files: Arc<SessionFiles>,
+    store: Arc<StoreThreads>,
+    republish: Arc<dyn Fn() + Send + Sync>,
     _rig: Rig,
     _data: tempfile::TempDir,
 }
@@ -77,15 +79,34 @@ impl Log {
         .await
         .expect("job ran")
         .expect("index");
-        let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
+        let store = Arc::new(StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
         let rig = Rig::new();
-        let mut deps = rig.deps_parts(Arc::new(store));
+        let (directory, daemon, files) = Self::sessions(&rig, &store, data.path(), &republish);
+        Self { directory, daemon, files, store, republish, _rig: rig, _data: data }
+    }
+
+    /// The session directory over `store`, the room log's daemon and the room's file intake, as the daemon composes them.
+    fn sessions(
+        rig: &Rig,
+        store: &Arc<StoreThreads>,
+        data: &std::path::Path,
+        republish: &Arc<dyn Fn() + Send + Sync>,
+    ) -> (Arc<SessionDirectory>, Arc<DirectoryRoomDaemon>, Arc<SessionFiles>) {
+        let tokens = mixdog_rt::testing::tokens();
+        let mut deps = rig.deps_parts(store.clone());
         // The transcript the daemon composes (`compose_flip.rs` `RecordTranscript::new()`).
         deps.transcript = Arc::new(RecordTranscript::new());
         let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
-        let daemon = Arc::new(DirectoryRoomDaemon::new(directory.clone(), republish));
-        let files = Arc::new(SessionFiles::new(directory.clone(), tokens.durability_io, data.path().to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {})));
-        Self { directory, daemon, files, _rig: rig, _data: data }
+        let daemon = Arc::new(DirectoryRoomDaemon::new(directory.clone(), republish.clone()));
+        let files = Arc::new(SessionFiles::new(directory.clone(), tokens.durability_io, data.to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {})));
+        (directory, daemon, files)
+    }
+
+    /// A restart of the sessions: the directory shuts down (its threads close) and a new one opens them again from the same
+    /// data folder.
+    pub(super) async fn restart(&mut self) {
+        self.directory.shutdown().await;
+        (self.directory, self.daemon, self.files) = Self::sessions(&self._rig, &self.store, self._data.path(), &self.republish);
     }
 
     /// A fresh room log `sess_room_<room>`.
@@ -117,6 +138,26 @@ impl Log {
         let messages: Vec<Value> = kept.iter().map(|row| room_row_message(row, now).unwrap()).collect();
         let added = SessionRoomLog::new(self.directory.clone()).append_rows(thread.as_str(), messages.clone()).await.unwrap();
         (thread, added, kept, messages)
+    }
+
+    /// The attachment store's files (their names under the store, sorted).
+    #[allow(clippy::disallowed_methods, reason = "the test lists the attachment store it checks")]
+    pub(super) fn stored_files(&self) -> Vec<String> {
+        fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, root, out);
+                } else {
+                    out.push(path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        let root = self._data.path().join(mixdog_store::schema::blob::BLOB_DIR);
+        let mut out = Vec::new();
+        walk(&root, &root, &mut out);
+        out.sort();
+        out
     }
 
     /// The text of a stored attachment.
