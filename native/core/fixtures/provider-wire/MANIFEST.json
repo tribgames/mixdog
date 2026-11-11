@@ -872,28 +872,8 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/intercept.mjs",
-      "sha256": "a080fa2c7df9cf3629ae4304d14ca3c66e68e14c6afddc7ca8d22da38063e47a"
-    },
-    {
-      "path": "benchmarks/rust-core/recorders/lib/intercept-hooks.mjs",
-      "sha256": "f36f92d920b2cd2ae9c438f1c5ddc7c906a4f5fb3e529571acecf3867164221c"
-    },
-    {
-      "path": "benchmarks/rust-core/recorders/lib/intercept-ws.mjs",
-      "sha256": "e9145b655c96391ae934936830b9df41a2e9ee70e914ff292cc4c14f60eeb230"
-    },
-    {
-      "path": "benchmarks/rust-core/recorders/lib/intercept-http2.mjs",
-      "sha256": "7022478f4d53fa9bb568ce87a04d2429fe7db94304a5a6606c38501fc708eb80"
-    },
-    {
-      "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
-      "sha256": "8f974af9f70f86e55bfba0850a7a19197ac0bec15fc13fa0fdfe3de29c9fa725"
-    },
-    {
-      "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
-      "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -915,7 +895,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "feae81403b776c9bdab34a54b4109926c0a5e86f262b636e59b4ca2c9e6206f2",
+  "recorderSha256": "5bc40474fcae4855cda6dfe6f60220e706eb1c28aa9420084cb30a7cd1c86d7e",
   "set": "provider-wire",
   "totalBytes": 378859
 }
