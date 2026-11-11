@@ -116,7 +116,7 @@ fn call_signature(name: &str, args: &Value) -> String {
 /// Hears `(remote acquired, pinned session id)`.
 pub type BindingObserver = Arc<dyn Fn(bool, Option<&str>) + Send + Sync>;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Binding {
     remote_acquired: bool,
     pinned_session_id: Option<String>,
@@ -175,6 +175,19 @@ impl CallDispatch {
         let binding = self.binding.lock().unwrap().clone();
         if let Some(observer) = self.on_binding.lock().unwrap().as_ref() {
             observer(binding.remote_acquired, binding.pinned_session_id.as_deref());
+        }
+    }
+
+    /// Moves the binding; an unchanged one is not re-announced (`remote-state.mjs` signature).
+    fn set_binding(&self, next: Binding) {
+        let changed = {
+            let mut binding = self.binding.lock().unwrap();
+            let changed = *binding != next;
+            *binding = next;
+            changed
+        };
+        if changed {
+            self.binding_changed();
         }
     }
 
@@ -260,20 +273,21 @@ impl CallDispatch {
                 "releaseSkipped": true
             }));
         }
-        let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done().ok_or_else(dropped)?;
+        if activating {
+            // Remote shows acquired before the bridge initialises its providers, as Node's daemon on the worker's
+            // `notifications/mixdog/remote` (`owned-start.mjs:56`, `remote-pointer.mjs` `acquireRemoteState`).
+            self.set_binding(Binding { remote_acquired: true, pinned_session_id: session });
+        }
+        let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done();
         // A soft `isError` envelope is a failed call: it must leave the binding as it was.
         match &result {
-            Ok(value) if !is_soft_error(value) => {
+            Some(Ok(value)) if !is_soft_error(value) => {
                 if deactivating {
-                    *self.binding.lock().unwrap() = Binding::default();
-                    self.binding_changed();
-                } else if activating {
-                    *self.binding.lock().unwrap() = Binding { remote_acquired: true, pinned_session_id: session };
-                    self.binding_changed();
+                    self.set_binding(Binding::default());
                 }
             }
-            _ => {}
+            _ => self.set_binding(binding),
         }
-        result
+        result.ok_or_else(dropped)?
     }
 }
