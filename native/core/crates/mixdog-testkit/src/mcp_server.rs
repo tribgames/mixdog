@@ -38,9 +38,70 @@ pub fn launch(test: &str, server: &str, tools: &[&str], reach: &Path) -> Launch 
 }
 
 /// What reached the servers logging to `reach` so far, one `{"name": "mcp__<server>__<tool>", "arguments": …}` per call, in
-/// the order the calls arrived (servers started with the same log share one order).
+/// the order the calls arrived (servers started with the same log share one order: the `seq` each record took under the log's lock).
 pub fn reached(reach: &Path) -> Vec<Value> {
-    std::fs::read_to_string(reach).map(|text| text.lines().map(|line| serde_json::from_str(line).expect("a reach line")).collect()).unwrap_or_default()
+    let mut records: Vec<(u64, Value)> = std::fs::read_to_string(reach)
+        .map(|text| {
+            text.lines()
+                .map(|line| {
+                    let mut record: Value = serde_json::from_str(line).expect("a reach line");
+                    let seq = record.as_object_mut().and_then(|object| object.remove("seq")).and_then(|seq| seq.as_u64()).expect("a reach line's seq");
+                    (seq, record)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    records.sort_by_key(|(seq, _)| *seq);
+    records.into_iter().map(|(_, record)| record).collect()
+}
+
+/// Appends one record to the log as one write, its `seq` taken under an exclusive lock on the file: the processes (or threads) that
+/// share a log get distinct, gap-free sequence numbers in the order they held the lock, and no record is interleaved with another.
+fn append(reach: &Path, record: Value) {
+    use std::io::Read;
+    let mut log = std::fs::OpenOptions::new().create(true).read(true).append(true).open(reach).expect("the reach log");
+    log.lock().expect("the reach log's lock");
+    let mut text = String::new();
+    log.read_to_string(&mut text).expect("the reach log's records");
+    let mut record = record;
+    record["seq"] = json!(text.lines().count());
+    let mut line = record.to_string();
+    line.push('\n');
+    log.write_all(line.as_bytes()).expect("the reach record");
+    log.unlock().expect("the reach log's unlock");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writers sharing one log (each with its own handle, as separate server processes have) leave one whole record per call and a
+    /// sequence with no repeat and no gap, which `reached` reads back in order.
+    #[test]
+    fn writers_sharing_a_log_take_one_order() {
+        let dir = std::env::temp_dir().join(format!("mixdog-testkit-reach-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("reach.log");
+        let _ = std::fs::remove_file(&log);
+        let writers: Vec<_> = (0..8)
+            .map(|writer| {
+                let log = log.clone();
+                std::thread::spawn(move || {
+                    for call in 0..40 {
+                        append(&log, json!({"name": format!("mcp__s{writer}__t"), "arguments": {"call": call, "pad": "x".repeat(8192)}}));
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let text = std::fs::read_to_string(&log).unwrap();
+        let seqs: Vec<u64> = text.lines().map(|line| serde_json::from_str::<Value>(line).expect("a whole record")["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, (0..320).collect::<Vec<u64>>(), "records land in the order of their sequence");
+        assert_eq!(reached(&log).len(), 320);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 /// Serves MCP over stdio until the client closes it, when this process was started by [`launch`]; returns at once otherwise.
@@ -75,12 +136,7 @@ pub fn serve_if_asked() {
                     continue;
                 }
                 let arguments = message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
-                let mut line = json!({"name": format!("mcp__{server}__{tool}"), "arguments": arguments}).to_string();
-                line.push('\n');
-                let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&reach).expect("the reach log");
-                // One write per line: servers sharing a log keep the order their calls arrived in.
-                log.write_all(line.as_bytes()).unwrap();
-                drop(log);
+                append(Path::new(&reach), json!({"name": format!("mcp__{server}__{tool}"), "arguments": arguments}));
                 send(json!({"jsonrpc": "2.0", "id": id, "result": {"content": [{"type": "text", "text": format!("ran {server} {tool}")}]}}));
             }
             _ => send(json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "method not found"}})),
