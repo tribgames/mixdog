@@ -14,7 +14,7 @@ const rec = await startRecording({
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/antigravity-request.mjs buildAntigravityRequest(messages, model, tools, opts, project) / antigravityFunctionCallingMode(env), gemini-schema.mjs toGeminiRequestTools. The test\'s asserts are recorded as the values they inspect; the real tool surface (built-in, code-graph, computer, bridge, skill, session) is the input, and every declaration the Claude path produces is recorded whole. Ajv (the tree\'s own dependency) answers the validity / validate() checks.',
   compare: 'mixdog-ai providers/google request.rs (antigravity branch): feed `input` and compare the recorded `result` (`tools`, `toolConfig`, `declarations`, `warnings` in order, `contents` whole). K1 gaps G3 (hosted google_search), G4 (Claude replay normalisation) and the FC-mode env override are OPEN in the core, so those cases are expected to differ.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const treeRequire = createRequire(join(rec.tree, 'package.json'));
 const Ajv2020 = treeRequire('ajv/dist/2020.js');
