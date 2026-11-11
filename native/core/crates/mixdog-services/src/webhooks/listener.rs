@@ -125,7 +125,7 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
         _ = connection.as_mut() => return,
         () = stop.cancelled() => connection.as_mut().graceful_shutdown(),
     }
-    let _ = tokio::time::timeout(SHUTDOWN_GRACE, connection.as_mut()).await;
+    let _ = mixdog_rt::time::timeout(SHUTDOWN_GRACE, connection.as_mut()).await;
 }
 
 /// How long a closed connection keeps reading and discarding what the peer still sends.
@@ -182,7 +182,7 @@ impl Drop for Lingering {
 async fn linger(mut stream: TcpStream) {
     let _ = stream.shutdown().await;
     let mut sink = [0u8; 8192];
-    let _ = tokio::time::timeout(LINGER, async { while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {} }).await;
+    let _ = mixdog_rt::time::timeout(LINGER, async { while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {} }).await;
 }
 
 type Reply = Response<Full<Bytes>>;
@@ -234,7 +234,7 @@ async fn webhook(service: &WebhookService, target: &str, headers: Headers, body:
         Ok(name) => name,
         Err(refusal) => return json_reply(&refusal, false),
     };
-    match tokio::time::timeout(REQUEST_TIMEOUT, collect(body)).await {
+    match mixdog_rt::time::timeout(REQUEST_TIMEOUT, collect(body)).await {
         Err(_) => reply(408, "text/plain", b"Request Timeout".to_vec(), true),
         Ok(Err(_)) => reply(400, "text/plain", b"Bad Request".to_vec(), true),
         Ok(Ok(Collected::TooLarge(refusal))) => json_reply(&refusal, true),

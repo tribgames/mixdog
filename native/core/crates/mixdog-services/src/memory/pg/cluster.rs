@@ -202,7 +202,7 @@ async fn healthcheck(port: u16) -> bool {
             _ = connection => false,
         }
     };
-    tokio::time::timeout(HEALTH_LIMIT, probe).await.unwrap_or(false)
+    mixdog_rt::time::timeout(HEALTH_LIMIT, probe).await.unwrap_or(false)
 }
 
 /// The text of a start a stop ended.
@@ -323,7 +323,7 @@ async fn await_recovery(pid: u32, port: u16, start: &Start, cancel: &Cancellatio
         // A stop ends the wait (Node's wait is not cancellable; its stop gives up on an opening after 6 s, `supervisor.mjs:793`).
         tokio::select! {
             () = cancel.cancelled() => return Recovery::Cancelled,
-            () = tokio::time::sleep(READY_POLL) => {}
+            () = mixdog_rt::time::sleep(READY_POLL) => {}
         }
     }
     Recovery::Gone
@@ -673,7 +673,7 @@ impl PgCluster {
             }
             // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
             // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
-            tokio::time::sleep(READY_POLL).await;
+            mixdog_rt::time::sleep(READY_POLL).await;
         }
     }
 
@@ -705,7 +705,7 @@ impl PgCluster {
             if tokio::time::Instant::now() >= deadline {
                 return None;
             }
-            tokio::time::sleep(READY_POLL).await;
+            mixdog_rt::time::sleep(READY_POLL).await;
         }
     }
 

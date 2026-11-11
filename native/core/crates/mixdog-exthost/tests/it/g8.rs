@@ -307,7 +307,7 @@ async fn spin_phase(scratch: &Scratch, smoke: bool) {
         if let Some(id) = busy.first() {
             break *id;
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     };
 
     let sessions = sessions(scratch, "spin");
@@ -350,7 +350,7 @@ async fn result_latency_phase(scratch: &Scratch, smoke: bool) {
     while std::fs::read_dir(&markers).unwrap().count() < w - 1
         || pool.outstanding_window_bytes().iter().filter(|&&b| b == CALL_WINDOW_BYTES).count() < w - 1
     {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
 
     let samples = if smoke { 5 } else { 50 };

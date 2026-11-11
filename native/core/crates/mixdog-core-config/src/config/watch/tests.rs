@@ -14,7 +14,7 @@ fn lanes() -> ConfigLanes {
 }
 
 async fn heard(changes: &mut tokio::sync::watch::Receiver<u64>) -> bool {
-    tokio::time::timeout(Duration::from_secs(10), changes.changed()).await.is_ok()
+    mixdog_rt::time::timeout(Duration::from_secs(10), changes.changed()).await.is_ok()
 }
 
 /// An edit another process makes reaches the document without a call to `reload`; an unparsable
@@ -34,7 +34,7 @@ async fn an_external_edit_reaches_the_document() {
     assert_eq!(config.get("agent.a"), Some(json!(2)));
 
     fs::write(&path, "{ half typed").unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(config.get("agent.a"), Some(json!(2)), "an unparsable save keeps the document");
 
     fs::write(&path, r#"{"agent":{"a":3}}"#).unwrap();

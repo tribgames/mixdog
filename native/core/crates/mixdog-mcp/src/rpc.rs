@@ -325,9 +325,9 @@ impl RpcClient {
         let send = self.transport.send(message, CALL);
         tokio::pin!(send);
         let mut sent = false;
-        let idle = tokio::time::sleep(idle_for);
+        let idle = mixdog_rt::time::sleep(idle_for);
         tokio::pin!(idle);
-        let total = tokio::time::sleep(options.max_total.unwrap_or(FOREVER));
+        let total = mixdog_rt::time::sleep(options.max_total.unwrap_or(FOREVER));
         tokio::pin!(total);
         loop {
             tokio::select! {
@@ -420,7 +420,7 @@ mod tests {
         };
 
         // Before the queue, this waited for the unanswered cancel POST and never returned.
-        let outcome = tokio::time::timeout(
+        let outcome = mixdog_rt::time::timeout(
             Duration::from_secs(1),
             client.request("tools/call", json!({}), options),
         )

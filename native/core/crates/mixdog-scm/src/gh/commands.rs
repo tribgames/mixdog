@@ -8,6 +8,7 @@ use crate::gh::contract::github_number;
 use crate::gh::contract::github_repository;
 use crate::gh::contract::github_text;
 use crate::gh::contract::is_repo_free;
+use crate::gh::contract::type_error;
 
 /// What is run: arguments, the JSON body fed on stdin (data, never a flag or a file name), and
 /// how the answer is read.
@@ -85,10 +86,7 @@ impl Body {
 }
 
 fn required_text(request: &GithubRequest, key: &str) -> Result<String, ScmFailure> {
-    let value = request
-        .fields
-        .get(key)
-        .ok_or_else(|| ScmFailure::invalid(key, "present"))?;
+    let value = request.fields.get(key).unwrap_or(&Value::Null);
     github_text(value, key, if key == "body" { 60_000 } else { 1000 }, false)?;
     Ok(value.as_str().unwrap_or("").to_owned())
 }
@@ -162,7 +160,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
         "repo.create" => {
             let visibility = request
                 .text("visibility")
-                .ok_or_else(|| ScmFailure::invalid("visibility", "private or public"))?;
+                .ok_or_else(|| type_error("Choose private or public visibility explicitly."))?;
             cli(vec![
                 "repo".into(),
                 "create".into(),
@@ -198,7 +196,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
         "issue.edit" => {
             let body = Body::default().selected(request, &["title", "body", "labels", "assignees"]);
             if body.is_empty() {
-                return Err(ScmFailure::invalid("action", "at least one issue field to edit"));
+                return Err(type_error("Choose at least one issue field to edit."));
             }
             api(format!("{root}/issues/{}", number()?), "PATCH", Some(body))
         }
@@ -240,7 +238,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
                 .fields
                 .get("sha")
                 .cloned()
-                .ok_or_else(|| ScmFailure::invalid("sha", "the pull request's head sha"))?;
+                .ok_or_else(|| type_error("Read the pull request and supply its head sha before merging."))?;
             api(
                 format!("{root}/pulls/{}/merge", number()?),
                 "PUT",
@@ -254,12 +252,12 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
         "pr.review" => {
             let event = request
                 .text("event")
-                .ok_or_else(|| ScmFailure::invalid("event", "a review event"))?;
+                .ok_or_else(|| type_error("A review event is required."))?;
             let sha = request
                 .fields
                 .get("sha")
                 .cloned()
-                .ok_or_else(|| ScmFailure::invalid("sha", "the pull request's head sha"))?;
+                .ok_or_else(|| type_error("Read the pull request and supply its head sha before reviewing."))?;
             if event != "APPROVE" {
                 required_text(request, "body")?;
             }
@@ -335,7 +333,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
                 body = body.with("name", title.clone());
             }
             if body.is_empty() {
-                return Err(ScmFailure::invalid("action", "at least one release field to edit"));
+                return Err(type_error("Choose at least one release field to edit."));
             }
             api(format!("{root}/releases/{}", id()?), "PATCH", Some(body))
         }
@@ -345,7 +343,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
             None,
         ),
         "notification.read" => api(format!("notifications/threads/{}", id()?), "PATCH", None),
-        _ => return Err(ScmFailure::invalid("action", "a supported GitHub action")),
+        _ => return Err(type_error("Unsupported GitHub action.")),
     })
 }
 

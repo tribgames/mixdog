@@ -131,7 +131,7 @@ async fn every_action_answers_and_calls_the_runtime_as_node_does() {
             if fake.calls.lock().unwrap().len() >= expected {
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(1)).await;
         }
         match (&got, case.get("error")) {
             (Ok(value), None) => assert_eq!(value, &case["value"], "{label}"),

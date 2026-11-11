@@ -27,8 +27,8 @@ const GIT_PREVIEW: usize = 8_000;
 pub struct Artifact {
     /// The path as shown to the model by an offload pointer (Node `normalizeOutputPath`).
     pub display_path: String,
-    /// The path as the platform spells it (Node `artifact.path`), which an execution dump's
-    /// references name.
+    /// The path as the OS writes it (Node `artifact.path`): what a compaction's recovery notes and
+    /// an execution dump's references name.
     pub path: String,
     /// Line count of the stored text.
     pub lines: usize,

@@ -404,7 +404,7 @@ impl ScopeRuntime {
             let Some(server) = self.hub.server_in(scope, name) else { continue };
             let mut rx = server.subscribe();
             let wait = server.config().startup_timeout + Duration::from_secs(5);
-            let _ = tokio::time::timeout(wait, rx.wait_for(|s| !matches!(**s, ServerState::Starting))).await;
+            let _ = mixdog_rt::time::timeout(wait, rx.wait_for(|s| !matches!(**s, ServerState::Starting))).await;
         }
     }
 

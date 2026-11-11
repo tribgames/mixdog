@@ -8,7 +8,7 @@ use serde_json::json;
 use super::*;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/prompt-settings-notice/twin.json")).expect("twin.json")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/prompt-settings-notice/twin.json")).expect("twin.json")
 }
 
 fn sections_of(value: &Value) -> OwnedSections {

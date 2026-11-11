@@ -16,7 +16,7 @@ use super::chat_routes::ChatRoutes;
 use super::route_service_tests::rig;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-service-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-service-twin.json")).unwrap()
 }
 
 /// A successful, unaddressed `setRoute` of the recording that names a model.

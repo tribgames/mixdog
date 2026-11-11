@@ -90,7 +90,18 @@ fn execution_tokens(ctx: &TailContext<'_>, messages: &[AgentMessage]) -> u64 {
     if messages.is_empty() {
         return 0;
     }
-    let rows: Vec<JsonValue> = messages.iter().map(|m| ctx.rows.row(m)).collect();
+    // UI diffs never reach the model and must not displace execution evidence.
+    let rows: Vec<JsonValue> = messages
+        .iter()
+        .map(|m| {
+            let mut row = ctx.rows.row(m);
+            if let Some(fields) = row.as_object_mut() {
+                fields.shift_remove("uiDiff");
+            }
+            without_message_ids(&mut row);
+            row
+        })
+        .collect();
     ctx.meter
         .messages(messages)
         .max(estimate_tokens(&mixdog_js::json_stringify(&JsonValue::Array(rows))))
@@ -124,8 +135,18 @@ fn execution_groups(messages: &[AgentMessage]) -> Vec<Group> {
 }
 
 /// The assistant message without its provider replay (opaque reasoning and a
-/// duplicate of its calls); every provider lowers content/calls without it.
+/// duplicate of its calls) or its stored row's legacy encrypted `reasoningItems`;
+/// every provider lowers content/calls without them.
 fn without_replay(m: &AgentMessage) -> AgentMessage {
+    let stored = m.stored.as_ref().map(|row| {
+        if !row.contains_key("providerReplay") && !row.contains_key("reasoningItems") {
+            return row.clone();
+        }
+        let mut row = (**row).clone();
+        row.shift_remove("providerReplay");
+        row.shift_remove("reasoningItems");
+        std::sync::Arc::new(row)
+    });
     let source = &m.message;
     let mut message = Message::new(source.role, source.content.clone());
     message.cache_tier = source.cache_tier;
@@ -137,7 +158,7 @@ fn without_replay(m: &AgentMessage) -> AgentMessage {
     message.assistant_blocks = source.assistant_blocks.clone();
     message.native_tool_search = source.native_tool_search.clone();
     message.source = source.source;
-    AgentMessage { message, ..m.clone() }
+    AgentMessage { message, stored, ..m.clone() }
 }
 
 /// Only the newest assistant message can still need its replay: an
@@ -244,13 +265,15 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMess
     } else {
         format!("\nEarlier dumps (older first): {}", earlier.join(EARLIER_DUMPS_SEPARATOR))
     };
-    AgentMessage::sourced(
-        Source::CompactExecutionRecovery,
-        format!(
-            "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{}\n</system-reminder>",
-            archive.path, archive.sha256, earlier_line
-        ),
-    )
+    let text = format!(
+        "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{}\n</system-reminder>",
+        archive.path, archive.sha256, earlier_line
+    );
+    let mut message = AgentMessage::sourced(Source::CompactExecutionRecovery, text.clone());
+    // Node writes this row as `{ role, meta, content }`; the key order is part of what the budget measures.
+    let row = serde_json::json!({ "role": "user", "meta": { "source": "compact-execution-recovery", "synthetic": true }, "content": text });
+    message.stored = row.as_object().cloned().map(std::sync::Arc::new);
+    message
 }
 
 /// Shrink levels, least evidence lost first. 1: large result bodies. 2: also

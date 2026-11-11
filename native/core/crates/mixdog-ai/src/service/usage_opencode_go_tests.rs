@@ -27,7 +27,7 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/opencode-go-usage/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/opencode-go-usage/golden.json");
 
 struct Body(Option<Bytes>);
 
@@ -82,7 +82,7 @@ fn without_fetched_at(mut snapshot: Value) -> Value {
 
 #[tokio::test]
 async fn the_status_read_is_nodes_get_usage_snapshot() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let now = golden["now"].as_u64().unwrap();
     let flows = golden["flows"].as_array().unwrap();
     assert!(flows.len() >= 30);

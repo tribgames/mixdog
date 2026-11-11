@@ -180,7 +180,7 @@ pub(crate) fn within_priority(entry: &Value, max: Priority) -> bool {
     rank <= ceiling
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[test]
 fn a_next_drain_leaves_later_entries_queued() {
     let entry = |priority: Option<&str>| match priority {
@@ -276,6 +276,17 @@ pub(crate) enum ProducerMsg {
         turn: TurnId,
         replacement: Vec<(ItemId, Value)>,
         ack: oneshot::Sender<Result<(), RunError>>,
+    },
+    /// The pre-send compaction's Goal reminder (`markPendingGoalReminder(session, 'compaction')` and
+    /// `snapshotPendingGoalReminder`); a `preview` prices it on a copy of the header and changes nothing.
+    GoalReminder {
+        turn: TurnId,
+        preview: bool,
+        reply: oneshot::Sender<Option<super::goal_reminder::GoalReminder>>,
+    },
+    /// `acknowledgePendingGoalReminder(session, revision)` of a pre-send compaction.
+    GoalReminderAcknowledged {
+        revision: u64,
     },
     /// The turn's prompt goes back to the composer (`finalizeInterruptedTurn` rewound it): the rewind record.
     PromptRewound {
@@ -461,6 +472,18 @@ impl RunPort {
     pub async fn save_header(&self, change: mixdog_store::schema::record::HeaderChange) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
         self.call(ProducerMsg::Header { turn: self.turn.clone(), change, ack }, rx).await?
+    }
+
+    /// The Goal reminder a pre-send compaction gives the kept latest request: the session's pending reminder is
+    /// marked for the compaction and read (`compactBeforeSend`), or for a `preview` only read as it would be.
+    pub async fn compaction_goal_reminder(&self, preview: bool) -> Result<Option<super::goal_reminder::GoalReminder>, RunError> {
+        let (reply, rx) = oneshot::channel();
+        self.call(ProducerMsg::GoalReminder { turn: self.turn.clone(), preview, reply }, rx).await
+    }
+
+    /// Clears the session's pending Goal reminder if `revision` is still the pending one: the compaction carried it.
+    pub async fn acknowledge_goal_reminder(&self, revision: u64) -> Result<(), RunError> {
+        self.send(ProducerMsg::GoalReminderAcknowledged { revision }).await
     }
 
     /// The port for what closes a cancelled run (`finalizeCancelledTurn` saves after the abort): the same

@@ -487,6 +487,9 @@ pub struct CompactRequest<'a> {
     /// progress gets the active-turn continuation. A manual or handoff pass between turns
     /// (`runHandoffCompaction`) passes none.
     pub active_turn: bool,
+    /// Node `goalReminderText` (`latestUserPrefix`): the session's Goal and open todo snapshot the
+    /// kept latest request carries; empty for none.
+    pub latest_user_prefix: &'a str,
 }
 
 pub struct CompactOutput {
@@ -516,6 +519,16 @@ pub enum CompactError {
     /// The pass was cancelled; the run ends as aborted, not as a failed compaction.
     Aborted,
     Failed(String),
+    /// The summary failed on a route the plan resolved (Node's `error.compactRoute`): the failure
+    /// names that route's provider and model, which need not be the conversation's.
+    RouteFailed(String, CompactRoute),
+}
+
+/// The provider and model of the summary route a compaction failed on.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CompactRoute {
+    pub provider: String,
+    pub model: String,
 }
 
 /// The compaction pipeline (rules and summary). The loop owns when it runs and

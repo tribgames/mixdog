@@ -43,7 +43,7 @@ impl LiveControls for Controls {
 }
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-service-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-service-twin.json")).unwrap()
 }
 
 const KNOWN: [&str; 5] = ["openai", "openai-oauth", "anthropic", "anthropic-oauth", "gemini"];
@@ -238,7 +238,7 @@ fn options(case: &Value) -> SetRouteOptions {
 async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
     let thread = ThreadId::from("t");
     let refusals: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-model-refusals.json")).unwrap();
-    let recorded: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/model-list-service-twin.json")).unwrap();
+    let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-list-service-twin.json")).unwrap();
     // Catalogs whose every listed model sits under a Developer-gated provider (recorded with the
     // option off, so none is available) and catalogs Node answered rows for.
     let (mut unavailable, mut listed) = (0, 0);
