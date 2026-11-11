@@ -1,0 +1,3620 @@
+{
+  "set": "provider-custom-reasoning",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "snapping-table",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:32",
+      "input": {
+        "cases": [
+          [
+            [
+              "low",
+              "medium",
+              "high"
+            ],
+            "medium"
+          ],
+          [
+            [
+              "low",
+              "medium",
+              "high"
+            ],
+            "max"
+          ],
+          [
+            [
+              "low",
+              "medium",
+              "high"
+            ],
+            "xhigh"
+          ],
+          [
+            [
+              "low",
+              "medium",
+              "high"
+            ],
+            "ultra"
+          ],
+          [
+            [
+              "low",
+              "medium",
+              "high"
+            ],
+            "minimal"
+          ],
+          [
+            [
+              "low",
+              "medium",
+              "high"
+            ],
+            "none"
+          ],
+          [
+            [
+              "none",
+              "low",
+              "high"
+            ],
+            "none"
+          ],
+          [
+            [
+              "none",
+              "low",
+              "high"
+            ],
+            "medium"
+          ],
+          [
+            [
+              "none",
+              "low",
+              "high"
+            ],
+            "minimal"
+          ],
+          [
+            [
+              "none",
+              "high"
+            ],
+            "low"
+          ],
+          [
+            [
+              "high",
+              "max"
+            ],
+            "low"
+          ],
+          [
+            [
+              "high",
+              "max"
+            ],
+            "xhigh"
+          ],
+          [
+            [
+              "high",
+              "max"
+            ],
+            "ultra"
+          ],
+          [
+            [
+              "minimal",
+              "max"
+            ],
+            "high"
+          ],
+          [
+            [
+              "max"
+            ],
+            "max"
+          ],
+          [
+            [
+              "ultra"
+            ],
+            "max"
+          ],
+          [
+            [
+              "none"
+            ],
+            "high"
+          ],
+          [
+            [
+              "none"
+            ],
+            "none"
+          ],
+          [
+            [],
+            "high"
+          ],
+          [
+            null,
+            "high"
+          ],
+          [
+            [
+              "low",
+              "high"
+            ],
+            null
+          ],
+          [
+            [
+              "low",
+              "high"
+            ],
+            ""
+          ],
+          [
+            [
+              "low",
+              "high"
+            ],
+            "auto"
+          ],
+          [
+            [
+              "low",
+              "high"
+            ],
+            "bogus"
+          ]
+        ],
+        "levels": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "result": {
+        "table": [
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "requested": "medium",
+            "snapped": "medium",
+            "resolvedLevel": "medium"
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "requested": "max",
+            "snapped": "high",
+            "resolvedLevel": "high"
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "requested": "xhigh",
+            "snapped": "high",
+            "resolvedLevel": "high"
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "requested": "ultra",
+            "snapped": "high",
+            "resolvedLevel": "high"
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "requested": "minimal",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "requested": "none",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high"
+            ],
+            "requested": "none",
+            "snapped": "none",
+            "resolvedLevel": "none"
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high"
+            ],
+            "requested": "medium",
+            "snapped": "low",
+            "resolvedLevel": "low"
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high"
+            ],
+            "requested": "minimal",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "none",
+              "high"
+            ],
+            "requested": "low",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "high",
+              "max"
+            ],
+            "requested": "low",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "high",
+              "max"
+            ],
+            "requested": "xhigh",
+            "snapped": "high",
+            "resolvedLevel": "high"
+          },
+          {
+            "supported": [
+              "high",
+              "max"
+            ],
+            "requested": "ultra",
+            "snapped": "max",
+            "resolvedLevel": "max"
+          },
+          {
+            "supported": [
+              "minimal",
+              "max"
+            ],
+            "requested": "high",
+            "snapped": "minimal",
+            "resolvedLevel": "minimal"
+          },
+          {
+            "supported": [
+              "max"
+            ],
+            "requested": "max",
+            "snapped": "max",
+            "resolvedLevel": "max"
+          },
+          {
+            "supported": [
+              "ultra"
+            ],
+            "requested": "max",
+            "snapped": "max",
+            "resolvedLevel": "max"
+          },
+          {
+            "supported": [
+              "none"
+            ],
+            "requested": "high",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "none"
+            ],
+            "requested": "none",
+            "snapped": "none",
+            "resolvedLevel": "none"
+          },
+          {
+            "supported": [],
+            "requested": "high",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": null,
+            "requested": "high",
+            "snapped": null
+          },
+          {
+            "supported": [
+              "low",
+              "high"
+            ],
+            "requested": null,
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "low",
+              "high"
+            ],
+            "requested": "",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "low",
+              "high"
+            ],
+            "requested": "auto",
+            "snapped": null,
+            "resolvedLevel": null
+          },
+          {
+            "supported": [
+              "low",
+              "high"
+            ],
+            "requested": "bogus",
+            "snapped": null,
+            "resolvedLevel": null
+          }
+        ],
+        "exhaustive": [
+          {
+            "supported": [],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "supported": [
+              "none"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "supported": [
+              "minimal"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal"
+            ]
+          },
+          {
+            "supported": [
+              "low"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "low",
+              "low",
+              "low"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "low",
+              "low",
+              "low"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "low",
+              "low"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "low",
+              "low"
+            ]
+          },
+          {
+            "supported": [
+              "medium"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "medium"
+            ]
+          },
+          {
+            "supported": [
+              "high"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "high"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "high"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "high"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "high",
+              "high"
+            ]
+          },
+          {
+            "supported": [
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              null,
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "xhigh"
+            ]
+          },
+          {
+            "supported": [
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              null,
+              null,
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "low",
+              "low",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "low",
+              "low",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "low",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "low",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "medium",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "high",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              null,
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "minimal",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "low",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "medium",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              null,
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              null,
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "minimal",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "low",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              null,
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              null,
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "minimal",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              null,
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              null,
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              null,
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          },
+          {
+            "supported": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "snapped": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "levels-and-unknown",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:96",
+      "input": {},
+      "result": {
+        "optionsWin": [
+          "low",
+          "high"
+        ],
+        "legacy": [
+          "none",
+          "max"
+        ],
+        "empty": [],
+        "missing": null,
+        "noRow": {
+          "level": null,
+          "fields": {},
+          "thinking": null,
+          "replay": false
+        },
+        "unset": {
+          "level": null,
+          "fields": {},
+          "thinking": null,
+          "replay": false
+        }
+      }
+    },
+    {
+      "id": "wire-values-after-snapping",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:112",
+      "input": {},
+      "result": {
+        "max": {
+          "level": "high",
+          "fields": {
+            "reasoning_effort": "HIGH_WIRE"
+          },
+          "thinking": "on",
+          "replay": false
+        },
+        "medium": {
+          "level": "low",
+          "fields": {
+            "reasoning_effort": "low"
+          },
+          "thinking": "on",
+          "replay": false
+        }
+      }
+    },
+    {
+      "id": "protocol-and-wire-format",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:121",
+      "input": {},
+      "result": {
+        "chatHigh": {
+          "level": "high",
+          "fields": {
+            "reasoning_effort": "high"
+          },
+          "thinking": "on",
+          "replay": false
+        },
+        "chatNone": {
+          "level": "none",
+          "fields": {
+            "reasoning_effort": "none"
+          },
+          "thinking": "off",
+          "replay": false
+        },
+        "dsHigh": {
+          "level": "high",
+          "fields": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          },
+          "thinking": "on",
+          "replay": false
+        },
+        "dsNone": {
+          "level": "none",
+          "fields": {
+            "thinking": {
+              "type": "disabled"
+            }
+          },
+          "thinking": "off",
+          "replay": false
+        },
+        "responsesLow": {
+          "level": "low",
+          "fields": {
+            "reasoning": {
+              "effort": "low"
+            }
+          },
+          "thinking": "on",
+          "replay": false
+        },
+        "anthropicHigh": {
+          "level": "high",
+          "fields": {
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "high"
+            }
+          },
+          "thinking": "on",
+          "replay": false
+        },
+        "anthropicNone": {
+          "level": "none",
+          "fields": {
+            "thinking": {
+              "type": "disabled"
+            }
+          },
+          "thinking": "off",
+          "replay": false
+        },
+        "dsOnResponses": {
+          "level": null,
+          "fields": {},
+          "thinking": null,
+          "replay": false
+        },
+        "dsOnAnthropic": {
+          "level": null,
+          "fields": {},
+          "thinking": null,
+          "replay": false
+        }
+      }
+    },
+    {
+      "id": "together-and-vllm-flags",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:171",
+      "input": {},
+      "result": {
+        "togetherFormat": "together",
+        "otherHostFormat": "standard",
+        "deepseekOnTogether": "deepseek",
+        "hybridNone": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "hybridHigh": {
+          "reasoning_effort": "high",
+          "reasoning": {
+            "enabled": true
+          }
+        },
+        "effortOnly": {
+          "reasoning_effort": "medium"
+        },
+        "otherHost": {
+          "reasoning_effort": "high"
+        },
+        "responsesOnTogether": {
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "vllmNone": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "vllmHigh": {
+          "chat_template_kwargs": {
+            "enable_thinking": true
+          },
+          "reasoning_effort": "high"
+        },
+        "vllmAnthropic": {}
+      }
+    },
+    {
+      "id": "replay-eligibility",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:179",
+      "input": {},
+      "result": {
+        "high": true,
+        "unset": true,
+        "none": false,
+        "deepseekReasonerId": true,
+        "responses": false,
+        "explicitFalse": false
+      }
+    },
+    {
+      "id": "toOpenAIMessages-custom-replay",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:221",
+      "input": {
+        "history": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "t",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c1",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "reasoningContent": "",
+            "toolCalls": [
+              {
+                "id": "c2",
+                "name": "t",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c2",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "reasoningContent": "thought",
+            "toolCalls": [
+              {
+                "id": "c3",
+                "name": "t",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c3",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "assistant",
+            "content": "done2",
+            "reasoningContent": ""
+          }
+        ]
+      },
+      "result": {
+        "customReplay": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": " "
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c2",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": " "
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c2",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c3",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": "thought"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c3",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "assistant",
+            "content": "done2"
+          }
+        ],
+        "explicitFalseWins": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c2",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c2",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c3",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c3",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "assistant",
+            "content": "done2"
+          }
+        ],
+        "deepseekExact": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c2",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": ""
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c2",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c3",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": "thought"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c3",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "assistant",
+            "content": "done2",
+            "reasoning_content": ""
+          }
+        ],
+        "xai": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c1",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c2",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": ""
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c2",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "c3",
+                "type": "function",
+                "function": {
+                  "name": "t",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": "thought"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "c3",
+            "content": "ok"
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          },
+          {
+            "role": "assistant",
+            "content": "done2",
+            "reasoning_content": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "chat-options",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:266",
+      "input": {},
+      "result": {
+        "customXhigh": {
+          "model": "m1",
+          "thinking": {
+            "type": "enabled"
+          },
+          "reasoning_effort": "high"
+        },
+        "customMinimal": {
+          "model": "m1"
+        },
+        "customNoRow": {
+          "model": "m1"
+        },
+        "deepseek": {
+          "model": "x",
+          "thinking": {
+            "type": "enabled"
+          },
+          "reasoning_effort": "high"
+        },
+        "openrouter": {
+          "model": "x",
+          "reasoning": {
+            "enabled": false
+          }
+        }
+      }
+    },
+    {
+      "id": "sendCompatChat-custom-row-and-padding",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:329",
+      "input": {
+        "history": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "t",
+                "arguments": {}
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "c1",
+            "content": "ok"
+          }
+        ]
+      },
+      "result": {
+        "info": {
+          "id": "m1",
+          "provider": "custom-x",
+          "hidden": false,
+          "manual": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none",
+                "high"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "none",
+            "high"
+          ],
+          "customReasoning": {
+            "wireFormat": "deepseek",
+            "wireValues": {},
+            "replay": true
+          }
+        },
+        "on": {
+          "content": "done",
+          "model": "m1",
+          "stopReason": "stop",
+          "reasoningContent": "r",
+          "generationMs": 0
+        },
+        "onRequests": [
+          {
+            "method": "POST",
+            "origin": "https://custom.invalid",
+            "path": "/v1/chat/completions",
+            "headers": {
+              "host": "custom.invalid",
+              "connection": "keep-alive",
+              "accept": "application/json",
+              "user-agent": "OpenAI/JS 6.49.0",
+              "x-stainless-retry-count": "0",
+              "x-stainless-lang": "js",
+              "x-stainless-package-version": "6.49.0",
+              "x-stainless-os": "Windows",
+              "x-stainless-arch": "x64",
+              "x-stainless-runtime": "node",
+              "x-stainless-runtime-version": "v22.20.0",
+              "authorization": "Bearer fixture",
+              "content-type": "application/json",
+              "accept-language": "*",
+              "sec-fetch-mode": "cors",
+              "accept-encoding": "gzip, deflate",
+              "content-length": "365"
+            },
+            "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"go\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"t\",\"arguments\":\"{}\"}}],\"reasoning_content\":\" \"},{\"role\":\"tool\",\"tool_call_id\":\"c1\",\"content\":\"ok\"}],\"thinking\":{\"type\":\"enabled\"},\"reasoning_effort\":\"high\",\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\",\"reasoning_content\":\"r\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+            }
+          }
+        ],
+        "off": {
+          "content": "done",
+          "model": "m1",
+          "stopReason": "stop",
+          "generationMs": 0
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://custom.invalid",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "custom.invalid",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer fixture",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "316"
+          },
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"go\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"t\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"c1\",\"content\":\"ok\"}],\"thinking\":{\"type\":\"disabled\"},\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\",\"reasoning_content\":\"r\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "sendCompatResponses-snaps-without-promotion",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:354",
+      "input": {},
+      "result": {
+        "info": {
+          "id": "m1",
+          "provider": "custom-x",
+          "hidden": false,
+          "manual": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "high",
+            "max"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {
+              "max": "ultra-wire"
+            },
+            "replay": false
+          }
+        },
+        "ultra": {
+          "content": "done",
+          "model": "m1",
+          "stopReason": null,
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-r",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "done"
+                  }
+                ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "resp",
+              "store": false,
+              "owner": "compat-responses:custom-r",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 1,
+              "model": "m1",
+              "updatedAt": 1794225600000
+            }
+          }
+        },
+        "ultraRequests": [
+          {
+            "method": "POST",
+            "origin": "https://custom.invalid",
+            "path": "/v1/responses",
+            "headers": {
+              "host": "custom.invalid",
+              "connection": "keep-alive",
+              "accept": "application/json",
+              "user-agent": "OpenAI/JS 6.49.0",
+              "x-stainless-retry-count": "0",
+              "x-stainless-lang": "js",
+              "x-stainless-package-version": "6.49.0",
+              "x-stainless-os": "Windows",
+              "x-stainless-arch": "x64",
+              "x-stainless-runtime": "node",
+              "x-stainless-runtime-version": "v22.20.0",
+              "authorization": "Bearer fixture",
+              "content-type": "application/json",
+              "accept-language": "*",
+              "sec-fetch-mode": "cors",
+              "accept-encoding": "gzip, deflate",
+              "content-length": "192"
+            },
+            "body": "{\"model\":\"m1\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"reasoning\":{\"effort\":\"ultra-wire\"}}",
+            "reply": {
+              "status": 200,
+              "contentType": "text/event-stream",
+              "body": "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp\",\"model\":\"m1\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}]}}\n\n"
+            }
+          }
+        ],
+        "low": {
+          "content": "done",
+          "model": "m1",
+          "stopReason": null,
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-r",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "done"
+                  }
+                ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "resp",
+              "store": false,
+              "owner": "compat-responses:custom-r",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 1,
+              "model": "m1",
+              "updatedAt": 1794225600000
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://custom.invalid",
+          "path": "/v1/responses",
+          "headers": {
+            "host": "custom.invalid",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer fixture",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "156"
+          },
+          "body": "{\"model\":\"m1\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp\",\"model\":\"m1\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}]}}\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anthropic-custom-vs-first-party-isolated",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:364",
+      "input": {},
+      "result": {
+        "first": {
+          "params": {
+            "model": "claude-opus-5",
+            "max_tokens": 65536,
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hi",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "fallbacks": "default",
+            "output_config": {
+              "effort": "high"
+            },
+            "thinking": {
+              "type": "adaptive"
+            },
+            "stream": true
+          },
+          "requestHeaders": {
+            "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+          },
+          "betas": [
+            "interleaved-thinking-2025-05-14",
+            "effort-2025-11-24",
+            "server-side-fallback-2026-07-01"
+          ],
+          "knownToolNames": {
+            "set": []
+          },
+          "fastModeLatched": false
+        },
+        "custom": {
+          "params": {
+            "model": "claude-opus-5",
+            "max_tokens": 65536,
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hi",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "stream": true
+          },
+          "requestHeaders": null,
+          "betas": [],
+          "knownToolNames": {
+            "set": []
+          },
+          "fastModeLatched": false
+        },
+        "rich": {
+          "params": {
+            "model": "claude-opus-5",
+            "max_tokens": 65536,
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hi",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "x-wire"
+            },
+            "stream": true
+          },
+          "requestHeaders": {
+            "anthropic-beta": "effort-2025-11-24"
+          },
+          "betas": [
+            "effort-2025-11-24"
+          ],
+          "knownToolNames": {
+            "set": []
+          },
+          "fastModeLatched": false
+        },
+        "disabled": {
+          "params": {
+            "model": "claude-opus-5",
+            "max_tokens": 65536,
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hi",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "thinking": {
+              "type": "disabled"
+            },
+            "stream": true
+          },
+          "requestHeaders": null,
+          "betas": [],
+          "knownToolNames": {
+            "set": []
+          },
+          "fastModeLatched": false
+        },
+        "other": {
+          "params": {
+            "model": "glm-x",
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hi",
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  }
+                ]
+              }
+            ],
+            "thinking": {
+              "type": "adaptive"
+            },
+            "output_config": {
+              "effort": "high"
+            },
+            "stream": true
+          },
+          "requestHeaders": {
+            "anthropic-beta": "effort-2025-11-24"
+          },
+          "betas": [
+            "effort-2025-11-24"
+          ],
+          "knownToolNames": {
+            "set": []
+          },
+          "fastModeLatched": false
+        }
+      }
+    },
+    {
+      "id": "effort-mjs-custom-rows-authoritative",
+      "source": "src/runtime/agent/orchestrator/providers/custom-reasoning.test.mjs:395",
+      "input": {},
+      "result": {
+        "customEmpty": [],
+        "customUnknown": [],
+        "customSorted": [
+          "low",
+          "high",
+          "max"
+        ],
+        "lowOnHighMax": null,
+        "xhighToHigh": "high",
+        "noneUnsupported": null,
+        "noneSupported": "none",
+        "firstPartyMinimal": "low",
+        "firstPartyOptions": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      }
+    }
+  ]
+}
