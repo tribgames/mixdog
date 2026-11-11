@@ -17,8 +17,8 @@
 //!
 //! Node's schedule and webhook row stores were in-memory rows in the recording; here they are the
 //! same rows behind [`RoutineRecords`]. "The user wrote to her" is her thread's user turn. The
-//! comparison is whole, but for `profileFilesAfter` (Node's per-check state file names, declared in the
-//! manifest).
+//! comparison is whole; `profileFilesAfter` is compared in Node's names, leaving out only the core-only files
+//! the manifest declares by name.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -295,8 +295,9 @@ struct Profile {
     directory: Arc<SessionDirectory>,
     /// The Maintainer's providers (a first check never asks them).
     summaries: Arc<SummaryServices>,
-    /// The per-check state files (Node's `fresh(dataDir, name)`).
-    checks: std::sync::atomic::AtomicUsize,
+    /// The per-check state files (Node's `fresh(dataDir, name)`), numbered across the whole run as the recorder's
+    /// module-wide counter numbers them: the same names reach the heartbeat and the queue.
+    checks: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 fn node_manifest(manifest: &Value) -> String {
@@ -304,7 +305,7 @@ fn node_manifest(manifest: &Value) -> String {
 }
 
 /// The recorder's `profile(setup)` (and the bot store split), imported as the core imports a 1.4.5 profile.
-async fn profile(setup: &Value, split: bool, now: i64) -> Profile {
+async fn profile(setup: &Value, split: bool, now: i64, checks: Arc<std::sync::atomic::AtomicUsize>) -> Profile {
     let dir = tempfile::tempdir().expect("temp dir");
     let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
     let data = roots.data.clone();
@@ -375,7 +376,7 @@ async fn profile(setup: &Value, split: bool, now: i64) -> Profile {
         desktop,
         directory,
         summaries,
-        checks: std::sync::atomic::AtomicUsize::new(0),
+        checks,
     }
 }
 
@@ -470,6 +471,11 @@ impl Profile {
         json!({"heartbeat": heartbeat, "routines": routines, "reports": reports, "desktop": desktop, "desktopAgain": desktop_again, "heartbeatAfter": self.heartbeat().await})
     }
 
+    /// `profileFiles(dataDir)`: every file of the data dir, in the recorder's order.
+    fn profile_files(&self) -> Value {
+        json!(crate::run_host::fixture_fs::list_files(&self.data))
+    }
+
     /// `manifestOf(dataDir)`: `agents/lead/agent.json` parsed, `null` when absent.
     fn lead_manifest(&self) -> Value {
         let path = self.data.join("agents").join("lead").join("agent.json");
@@ -505,13 +511,39 @@ impl Profile {
     }
 }
 
-/// The recorded observation with the manifest's declaration applied: `profileFilesAfter` is not
-/// compared. Every file it lists but the lead manifest is the recorder's own (the state paths it
-/// hands the heartbeat and the queue, named by its call counter,
-/// `record-mixy-presence-cases.mjs:56-59, :63`, and the input thread it writes, `:48-49, :119`);
-/// the lead manifest is compared whole as `leadManifestAfter`, absent included (`:75`).
-fn expected(observed: &Exact) -> Exact {
-    Exact::Object(observed.entries().iter().filter(|(key, _)| key != "profileFilesAfter").cloned().collect())
+/// Files of the data dir the core keeps and Node's profile has no counterpart of, declared by name in the manifest
+/// (`replay.declared["cases[*].observed.profileFilesAfter"]`): left out of the core's list, nothing else is.
+const CORE_ONLY_FILES: &[&str] = &[
+    "index\\store.sqlite",
+    "index\\store.sqlite-shm",
+    "index\\store.sqlite-wal",
+    "migration\\complete.json",
+    "migration\\journal.000000",
+    "migration\\manifest.json",
+];
+
+/// `profileFiles(dataDir)` of the core's profile in Node's names: [`CORE_ONLY_FILES`] left out, and a session's
+/// directory (`sessions\<id>\log.<n>`) as Node's one session file `sessions\<id>.json`, one level up in the walk.
+fn profile_files_after(p: &Profile) -> Value {
+    let Value::Array(files) = p.profile_files() else { unreachable!() };
+    let mut named: Vec<String> = Vec::new();
+    for file in files {
+        let file = file.as_str().unwrap();
+        if CORE_ONLY_FILES.contains(&file) {
+            continue;
+        }
+        let parts: Vec<&str> = file.split('\\').collect();
+        let file = match parts.as_slice() {
+            ["sessions", id, log] if log.starts_with("log.") => format!("sessions\\{id}.json"),
+            _ => file.to_owned(),
+        };
+        if !named.contains(&file) {
+            named.push(file);
+        }
+    }
+    // readdir's recursive walk is breadth first: a file one level up comes before every deeper one.
+    named.sort_by_key(|file| file.matches('\\').count());
+    json!(named)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -523,18 +555,19 @@ async fn every_mixy_presence_case_gives_one_answer_through_the_core_readers() {
     // The recorder's `botSchedule`, which replaces her routine mid-case.
     let bot_schedule = json!({"name": "pr-watch", "ownerAgentId": "reviewer", "enabled": true});
     let mut failures = Vec::new();
+    let checks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     for case in cases {
         let name = case.get("case").as_str();
         let recorded = case.get("observed");
         let observed = if name.starts_with("one answer everywhere: ") {
             let setup = recorded.get("setup").to_plain().unwrap();
-            let p = profile(&setup, false, now).await;
+            let p = profile(&setup, false, now, checks.clone()).await;
             let answers = p.answers().await;
-            json!({"setup": setup, "answers": answers, "leadManifestAfter": p.lead_manifest()})
+            json!({"setup": setup, "answers": answers, "leadManifestAfter": p.lead_manifest(), "profileFilesAfter": profile_files_after(&p)})
         } else if name.starts_with("a legacy Mixy with routines stays visible") {
             let setup = recorded.get("setup").to_plain().unwrap();
             let split = recorded.get("botStoreSplit").as_bool();
-            let p = profile(&setup, split, now).await;
+            let p = profile(&setup, split, now, checks.clone()).await;
             let with_routine = p.answers().await;
             let status = p.status().await;
             *p.rows.schedules.lock().unwrap() = states(&json!([bot_schedule]));
@@ -542,7 +575,7 @@ async fn every_mixy_presence_case_gives_one_answer_through_the_core_readers() {
             json!({"setup": setup, "botStoreSplit": split, "withRoutine": with_routine, "status": status, "leadManifestAfter": manifest, "withoutHerRoutine": p.answers().await})
         } else if name == "an undecided profile is decided once by the desktop, and the decision changes no answer" {
             let thread = recorded.get("thread").to_plain().unwrap();
-            let p = profile(&json!({"thread": thread}), false, now).await;
+            let p = profile(&json!({"thread": thread}), false, now, checks.clone()).await;
             let mut log = vec![json!({"step": "undecided", "status": p.status().await})];
             log.push(json!({"step": "desktop shows", "shows": p.desktop().await}));
             let status = p.status().await;
@@ -556,7 +589,7 @@ async fn every_mixy_presence_case_gives_one_answer_through_the_core_readers() {
         } else {
             panic!("no replay for {name:?}")
         };
-        let (got, want) = (Exact::plain(&observed), expected(recorded));
+        let (got, want) = (Exact::plain(&observed), recorded.clone());
         if got != want {
             failures.push(format!("{name}\n  core: {}\n  node: {}", serde_json::to_string(&observed).unwrap(), serde_json::to_string(&want.to_plain().unwrap()).unwrap()));
         }
