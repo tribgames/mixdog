@@ -5,15 +5,16 @@
 // The compactor is a scripted endpoint: every call it receives is recorded.
 //
 //   node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <dir>
-import { createHash } from 'node:crypto';
-import { outcome, runSessionRecorder } from './lib/session-rec.mjs';
+import { exact, exactArgs } from './lib/exact.mjs';
+import { outcomeExact as outcome, runSessionRecorder } from './lib/session-rec.mjs';
 
 await runSessionRecorder(import.meta.url, {
   set: 'session-route-state',
   testFile: 'src/session-runtime/session-lifecycle.test.mjs',
   entry: 'Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file\'s inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).',
   replay: 'mixdog-core-session route state (S/state.rs resolve of effort/fast/context percent against model metadata) and the thread inheritance preflight/carry: feed each case\'s inputs (CONVERSATION expanded from its repeat spec) and compare every output, thrown message and compactor call (budgetTokens, threshold, copy-not-source) whole and in order.',
-  exclusions: ['carried messages over 200 characters are recorded as {length, sha256}; CONVERSATION strings are stored as {role, repeat:[text,count]} specs to keep the fixture small; the replay expands them (content = text repeated count times)'],
+  values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
+  exclusions: ['no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it'],
 }, async ({ imp }) => {
   const { makeResolveRoute } = await imp('src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs');
   const { resolveRouteContextState, resolveRouteEffortState } = await imp('src/session-runtime/session-lifecycle.mjs');
@@ -23,7 +24,10 @@ await runSessionRecorder(import.meta.url, {
   const { saveModelSettings } = await imp('src/runtime/agent/orchestrator/runtime-core/model-capabilities.mjs');
 
   const cases = [];
-  const add = (name, line, input, result) => cases.push({ name, testLine: line, input, result });
+  // Input and result are encoded here, right after the case computed them.
+  const FIXED_NOW = 1_700_000_000_000; // the inheritance record stamps Date.now(): a recorded input, fixed here
+  Date.now = () => FIXED_NOW;
+  const add = (name, line, input, result) => cases.push({ name, testLine: line, input: exact({ ...input, clock: { 'Date.now()': FIXED_NOW } }), result: exact(result) });
 
   // 1 placeholder metadata keeps a saved Fast setting
   {
@@ -36,7 +40,7 @@ await runSessionRecorder(import.meta.url, {
     ];
     const results = metas.map((meta) => {
       const fastCapable = selectionFastCapable(route.provider, meta, route.effort, {});
-      const saved = saveModelSettings(null, route, { fastCapable, baseConfig }).modelSettings['openai-oauth/gpt-6-astra'];
+      const saved = exact(saveModelSettings(null, route, { fastCapable, baseConfig }).modelSettings['openai-oauth/gpt-6-astra']);
       return { fastCapable, saved };
     });
     add('placeholder-metadata-keeps-saved-fast', 10, { route, baseConfig, metas }, results);
@@ -82,7 +86,7 @@ await runSessionRecorder(import.meta.url, {
     ];
     const results = inputs.map((route) => {
       const before = lookups.length;
-      const state = resolveRouteContextState(route, placeholder(route), windowLookup);
+      const state = exact(resolveRouteContextState(route, placeholder(route), windowLookup));
       return { route, meta: placeholder(route), state, lookups: lookups.slice(before) };
     });
     add('placeholder-model-meta-resolves-selected-window-from-catalog', 149, { table }, results);
@@ -93,17 +97,15 @@ await runSessionRecorder(import.meta.url, {
     const resolveRoute = makeResolveRoute(() => 'cursor-oauth');
     const config = { modelSettings: { 'cursor-oauth/gpt-5.4': { contextPercent: null } } };
     const route = { provider: 'cursor-oauth', model: 'gpt-5.4' };
-    add('cleared-context-percent-is-model-default-intent', 229, { config, route, defaultProvider: 'cursor-oauth' }, resolveRoute(config, route).contextPercent ?? null);
+    add('cleared-context-percent-is-model-default-intent', 229, { config, route, defaultProvider: 'cursor-oauth' }, resolveRoute(config, route).contextPercent);
   }
 
   // inheritance
-  const CONVERSATION_SPEC = [
+  const CONVERSATION = [
     { role: 'system', content: 'source instructions' },
-    { role: 'user', repeat: ['carry this conversation ', 6000] },
-    { role: 'assistant', repeat: ['understood ', 200] },
+    { role: 'user', content: 'carry this conversation '.repeat(6000) },
+    { role: 'assistant', content: 'understood '.repeat(200) },
   ];
-  const expand = (spec) => spec.map(({ role, content, repeat }) => ({ role, content: repeat ? repeat[0].repeat(repeat[1]) : content }));
-  const CONVERSATION = expand(CONVERSATION_SPEC);
 
   {
     const heir = (overrides = {}) => ({
@@ -116,8 +118,8 @@ await runSessionRecorder(import.meta.url, {
       ['tight-heir', heir({ contextWindow: 10_000, compactBoundaryTokens: 10_000 })],
       ['unmeasurable-route', { provider: 'openai-oauth', model: 'gpt-6-astra' }],
     ];
-    add('inheritance-fit-is-judged-on-the-heir-route', 255, { conversation: CONVERSATION_SPEC, variants },
-      variants.map(([label, route]) => ({ label, fit: inheritanceFit(CONVERSATION, route) })));
+    add('inheritance-fit-is-judged-on-the-heir-route', 255, { conversation: CONVERSATION, variants },
+      variants.map(([label, route]) => ({ label, fit: exact(inheritanceFit(CONVERSATION, route)) })));
   }
 
   const source = () => ({ id: 'source', provider: 'openai-oauth', model: 'gpt-6-astra', messages: CONVERSATION });
@@ -130,14 +132,12 @@ await runSessionRecorder(import.meta.url, {
       getRoute: () => route,
       mgr: { getSession: (id) => (id === src.id ? src : null) },
       invalidateContextStatusCache() {},
-      saveSession(...args) { saves.push(args.length); },
+      saveSession(...args) { saves.push(exactArgs(args)); },
       ...(compactConversation ? { compactConversation } : {}),
     });
     return { api, target, route, saves };
   };
-  // A long carried message is recorded by length and sha256 of its text (the replay expands the same spec).
-  const contents = (messages) => messages.map(({ content }) => (content.length < 200 ? content : { length: content.length, sha256: createHash('sha256').update(content).digest('hex') }));
-  const shape = (target) => ({ target: { messages: contents(target.messages), keys: Object.keys(target).sort() } });
+  const shape = (target) => ({ target: exact(target) });
 
   // 9 preflight is the same verdict the carry reaches
   {
@@ -146,26 +146,26 @@ await runSessionRecorder(import.meta.url, {
       const src = source();
       const calls = [];
       const h = open(src, 20_000, async ({ budgetTokens, session }) => {
-        calls.push({ budgetTokens, isSource: session === src });
+        calls.push({ budgetTokens, isSource: session === src, session: exact(session) });
         return { messages: [{ role: 'user', content: 'Compacted for the heir.' }] };
       });
-      const fit = h.api.inheritancePreflight(src.id, h.route);
+      const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.compacting = { fit, inherit: await outcome(() => h.api.inheritFrom(src.id)), calls, ...shape(h.target), saves: h.saves };
     }
     {
       const src = source();
       const calls = [];
-      const h = open(src, 20_000, async (args) => { calls.push(Object.keys(args).sort()); return { messages: [] }; });
-      const fit = h.api.inheritancePreflight(src.id, h.route);
+      const h = open(src, 20_000, async (args) => { calls.push(exact(args)); return { messages: [] }; });
+      const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.emptyCompaction = { fit, first: await outcome(() => h.api.inheritFrom(src.id)), second: await outcome(() => h.api.inheritFrom(src.id)), calls, ...shape(h.target), saves: h.saves };
     }
     {
       const src = source();
       const h = open(src, 500_000);
-      const fit = h.api.inheritancePreflight(src.id, h.route);
+      const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.accepted = { fit, inherit: await outcome(() => h.api.inheritFrom(src.id)), ...shape(h.target), saves: h.saves };
     }
-    add('inheritance-preflight-is-the-verdict-the-carry-reaches', 306, { conversation: CONVERSATION_SPEC, heirRoute: { provider: 'anthropic-oauth', model: 'claude-opus-5' }, windows: [20_000, 20_000, 500_000] }, out);
+    add('inheritance-preflight-is-the-verdict-the-carry-reaches', 306, { conversation: CONVERSATION, heirRoute: { provider: 'anthropic-oauth', model: 'claude-opus-5' }, windows: [20_000, 20_000, 500_000] }, out);
   }
 
   // 10 compact:true
@@ -175,19 +175,19 @@ await runSessionRecorder(import.meta.url, {
       const src = source();
       const calls = [];
       const h = open(src, 500_000, async ({ session }) => {
-        calls.push({ threshold: session.compaction?.conversationThresholdTokens ?? null, isSource: session === src, messages: session.messages.length });
+        calls.push({ session: exact(session), isSource: session === src });
         return { messages: [{ role: 'user', content: 'Summarized on request.' }] };
       });
-      out.preflight = h.api.inheritancePreflight(src.id, h.route);
-      out.compact = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), calls, sourceCompaction: src.compaction ?? null, ...shape(h.target) };
+      out.preflight = exact(h.api.inheritancePreflight(src.id, h.route));
+      out.compact = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), calls, sourceCompaction: exact(src.compaction), ...shape(h.target) };
     }
     out.default = [];
-    for (const options of [undefined, { compact: false }]) {
+    for (const args of [[], [{ compact: false }]]) {
       const src = source();
       let calls = 0;
       const h = open(src, 500_000, async () => { calls += 1; return { messages: [] }; });
-      const inherit = await outcome(() => h.api.inheritFrom(src.id, options));
-      out.default.push({ options: options ?? null, inherit, calls, expectedMessages: h.api.inheritancePreflight(src.id, h.route).messages, ...shape(h.target) });
+      const inherit = await outcome(() => h.api.inheritFrom(src.id, ...args));
+      out.default.push({ args: exactArgs(args), inherit, calls, expectedMessages: exact(h.api.inheritancePreflight(src.id, h.route).messages), ...shape(h.target) });
     }
     {
       const src = source();
@@ -199,7 +199,7 @@ await runSessionRecorder(import.meta.url, {
       const h = open(src, 500_000, async () => ({ messages: [] }));
       out.empty = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), ...shape(h.target) };
     }
-    add('compact-true-compacts-a-conversation-that-fits', 372, { conversation: CONVERSATION_SPEC, window: 500_000, compactor: { compact: 'returns one user message', failing: 'throws Error(compactor down)', empty: 'returns no messages' } }, out);
+    add('compact-true-compacts-a-conversation-that-fits', 372, { conversation: CONVERSATION, window: 500_000, compactor: { compact: 'returns one user message', failing: 'throws Error(compactor down)', empty: 'returns no messages' } }, out);
   }
 
   return { cases };

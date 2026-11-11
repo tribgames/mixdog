@@ -2,14 +2,14 @@
   "command": "node benchmarks/rust-core/recorders/record-session-route-state.mjs --tree <tree>",
   "entry": "Ran the product modules session-lifecycle.mjs (resolveRouteEffortState/resolveRouteContextState), route-state.mjs (selectionFastCapable), model-capabilities.mjs (saveModelSettings with a null path, in memory), config-helpers.mjs (makeResolveRoute), inheritance-fit.mjs and lifecycle-api.mjs (createLifecycleApi with a scripted session store and compactor) with the test file's inputs. Did not run createSessionLifecycle (timers: see warmup-schedulers) nor the real compactor (runHandoffCompaction).",
   "exclusions": [
-    "carried messages over 200 characters are recorded as {length, sha256}; CONVERSATION strings are stored as {role, repeat:[text,count]} specs to keep the fixture small; the replay expands them (content = text repeated count times)"
+    "no value is normalised: every message, route, state and compactor argument is recorded whole; Date.now() is fixed at 1700000000000 for the run (input.clock) because the inheritance record stamps it"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 23011,
+      "bytes": 1934721,
       "path": "recording.json",
-      "sha256": "892e7349b712f026d2e215e235b7bc13f381ab4c3484e6f8906c902859d5acb2"
+      "sha256": "ce1e34b30e834dfbc3cd1bd389b557045bb1287e54f2cfccc454b4be994651c9"
     }
   ],
   "inputs": [
@@ -18,12 +18,16 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -44,9 +48,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-route-state.mjs",
-  "recorderSha256": "5d4dbd1b318ac4cd10813837aae13a38c7ebc44afbe1db05aeda7b6b9dbf2286",
+  "recorderSha256": "68004988ad5b4b1ab709edd5d6de4a4b3c0d2bbb808b21ef6b2fb5c3aac4e514",
   "replay": "mixdog-core-session route state (S/state.rs resolve of effort/fast/context percent against model metadata) and the thread inheritance preflight/carry: feed each case's inputs (CONVERSATION expanded from its repeat spec) and compare every output, thrown message and compactor call (budgetTokens, threshold, copy-not-source) whole and in order.",
   "set": "session-route-state",
   "testFile": "src/session-runtime/session-lifecycle.test.mjs",
-  "totalBytes": 23011
+  "totalBytes": 1934721,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
