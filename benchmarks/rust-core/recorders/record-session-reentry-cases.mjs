@@ -194,7 +194,7 @@ await run('a replayed submission id joins the original instead of double-submitt
 });
 
 await set.finish({
-  entry: { runs: "apps/desktop/src/main/session-host.ts SessionHost (setVisibleSessions, submitToSession, prefetchSession, subscribeSessionStates) over the real createSessionService (idle eviction sweep, handleCall session.*) with a scripted stored session and runtime, node:test mock timers, the read-diagnostics sink", notRun: 'no real runtime or store; the daemon client is the service called in-process' },
+  entry: { hops: "No wire in the Node test: the daemon client is the real session service called in process (handleCall).", runs: "apps/desktop/src/main/session-host.ts SessionHost (setVisibleSessions, submitToSession, prefetchSession, subscribeSessionStates) over the real createSessionService (idle eviction sweep, handleCall session.*) with a scripted stored session and runtime, node:test mock timers, the read-diagnostics sink", notRun: 'no real runtime or store; the daemon client is the service called in-process' },
   replay: { entry: 'mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step', normalised: { dataDir: 'temp user-data dir not in the recording', clock: 'mock timers, not the shared fixed Date.now' } },
 });
 process.exit(0);
