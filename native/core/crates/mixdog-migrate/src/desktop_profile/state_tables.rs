@@ -177,7 +177,9 @@ fn open_state(data: &Path) -> Result<Connection, ApplyError> {
     connection
         .query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
         .map_err(blocked)?;
-    connection.pragma_update(None, "synchronous", "FULL").map_err(blocked)?;
+    connection
+        .pragma_update(None, "synchronous", mixdog_store::fsio::sqlite_synchronous())
+        .map_err(blocked)?;
     Ok(connection)
 }
 

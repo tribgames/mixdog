@@ -4,7 +4,7 @@ use mixdog_agent::result_kind::{ResultKind, classify_result_kind};
 /// `record-result-classification.mjs`): 13 tool names over 45 texts, plus a generated grid over every phrase of both navigation regexes (four letter cases, seven neighbours before and\n/// after) and over the error prefix (separators, openings, lead-ins), answered as Node answers them.
 #[test]
 fn the_returned_text_is_classified_as_nodes_classify_result_kind_classifies_it() {
-    let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/result-classification/golden.json")).unwrap();
+    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/result-classification/golden.json")).unwrap();
     let cases = golden["cases"].as_array().unwrap();
     assert!(cases.len() > 9000, "the recording is whole");
     for case in cases {

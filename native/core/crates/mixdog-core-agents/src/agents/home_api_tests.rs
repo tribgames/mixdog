@@ -27,9 +27,9 @@ use super::*;
 
 fn twin(rel: &str) -> Value {
     let text = match rel {
-        "desktop/settings/agent-home-api-twin.json" => include_str!("../../../../fixtures/desktop/settings/agent-home-api-twin.json"),
-        "agent-pool/pool-twin.json" => include_str!("../../../../fixtures/agent-pool/pool-twin.json"),
-        "section-producers/agent-pool.json" => include_str!("../../../../fixtures/section-producers/agent-pool.json"),
+        "desktop/settings/agent-home-api-twin.json" => mixdog_testkit::fixture!("../../fixtures/desktop/settings/agent-home-api-twin.json"),
+        "agent-pool/pool-twin.json" => mixdog_testkit::fixture!("../../fixtures/agent-pool/pool-twin.json"),
+        "section-producers/agent-pool.json" => mixdog_testkit::fixture!("../../fixtures/section-producers/agent-pool.json"),
         other => panic!("unknown twin {other}"),
     };
     serde_json::from_str(text).unwrap()

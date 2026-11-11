@@ -182,6 +182,11 @@ pub trait SideQuestions: Send + Sync {
     async fn send(&self, thread: &ThreadId, prompt: &str, tool_stub: &str, cancel: &CancellationToken) -> Result<SideReply, SideFailure>;
 }
 
+/// The stored transcripts of the copies of a session's conversation in other sessions (`offloadCopies`), serialized
+/// as `JSON.stringify` writes them: awaited by a prune only once an old sidecar the session itself does not keep
+/// remains. `None` (one cannot be read) deletes nothing.
+pub type OffloadCopies = futures::future::BoxFuture<'static, Option<String>>;
+
 /// The manual compaction of a session, as `session-ops.mjs` `compact` drives it: the host owns
 /// the compaction engine (`compactSessionMessages`) and the session's hooks, the session's actor
 /// owns the turn guard and the Goal reminder the compaction re-marks.
@@ -197,6 +202,13 @@ pub trait ManualCompaction: Send + Sync {
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
     /// `session.postCompactHook({ trigger })`, best-effort.
     async fn post_compact(&self, thread: &ThreadId, trigger: &str);
+    /// `pruneOffloadSession`'s listing, after a committed compaction: the session's tool-result sidecars old
+    /// enough to be pruned; none when there are none.
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf>;
+    /// The rest of `pruneOffloadSession`, run on the idle session's actor: of `candidates`, the sidecars that
+    /// `transcripts` (what the session holds, as `JSON.stringify` writes it) and `copies` no longer reach are deleted,
+    /// best-effort.
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies);
     /// `rearmLateDeferredTools` and `rearmPromptSettingsNotice`: the compaction dropped what the
     /// model was told, so the session tells it again.
     async fn rearm(&self, thread: &ThreadId);

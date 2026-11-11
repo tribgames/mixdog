@@ -212,7 +212,7 @@ async fn run<S: SectionSource>(
         drop(live);
         if ready {
             if let Some(began) = stamp {
-                tokio::time::sleep_until(began + interval).await;
+                mixdog_rt::time::sleep_until(began + interval).await;
             }
             let Some(live) = source.upgrade() else { return };
             // Whatever was signalled while waiting is in this read, too.
@@ -235,7 +235,8 @@ async fn run<S: SectionSource>(
 }
 
 /// A push into a recording publisher, for tests of the ledger's other behaviour.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
+#[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
 pub(crate) fn recording_push() -> UsagePush {
     UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| chrono::Utc::now().timestamp_millis()))
 }

@@ -52,7 +52,7 @@ impl ControlRequests {
             self.pending().remove(&request_id);
             return Err(ControlError::NotConnected);
         }
-        match tokio::time::timeout(REVOKE_TIMEOUT, rx).await {
+        match mixdog_rt::time::timeout(REVOKE_TIMEOUT, rx).await {
             Ok(Ok(answer)) => answer,
             Ok(Err(_)) => Err(ControlError::NotConnected),
             Err(_) => {

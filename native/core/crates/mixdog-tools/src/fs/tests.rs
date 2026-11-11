@@ -214,7 +214,12 @@ fn the_builtin_tools_are_nodes_definitions() {
         Box::new(EditTool::new()),
         Box::new(ApplyPatchTool::new()),
         Box::new(crate::git::GitTool::new()),
-        Box::new(crate::github::GithubTool::new()),
+        Box::new(crate::github::GithubTool::new(
+            mixdog_scm::engine::Scm::new(Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default()), mixdog_rt::testing::tokens().maintenance_io, cache_dir.path().join("scm"))
+                .github
+                .clone(),
+            None,
+        )),
     ];
     for tool in &tools {
         let spec = tool.spec();
@@ -290,7 +295,7 @@ fn snapshot(dir: &Path, base: &Path, out: &mut Tree) {
 /// text, the error flag and the resulting tree must all match.
 #[tokio::test]
 async fn edit_and_apply_patch_match_recorded_node_cases() {
-    let cases: Vec<JsonValue> = serde_json::from_str(include_str!("golden/cases.json")).unwrap();
+    let cases: Vec<JsonValue> = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/cases.json")).unwrap();
     let tools: Vec<Box<dyn Tool>> = vec![Box::new(EditTool::new()), Box::new(ApplyPatchTool::new())];
     let mut failures = Vec::new();
     for case in &cases {
@@ -405,7 +410,7 @@ async fn an_edit_through_a_symlink_waits_for_the_referents_lock() {
             text_of(EditTool::new().call(&ctx, args).await)
         })
     };
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(!through_link.is_finished(), "an edit through a symlink ran under its referent's lock");
     drop(held);
     let (is_error, text) = through_link.await.unwrap();
@@ -438,7 +443,7 @@ async fn writes_to_one_path_wait_for_its_path_lock() {
     let (unrelated_error, text) = unrelated.await.unwrap();
     assert!(!unrelated_error, "{text}");
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     assert!(!first.is_finished() && !second.is_finished(), "edits ran under a held path lock");
     drop(held);
 
@@ -666,7 +671,7 @@ async fn apply_patch_through_a_junction_waits_for_the_referents_lock() {
             text_of(ApplyPatchTool::new().call(&ctx, args).await)
         })
     };
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(150)).await;
     assert!(!task.is_finished(), "a patch through a junction ran under its referent's lock");
     drop(held);
     let (is_error, text) = task.await.unwrap();
@@ -741,7 +746,7 @@ async fn edit_and_apply_patch_wait_for_the_advisory_lock_of_their_file() {
                 text_of(if is_edit { EditTool::new().call(&ctx, args).await } else { ApplyPatchTool::new().call(&ctx, args).await })
             })
         };
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(200)).await;
         assert!(!task.is_finished(), "{name} was written under another holder's advisory lock");
         std::fs::remove_file(&lock_file).unwrap();
         let (is_error, text) = task.await.unwrap();
@@ -1095,8 +1100,8 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
 /// guard's own outcomes are checked in `read_legacy`.
 #[tokio::test]
 async fn the_legacy_path_spelling_reads_as_node_reads() {
-    let batch: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let batch: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut workspace = batch.clone();
     workspace["files"].as_object_mut().unwrap().extend(doc["extraFiles"].as_object().unwrap().clone());
     let dir = tempfile::tempdir().unwrap();
@@ -1157,7 +1162,7 @@ fn pin_legacy_environment() -> Vec<(&'static str, String)> {
 /// `normalizeErrorMessage` over the recorded messages (quoted paths, `file:///` URIs, the roots).
 #[test]
 fn error_messages_are_redacted_as_node_redacts_them() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut tokens = pin_legacy_environment();
     let cwd = std::env::temp_dir().join("mixdog-legacy-read-env").join("ws").to_string_lossy().replace('\\', "/");
     // The workspace with the other case of its drive letter (a Windows host compares paths without case).
@@ -1194,7 +1199,7 @@ fn error_messages_are_redacted_as_node_redacts_them() {
 #[test]
 fn host_path_spellings_are_normalized_as_node_normalizes_them() {
     use super::read_paths::{Host, host_spelling};
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/legacy_read_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
     let mut failures = Vec::new();
     for s in doc["spellings"].as_array().unwrap() {
         let host = if s["host"] == "windows" { Host::Windows } else { Host::Wsl };
@@ -1354,7 +1359,7 @@ fn recorded_result(result: &JsonValue) -> Vec<(String, String)> {
 /// Node's `read`, text and batch forms, replayed from `batch_cases.json` (no session, so no memory).
 #[tokio::test]
 async fn reading_text_and_batches_matches_the_recorded_node_cases() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let (root, ctx) = recorded_workspace(&doc, dir.path(), true).await;
     let cwd = root.as_path().to_string_lossy().replace('\\', "/");
@@ -1395,7 +1400,7 @@ impl SnapshotPersist for MemorySnapshots {
 /// read, a read after an edit or a patch, another session, a changed file, and a cache that has
 /// outlived its 30 seconds (on a clock the test moves).
 async fn replay_sequence(name: &str) {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let mut failures = Vec::new();
     {
         let sequence = doc["sequences"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded sequence {name}"));
@@ -1561,7 +1566,7 @@ sequence_tests! {
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.
 #[test]
 fn every_recorded_sequence_has_its_session_memory_test() {
-    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/batch_cases.json")).unwrap();
     let recorded: Vec<&str> = doc["sequences"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(recorded, SEQUENCE_TESTS);
 }

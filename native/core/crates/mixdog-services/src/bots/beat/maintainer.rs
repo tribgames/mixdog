@@ -189,7 +189,7 @@ impl Maintainer {
     async fn call(&self, prompt: (String, String), max_output_tokens: u32) -> Result<Option<(String, MaintainerRoute, u128)>, String> {
         let Some(route) = self.model.route().await? else { return Ok(None) };
         let began = Instant::now();
-        let reply = tokio::time::timeout(TIMEOUT, self.model.send(&route, &prompt.0, &prompt.1, max_output_tokens))
+        let reply = mixdog_rt::time::timeout(TIMEOUT, self.model.send(&route, &prompt.0, &prompt.1, max_output_tokens))
             .await
             .map_err(|_| "The operation was aborted due to timeout".to_owned())??;
         Ok(Some((reply, route, began.elapsed().as_millis())))

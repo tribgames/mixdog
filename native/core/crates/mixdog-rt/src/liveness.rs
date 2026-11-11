@@ -61,7 +61,7 @@ impl Liveness {
     /// Runs `work` against the head deadline.
     pub async fn bound_head<T>(self, work: impl Future<Output = T>) -> Result<T, Expired> {
         match self.head_deadline() {
-            Some(after) => tokio::time::timeout(after, work)
+            Some(after) => crate::time::timeout(after, work)
                 .await
                 .map_err(|_| Expired { after }),
             None => Ok(work.await),
@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(unary.total_deadline(), Some(Duration::from_secs(30)));
         assert_eq!(unary.bound_head(async { 7 }).await, Ok(7));
         // A cancel-only exchange has no timer: only the caller's own bound ends it.
-        let waited = tokio::time::timeout(
+        let waited = crate::time::timeout(
             Duration::from_secs(24 * 3600),
             Liveness::cancel_only().bound_head(std::future::pending::<()>()),
         )

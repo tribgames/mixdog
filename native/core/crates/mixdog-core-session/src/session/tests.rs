@@ -1,6 +1,9 @@
 //! Session behavior over the test doubles of `testing`: one scripted run per test, durable
 //! state observed through the acked view and the frames the thread feed published.
 
+// Compiled into a test-support build too (its helpers serve mixdog-core-session-replays); its tests run only in the library's own test build.
+#![cfg_attr(not(test), allow(dead_code, unused_imports))]
+
 use crate::eventually_on;
 use crate::session::route_session::RouteChange;
 use std::sync::Arc;
@@ -81,13 +84,13 @@ async fn the_rigs_goal_timers_follow_the_test_clock_and_cancel() {
     let _due = timers.after(TimerKind::Deadline, 60_000.0, Box::new(move || { due.fetch_add(1, SeqCst); }));
     let cancelled = timers.after(TimerKind::Warning, 30_000.0, Box::new(move || { never.fetch_add(10, SeqCst); }));
     cancelled.cancel();
-    tokio::time::sleep(Duration::from_secs(59)).await;
+    mixdog_rt::time::sleep(Duration::from_secs(59)).await;
     assert_eq!(fired.load(SeqCst), 0, "not before its time");
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    mixdog_rt::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(fired.load(SeqCst), 1, "the due one fired once; the cancelled one never");
 }
 
-pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
+pub async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
             "thread/start",
@@ -106,11 +109,11 @@ pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHan
 /// The route a Node session always has (`createSessionRuntime` requires a provider and a model), which a quota
 /// stop names (`turnFailureRecord`: `quota.provider` is the error's own or the route's) and `scheduleQuotaResumeEntry`
 /// requires: a resume is queued only for a session that has one.
-pub(crate) const ROUTE_PROVIDER: &str = "anthropic-oauth";
-pub(crate) const ROUTE_MODEL: &str = "m";
+pub const ROUTE_PROVIDER: &str = "anthropic-oauth";
+pub const ROUTE_MODEL: &str = "m";
 
 /// [`start_thread`] on that route, set before any turn.
-pub(super) async fn start_routed_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
+pub async fn start_routed_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
     let handle = start_thread(directory).await;
     let params = json!({ "threadId": handle.id, "set": { "provider": ROUTE_PROVIDER, "model": ROUTE_MODEL }, "unset": [] });
     handle
@@ -120,7 +123,7 @@ pub(super) async fn start_routed_thread(directory: &SessionDirectory) -> Arc<Ses
     handle
 }
 
-pub(crate) async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Value {
+pub async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Value {
     let reply = handle
         .request(request(
             "turn/start",
@@ -136,7 +139,7 @@ pub(crate) async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Valu
 }
 
 /// Each run answers its prompt with `re: <prompt>` and completes.
-pub(crate) fn echo() -> Script {
+pub fn echo() -> Script {
     Arc::new(|run| {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
@@ -161,7 +164,7 @@ pub(crate) fn echo() -> Script {
 }
 
 /// `(role, text)` of the acked view's items.
-pub(crate) fn rows(handle: &SessionHandle) -> Vec<(&'static str, String)> {
+pub fn rows(handle: &SessionHandle) -> Vec<(&'static str, String)> {
     handle
         .cell
         .view
@@ -184,7 +187,7 @@ pub(crate) fn rows(handle: &SessionHandle) -> Vec<(&'static str, String)> {
         .collect()
 }
 
-pub(crate) fn prompt_list(handle: &SessionHandle) -> Vec<String> {
+pub fn prompt_list(handle: &SessionHandle) -> Vec<String> {
     handle
         .cell
         .view
@@ -197,13 +200,13 @@ pub(crate) fn prompt_list(handle: &SessionHandle) -> Vec<String> {
 
 /// Returns once the actor has taken a message of its inbox. The loop is biased (jobs and deadlines before the inbox), so every
 /// timer that is due, and every job it queued, was handled first.
-pub(crate) async fn caught_up(handle: &SessionHandle) {
+pub async fn caught_up(handle: &SessionHandle) {
     let (tx, taken) = tokio::sync::oneshot::channel();
     handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
     crate::session::testing::awaiting(|| "the actor to take a message of its inbox".to_owned(), taken).await.expect("the actor answers");
 }
 
-pub(crate) fn idle(handle: &SessionHandle) -> bool {
+pub fn idle(handle: &SessionHandle) -> bool {
     handle.cell.run.load().is_none()
 }
 
@@ -739,7 +742,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
         .then_some(())
     })
     .await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let taken = lock(&taken).clone();
@@ -747,7 +750,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     assert_eq!(taken[0].mode, SteerMode::TaskNotification);
     assert_eq!(taken[0].execution, Some(json!({ "surface": "shell", "id": "job-7", "status": "completed" })));
     assert_eq!(taken[0].content, "job-7 finished.");
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "a taken completion starts no turn");
 }
 
@@ -805,7 +808,7 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     assert_eq!(ids, [first["queuedId"].as_str().unwrap(), second["queuedId"].as_str().unwrap()]);
     assert_eq!(terminal[1].mode, SteerMode::TaskNotification);
     assert_eq!(terminal[1].content, "job-7 finished.");
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
 }
@@ -843,11 +846,11 @@ async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
     eventually_on!(&[&progress], || (lock(&inputs).len() == 1).then_some(())).await;
     directory.finished(&handle.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
     directory.finished(&handle.id, "shell", "job-3", "completed", "job-3 finished.".into()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
     eventually_on!(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     let inputs = lock(&inputs).clone();
     let order: Vec<&str> = inputs.iter().map(|(body, _)| body["content"].as_str().unwrap()).collect();
     assert_eq!(order, ["job-1 finished.", "job-2 finished.", "job-3 finished."]);
@@ -996,14 +999,14 @@ async fn a_held_route_leaves_a_completion_to_the_next_turn() {
     set.insert("pendingRoute".into(), json!({ "provider": "p", "model": "m" }));
     SessionThreads::new(directory.clone()).patch_header(&handle.id, set, Vec::new()).await.expect("held");
     directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || (lock(&took).len() == 2).then_some(())).await;
     assert_eq!(lock(&took)[0], 0, "held: not taken by this turn");
     assert_eq!(runs_started(&rig, &handle.id), 2, "the next turn is the completion's");
 }
 
-pub(crate) fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
+pub fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
     use mixdog_store::schema::record::Record;
     use mixdog_store::schema::record::RunPhase;
     rig.store
@@ -1013,7 +1016,7 @@ pub(crate) fn runs_started(rig: &Rig, id: &ThreadId) -> usize {
         .count()
 }
 
-pub(crate) async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc<SessionHandle> {
+pub async fn start_with_session(directory: &SessionDirectory, session: Value) -> Arc<SessionHandle> {
     let reply = directory
         .request(request(
             "thread/start",
@@ -1216,7 +1219,7 @@ async fn a_turn_creates_the_session_of_a_thread_that_has_none() {
 /// The scripted fit answers what Node measured for the conversation of that size; the compactor answers what it answered Node.
 #[tokio::test(start_paused = true)]
 async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/inheritance-carry/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
     let ctx = CallContext::internal("test");
     let conversation = |messages: &Value| -> Vec<Value> { messages.as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect() };
     async fn append(directory: &SessionDirectory, id: String, messages: Vec<Value>) {
@@ -1303,7 +1306,7 @@ async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
 /// `worktree-intents.mjs`: committed or live): an idle session whose turn settled still has its conversation.
 #[tokio::test(start_paused = true)]
 async fn the_conversation_reads_of_a_workspace_move_equal_nodes() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/inheritance-carry/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
@@ -2255,7 +2258,11 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
             header
         };
         let (rust_header, node_header) = (scratched(&rust_header, &rust.id), scratched(&node_header, &node_heir));
-        let keys: std::collections::BTreeSet<&String> = rust_header.keys().chain(node_header.keys()).filter(|key| key.as_str() != "id").collect();
+        // `offloadSources` and `offloadSourcesRules` (the sessions whose sidecars the heir may name, which the prune's
+        // index reads, and the rules that set was computed under) are the fix of `node-fix-prune-after-save.patch`,
+        // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+        let keys: std::collections::BTreeSet<&String> =
+            rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str())).collect();
         let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
         assert!(differing.is_empty(), "header of {label}: {differing:#?}");
         // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
@@ -2396,7 +2403,7 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
         let mixdog_store::schema::blob::Slot::Inline(entry) = &queued else { panic!("inline entry") };
         assert_eq!(entry["executionId"], task, "kept for the next turn");
     }
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &quiet.id), 0);
     assert_eq!(runs_started(&rig, &parked.id), 0);
 }
@@ -2521,7 +2528,7 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
 
 /// The real thread store (log writer, codec, index) over the data dir `data`
 /// (`StoreThreads::over_data_dir`).
-pub(super) async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
+pub async fn real_store(data: &std::path::Path) -> Arc<dyn super::ThreadStore> {
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_store::sqlite::SqliteStore;
 
@@ -3608,7 +3615,7 @@ async fn a_goal_continues_across_a_turn_until_it_stops() {
         frames.iter().rev().find(|(_, method, _)| method == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone())
     };
     eventually_on!(&[&rig.feeds.published], || (goal_status(&rig.feeds.frames(handle.id.as_str())) == Some(json!("paused"))).then_some(())).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(200)).await;
     let inputs = lock(&inputs).clone();
     assert_eq!(inputs.len(), 2, "a paused Goal does not continue: {inputs:?}");
     assert_eq!(inputs[1]["meta"], json!({ "source": "goal-continuation", "synthetic": true }));
@@ -3666,6 +3673,9 @@ impl mixdog_core_goal::goal::hooks::GoalViewHooks for HeldSettle {
     async fn goal_status(&self, thread: &ThreadId) -> mixdog_core_goal::goal::GoalResult<Option<mixdog_core_goal::goal::js::Goal>> {
         mixdog_core_goal::goal::hooks::GoalViewHooks::goal_status(&self.goals, thread).await
     }
+    async fn stored_goal(&self, thread: &ThreadId) -> mixdog_core_goal::goal::GoalResult<Option<mixdog_core_goal::goal::js::Goal>> {
+        mixdog_core_goal::goal::hooks::GoalViewHooks::stored_goal(&self.goals, thread).await
+    }
     async fn goal_control(&self, thread: &ThreadId, request: Value) -> mixdog_core_goal::goal::GoalResult<Value> {
         mixdog_core_goal::goal::hooks::GoalViewHooks::goal_control(&self.goals, thread, request).await
     }
@@ -3693,7 +3703,7 @@ async fn a_queued_turn_starts_after_the_settlement_returns() {
     // The first turn ended; its settlement is held. A new prompt waits behind it.
     let queued = turn(&handle, "two", "op-2").await;
     assert_eq!(queued["kind"], "queued", "{queued}");
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
     assert!(idle(&handle), "no turn starts before the settlement");
     assert_eq!(settled.load(Ordering::SeqCst), 0);
     release.notify_one();
@@ -3772,7 +3782,7 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
     release.notify_one();
     eventually_on!(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 3).then_some(())).await;
     // The settlement's store call runs after the cancel's, on the session's quota lane.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(rig.quota.suspended_goal(id, &key), "", "the cancel inside the window wins");
     assert!(rig.quota.entry(id).is_none());
 }
@@ -4291,7 +4301,7 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     subscribe(&handle);
     handle.cell.unsubscribed();
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
 }
 
@@ -4312,7 +4322,7 @@ async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     subscribe(&handle);
     turn(&handle, "hold", "op-1").await;
     handle.cell.unsubscribed();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(directory.handle(&handle.id).is_some(), "the run is live");
 
     release.send(true).expect("release");
@@ -4372,7 +4382,7 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
     // Outside a turn a mark re-ingests nothing.
     assert!(rig.sensitive.remember(handle.id.as_str(), std::slice::from_ref(&fill)));
     turn(&handle, "hold", "op-1").await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert!(lock(&rig.ingests.0).is_empty());
 
     let again = json!({

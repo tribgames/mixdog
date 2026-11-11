@@ -42,7 +42,7 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
-const RECORDED: &str = include_str!("../../../../fixtures/remote-transport-coordinator/scenarios.json");
+const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-coordinator/scenarios.json");
 
 const APP_MAGIC: [u8; 4] = [0x4d, 0x58, 0x45, 0x01];
 const CONTROL_MAGIC: [u8; 4] = [0x4d, 0x58, 0x43, 0x01];
@@ -544,7 +544,7 @@ fn run_step(step: &Value, coordinator: &mut Coordinator<ChannelFake, HostFake>, 
 
 #[test]
 fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(RECORDED).expect("the recording is JSON");
+    let recorded: Value = serde_json::from_str(&RECORDED).expect("the recording is JSON");
     let scenarios = recorded["scenarios"].as_array().expect("scenarios");
     assert!(scenarios.len() >= 20);
     let mut steps_checked = 0;

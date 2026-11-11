@@ -569,6 +569,24 @@
       "totalBytes": 219449
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-node-socket-reuse.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+      "fileCount": 1,
+      "manifest": "node-socket-reuse/MANIFEST.json",
+      "manifestSha256": "a7a327a3ca93585b08e7eb7a5ce90a97c349b564b7ae05a1cc32b48e63d8feb6",
+      "recorder": "benchmarks/rust-core/recorders/record-node-socket-reuse.mjs",
+      "set": "node-socket-reuse",
+      "totalBytes": 580
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-node-timer-order.mjs",
+      "fileCount": 1,
+      "manifest": "node-timer-order/MANIFEST.json",
+      "manifestSha256": "bc13bc87191babd49076a271070cb7420dafad5a1b68210b1688e69016e430ee",
+      "recorder": "benchmarks/rust-core/recorders/record-node-timer-order.mjs",
+      "set": "node-timer-order",
+      "totalBytes": 14160
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-oauth-credentials.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "oauth-credentials/MANIFEST.json",

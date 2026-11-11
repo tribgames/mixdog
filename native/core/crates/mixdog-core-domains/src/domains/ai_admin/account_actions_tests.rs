@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use super::account_actions::{AccountActions, AccountOps, ProviderRows};
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/account-actions/account-actions-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/account-actions/account-actions-twin.json")).unwrap()
 }
 
 fn message(error: PortError) -> String {

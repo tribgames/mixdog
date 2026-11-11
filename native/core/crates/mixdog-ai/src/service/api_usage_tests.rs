@@ -23,7 +23,7 @@ use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/api-usage/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/api-usage/golden.json");
 
 struct Body(Option<Bytes>);
 
@@ -105,7 +105,7 @@ async fn a_lookup_ends_as_nodes_does_when_its_timer_fires() {
 
 #[tokio::test]
 async fn the_lookups_are_nodes_api_usage() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let now = Arc::new(AtomicI64::new(golden["now"].as_i64().unwrap()));
     let flows = golden["flows"].as_array().unwrap();
     assert!(flows.len() >= 75);
