@@ -1,5 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "a real database: db.query is a scripted endpoint that records statements; the last prune call (no options) uses the default cap from the environment",
     "runs": "resolveEmbeddingCacheMaxRows and pruneEmbeddingCache (embedding-cache-retention.mjs)"
@@ -20,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,8 +50,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs",
-  "recorderSha256": "69663c2ef7e2313832b57dabf28186fad020b722d7ec9f27a6bc6ccc981e5cce",
-  "replay": "mixdog-services memory: mem/ingest/embed_flush.rs cache_max_rows and prune over a recording db seam; compares the returned {removed, truncated, remaining} (or the error text) and the ordered statements (text and params) exactly",
+  "recorderSha256": "fae680ad8f41a16f411afa46f3c64e303f2f85a3d1fb2c6951958fa0c003b7dc",
+  "replay": "public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). NODE BUG recorded as is: resolveEmbeddingCacheMaxRows('0.5') returns 0 (a positive fraction floors to 0, which wipes the cache); fix proposed in D:\\mixdog-build\\tmp\\node-patches\\node-fix-embedding-cache-max-rows.patch",
   "set": "memory-embedding-cache-retention",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 14546,
