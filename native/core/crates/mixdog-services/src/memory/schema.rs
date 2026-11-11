@@ -183,12 +183,12 @@ pub async fn ensure_memory_schema(db: &Db, dims: usize, model_identity: &serde_j
     Ok(())
 }
 
-/// A replay's write between the conflict check and the index build (the race Node's recording makes at the same point).
+/// A replay's gate just before the key build (where Node's recording holds each starter of its two-starter race).
 #[cfg(test)]
-pub(crate) type AfterKeyCheck = std::sync::Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+pub(crate) type BeforeKeyBuild = std::sync::Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 #[cfg(test)]
 tokio::task_local! {
-    pub(crate) static AFTER_KEY_CHECK: AfterKeyCheck;
+    pub(crate) static BEFORE_KEY_BUILD: BeforeKeyBuild;
 }
 
 async fn install_core_key_index(db: &Db) -> Result<()> {
@@ -198,10 +198,6 @@ async fn install_core_key_index(db: &Db) -> Result<()> {
             &[],
         )
         .await?;
-    #[cfg(test)]
-    if let Ok(write) = AFTER_KEY_CHECK.try_with(std::sync::Arc::clone) {
-        write().await;
-    }
     if conflict.is_some() {
         mixdog_rt::memory_stderr!(
             "[core-memory] duplicate keys preserved; resolve them with explicit edits/deletes before installing the unique index"
@@ -210,6 +206,10 @@ async fn install_core_key_index(db: &Db) -> Result<()> {
     }
     // The pool key replaces the legacy (project_id, element) key, which would refuse an agent
     // memory sharing an element with a common one.
+    #[cfg(test)]
+    if let Ok(gate) = BEFORE_KEY_BUILD.try_with(std::sync::Arc::clone) {
+        gate().await;
+    }
     match db.batch(&format!("{CORE_KEY_INDEX};\nDROP INDEX IF EXISTS core_entries_unique_proj_elem")).await {
         Err(crate::memory::error::MemoryError::Pg(error)) if error.code() == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION) => {
             // A write raced the conflict check: keep both rows, install the index later.
