@@ -1,15 +1,15 @@
 {
   "bounds": [
-    "Ajv's stack: near its limit Node's answer depends on how far V8 has optimized Ajv's code. freshProcesses records chains of 2110, 2111, 2360, 2440, 2560 references, each in 16 processes that ran nothing before it, with every distinct outcome. The core (mixdog-mcp ajv_stack.rs) answers -32602 \"Failed to validate structured content: Maximum call stack size exceeded\" for a validation path of more than 2111 references (VALIDATION_LIMIT) or a compile chain of more than 2460 (COMPILE_LIMIT); where the fresh processes answered differently it gives one of their answers.",
+    "Ajv's stack: near its limit Node's own answer depends on its JIT state (freshProcesses: the chain of 2440, run in 16 fresh processes, compiles in some and overflows in others), so the core's limits are a deterministic choice inside that range: the fresh-process ones, a compile chain of more than 2460 references (mixdog-mcp ajv_stack.rs COMPILE_LIMIT) or a validation path of more than 2111 (VALIDATION_LIMIT) answers -32602 \"Failed to validate structured content: Maximum call stack size exceeded\".",
     "pattern backtracking: V8 has no bound (the recorded repetitions holding a lookaround take Node about a second on 24 characters that fail, each more character doubling it). The core matches with fancy-regex bounded at 10,000,000,000 backtracking steps (mixdog-mcp output_schema.rs BACKTRACK_LIMIT; about 32 such characters, which Node answers in some minutes); every recorded case finishes well inside it and gives Node's answer. A match that runs out of steps has no verdict, and the call answers -32602 \"Failed to validate structured content: data<path>: its pattern needs more than 10000000000 backtracking steps\"."
   ],
   "command": "node benchmarks/rust-core/recorders/record-mcp-output-schema.mjs --tree <tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2476664,
+      "bytes": 2462584,
       "path": "golden.json",
-      "sha256": "c663d154c798408729b0986d00f4b6b186f7f223f49e4829fbd8c8a71e9ac9d3"
+      "sha256": "5b184ed2a4cd2cbf84004604bcd3cbfb723be1f5992f9900dd78cc34d3f439cd"
     }
   ],
   "inputs": [
@@ -48,7 +48,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-output-schema.mjs",
-  "recorderSha256": "8bdf02f3bf5c0618461567fff9c3de2a6c2545aff61060f972d742dff356c4c3",
+  "recorderSha256": "3adc9dcf9dfb6115bb5345ef1c458d82e1b73cd3ab740de492b9b0236562fad8",
   "set": "mcp-output-schema",
-  "totalBytes": 2476664
+  "totalBytes": 2462584
 }

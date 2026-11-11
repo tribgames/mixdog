@@ -12,7 +12,7 @@
 //!
 //! Where V8 runs out depends on its frames, which shrink once Ajv's code is optimized. In a Node process that has run
 //! nothing before (`fixtures/mcp-output-schema`, `freshProcesses`, each length run in sixteen fresh processes): a chain of
-//! 2110 references validates and one of 2111 overflows, every time; a chain of 2360 compiles every time, one of 2440
+//! 2110 references validates and one of 2111 overflows, every time; a chain of 2200 compiles every time, one of 2440
 //! compiles in some processes and overflows in others, and one of 2560 overflows every time. The recording's other
 //! cases, run one after another in one process, compile and validate a chain of 1000 and overflow on one of 10000.
 //!
@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-/// The most references a compile chain may hold: a chain of 2360 (2361 references with the one that enters it) compiles in
+/// The most references a compile chain may hold: a chain of 2200 (2201 references with the one that enters it) compiles in
 /// a fresh Node process and one of 2560 overflows; between them a fresh process answers either, and the bound is inside.
 pub(crate) const COMPILE_LIMIT: usize = 2460;
 /// The most references a validation path may hold: a fresh Node process validates a chain of 2110 (2111 references with
