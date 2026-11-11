@@ -5,7 +5,7 @@
 // endpoint with the global secret. The one seam is `WebhookServer.prototype.handleWebhook`, the boundary the Rust core
 // calls `WebhookDispatch::handle`: it keeps the parsed payload and answers `200 {status:"accepted",id}`.
 // Each case is sent as raw bytes on its own connection; recorded per case: the request, the reply, what reached the
-// dispatch, and the delivery row it left (timestamps dropped). Nothing sleeps or polls.
+// dispatch; then the whole delivery table, its timestamps on the virtual clock (below). Nothing sleeps or polls.
 //
 //   node benchmarks/rust-core/recorders/record-webhook-invalid-utf8.mjs --tree <b6f10295a with node_modules> [--out <file>]
 //
@@ -88,18 +88,32 @@ const cases = [
   { name: 'a non-JSON content type over invalid UTF-8', headers: { 'Content-Type': 'text/plain', 'X-Hub-Signature-256': sign(latin1), 'X-GitHub-Delivery': 'd-text' }, body: latin1 },
 ];
 
-const result = { port: PORT, config, cases: [] };
+// The virtual clock: case i runs at VIRTUAL_START + i * VIRTUAL_STEP. The store stamps rows with PostgreSQL's now(), which
+// no process clock reaches, so each case's real window [before send, after reply] is kept and every stamp is mapped to
+// the virtual instant of the one window that holds it (a stamp outside every window fails the recording).
+const VIRTUAL_START = 1_700_000_000_000;
+const VIRTUAL_STEP = 1_000;
+const windows = [];
+const result = { port: PORT, config, virtualClock: { start: VIRTUAL_START, step: VIRTUAL_STEP }, cases: [] };
 for (const c of cases) {
   const before = dispatched.length;
+  const opened = Date.now();
   const reply = await send(c.headers, c.body);
+  windows.push([opened, Date.now()]);
   result.cases.push({ name: c.name, request: { headers: c.headers, bodyHex: hex(c.body) }, reply, dispatched: dispatched.slice(before) });
 }
-// The whole delivery table the cases left.
+const virtual = (stamp) => {
+  const at = new Date(stamp).getTime();
+  const index = windows.findIndex(([from, to]) => at >= from && at <= to);
+  if (index < 0) throw new Error(`delivery stamp ${new Date(stamp).toISOString()} lies outside every case window`);
+  return new Date(VIRTUAL_START + index * VIRTUAL_STEP).toISOString();
+};
+// The whole delivery table the cases left, every column webhooks-db.mjs reads (DELIVERY_COLS).
 const db = await openWebhooksDb();
 const { rows } = await db.query(
-  'SELECT endpoint, delivery_id, status, event, error, headers_summary, payload_preview FROM webhooks.deliveries ORDER BY delivery_id',
+  'SELECT endpoint, delivery_id, status, event, error, headers_summary, payload_preview, created_at, updated_at FROM webhooks.deliveries ORDER BY delivery_id',
 );
-result.deliveries = rows;
+result.deliveries = rows.map((row) => ({ ...row, created_at: virtual(row.created_at), updated_at: virtual(row.updated_at) }));
 
 const out = args.get('out');
 if (out) {
