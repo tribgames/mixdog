@@ -1,6 +1,7 @@
 {
   "set": "provider-compat-responses-alignment",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "streamed-refusal-typed",
@@ -40,8 +41,17 @@
         "result": {
           "content": "I can't",
           "model": "gpt-5.5",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "refusal",
           "refusal": "I can't",
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "compat-responses:opencode-go",
@@ -71,6 +81,9 @@
               "model": "gpt-5.5",
               "updatedAt": 1794225600000
             }
+          },
+          "usage": {
+            "$exact": "undefined"
           }
         },
         "requests": [
@@ -97,7 +110,26 @@
             "headers": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "final-part-refusal-typed",
@@ -124,8 +156,17 @@
         "result": {
           "content": "no",
           "model": "muse-spark",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "refusal",
           "refusal": "no",
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "compat-responses:muse-code",
@@ -155,6 +196,9 @@
               "model": "muse-spark",
               "updatedAt": 1794225600000
             }
+          },
+          "usage": {
+            "$exact": "undefined"
           }
         },
         "requests": [
@@ -181,7 +225,26 @@
             "headers": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "muse-spark",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "function-call-namespace-preserved",
@@ -214,6 +277,12 @@
             }
           ],
           "stopReason": null,
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "compat-responses:opencode-go",
@@ -240,6 +309,9 @@
               "model": "gpt-5.5",
               "updatedAt": 1794225600000
             }
+          },
+          "usage": {
+            "$exact": "undefined"
           }
         },
         "requests": [
@@ -266,7 +338,26 @@
             "headers": null
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gpt-5.5",
+            [],
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "pinned-native-deferred-tools-route",
@@ -462,7 +553,202 @@
             "headers": null
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "go"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "ts1",
+                    "name": "load_tool",
+                    "arguments": {
+                      "names": [
+                        "x"
+                      ]
+                    },
+                    "nativeType": "tool_search_call"
+                  },
+                  {
+                    "id": "cu1",
+                    "name": "apply_patch",
+                    "arguments": {
+                      "patch": "P"
+                    },
+                    "nativeType": "custom_tool_call"
+                  },
+                  {
+                    "id": "fn1",
+                    "name": "Read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "ts1",
+                "content": "loaded",
+                "nativeToolSearch": {
+                  "provider": "opencode-go",
+                  "openaiTools": [
+                    {
+                      "type": "function",
+                      "name": "x",
+                      "defer_loading": true,
+                      "parameters": {
+                        "type": "object"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "role": "tool",
+                "toolCallId": "cu1",
+                "content": "patched"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "fn1",
+                "content": "file"
+              },
+              {
+                "role": "user",
+                "content": "next"
+              }
+            ],
+            "gpt-5.5",
+            [
+              {
+                "name": "load_tool",
+                "description": "d",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            ],
+            {
+              "session": {
+                "wireRoute": {
+                  "provider": "opencode-go",
+                  "model": "gpt-5.5",
+                  "wire": "responses",
+                  "nativeDeferredTools": true
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "go"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "ts1",
+                    "name": "load_tool",
+                    "arguments": {
+                      "names": [
+                        "x"
+                      ]
+                    },
+                    "nativeType": "tool_search_call"
+                  },
+                  {
+                    "id": "cu1",
+                    "name": "apply_patch",
+                    "arguments": {
+                      "patch": "P"
+                    },
+                    "nativeType": "custom_tool_call"
+                  },
+                  {
+                    "id": "fn1",
+                    "name": "Read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "ts1",
+                "content": "loaded",
+                "nativeToolSearch": {
+                  "provider": "opencode-go",
+                  "openaiTools": [
+                    {
+                      "type": "function",
+                      "name": "x",
+                      "defer_loading": true,
+                      "parameters": {
+                        "type": "object"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "role": "tool",
+                "toolCallId": "cu1",
+                "content": "patched"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "fn1",
+                "content": "file"
+              },
+              {
+                "role": "user",
+                "content": "next"
+              }
+            ],
+            "gpt-5.5",
+            [
+              {
+                "name": "load_tool",
+                "description": "d",
+                "inputSchema": {
+                  "type": "object"
+                }
+              }
+            ],
+            {
+              "session": {
+                "wireRoute": {
+                  "provider": "opencode-go",
+                  "model": "gpt-5.5",
+                  "wire": "responses"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "openrouter-responses-rejects-imported-state",
@@ -484,10 +770,13 @@
               "previousResponseId": "resp_old"
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
               "message": "openrouter Responses is stateless: imported previous_response_id / store:true continuation state is not supported",
               "code": "OPENROUTER_RESPONSES_STATELESS_ONLY",
-              "provider": "openrouter"
+              "props": {
+                "provider": "openrouter"
+              }
             },
             "requestsSent": 0
           },
@@ -496,15 +785,66 @@
               "store": true
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
               "message": "openrouter Responses is stateless: imported previous_response_id / store:true continuation state is not supported",
               "code": "OPENROUTER_RESPONSES_STATELESS_ONLY",
-              "provider": "openrouter"
+              "props": {
+                "provider": "openrouter"
+              }
             },
             "requestsSent": 0
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openai/gpt-5.5",
+            [],
+            {
+              "providerState": {
+                "compatResponses": {
+                  "previousResponseId": "resp_old"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
+          "args": [
+            {
+              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+            },
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openai/gpt-5.5",
+            [],
+            {
+              "providerState": {
+                "compatResponses": {
+                  "store": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "opencode-go-base-urls",
@@ -521,7 +861,23 @@
           "anthropic": "https://example.test"
         },
         "openrouterChatCacheControl": true
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/opencode-go.mjs.resolveOpenCodeGoBaseURLs",
+          "args": [
+            {
+              "$exact": "undefined"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/opencode-go.mjs.resolveOpenCodeGoBaseURLs",
+          "args": [
+            "https://example.test/v1/"
+          ]
+        }
+      ]
     }
   ]
 }
