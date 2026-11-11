@@ -327,7 +327,8 @@ impl LiveRooms {
     }
 
     /// `recover` after `ready` (`agent-rooms.ts:470-479`): an exchange a restart cut off is marked interrupted, its members are
-    /// stopped, and nothing resumes on its own; the catalog is republished. The rooms to republish.
+    /// stopped, and nothing resumes on its own. The rooms cut off; the caller republishes the catalog (`:478`), awaited, so its
+    /// pass reads the rooms before a mutation that awaited the same load writes (`ready::recover`).
     pub async fn recover<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<Vec<String>, RoomError> {
         let cut = rooms.recover().await?;
         for room in &cut {
@@ -344,7 +345,6 @@ impl LiveRooms {
                 view.log(&format!("room {} interrupted notice: {error}", room.id));
             }
         }
-        self.shared.ports.daemon.republish_catalog();
         Ok(cut.into_iter().map(|room| room.id).collect())
     }
 }

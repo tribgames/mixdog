@@ -437,9 +437,9 @@ mod tests {
     impl Composed {
         /// The core restarted from its files: every part of this one ended and its databases closed, a new core composed over the
         /// same folder (the index, the session store and the room records read back from what this one wrote; the agents are the
-        /// daemon's, which outlives it), and its start-up `recover` as `compose_flip.rs` starts it, with the rooms' republish
-        /// (`LiveRooms::recover` → `DirectoryRoomDaemon::republish_catalog` → `RoomSummaries::republish`, whose pass is awaited)
-        /// after the first load. The new core's app feed is a new connection.
+        /// daemon's, which outlives it), and its start-up `recover` as `compose_flip.rs` starts it, with the catalog's republish
+        /// (`RoomSummaries::publish`, awaited) after the first load and ahead of the mutations that awaited it. The new core's app
+        /// feed is a new connection.
         async fn restart(self) -> (Self, tokio::task::JoinHandle<()>) {
             let Composed { service, list, homes, ready, agents, app, gate, deletes, saves, summaries, rooms, host, sessions, ops, logged, edges, projections, rig, data } = self;
             drop((service, list, homes, ready, app, gate, deletes, summaries, rooms, host, sessions, ops, edges, projections, rig));
