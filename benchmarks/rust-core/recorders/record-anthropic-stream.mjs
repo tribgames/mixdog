@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-anthropic-stream',
   net: false,
   entry: 'anthropic-oauth.mjs parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta) over a scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a network send.',
-  replay: 'mixdog-ai providers::anthropic decoder.rs (UsageAcc::update :110-135, :182 refusal, :259-296 thinking shapes, :278-283): feed `input.events` and compare `result` whole (usage slots, stopReason/stopDetails, toolCalls incl. the invalid-args marker, thinkingBlocks) and the callbacks (`toolCalls`, `streamDeltas`) in order. K1 gap: Rust drops stopDetails/category (row 1, low).',
+  compare: 'mixdog-ai providers::anthropic decoder.rs (UsageAcc::update :110-135, :182 refusal, :259-296 thinking shapes, :278-283): feed `input.events` and compare `result` whole (usage slots, stopReason/stopDetails, toolCalls incl. the invalid-args marker, thinkingBlocks) and the callbacks (`toolCalls`, `streamDeltas`) in order. K1 gap: Rust drops stopDetails/category (row 1, low).',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
 });
 const { parseSSEStream } = await rec.P('agent/orchestrator/providers/anthropic-oauth.mjs');
 const { isInvalidToolArgsMarker } = await rec.P('agent/orchestrator/providers/openai-compat-stream.mjs');
