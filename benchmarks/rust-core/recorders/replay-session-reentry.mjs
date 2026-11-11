@@ -7,7 +7,8 @@
 // - an evicted session (reopen first true/false): the transcript after each step; leaving a session and coming back shows every row
 //   written meanwhile, in order, from the first state shown (never an empty or shorter transcript first); a prompt sent to a session the
 //   desktop had let go is answered; a later quiet moment makes the desktop read nothing more.
-// - a delayed stored reply: a read the desktop started before a new turn, answered after it, leaves the new turn on screen.
+// - a delayed stored reply: the opening read (`thread/resume`) the desktop started before a new turn, answered after it, leaves the new
+//   turn on screen.
 // - cold refresh ticks: while a session's opening read is in flight the desktop sends no second read of it.
 // - read tracing (result): a read held and released shows the stored answer.
 // - read tracing (rejection): a read the core refuses reaches the caller as the core's own error, unchanged.
@@ -221,9 +222,10 @@ try {
     await within(a.resumeThread(threadId, { lastItems: 50 }), LIMIT, 'opening the stored session');
     await shows(a, threadId, step(rec, 'opened with a stored answer').texts, 'opened with a stored answer');
     // The case is about a stale reply: the read goes out and the core answers it, the answer is held back from the client while a new
-    // turn is written, and delivered after.
-    const holding = holdReplyTo('thread/items/list');
-    const read = a.call('thread/items/list', { threadId, limit: 50 });
+    // turn is written, and delivered after. The read is the desktop's own `resumeThread`, whose reply is the one the client folds into
+    // the transcript (`client.ts` resumeThread's `attached` callback); a generic `call` reply never updates it.
+    const holding = holdReplyTo('thread/resume');
+    const read = a.resumeThread(threadId, { lastItems: 50 });
     await holding;
     assert.deepStrictEqual(texts(a, threadId), step(rec, 'prefetch read held').texts, `${name}: while the reply is held`);
     await turn(a, threadId, 'new turn');

@@ -90,6 +90,11 @@ try {
   const sleeps = [];
   let virtualNow = 0;
   const clock = { sleep: (ms) => new Promise((wake) => sleeps.push({ at: virtualNow + ms, ms, wake })) };
+  // The client's only other scheduler is `turn.yieldTurn` (client.ts: a `setImmediate` / `setTimeout(0)` that gives the thread back to
+  // a long fold, nowhere else does the package arm a timer): it is the replay's, so every timer the client can arm is seen, in `sleeps`
+  // or in `yields`.
+  const yields = [];
+  const turn = { yieldTurn: () => new Promise((wake) => { yields.push(virtualNow); setImmediate(wake); }) };
   const advance = (ms) => {
     virtualNow += ms;
     for (const sleeper of sleeps) if (sleeper.at <= virtualNow) sleeper.wake();
@@ -116,6 +121,7 @@ try {
     capabilities: {},
     threadReducer: lib.sessionReducer,
     clock,
+    turn,
     random: Math.random,
   }), LIMIT, 'the desktop connecting');
   for (const [session, id] of ids) {
@@ -146,9 +152,10 @@ try {
   });
   // The three ticks Node's refresh ran while nothing was written: the clock is advanced explicitly by one tick each, and after each the
   // desktop has armed no timer, sent no read and shows no change.
+  yields.length = 0;
   for (let tick = 1; tick <= 3; tick += 1) {
     advance(1_000);
-    assert.deepStrictEqual({ armedTimers: sleeps.length, reads: reads.slice(), published: published.slice() }, { armedTimers: 0, reads: [], published: [] }, `after tick ${tick} of an unchanged desktop`);
+    assert.deepStrictEqual({ armedTimers: sleeps.length + yields.length, reads: reads.slice(), published: published.slice() }, { armedTimers: 0, reads: [], published: [] }, `after tick ${tick} of an unchanged desktop`);
   }
   const unchanged = { readsAfterThreeTicks: reads.slice(), published: published.slice() };
   const written = recorded.writtenSession;
