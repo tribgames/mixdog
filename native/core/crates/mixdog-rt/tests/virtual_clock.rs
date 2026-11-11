@@ -215,6 +215,9 @@ fn stuck(tokens: LaneTokens) {
     }));
 }
 
+/// What a `log-lines` core logs after `ready`, in this order: two lines share a start, and one repeats.
+const LOG_LINES: [&str; 5] = ["event alpha", "event beta", "event done", "event done twice", "event done"];
+
 /// Arms the pause points [`HOLD`] names, from inside the work they are to catch.
 fn hold_here() {
     for point in std::env::var(HOLD).unwrap_or_default().split(',').filter(|point| !point.is_empty()) {
@@ -373,6 +376,11 @@ fn core() {
         _ => {}
     }
     event("ready");
+    if role == "log-lines" {
+        for line in LOG_LINES {
+            mixdog_rt::node_stderr!("{line}");
+        }
+    }
     loop {
         std::thread::park();
     }
@@ -522,6 +530,20 @@ impl Control {
         self.stream.set_nonblocking(false).expect("blocking");
     }
 
+    /// `wait <within> <line>`: the line's number, `None` on `missed`.
+    fn wait(&mut self, within: Duration, line: &str) -> Option<u64> {
+        let command = format!("wait {} {line}", within.as_millis());
+        let answer = self.ask(&command);
+        if answer == "missed" {
+            return None;
+        }
+        Some(answer.strip_prefix("seen ").and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("{command} answered {answer:?}")))
+    }
+
+    fn cursor(&mut self, to: u64) {
+        assert_eq!(self.ask(&format!("cursor {to}")), format!("cursor {to}"));
+    }
+
     /// `advance <ms>`, and the V it answers.
     fn advance(&mut self, ms: u64) -> u64 {
         let answer = self.ask(&format!("advance {ms}"));
@@ -589,8 +611,7 @@ fn held_through(core: &Core, control: &mut Control, gates: &mut Gates, point: &s
     control.unanswered(point);
     gates.release(point);
     assert_eq!(control.line(point), format!("now {}", WALL + ms), "the answer after {point}");
-    let name = last.rsplit_once(' ').map_or(last, |(name, _)| name);
-    assert_eq!(control.ask(&format!("wait 0 {name}")), format!("seen {last}"), "logged before the answer after {point}");
+    assert!(control.wait(Duration::ZERO, last).is_some(), "{last} logged before the answer after {point}");
     before
 }
 
@@ -645,7 +666,7 @@ fn an_io_completion_counts_from_its_runtimes_unpark_hook_on() {
     control.unanswered("unparked RT-W");
     gates.release("unparked RT-W");
     assert_eq!(control.line("advance 1"), format!("now {}", WALL + 1));
-    assert_eq!(control.ask("wait 0 event io-read"), "seen event io-read 0");
+    assert!(control.wait(Duration::ZERO, "event io-read 0").is_some());
 }
 
 #[test]
@@ -661,7 +682,7 @@ fn a_wake_from_a_thread_of_its_own_counts_from_its_push_on() {
     control.unanswered("unparking RT-W");
     gates.release("unparking RT-W");
     assert_eq!(control.line("advance 1"), format!("now {}", WALL + 1));
-    assert_eq!(control.ask("wait 0 event woken"), "seen event woken 0");
+    assert!(control.wait(Duration::ZERO, "event woken 0").is_some());
 }
 
 /// The second review's interleaving: settle reads the queues (RT-W's is empty), a lane job then queues its waiter on RT-W,
@@ -691,7 +712,7 @@ fn the_reviewers_interleaving() {
     gates.release("unparking RT-W");
     gates.release("lane-released");
     assert_eq!(control.line("advance 100"), format!("now {}", WALL + 100));
-    assert_eq!(control.ask("wait 0 event job-result"), "seen event job-result 100");
+    assert!(control.wait(Duration::ZERO, "event job-result 100").is_some());
 }
 
 fn ended_by_the_clock(core: Core, cause: &str) {
@@ -746,7 +767,7 @@ fn advance_answers_after_the_cross_runtime_hops_and_lane_jobs_its_timers_started
     release.write_all(b"go\n").expect("the release line");
     assert_eq!(control.line("advance 200"), format!("now {}", WALL + 200));
     // Logged before the answer: a `wait` with no time left sees it.
-    assert_eq!(control.ask("wait 0 event job-result"), "seen event job-result 200");
+    assert!(control.wait(Duration::ZERO, "event job-result 200").is_some());
     assert_eq!(core.events(2), ["job-end 200", "job-result 200"]);
 }
 
@@ -756,12 +777,45 @@ fn io_completes_while_the_clock_stands_still_and_wait_sees_its_log_line() {
     let (core, mut control) = started("io", &[io_env(&io)], 30_000);
     let mut peer = accept(io, "the core's I/O task");
     peer.write_all(b"ping").expect("the I/O line");
-    assert_eq!(control.ask(&format!("wait {} event io-read", DEADLINE.as_millis())), "seen event io-read 0");
+    assert!(control.wait(DEADLINE, "event io-read 0").is_some());
     assert_eq!(control.advance(49), 49);
-    assert_eq!(control.ask("wait 0 event io-timer"), "missed event io-timer");
+    assert_eq!(control.wait(Duration::ZERO, "event io-timer 50"), None);
     assert_eq!(control.advance(1), 50);
-    assert_eq!(control.ask("wait 0 event io-timer"), "seen event io-timer 50");
+    assert!(control.wait(Duration::ZERO, "event io-timer 50").is_some());
     assert_eq!(core.events(2), ["io-read 0", "io-timer 50"]);
+}
+
+/// Lines logged A then B and waited B then A are both seen; a wait takes only the whole line, so neither a shorter wanted line nor
+/// a longer logged one that starts the same matches; the cursor, moved past a match, finds a repeated line's next occurrence.
+#[test]
+fn wait_matches_whole_lines_in_log_order_from_the_cursor() {
+    let (_core, mut control) = started("log-lines", &[], 30_000);
+    let beta = control.wait(DEADLINE, "event beta").expect("beta is logged");
+    let alpha = control.wait(Duration::ZERO, "event alpha").expect("alpha, logged before beta, is kept");
+    assert_eq!(beta, alpha + 1);
+    let done = control.wait(DEADLINE, "event done").expect("done is logged");
+    assert_eq!(done, beta + 1, "the first `event done`, not the longer line after it");
+    assert_eq!(control.wait(DEADLINE, "event done twice"), Some(done + 1));
+    assert_eq!(control.wait(Duration::ZERO, "event done tw"), None, "the start of a longer line is not that line");
+    assert_eq!(control.wait(Duration::ZERO, "event alph"), None);
+    assert_eq!(control.wait(Duration::ZERO, "event done"), Some(done), "a wait moves nothing");
+    control.cursor(done + 1);
+    assert_eq!(control.wait(DEADLINE, "event done"), Some(done + 2), "past the cursor: the repeat");
+    assert_eq!(control.wait(Duration::ZERO, "event alpha"), None, "behind the cursor");
+    assert_eq!(control.wait(Duration::ZERO, "event done twice"), Some(done + 1));
+}
+
+#[test]
+fn a_cursor_moved_back_or_past_the_lines_logged_ends_the_core() {
+    for (to, cause) in [(0, "`cursor 0`: the cursor is at 1"), (1_000, "`cursor 1000`: the cursor is at 0")] {
+        let (core, mut control) = started("idle", &[], 30_000);
+        assert!(control.wait(DEADLINE, "event ready 0").is_some());
+        if to == 0 {
+            control.cursor(1);
+        }
+        control.send(&format!("cursor {to}"));
+        ended_by_the_clock(core, cause);
+    }
 }
 
 #[test]
