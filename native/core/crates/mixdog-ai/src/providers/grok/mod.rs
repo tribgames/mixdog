@@ -180,7 +180,11 @@ impl Rewriter for GrokRewriter {
         if !request.model.is_empty() {
             add("x-grok-model-override", request.model.clone());
         }
-        add("x-grok-turn-idx", opts.iteration.to_string());
+        // Only a loop turn names its iteration (from 1, `round.nextIteration`); a send outside the loop (a hosted
+        // search) passes none and Node sends no turn index (grok-oauth-tokens.mjs:61-69).
+        if opts.iteration > 0 {
+            add("x-grok-turn-idx", opts.iteration.to_string());
+        }
         if let Some(user) = (self.user_id)() {
             add("x-grok-user-id", user);
         }
