@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, sha256, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { frame } from './lib/raw-frame-bytes.mjs';
-import { PROJECT, ROOT, STEPS, buildWorld } from './lib/inbound-lone-surrogate-cases.mjs';
+import { LONE_REFUSAL, PROJECT, ROOT, STEPS, WORKSPACE, buildWorld } from './lib/inbound-lone-surrogate-cases.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const SET = join(FIXTURES_ROOT, 'inbound-lone-surrogate');
@@ -251,6 +251,12 @@ writeSetManifest(stage, {
         allowedBy: 'decisions.md "frame-lone-surrogate" (a); FORMAT.md `projects` table',
       },
       {
+        what: `the bytes of ${WORKSPACE} in golden.files: each six-byte \\udXXX escape JSON.stringify wrote (it escapes only lone surrogates; an escaped backslash before \`ud\` is left) becomes the UTF-8 of U+FFFD; nothing else changes`,
+        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs jsonEscapesRead(), applied to the project folder comparison',
+        why: 'the core writes JSON files with EF BF BD where Node wrote the escape',
+        allowedBy: 'decisions.md "frame-lone-surrogate": "JSON files the core writes hold EF BF BD where Node wrote the six-byte escape"',
+      },
+      {
         what: 'json steps: Node gets the params as these exact JSON bytes; the phone adapter writes the core\'s frame from the string Node parsed',
         where: 'lib/inbound-lone-surrogate-cases.mjs `json`; the escape forms themselves reach the core\'s decoder only from the adapter\'s JSON.stringify',
         why: 'the phone sends what its adapter serializes; the decoder\'s reading of each escape form is covered by mixdog-js json_well_formed tests',
@@ -262,7 +268,8 @@ writeSetManifest(stage, {
     refusedByRule: {
       steps: STEPS.filter((step) => step.refused).map((step) => step.name),
       check:
-        "the phone's call fails with the core's invalidParams refusal of a lone surrogate outside free text (its message names the field and says 'text without unpaired surrogates'), the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
+        "the phone's outcome equals, whole, the core's invalidParams refusal of a lone surrogate outside free text as the files adapter reports it (lib/inbound-lone-surrogate-cases.mjs LONE_REFUSAL: the TypeError of server.rs lone_refusal's sentence, no code); the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
+      refusal: LONE_REFUSAL,
       why: 'input no shipped client can send only has to be refused with no side effect, with no recording (AGENT-RULES.md)',
     },
     // Steps with no Node counterpart: compared with the core's own answer to a stand-in, whole.

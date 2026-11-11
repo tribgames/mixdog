@@ -30,9 +30,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 25685,
+      "bytes": 27015,
       "path": "golden.json",
-      "sha256": "f2ba50a80d4ed58a7878beb13d4e44921317a02e0b478c0b904f33bdc19433a0"
+      "sha256": "55801b0f8f84f862cf40848df412c05db28d05ba61f9ea2b6fa0028da2510675"
     }
   ],
   "inputs": {
@@ -87,7 +87,8 @@
     "search-lone-query": "7b226964223a32392c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a225c7564383364227d5d7d",
     "search-real-replacement": "7b226964223a33302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22efbfbd227d5d7d",
     "search-regex-lone-query": "7b226964223a33322c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22615c7564653030222c227265676578223a747275657d5d7d",
-    "search-regex-real-replacement-query": "7b226964223a313030302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2261efbfbd222c227265676578223a747275657d5d7d"
+    "search-regex-real-replacement-query": "7b226964223a313030302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2261efbfbd222c227265676578223a747275657d5d7d",
+    "workspace-folder-name-lone": "7b226964223a313032322c226d6574686f64223a2273617665576f726b7370616365222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a6563745c5c747269702e636f64652d776f726b7370616365222c5b7b2270617468223a22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e616d65223a2254726970205c7564383364227d5d5d7d"
   },
   "nodeVersion": "v22.20.0",
   "normalisations": [
@@ -102,6 +103,12 @@
       "what": "golden.preferences (desktop-projects.json) is compared as {aliases, hidden} with the core's `projects` rows (state/core.sqlite), after wellFormed",
       "where": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs, after the project folder",
       "why": "the core keeps project preferences in that table (DS §4.1), not in a JSON file; `version` is the file format's, not state"
+    },
+    {
+      "allowedBy": "decisions.md \"frame-lone-surrogate\": \"JSON files the core writes hold EF BF BD where Node wrote the six-byte escape\"",
+      "what": "the bytes of trip.code-workspace in golden.files: each six-byte \\udXXX escape JSON.stringify wrote (it escapes only lone surrogates; an escaped backslash before `ud` is left) becomes the UTF-8 of U+FFFD; nothing else changes",
+      "where": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs jsonEscapesRead(), applied to the project folder comparison",
+      "why": "the core writes JSON files with EF BF BD where Node wrote the escape"
     },
     {
       "allowedBy": "not a value change: both sides get the same string",
@@ -131,15 +138,15 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs",
-      "sha256": "d75207f215fb35c652faeaec3a71475075c8b1e848c747ed0b0f1aa78675c886"
+      "sha256": "6b6483168bd594161ccf5be6cdab074ce57c2a7396a49baa8c8ba5fa0e7f29e0"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-cases.mjs",
-      "sha256": "a70b8f17f7cecb6b903b2c6d7e3cd00ae2de7a611d0cec51a50d67ac54f9446c"
+      "sha256": "2ec5af2b70c8a1f3795082579e47073a097a4c48fcf49886c085bd271c7fac78"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs",
-      "sha256": "9b87f7bd76e3595c969dcc8e23f3a5264416c3a5bd7a20fd42eaf8487a4725ea"
+      "sha256": "f67fc4caac7ed8d638ddf333e3ce1140e04b2610ac660b9a091bc24ce7681a4a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/raw-frame-bytes.mjs",
@@ -163,7 +170,11 @@
     }
   ],
   "refusedByRule": {
-    "check": "the phone's call fails with the core's invalidParams refusal of a lone surrogate outside free text (its message names the field and says 'text without unpaired surrogates'), the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
+    "check": "the phone's outcome equals, whole, the core's invalidParams refusal of a lone surrogate outside free text as the files adapter reports it (lib/inbound-lone-surrogate-cases.mjs LONE_REFUSAL: the TypeError of server.rs lone_refusal's sentence, no code); the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
+    "refusal": {
+      "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape)",
+      "ok": false
+    },
     "steps": [
       "file-name-lone",
       "batch-real-replacement-lone-name",
@@ -184,5 +195,5 @@
     "why": "input no shipped client can send only has to be refused with no side effect, with no recording (AGENT-RULES.md)"
   },
   "set": "inbound-lone-surrogate",
-  "totalBytes": 25685
+  "totalBytes": 27015
 }
