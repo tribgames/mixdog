@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 194702,
+      "bytes": 238621,
       "path": "golden.json",
-      "sha256": "4268535a31f291be63dc8c648d2816d8b137f951ef4d45b016539de70ec6ff77"
+      "sha256": "ce8495a476c94325bbe587f0afaddb30792990a9b14e0e5aa06814d8eb8ee3ce"
     }
   ],
   "inputs": [
@@ -80,7 +80,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "5f987700a02a6efb9c32d6e09033b426c0441edb396bacdccf0eb6a6f300dc6a",
+  "recorderSha256": "b6db02145ba1323aaf05f2e04418026a6f0c9856e49d28f5ddf2eccca0e39d88",
   "replay": {
     "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
     "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates.",
@@ -122,6 +122,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "github-cases",
-  "totalBytes": 194702,
+  "totalBytes": 238621,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
