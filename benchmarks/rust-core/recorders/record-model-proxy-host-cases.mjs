@@ -8,8 +8,11 @@
 //
 //   node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a with node_modules>
-import { openSet } from './lib/case-set.mjs';
+import { FIXED_NOW, openSet } from './lib/case-set.mjs';
+import { scriptUuids } from './lib/scripted-uuid.mjs';
+import { realDeadline, realTimers, virtualTimers } from './lib/virtual-timers.mjs';
 
+const scriptedUuids = scriptUuids();
 const set = openSet('model-proxy-host-cases', import.meta.url);
 const { tree } = set;
 const A = 'apps/desktop/src/main/';
@@ -23,17 +26,13 @@ const { ModelProxyProvider, _resetModelProxyProviderConfigForTest, loadModelProx
 
 const DEADLINE_MS = 10_000;
 const disposers = [];
-const turns = async (n) => { for (let i = 0; i < n; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
-const failure = (e) => ({ name: e?.name ?? null, code: e?.code ?? null, message: String(e?.message ?? e), status: e?.status ?? null, retryAfter: e?.retryAfter ?? null, partialContent: e?.partialContent ?? null, liveTextEmitted: e?.liveTextEmitted ?? null, headers: e?.headers ?? null, cause: e?.cause === undefined ? null : String(e.cause), baseURL: e?.baseURL ?? null });
-const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: failure(e) }; } };
-/** `promise` or a rejection naming `label` after DEADLINE_MS (the host's timers are unref'd: this keeps the loop alive). */
-async function settled(label, promise, limitMs = DEADLINE_MS) {
-  let timer;
-  const limit = new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label}: still pending after ${limitMs}ms`)), limitMs); });
-  try { return await Promise.race([promise, limit]); } finally { clearTimeout(timer); }
-}
+const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
+/** The event that ends a step, with a deadline on the real clock (the clock the code under test sees is virtual). */
+const settled = (label, promise, limitMs = DEADLINE_MS) => realDeadline(label, promise, limitMs);
 function connect(runtime, { intercept = null, channel = new ModelProxyChannel(), ...hostOptions } = {}) {
   const operations = [];
+  const settledCalls = []; const settledWaiters = [];
+  const callSettled = (count) => (settledCalls.length >= count ? Promise.resolve(settledCalls) : new Promise((resolve) => settledWaiters.push({ count, resolve })));
   const host = createModelProxyHost({
     invoke: async (operation, args) => {
       operations.push(operation);
@@ -42,6 +41,7 @@ function connect(runtime, { intercept = null, channel = new ModelProxyChannel(),
       return JSON.parse(JSON.stringify((await channel.handleOperation(operation, wireArgs)) ?? null));
     },
     loadRuntime: async () => runtime,
+    onCallSettled: (event) => { settledCalls.push(event); for (const w of settledWaiters.splice(0)) { if (settledCalls.length >= w.count) w.resolve(settledCalls); else settledWaiters.push(w); } },
     ...hostOptions,
   });
   const detach = channel.attachPublisher((snapshot) => {
@@ -49,7 +49,7 @@ function connect(runtime, { intercept = null, channel = new ModelProxyChannel(),
     setImmediate(() => host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, value));
   });
   disposers.push(() => { detach(); host.dispose(); });
-  return { channel, host, operations };
+  return { channel, host, operations, settledCalls, callSettled };
 }
 const fakeRuntime = (providers, extra = {}) => ({ provider: async (name) => providers[name], providerConfig: async () => ({ providers: {}, ready: true }), finalizeTools: (tools) => tools, ...extra });
 function hangingProvider() {
@@ -78,9 +78,29 @@ function pcModules(available, keys = {}) {
 }
 const send = (channel, name, args = {}) => new ModelProxyProvider(name, {}, channel).send(args.messages ?? [], args.model ?? 'gpt', args.tools, args.options ?? {});
 const providerConfigOf = (channel) => channel.request({ provider: '', method: 'providerConfig' });
-const REDACTED_NOTE = 'timers: heartbeat counts depend on the host timers and are not compared, only the lease outcome';
+/** Drives the virtual clock for a promise that waits on timers: to the soonest pending timer, then until the next timer is armed or the promise settles. */
+async function driven(virtual, label, promise) {
+  let finished = false; let outcome;
+  const done = promise.then((value) => { finished = true; outcome = { value }; }, (error) => { finished = true; outcome = { error }; });
+  while (!finished) {
+    // Quiescence barrier: the clock moves only once every immediate (the connection hops) and every promise chain has run to its wait on a timer.
+    await settled(`: the connection hops to finish`, virtual.idle());
+    await new Promise((resolve) => realTimers.setImmediate(resolve));
+    if (finished) break;
+    const pending = virtual.pending();
+    if (!pending.length) { await settled(`${label}: a timer to be armed`, Promise.race([done, virtual.nextArmed()])); continue; }
+    virtual.advance(Math.max(0, Math.min(...pending.map((p) => p.dueMs)) - virtual.elapsed()));
+    await settled(`${label}: the next step after the clock advanced`, Promise.race([done, virtual.nextArmed()]));
+  }
+  if ('error' in outcome) throw outcome.error;
+  return outcome.value;
+}
 async function run(name, fn, extra) {
-  await set.run(name, async () => { try { return await fn(); } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); } }, extra);
+  await set.run(name, async () => {
+    const virtual = virtualTimers();
+    Date.now = () => FIXED_NOW + virtual.elapsed(); // the daemon side reads Date.now for its deadlines: it follows the virtual clock
+    try { const observed = await fn(virtual); return { ...observed, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
+  }, extra);
 }
 
 await run('quota requests use the PC policy with the selected provider and model, after provider guards', async () => {
@@ -148,7 +168,7 @@ await run('the PC runs the call with its own provider and streams every callback
       return { content: 'Hello again', usage: { inputTokens: 7, outputTokens: 2 } };
     },
   };
-  const { channel, host } = connect(fakeRuntime({ 'anthropic-oauth': provider }));
+  const { channel, host, callSettled } = connect(fakeRuntime({ 'anthropic-oauth': provider }));
   const seen = [];
   const result = await new ModelProxyProvider('anthropic-oauth', {}, channel).send([{ role: 'user', content: 'hi' }], 'claude-test', [{ name: 'read', input_schema: {} }], {
     sessionId: 'pc-session',
@@ -156,8 +176,8 @@ await run('the PC runs the call with its own provider and streams every callback
     onTextDelta: (text) => { seen.push(['text', text]); },
     onTextReset: async ({ chars }) => { seen.push(['reset', chars]); return true; },
   });
-  await turns(2);
-  return { result, callbacks: seen, pcProviderCalls: calls, hostRunningAfter: host.running };
+  const settledCalls = await settled('the PC host to settle the call', callSettled(1));
+  return { result, callbacks: seen, pcProviderCalls: calls, hostRunningAfter: host.running, settledCalls };
 });
 await run('the provider send result reaches the daemon unchanged, wireReroute included', async () => {
   const wireReroute = { from: { provider: 'a', model: 'm1' }, to: { provider: 'b', model: 'm2' }, reason: 'x' };
@@ -189,7 +209,7 @@ await run('the PC reports its model-specific first-response budget through the c
 await run('a daemon-side abort aborts the PC provider call', async () => {
   const started = Promise.withResolvers(); const stopped = Promise.withResolvers();
   const provider = { send(_m, _model, _t, options) { started.resolve(); return new Promise((_resolve, reject) => { options.signal.addEventListener('abort', () => { stopped.resolve(options.signal.reason); reject(options.signal.reason); }); }); } };
-  const { channel, host, operations } = connect(fakeRuntime({ openai: provider }), { heartbeatMs: 20 });
+  const { channel, host, operations, callSettled } = connect(fakeRuntime({ openai: provider }), { heartbeatMs: 20 });
   const controller = new AbortController();
   const sending = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, { signal: controller.signal });
   await settled('the PC call to start', started.promise);
@@ -197,26 +217,32 @@ await run('a daemon-side abort aborts the PC provider call', async () => {
   controller.abort(new Error('user stop'));
   const outcome = await rejected(sending);
   const reason = await settled('the PC provider to see the abort', stopped.promise);
-  await turns(5);
-  return { runningWhileCalling, daemonOutcome: outcome, pcAbortReason: { name: reason.name }, runningAfter: host.running, snapshot: channel.snapshot(), resolveOperationSeen: operations.includes('modelProxyResolve'), normalized: REDACTED_NOTE };
+  const settledCalls = await settled('the PC host to settle the aborted call', callSettled(1));
+  return { runningWhileCalling, daemonOutcome: outcome, pcAbortReason: reason, runningAfter: host.running, snapshot: channel.snapshot(), operations, settledCalls };
 });
-await run('a daemon silent past its lease makes the PC abandon every active call', async () => {
+await run('a daemon silent past its lease makes the PC abandon every active call', async (virtual) => {
   const provider = hangingProvider();
-  let now = 1_000; let daemonSilent = false; let failedHeartbeats = 0; let onFailed;
-  const { channel, host } = connect(fakeRuntime({ openai: provider }), { heartbeatMs: 5, leaseMs: 100, now: () => now, intercept: async (operation) => { if (daemonSilent && operation === 'modelProxyHeartbeat') { failedHeartbeats += 1; onFailed?.(); throw new Error('connection lost'); } } });
+  let now = 1_000; let daemonSilent = false; const failedHeartbeats = []; let failedBeat = Promise.withResolvers();
+  const { channel, host, operations } = connect(fakeRuntime({ openai: provider }), { heartbeatMs: 5, leaseMs: 100, now: () => now, intercept: async (operation) => { if (daemonSilent && operation === 'modelProxyHeartbeat') { failedHeartbeats.push(now); const beat = failedBeat; failedBeat = Promise.withResolvers(); beat.resolve(); throw new Error('connection lost'); } } });
   const daemonCall = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {});
   await settled('the PC call to start', provider.started);
   const runningBefore = host.running;
   daemonSilent = true; now += 50;
-  const keepAlive = setInterval(() => {}, 1_000);
-  try {
-    await settled('3 failed heartbeats inside the lease', new Promise((resolve) => { onFailed = () => failedHeartbeats >= 3 && resolve(); }));
-    const runningInsideLease = host.running;
-    now += 100;
-    const reason = await settled('the PC provider to see the lease abort', provider.stopped);
-    const daemonOutcome = await rejected(settled('the daemon call', daemonCall));
-    return { leaseMs: 100, heartbeatMs: 5, runningBefore, atLeastThreeFailedHeartbeats: failedHeartbeats >= 3, runningInsideLease, abortReason: { code: reason.code, message: reason.message }, runningAfter: host.running, daemonOutcome, normalized: REDACTED_NOTE };
-  } finally { clearInterval(keepAlive); }
+  const steps = [{ step: 'daemon silent; the injected clock moves 50 ms', now }];
+  // The heartbeat interval is on the virtual clock: three beats inside the lease, each failing, then the clock passes the lease.
+  for (let beat = 1; beat <= 3; beat += 1) {
+    const failed = failedBeat.promise;
+    virtual.advance(5);
+    await settled(`failed heartbeat ${beat} inside the lease`, failed);
+    steps.push({ step: `virtual clock +5 ms: heartbeat ${beat} failed`, now, running: host.running });
+  }
+  const runningInsideLease = host.running;
+  now += 100;
+  steps.push({ step: 'the injected clock moves 100 ms past the lease', now });
+  virtual.advance(5);
+  const reason = await settled('the PC provider to see the lease abort', provider.stopped);
+  const daemonOutcome = await rejected(settled('the daemon call', daemonCall));
+  return { leaseMs: 100, heartbeatMs: 5, runningBefore, steps, failedHeartbeats, runningInsideLease, abortReason: reason, runningAfter: host.running, daemonOutcome, operations };
 });
 await run('disposing the host aborts and drops every active call', async () => {
   const provider = hangingProvider();
@@ -227,23 +253,23 @@ await run('disposing the host aborts and drops every active call', async () => {
   host.dispose();
   const runningAfterDispose = host.running;
   const reason = await settled('the PC provider to see the abort', provider.stopped);
-  return { runningBefore, runningAfterDispose, abortReason: { name: reason.name }, daemonOutcome: await rejected(settled('the daemon call', daemonCall)) };
+  return { runningBefore, runningAfterDispose, abortReason: reason, daemonOutcome: await rejected(settled('the daemon call', daemonCall)) };
 });
 await run('cold start: the daemon waits for a PC that connects late and loads its registry on demand', async () => {
   _resetModelProxyProviderConfigForTest();
   const modules = pcModules({ openai: { enabled: true }, gemini: { enabled: false } });
   const channel = new ModelProxyChannel();
+  // The load has run to its first wait when the call returns: the PC is not connected yet (the Node test waited 50 ms to show it).
   const loading = loadModelProxyProviderConfig({ channel, waitMs: 2_000 });
-  await turns(5);
   const liveBeforeConnect = modules.live.size;
   connect(createModelProxyRuntime(modules), { channel });
   const config = await settled('the provider config', loading);
-  return { liveBeforeConnect, config, keyReads: modules.keyReads, waitMs: 2_000, normalized: 'the test waited 50 ms before connecting; the recording yields five event-loop turns' };
+  return { liveBeforeConnect, config, keyReads: modules.keyReads, waitMs: 2_000 };
 });
-await run('the daemon retries an unready PC answer instead of reading it as "all disabled"', async () => {
+await run('the daemon retries an unready PC answer instead of reading it as "all disabled"', async (virtual) => {
   let asked = 0;
   const { channel } = connect(fakeRuntime({}, { providerConfig: async () => (++asked === 1 ? { providers: {}, ready: false } : { providers: { openai: { enabled: true, modelProxy: {} } }, ready: true }) }));
-  const config = await settled('the provider config', loadModelProxyProviderConfig({ channel, waitMs: 2_000 }));
+  const config = await driven(virtual, 'the provider config', loadModelProxyProviderConfig({ channel, waitMs: 2_000 }));
   return { config, asked };
 });
 await run('a loaded PC registry with nothing enabled is an answer, not a wait', async () => {
@@ -279,34 +305,33 @@ await run('a proxied side request gets its own transport scope on the PC, dispos
         return { content: 'ok' };
       },
     };
-    const { channel } = connect(fakeRuntime({ openai: provider }));
+    const { channel, callSettled } = connect(fakeRuntime({ openai: provider }));
     const proxied = new ModelProxyProvider('openai', {}, channel);
     const mainScope = 'main-session#side:server-scope';
     const side = (sessionId, signal) => proxied.send([], 'gpt', undefined, { sessionId, transportScope: mainScope, signal });
-    const scopeShape = (scope, sessionId) => ({ isString: typeof scope === 'string', differsFromServerScope: scope !== mainScope, startsWithSessionHash: String(scope).startsWith(`${sessionId}#`) });
+    const view = () => ({ sentScopes: sends.map((o) => o.transportScope), sentHaveTransportScope: sends.map((o) => Object.hasOwn(o, 'transportScope')), closed: [...closed], released: [...released] });
     const log = [];
     await side('ok');
-    log.push({ step: 'success', scope: scopeShape(sends[0].transportScope, 'ok'), closedIsScope: closed[0] === sends[0].transportScope, releasedIsScope: released[0] === sends[0].transportScope });
+    log.push({ step: 'success', ...view() });
     const fail = await rejected(side('fail'));
-    log.push({ step: 'error', fail, scopeIsClosed: sends[1].transportScope === closed[1], differsFromFirst: sends[1].transportScope !== sends[0].transportScope, releasedEqualsClosed: JSON.stringify(released) === JSON.stringify(closed) });
+    log.push({ step: 'error', fail, ...view() });
     const controller = new AbortController();
     const hanging = side('hang', controller.signal);
     await settled('the hanging side request to start', hung.promise);
-    const closedWhileRunning = closed.length;
+    const whileRunning = view();
     controller.abort(new Error('user stop'));
     const cancelled = await rejected(hanging);
-    await turns(5);
-    log.push({ step: 'cancel', closedWhileRunning, cancelled, closedAfter: closed.length, closedIsScope: closed[2] === sends[2].transportScope, releasedEqualsClosed: JSON.stringify(released) === JSON.stringify(closed), distinctScopes: new Set(closed).size });
+    await settled('the PC host to settle the cancelled side request', callSettled(3));
+    log.push({ step: 'cancel', whileRunning, cancelled, ...view() });
     await proxied.send([], 'gpt', undefined, { sessionId: 'main' });
-    log.push({ step: 'no scope named', hasTransportScope: Object.hasOwn(sends[3], 'transportScope'), closedAfter: closed.length });
-    return { mainScope, log, normalized: 'the scope is session#<random>: only its shape is compared' };
-  } finally { globalThis.__mixdogCloseProviderConnectionsForSession = previousHook; }
+    log.push({ step: 'no scope named', ...view() });
+    return { mainScope, log };  } finally { globalThis.__mixdogCloseProviderConnectionsForSession = previousHook; }
 });
 await run('PC errors reach the server with only the recovery fields, credentials redacted', async () => {
   const provider = { async send() { throw Object.assign(new Error('401 from upstream for key sk-DUMMY-abcdefghijklmnopqrstuvwxyz'), { status: 401, code: 'auth_failed', retryAfter: 3, partialContent: 'half an answer', liveTextEmitted: true, headers: { authorization: 'Bearer pc-secret-token' }, cause: new Error('socket to https://internal.pc.example'), baseURL: 'https://internal.pc.example' }); } };
   const { channel } = connect(fakeRuntime({ openai: provider }));
   const error = await new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {}).then(() => null, (e) => e);
-  return { thrown: error ? { ...failure(error), hasHeaders: error.headers !== undefined, hasCause: error.cause !== undefined, hasBaseURL: error.baseURL !== undefined, messageRedacted: /\[redacted\]/.test(error.message), messageKeepsKey: /sk-DUMMY-abcdef/.test(error.message) } : null };
+  return { thrown: error };
 });
 await run('providerConfig tells a server availability and traits only; disallowed providers are refused', async () => {
   const sendFn = async () => ({ content: 'x' });
@@ -374,12 +399,12 @@ await run('the last disabled or removed provider is not advertised even when the
   return { log, keyReads: modules.keyReads };
 });
 for (const claimed of [false, true]) {
-  await run(`provider config deadline aborts a stalled request (claimed=${claimed})`, async () => {
+  await run(`provider config deadline aborts a stalled request (claimed=${claimed})`, async (virtual) => {
     const channel = new ModelProxyChannel();
     let requestId;
     const detach = channel.attachPublisher((snapshot) => { for (const { id } of snapshot.requests) { requestId = id; if (claimed) channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]); } });
     disposers.push(detach);
-    const outcome = await rejected(settled('the provider config deadline', loadModelProxyProviderConfig({ channel, waitMs: 30 }), 1_000));
+    const outcome = await rejected(driven(virtual, 'the provider config deadline', loadModelProxyProviderConfig({ channel, waitMs: 30 })));
     return { claimed, waitMs: 30, outcome, requestPublished: Boolean(requestId) };
   });
 }
@@ -521,11 +546,11 @@ await run('proxy credential presence follows the registry OAuth set and resolveP
 await set.finish({
   entry: {
     runs: 'apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe) over the real ModelProxyChannel, ModelProxyProvider and loadModelProxyProviderConfig of the daemon side, joined through a JSON hop as the session connection does; resolveWireRoute / pinSessionWireRoute; the real provider-api-key helpers',
-    notRun: 'no real provider: the PC providers and registry modules are scripted objects; timers are the host\'s real (unref\'d) heartbeat timers with injected `now` for the lease',
+    notRun: 'no real provider: the PC providers and registry modules are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock', scripted: scriptedUuids,
   },
   replay: {
     entry: 'mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case\'s observed fields whole',
-    normalised: { secretShapedInputs: 'the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike', heartbeats: 'heartbeat operation counts are not compared (real timers)', transportScope: 'the PC scope is <session>#<random>: its shape only', coldStartWait: 'a 50 ms wait became five event-loop turns' },
+    normalised: { secretShapedInputs: 'the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike', transportScope: 'the PC scope is <session>#proxy:<uuid>; the uuid is a counter (scripted crypto.randomUUID), recorded as it came' },
   },
   replaceInText: [],
 });
