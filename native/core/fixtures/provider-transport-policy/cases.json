@@ -1,0 +1,1087 @@
+{
+  "set": "provider-transport-policy",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "policy-defaults-and-modes",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:24",
+      "input": {
+        "envs": [
+          {},
+          {
+            "MIXDOG_OAI_TRANSPORT": "ws-full"
+          },
+          {
+            "MIXDOG_OAI_TRANSPORT": "ws-delta"
+          },
+          {
+            "MIXDOG_OAI_TRANSPORT": "http-sse"
+          },
+          {
+            "MIXDOG_OAI_TRANSPORT": "quantum"
+          }
+        ]
+      },
+      "result": [
+        {
+          "env": {},
+          "policy": {
+            "mode": "auto",
+            "requestedMode": "auto",
+            "transport": "ws",
+            "allowHttpFallback": true,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "ws-full"
+          },
+          "policy": {
+            "mode": "ws-full",
+            "requestedMode": "ws-full",
+            "transport": "ws",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": false,
+              "optIn": false
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "ws-delta"
+          },
+          "policy": {
+            "mode": "ws-delta",
+            "requestedMode": "ws-delta",
+            "transport": "ws",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "http-sse"
+          },
+          "policy": {
+            "mode": "http-sse",
+            "requestedMode": "http-sse",
+            "transport": "http",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": false,
+              "optIn": false
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "quantum"
+          },
+          "policy": {
+            "mode": "auto",
+            "requestedMode": "auto",
+            "transport": "ws",
+            "allowHttpFallback": true,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "response-frame-omits-transport-fields",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:60",
+      "input": {
+        "body": {
+          "model": "gpt-5.5",
+          "input": [
+            {
+              "a": 1
+            },
+            {
+              "b": 2
+            }
+          ],
+          "stream": true,
+          "background": false,
+          "text": {
+            "verbosity": "low"
+          }
+        }
+      },
+      "result": {
+        "full": {
+          "type": "response.create",
+          "model": "gpt-5.5",
+          "input": [
+            {
+              "a": 1
+            },
+            {
+              "b": 2
+            }
+          ],
+          "text": {
+            "verbosity": "low"
+          }
+        },
+        "delta": {
+          "type": "response.create",
+          "model": "gpt-5.5",
+          "previous_response_id": "resp_prev",
+          "input": [
+            {
+              "b": 2
+            }
+          ],
+          "text": {
+            "verbosity": "low"
+          }
+        }
+      }
+    },
+    {
+      "id": "mode-token-aliases",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:78",
+      "input": {
+        "aliases": [
+          "WS_FULL",
+          "  ws delta ",
+          "http/sse",
+          "sse",
+          "auto",
+          "official",
+          "",
+          "bogus"
+        ]
+      },
+      "result": [
+        [
+          "WS_FULL",
+          "ws-full"
+        ],
+        [
+          "  ws delta ",
+          "ws-delta"
+        ],
+        [
+          "http/sse",
+          "http-sse"
+        ],
+        [
+          "sse",
+          "http-sse"
+        ],
+        [
+          "auto",
+          "auto"
+        ],
+        [
+          "official",
+          null
+        ],
+        [
+          "",
+          null
+        ],
+        [
+          "bogus",
+          null
+        ]
+      ]
+    },
+    {
+      "id": "ws-delta-drives-computeDelta-delta-frame",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:89",
+      "input": {
+        "env": "ws-delta"
+      },
+      "result": {
+        "body": {
+          "model": "gpt-5.5",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "prev"
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "content": "next"
+            }
+          ]
+        },
+        "entry": {
+          "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+          "lastResponseId": "resp_prev",
+          "lastRequestInput": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "prev"
+            }
+          ],
+          "lastResponseItems": []
+        },
+        "delta": {
+          "mode": "delta",
+          "reason": null,
+          "strippedResponseItems": 0,
+          "skippedResponseItems": 0,
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "previous_response_id": "resp_prev",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "next"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ws-full-forces-computeDelta-full",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:113",
+      "input": {
+        "env": "ws-full"
+      },
+      "result": {
+        "body": {
+          "model": "gpt-5.5",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        },
+        "entry": {
+          "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+          "lastResponseId": "resp_prev",
+          "lastRequestInput": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "hi"
+            }
+          ],
+          "lastResponseItems": []
+        },
+        "delta": {
+          "mode": "full",
+          "reason": "full_default",
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "responses-policy-full-caps-equal-legacy",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:144",
+      "input": {
+        "envs": [
+          {},
+          {
+            "MIXDOG_OAI_TRANSPORT": "ws-full"
+          },
+          {
+            "MIXDOG_OAI_TRANSPORT": "ws-delta"
+          },
+          {
+            "MIXDOG_OAI_TRANSPORT": "http-sse"
+          },
+          {
+            "MIXDOG_OAI_TRANSPORT": "quantum"
+          }
+        ]
+      },
+      "result": [
+        {
+          "env": {},
+          "legacy": {
+            "mode": "auto",
+            "requestedMode": "auto",
+            "transport": "ws",
+            "allowHttpFallback": true,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "shared": {
+            "mode": "auto",
+            "requestedMode": "auto",
+            "transport": "ws",
+            "allowHttpFallback": true,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "equal": true
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "ws-full"
+          },
+          "legacy": {
+            "mode": "ws-full",
+            "requestedMode": "ws-full",
+            "transport": "ws",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": false,
+              "optIn": false
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "shared": {
+            "mode": "ws-full",
+            "requestedMode": "ws-full",
+            "transport": "ws",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": false,
+              "optIn": false
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "equal": true
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "ws-delta"
+          },
+          "legacy": {
+            "mode": "ws-delta",
+            "requestedMode": "ws-delta",
+            "transport": "ws",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "shared": {
+            "mode": "ws-delta",
+            "requestedMode": "ws-delta",
+            "transport": "ws",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "equal": true
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "http-sse"
+          },
+          "legacy": {
+            "mode": "http-sse",
+            "requestedMode": "http-sse",
+            "transport": "http",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": false,
+              "optIn": false
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "shared": {
+            "mode": "http-sse",
+            "requestedMode": "http-sse",
+            "transport": "http",
+            "allowHttpFallback": false,
+            "delta": {
+              "force": false,
+              "refs": false,
+              "optIn": false
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "equal": true
+        },
+        {
+          "env": {
+            "MIXDOG_OAI_TRANSPORT": "quantum"
+          },
+          "legacy": {
+            "mode": "auto",
+            "requestedMode": "auto",
+            "transport": "ws",
+            "allowHttpFallback": true,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "shared": {
+            "mode": "auto",
+            "requestedMode": "auto",
+            "transport": "ws",
+            "allowHttpFallback": true,
+            "delta": {
+              "force": false,
+              "refs": true,
+              "optIn": true
+            },
+            "capabilities": {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          },
+          "equal": true
+        }
+      ]
+    },
+    {
+      "id": "responses-policy-capabilities-table",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:158",
+      "input": {},
+      "result": {
+        "capabilities": {
+          "openai-oauth": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          },
+          "openai": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          },
+          "xai": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        },
+        "full": {
+          "ws": true,
+          "http": true,
+          "delta": true
+        }
+      }
+    },
+    {
+      "id": "responses-policy-openai-direct-ws-delta",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:158",
+      "input": {
+        "env": {
+          "MIXDOG_OAI_TRANSPORT": "ws-delta"
+        }
+      },
+      "result": {
+        "direct": {
+          "mode": "ws-delta",
+          "requestedMode": "ws-delta",
+          "transport": "ws",
+          "allowHttpFallback": false,
+          "delta": {
+            "force": false,
+            "refs": true,
+            "optIn": true
+          },
+          "capabilities": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        }
+      }
+    },
+    {
+      "id": "responses-policy-xai",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:165",
+      "input": {},
+      "result": {
+        "auto": {
+          "mode": "auto",
+          "requestedMode": "auto",
+          "transport": "ws",
+          "allowHttpFallback": true,
+          "delta": {
+            "force": false,
+            "refs": true,
+            "optIn": true
+          },
+          "capabilities": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        },
+        "explicitAuto": {
+          "mode": "auto",
+          "requestedMode": "auto",
+          "transport": "ws",
+          "allowHttpFallback": true,
+          "delta": {
+            "force": false,
+            "refs": true,
+            "optIn": true
+          },
+          "capabilities": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        },
+        "wsDelta": {
+          "mode": "ws-delta",
+          "requestedMode": "ws-delta",
+          "transport": "ws",
+          "allowHttpFallback": false,
+          "delta": {
+            "force": false,
+            "refs": true,
+            "optIn": true
+          },
+          "capabilities": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        },
+        "wsFull": {
+          "mode": "ws-full",
+          "requestedMode": "ws-full",
+          "transport": "ws",
+          "allowHttpFallback": false,
+          "delta": {
+            "force": false,
+            "refs": false,
+            "optIn": false
+          },
+          "capabilities": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        },
+        "httpSse": {
+          "mode": "http-sse",
+          "requestedMode": "http-sse",
+          "transport": "http",
+          "allowHttpFallback": false,
+          "delta": {
+            "force": false,
+            "refs": false,
+            "optIn": false
+          },
+          "capabilities": {
+            "ws": true,
+            "http": true,
+            "delta": true
+          }
+        }
+      }
+    },
+    {
+      "id": "stream-progress-visible-ttft",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:214",
+      "input": {},
+      "result": {
+        "visible": {
+          "transport": false,
+          "semantic": false,
+          "text": true,
+          "reasoning": true,
+          "tool": true
+        },
+        "undefinedKind": false,
+        "gemini": [
+          {
+            "chunk": {
+              "usageMetadata": {}
+            },
+            "kind": "transport"
+          },
+          {
+            "chunk": {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "thought": true,
+                        "text": "thinking"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "kind": "reasoning"
+          },
+          {
+            "chunk": {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "thought": true,
+                        "thoughtSignature": "opaque"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "kind": "transport"
+          },
+          {
+            "chunk": {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "text": "answer"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "kind": "text"
+          },
+          {
+            "chunk": {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "functionCall": {
+                          "name": "read"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "kind": "tool"
+          }
+        ]
+      }
+    },
+    {
+      "id": "gate-transport-mode-down-shifts",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:248",
+      "input": {},
+      "result": {
+        "caps": {
+          "noDelta": {
+            "ws": true,
+            "http": true,
+            "delta": false
+          },
+          "httpOnly": {
+            "ws": false,
+            "http": true,
+            "delta": false
+          },
+          "wsOnly": {
+            "ws": true,
+            "http": false,
+            "delta": true
+          }
+        },
+        "gated": {
+          "noDelta": [
+            [
+              "auto",
+              "ws-full"
+            ],
+            [
+              "ws-full",
+              "ws-full"
+            ],
+            [
+              "ws-delta",
+              "ws-full"
+            ],
+            [
+              "http-sse",
+              "http-sse"
+            ]
+          ],
+          "httpOnly": [
+            [
+              "auto",
+              "http-sse"
+            ],
+            [
+              "ws-full",
+              "http-sse"
+            ],
+            [
+              "ws-delta",
+              "http-sse"
+            ],
+            [
+              "http-sse",
+              "http-sse"
+            ]
+          ],
+          "wsOnly": [
+            [
+              "auto",
+              "auto"
+            ],
+            [
+              "ws-full",
+              "ws-full"
+            ],
+            [
+              "ws-delta",
+              "ws-delta"
+            ],
+            [
+              "http-sse",
+              "ws-full"
+            ]
+          ],
+          "full": [
+            [
+              "auto",
+              "auto"
+            ],
+            [
+              "ws-full",
+              "ws-full"
+            ],
+            [
+              "ws-delta",
+              "ws-delta"
+            ],
+            [
+              "http-sse",
+              "http-sse"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "turn-state-captured-once-never-synthesized",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:272",
+      "input": {},
+      "result": {
+        "steps": [
+          {
+            "event": {
+              "type": "response.created",
+              "headers": {}
+            },
+            "turnState": null
+          },
+          {
+            "event": {
+              "type": "response.created",
+              "headers": {
+                "x-codex-turn-state": "tok-1"
+              }
+            },
+            "turnState": "tok-1"
+          },
+          {
+            "event": {
+              "headers": {
+                "x-codex-turn-state": "tok-2"
+              }
+            },
+            "turnState": "tok-1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "turn-state-nested-header-shapes",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:285",
+      "input": {},
+      "result": {
+        "fromResponse": {
+          "turnState": "tok-r"
+        },
+        "fromMeta": {
+          "turnState": "tok-m"
+        }
+      }
+    },
+    {
+      "id": "turn-state-echoed-within-turn-dropped-across",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:294",
+      "input": {
+        "sessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+        "turnA": "019fc135-f07a-7880-8767-ec3b7be1de64",
+        "turnB": "019fc135-f07a-7880-8767-ec3b7be1de65"
+      },
+      "result": {
+        "f1": {
+          "client_metadata": {
+            "x-codex-installation-id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+            "session_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "thread_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "turn_id": "019fc135-f07a-7880-8767-ec3b7be1de64",
+            "x-codex-window-id": "019fc135-f07a-7880-8767-ec3b7be1de63:0",
+            "x-codex-turn-metadata": "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"thread_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"agent_name\":\"/root\",\"turn_id\":\"019fc135-f07a-7880-8767-ec3b7be1de64\",\"window_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1785652965498}",
+            "x-codex-ws-stream-request-start-ms": "1794225600000",
+            "x-codex-turn-state": "tok-A"
+          }
+        },
+        "afterF1": {
+          "turnState": "tok-A",
+          "turnStateScope": null,
+          "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+          "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+        },
+        "f2": {
+          "client_metadata": {
+            "x-codex-installation-id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+            "session_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "thread_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "turn_id": "019fc135-f07a-7880-8767-ec3b7be1de64",
+            "x-codex-window-id": "019fc135-f07a-7880-8767-ec3b7be1de63:0",
+            "x-codex-turn-metadata": "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"thread_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"agent_name\":\"/root\",\"turn_id\":\"019fc135-f07a-7880-8767-ec3b7be1de64\",\"window_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1785652965498}",
+            "x-codex-ws-stream-request-start-ms": "1794225600000",
+            "x-codex-turn-state": "tok-A"
+          }
+        },
+        "f3": {
+          "client_metadata": {
+            "x-codex-installation-id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+            "session_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "thread_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "turn_id": "019fc135-f07a-7880-8767-ec3b7be1de65",
+            "x-codex-window-id": "019fc135-f07a-7880-8767-ec3b7be1de63:0",
+            "x-codex-turn-metadata": "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"thread_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"agent_name\":\"/root\",\"turn_id\":\"019fc135-f07a-7880-8767-ec3b7be1de65\",\"window_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1785652965498}",
+            "x-codex-ws-stream-request-start-ms": "1794225600000"
+          }
+        },
+        "entryAfter": {
+          "turnState": null,
+          "turnStateScope": null,
+          "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65",
+          "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65"
+        }
+      }
+    },
+    {
+      "id": "turn-state-prewarm-seeds-logical-turn",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:315",
+      "input": {
+        "sessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+        "firstTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+        "nextTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65"
+      },
+      "result": {
+        "prewarm": {
+          "client_metadata": {
+            "x-codex-installation-id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+            "session_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "thread_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "turn_id": "",
+            "x-codex-window-id": "019fc135-f07a-7880-8767-ec3b7be1de63:0",
+            "x-codex-turn-metadata": "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"thread_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}",
+            "x-codex-ws-stream-request-start-ms": "1794225600000"
+          }
+        },
+        "firstTurn": {
+          "client_metadata": {
+            "x-codex-installation-id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+            "session_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "thread_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "turn_id": "019fc135-f07a-7880-8767-ec3b7be1de64",
+            "x-codex-window-id": "019fc135-f07a-7880-8767-ec3b7be1de63:0",
+            "x-codex-turn-metadata": "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"thread_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"agent_name\":\"/root\",\"turn_id\":\"019fc135-f07a-7880-8767-ec3b7be1de64\",\"window_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1785652965498}",
+            "x-codex-ws-stream-request-start-ms": "1794225600000",
+            "x-codex-turn-state": "tok-prewarm"
+          }
+        },
+        "afterFirst": {
+          "turnState": "tok-prewarm",
+          "turnStateScope": "prewarm-turn-state-session",
+          "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+          "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+        },
+        "nextTurn": {
+          "client_metadata": {
+            "x-codex-installation-id": "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d",
+            "session_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "thread_id": "019fc135-f07a-7880-8767-ec3b7be1de63",
+            "turn_id": "019fc135-f07a-7880-8767-ec3b7be1de65",
+            "x-codex-window-id": "019fc135-f07a-7880-8767-ec3b7be1de63:0",
+            "x-codex-turn-metadata": "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"thread_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63\",\"agent_name\":\"/root\",\"turn_id\":\"019fc135-f07a-7880-8767-ec3b7be1de65\",\"window_id\":\"019fc135-f07a-7880-8767-ec3b7be1de63:0\",\"request_kind\":\"turn\",\"thread_source\":\"user\",\"turn_trigger\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":1785652965498}",
+            "x-codex-ws-stream-request-start-ms": "1794225600000"
+          }
+        },
+        "entryAfter": {
+          "turnState": null,
+          "turnStateScope": "prewarm-turn-state-session",
+          "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65",
+          "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65"
+        }
+      }
+    },
+    {
+      "id": "turn-state-parity-disabled-untouched",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:360",
+      "input": {},
+      "result": {
+        "out": {
+          "input": []
+        },
+        "isSameFrame": true,
+        "entryAfter": {
+          "turnState": "tok-A"
+        }
+      }
+    },
+    {
+      "id": "turn-state-never-enters-connection-handshake",
+      "source": "scripts/provider-toolcall/transport-policy.test.mjs:370",
+      "input": {},
+      "result": {
+        "firstState": {
+          "opened": [
+            null
+          ],
+          "turnState": null
+        },
+        "replacementState": {
+          "opened": [
+            null,
+            null
+          ],
+          "turnState": null
+        },
+        "waiting": {
+          "resolved": false,
+          "opened": 2
+        },
+        "reused": {
+          "sameEntry": true,
+          "opened": 2
+        },
+        "otherState": {
+          "opened": [
+            null,
+            null,
+            null
+          ]
+        }
+      }
+    }
+  ]
+}
