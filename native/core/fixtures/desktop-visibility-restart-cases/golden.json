@@ -20,6 +20,7 @@
               ]
             ],
             "frames": [],
+            "envelopes": [],
             "sameServiceId": true,
             "adaptersCreated": 1,
             "accepted": true,
@@ -109,24 +110,204 @@
                 "frameSource": "live"
               }
             ],
-            "decoded": [
+            "envelopes": [
               {
-                "kind": "session-state",
-                "ok": true,
-                "firstItemText": "sent message"
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "sent message",
+                        "kind": "user",
+                        "text": "sent message"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
               },
               {
-                "kind": "session-state",
-                "ok": true,
-                "firstItemText": "working progress"
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "__itemsPatch": {
+                      "base": 1,
+                      "revision": 2,
+                      "prefix": 0,
+                      "append": [
+                        {
+                          "id": "working progress",
+                          "kind": "user",
+                          "text": "working progress"
+                        }
+                      ]
+                    },
+                    "__statePatch": {
+                      "base": 1,
+                      "revision": 2,
+                      "changed": {},
+                      "removed": []
+                    }
+                  },
+                  "frameSource": "live"
+                }
               },
               {
-                "kind": "session-state",
-                "ok": true,
-                "firstItemText": "completed answer"
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "__itemsPatch": {
+                      "base": 2,
+                      "revision": 3,
+                      "prefix": 0,
+                      "append": [
+                        {
+                          "id": "completed answer",
+                          "kind": "user",
+                          "text": "completed answer"
+                        }
+                      ]
+                    },
+                    "__statePatch": {
+                      "base": 2,
+                      "revision": 3,
+                      "changed": {},
+                      "removed": []
+                    }
+                  },
+                  "frameSource": "live"
+                }
               }
             ],
-            "frameCount": 3
+            "decoded": [
+              {
+                "frame": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "sent message",
+                        "kind": "user",
+                        "text": "sent message"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                },
+                "decoded": {
+                  "ok": true,
+                  "snapshot": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "sent message",
+                        "kind": "user",
+                        "text": "sent message"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "frame": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "__itemsPatch": {
+                      "base": 1,
+                      "revision": 2,
+                      "prefix": 0,
+                      "append": [
+                        {
+                          "id": "working progress",
+                          "kind": "user",
+                          "text": "working progress"
+                        }
+                      ]
+                    },
+                    "__statePatch": {
+                      "base": 1,
+                      "revision": 2,
+                      "changed": {},
+                      "removed": []
+                    }
+                  },
+                  "frameSource": "live"
+                },
+                "decoded": {
+                  "ok": true,
+                  "snapshot": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "working progress",
+                        "kind": "user",
+                        "text": "working progress"
+                      }
+                    ],
+                    "streamingTail": null
+                  }
+                }
+              },
+              {
+                "frame": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "__itemsPatch": {
+                      "base": 2,
+                      "revision": 3,
+                      "prefix": 0,
+                      "append": [
+                        {
+                          "id": "completed answer",
+                          "kind": "user",
+                          "text": "completed answer"
+                        }
+                      ]
+                    },
+                    "__statePatch": {
+                      "base": 2,
+                      "revision": 3,
+                      "changed": {},
+                      "removed": []
+                    }
+                  },
+                  "frameSource": "live"
+                },
+                "decoded": {
+                  "ok": true,
+                  "snapshot": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "completed answer",
+                        "kind": "user",
+                        "text": "completed answer"
+                      }
+                    ],
+                    "streamingTail": null
+                  }
+                }
+              }
+            ]
           },
           {
             "step": "agent pool row",
@@ -216,7 +397,103 @@
                 ]
               }
             ],
-            "lastFrameKind": "agent-pool"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "sent message",
+                        "kind": "user",
+                        "text": "sent message"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              },
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "__itemsPatch": {
+                      "base": 1,
+                      "revision": 2,
+                      "prefix": 0,
+                      "append": [
+                        {
+                          "id": "working progress",
+                          "kind": "user",
+                          "text": "working progress"
+                        }
+                      ]
+                    },
+                    "__statePatch": {
+                      "base": 1,
+                      "revision": 2,
+                      "changed": {},
+                      "removed": []
+                    }
+                  },
+                  "frameSource": "live"
+                }
+              },
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "__itemsPatch": {
+                      "base": 2,
+                      "revision": 3,
+                      "prefix": 0,
+                      "append": [
+                        {
+                          "id": "completed answer",
+                          "kind": "user",
+                          "text": "completed answer"
+                        }
+                      ]
+                    },
+                    "__statePatch": {
+                      "base": 2,
+                      "revision": 3,
+                      "changed": {},
+                      "removed": []
+                    }
+                  },
+                  "frameSource": "live"
+                }
+              },
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:agent-pool",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "agent-pool",
+                  "agents": [
+                    {
+                      "id": "worker",
+                      "status": "running"
+                    }
+                  ]
+                }
+              }
+            ]
           }
         ]
       }
@@ -257,16 +534,37 @@
                 "frameSource": "live"
               }
             ],
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:old_desktop:session-state:current_session",
+                "desktopId": "old_desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "must stay live",
+                        "kind": "user",
+                        "text": "must stay live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
+            ],
             "late": {
               "rejected": {
+                "$exact": "error",
                 "name": "Error",
-                "code": null,
-                "message": "desktop service client is not initialized"
+                "message": "desktop service client is not initialized",
+                "props": {}
               }
-            },
-            "laneSessions": [
-              "current_session"
-            ]
+            }
           }
         ]
       }
@@ -282,7 +580,8 @@
                 "current_session"
               ]
             ],
-            "frames": []
+            "frames": [],
+            "envelopes": []
           },
           {
             "step": "rows published",
@@ -309,8 +608,28 @@
                 "frameSource": "live"
               }
             ],
-            "laneSessions": [
-              "current_session"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop:session-state:current_session",
+                "desktopId": "desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "must stay live",
+                        "kind": "user",
+                        "text": "must stay live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
             ]
           }
         ]
@@ -348,7 +667,29 @@
                 "frameSource": "live"
               }
             ],
-            "lastFrameSessionId": "current_session"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop:session-state:current_session",
+                "desktopId": "desktop",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "current_session",
+                  "wire": {
+                    "sessionId": "current_session",
+                    "items": [
+                      {
+                        "id": "legacy live update",
+                        "kind": "user",
+                        "text": "legacy live update"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
+            ]
           }
         ]
       }
@@ -373,10 +714,7 @@
               ]
             ],
             "frames": [],
-            "lastRegistration": [
-              "a_current",
-              "b_session"
-            ]
+            "envelopes": []
           },
           {
             "step": "both live",
@@ -427,9 +765,49 @@
                 "frameSource": "live"
               }
             ],
-            "laneSessions": [
-              "a_current",
-              "b_session"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:a_current",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "a_current",
+                  "wire": {
+                    "sessionId": "a_current",
+                    "items": [
+                      {
+                        "id": "a is live",
+                        "kind": "user",
+                        "text": "a is live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              },
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:b_session",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "b_session",
+                  "wire": {
+                    "sessionId": "b_session",
+                    "items": [
+                      {
+                        "id": "b is live",
+                        "kind": "user",
+                        "text": "b is live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
             ]
           },
           {
@@ -484,8 +862,49 @@
                 "frameSource": "live"
               }
             ],
-            "lastRegistration": [
-              "a_current"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:a_current",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "a_current",
+                  "wire": {
+                    "sessionId": "a_current",
+                    "items": [
+                      {
+                        "id": "a is live",
+                        "kind": "user",
+                        "text": "a is live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              },
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:b_session",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "b_session",
+                  "wire": {
+                    "sessionId": "b_session",
+                    "items": [
+                      {
+                        "id": "b is live",
+                        "kind": "user",
+                        "text": "b is live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
             ]
           },
           {
@@ -543,8 +962,49 @@
                 "frameSource": "live"
               }
             ],
-            "lastRegistration": [
-              "a_next"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:a_current",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "a_current",
+                  "wire": {
+                    "sessionId": "a_current",
+                    "items": [
+                      {
+                        "id": "a is live",
+                        "kind": "user",
+                        "text": "a is live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              },
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:b_session",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "b_session",
+                  "wire": {
+                    "sessionId": "b_session",
+                    "items": [
+                      {
+                        "id": "b is live",
+                        "kind": "user",
+                        "text": "b is live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
             ]
           },
           {
@@ -586,8 +1046,28 @@
                 "frameSource": "live"
               }
             ],
-            "laneSessions": [
-              "a_next"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:a_next",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "a_next",
+                  "wire": {
+                    "sessionId": "a_next",
+                    "items": [
+                      {
+                        "id": "a stays live",
+                        "kind": "user",
+                        "text": "a stays live"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
             ]
           }
         ]
@@ -611,9 +1091,7 @@
               ]
             ],
             "frames": [],
-            "lastRegistration": [
-              "shared_session"
-            ]
+            "envelopes": []
           },
           {
             "step": "shared row",
@@ -646,7 +1124,29 @@
                 "frameSource": "live"
               }
             ],
-            "lastFrameSessionId": "shared_session"
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:shared_session",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "shared_session",
+                  "wire": {
+                    "sessionId": "shared_session",
+                    "items": [
+                      {
+                        "id": "still observed",
+                        "kind": "user",
+                        "text": "still observed"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
+            ]
           },
           {
             "step": "b unsubscribed",
@@ -680,7 +1180,29 @@
                 "frameSource": "live"
               }
             ],
-            "lastRegistration": []
+            "envelopes": [
+              {
+                "type": "desktop-event",
+                "key": "desktop-event:desktop_a:session-state:shared_session",
+                "desktopId": "desktop_a",
+                "message": {
+                  "kind": "session-state",
+                  "sessionId": "shared_session",
+                  "wire": {
+                    "sessionId": "shared_session",
+                    "items": [
+                      {
+                        "id": "still observed",
+                        "kind": "user",
+                        "text": "still observed"
+                      }
+                    ],
+                    "__itemsRevision": 1
+                  },
+                  "frameSource": "live"
+                }
+              }
+            ]
           },
           {
             "step": "after the last observer",
@@ -696,7 +1218,8 @@
               ],
               []
             ],
-            "frames": []
+            "frames": [],
+            "envelopes": []
           }
         ]
       }

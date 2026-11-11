@@ -18,11 +18,11 @@ const { DesktopServiceRegistry } = await set.load('src/standalone/desktop-servic
 const { createDesktopServiceStateSync } = await set.load('apps/desktop/src/main/desktop-service-state-sync.ts');
 const { createSnapshotDeltaDecoder } = await set.load('apps/desktop/src/main/state-delta.ts');
 const moduleUrl = pathToFileURL(join(tree, 'src/standalone/test-fixtures/lifecycle-desktop-service.mjs')).href;
-const failure = (e) => ({ name: e?.name ?? null, code: e?.code ?? null, message: String(e?.message ?? e) });
-const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: failure(e) }; } };
+const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
 
 function fixture() {
   const frames = [];
+  const envelopes = [];
   const registrations = [];
   const listeners = new Map();
   let created = 0;
@@ -43,17 +43,16 @@ function fixture() {
         return { invoke: (_method, args) => sync.setDeliveryFilter(args), control: (message) => sync.control(message), releaseClient: (epoch) => sync.releaseClient(epoch), dispose: () => sync.dispose() };
       },
     },
-    onFrame: (frame) => frames.push(frame.message),
+    onFrame: (frame) => { envelopes.push(frame); frames.push(frame.message); },
   });
   const open = (desktopId, ctx) => registry.init({ desktopId, moduleUrl }, ctx);
   const show = (desktopId, ids, version, ctx) => registry.invoke({ desktopId, method: 'setVisibleSessions', args: [ids, version] }, ctx);
   const publish = (sessionId, text) => listeners.get('lane')({ sessionId, snapshot: { sessionId, items: [{ id: text, kind: 'user', text }] }, frameSource: 'live' });
   const trace = [];
-  const mark = (step, extra = {}) => { trace.push({ step, registrations: registrations.map((r) => [...r]), frames: JSON.parse(JSON.stringify(frames)), ...extra }); };
-  return { registry, frames, registrations, listeners, open, show, publish, created: () => created, trace, mark, dispose: () => registry.dispose() };
+  const mark = (step, extra = {}) => { trace.push({ step, registrations: registrations.map((r) => [...r]), frames: structuredClone(frames), envelopes: structuredClone(envelopes), ...extra }); };
+  return { registry, frames, envelopes, registrations, listeners, open, show, publish, created: () => created, trace, mark, dispose: () => registry.dispose() };
 }
 async function run(name, fn) { await set.run(name, async () => { const f = fixture(); try { return await fn(f); } finally { f.dispose(); } }); }
-const laneIds = (f) => f.frames.filter((frame) => frame.kind === 'session-state').map((frame) => frame.sessionId);
 
 await run('a restarted desktop can register version one on the retained service and receive live conversation rows', async (f) => {
   const old = { clientToken: 'old-client' }; const current = { clientToken: 'replacement-client' };
@@ -63,18 +62,18 @@ await run('a restarted desktop can register version one on the retained service 
   const replacement = await f.open('replacement_desktop', current);
   const accepted = await f.show(replacement.desktopId, ['current_session'], 1, current);
   f.mark('restarted desktop registers version 1', { sameServiceId: replacement.desktopId === first.desktopId, adaptersCreated: f.created(), accepted, firstInit: first, replacementInit: replacement });
-  f.frames.length = 0;
+  f.frames.length = 0; f.envelopes.length = 0;
   const decoder = createSnapshotDeltaDecoder();
   const decoded = [];
   for (const text of ['sent message', 'working progress', 'completed answer']) {
     f.publish('current_session', text);
     const frame = f.frames.at(-1);
     const d = decoder.decode(frame.wire);
-    decoded.push({ kind: frame.kind, ok: d.ok, firstItemText: d.snapshot?.items?.[0]?.text ?? null });
+    decoded.push(structuredClone({ frame, decoded: d }));
   }
-  f.mark('three live rows', { decoded, frameCount: f.frames.length });
+  f.mark('three live rows', { decoded });
   f.listeners.get('agents')([{ id: 'worker', status: 'running' }]);
-  f.mark('agent pool row', { lastFrameKind: f.frames.at(-1).kind });
+  f.mark('agent pool row');
   return { trace: f.trace };
 });
 await run('late registrations from a previous desktop cannot replace the current conversation filter', async (f) => {
@@ -85,9 +84,9 @@ await run('late registrations from a previous desktop cannot replace the current
   await f.show(service.desktopId, ['current_session'], 1, current);
   f.registry.releaseClient(old.clientToken);
   const late = await rejected(f.show(service.desktopId, ['old_session'], 41, old));
-  f.frames.length = 0;
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('old_session', 'must stay hidden'); f.publish('current_session', 'must stay live');
-  f.mark('after the late registration', { late, laneSessions: laneIds(f) });
+  f.mark('after the late registration', { late });
   return { trace: f.trace };
 });
 await run('out-of-order and equal registrations stay fenced within one desktop connection', async (f) => {
@@ -97,18 +96,18 @@ await run('out-of-order and equal registrations stay fenced within one desktop c
   await f.show(service.desktopId, ['old_session'], 1, current);
   await f.show(service.desktopId, ['old_session'], 2, current);
   f.mark('versions 2, 1, 2');
-  f.frames.length = 0;
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('old_session', 'must stay hidden'); f.publish('current_session', 'must stay live');
-  f.mark('rows published', { laneSessions: laneIds(f) });
+  f.mark('rows published');
   return { trace: f.trace };
 });
 await run('unversioned legacy registrations remain supported', async (f) => {
   const service = await f.open('desktop');
   await f.show(service.desktopId, ['old_session'], 5);
   await f.show(service.desktopId, ['current_session']);
-  f.frames.length = 0;
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('current_session', 'legacy live update');
-  f.mark('legacy', { lastFrameSessionId: f.frames.at(-1)?.sessionId ?? null });
+  f.mark('legacy');
   return { trace: f.trace };
 });
 await run('concurrent desktops keep independent counters and the survivor stays live after the newer one disconnects', async (f) => {
@@ -119,17 +118,17 @@ await run('concurrent desktops keep independent counters and the survivor stays 
   await f.show(service.desktopId, ['b_session'], 1, b);
   await f.open('desktop_a', a);
   await f.show(service.desktopId, ['a_current'], 100, a);
-  f.mark('a version 100', { lastRegistration: f.registrations.at(-1) });
-  f.frames.length = 0;
+  f.mark('a version 100');
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('a_current', 'a is live'); f.publish('b_session', 'b is live');
-  f.mark('both live', { laneSessions: laneIds(f) });
+  f.mark('both live');
   f.registry.releaseClient(b.clientToken);
-  f.mark('b released', { lastRegistration: f.registrations.at(-1) });
+  f.mark('b released');
   await f.show(service.desktopId, ['a_next'], 101, a);
-  f.mark('a version 101', { lastRegistration: f.registrations.at(-1) });
-  f.frames.length = 0;
+  f.mark('a version 101');
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('a_next', 'a stays live'); f.publish('b_session', 'b is disconnected');
-  f.mark('after', { laneSessions: laneIds(f) });
+  f.mark('after');
   return { trace: f.trace };
 });
 await run('unsubscribing one desktop retains shared conversations until their last observer leaves', async (f) => {
@@ -139,15 +138,15 @@ await run('unsubscribing one desktop retains shared conversations until their la
   await f.open('desktop_b', b);
   await f.show(service.desktopId, ['shared_session'], 1, b);
   await f.registry.unsubscribe({ desktopId: service.desktopId }, a);
-  f.mark('a unsubscribed', { lastRegistration: f.registrations.at(-1) });
-  f.frames.length = 0;
+  f.mark('a unsubscribed');
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('shared_session', 'still observed');
-  f.mark('shared row', { lastFrameSessionId: f.frames.at(-1)?.sessionId ?? null });
+  f.mark('shared row');
   await f.registry.unsubscribe({ desktopId: service.desktopId }, b);
-  f.mark('b unsubscribed', { lastRegistration: f.registrations.at(-1) });
-  f.frames.length = 0;
+  f.mark('b unsubscribed');
+  f.frames.length = 0; f.envelopes.length = 0;
   f.publish('shared_session', 'no observers');
-  f.mark('after the last observer', { frames: [...f.frames] });
+  f.mark('after the last observer');
   return { trace: f.trace };
 });
 
