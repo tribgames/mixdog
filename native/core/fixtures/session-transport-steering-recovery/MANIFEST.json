@@ -1,20 +1,20 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs --tree <tree>",
-  "entry": "Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded); case 139 ran the real HTTP session transport + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.",
+  "entry": "Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded with their path and bytes); case 139 ran the real HTTP session transport (behind a TCP tap that records every HTTP exchange) + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.",
   "exclusions": [
-    "case 75: ids ts_<base36 ms>_<8 hex> (steeringPersistId, spool text) -> ts_<id>; 13-digit ms timestamps in the spool text -> <ms>; submittedAt is recorded as its offset from the time the recorder took (-50 as in the test)",
-    "case 139: the 64 reads reach the service in HTTP arrival order, which varies: recorded sorted by their args[0] index; the single abort call is recorded with its position relative to the reads (after all 64 started)",
-    "client tokens (random uuid) -> <client N> by first appearance; daemon session ids sess_daemon_<ms>_<32 hex> -> <daemon session N>",
-    "revision / baseRevision values above 1e12 (epoch-based, restart-monotonic) -> <epoch revision>+offset from the first one seen in the case",
-    "the runtime root temp dir -> <runtime root>, this process's cwd -> <cwd>, its pid/ppid in leadPid fields -> <pid>/<ppid>",
-    "queuedMs of a service call (time in the lane) is not recorded: it is a wall-clock measure"
+    "case 75: spool paths are recorded as relative to the runtime root with the separator Node produced (a backslash on Windows); the root itself (a temp dir) is not recorded. Files are listed in the directory-walk order the OS returns them, not sorted",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\""
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 75833,
+      "bytes": 241038,
       "path": "recording.json",
-      "sha256": "3d80239d44f4e7f625c0c2145793df060afb2a16b6093f622bd2206f8205723d"
+      "sha256": "425513f575e389551cb7500e089d5601fdfcb64d7ff2f9f7cd9b6955261b7219"
     }
   ],
   "inputs": [
@@ -23,16 +23,20 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/session-daemon-harness.mjs",
-      "sha256": "9527596ccea60373a9391e7dc25f5c24f4854791fa1d64141d2949a8cbaf7ebe"
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
     },
     {
-      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -53,9 +57,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs",
-  "recorderSha256": "83d9b94fb78888ab0c6e415cd1699ffff662a054cef520355de0f9d58a108190",
-  "replay": "mixdog-core-session S/control.rs steer / S/actor.rs restore_taken, restored_reply (ACK before auto-clear, targeted abort reclaim), the durable pending queue (steering persisted with its submission id/time) and the abort control path: drive the same ordered steps and compare each step's outcome and the observed state (enqueued count, queue length, restored text/ids, commandBusy, release states, spool rows, abort options/result, service call order).",
+  "recorderSha256": "34d2291f3fe67c7d27a5dd1593c416b560f09fc0937573a3c8cf198e091c1d51",
+  "replay": "Cases 14 and 90 are the Node TUI client's steering/restore logic (createSessionApiA/B): it has no Rust counterpart (list as Rust-side work). What the Rust core must equal is what a client observes through the app-server protocol (native/core/crates/mixdog-app-protocol): turn/start while a turn is busy (ACK before the queue settles), turn/interrupt with {restorePrompt, submissionId} returning the restored text, thread/resume restoring the queued steering before the thread is released, and, for case 139, turn/interrupt answered at once while 64 thread/read requests are in flight (compare the ordered service calls, the abort options the runtime received and its result). Case 75 (the persisted steering spool: path, bytes, restored rows with their submission identity) is a durable-queue contract: compare the spool rows after the same appends when the Rust pending queue persists steering; otherwise Rust-side work.",
   "set": "session-transport-steering-recovery",
   "testFile": "scripts/session-transport/steering-recovery.test.mjs",
-  "totalBytes": 75833
+  "totalBytes": 241038,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

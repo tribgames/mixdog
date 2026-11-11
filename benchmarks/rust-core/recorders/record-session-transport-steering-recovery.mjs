@@ -6,25 +6,36 @@
 //   75  `appendTuiSteeringPersist` / `readTuiSteeringPersist` keep the submission identity (real spool files in the
 //       runtime root, recorded);
 //   90  `createSessionApiB().resume` holds the command gate until the steering restore settled (two gates, recorded
-//       steps; one setImmediate turn is a recorded step);
+//       steps; every wait is on the event that ends it, with a deadline);
 //   139 `session.abort` over the real HTTP session transport starts at once while 64 ordinary `session.read` calls
-//       are in flight (stub runtime; the 64 reads are released by the recorder after the abort answered).
+//       are in flight (stub runtime; the 64 reads are issued one after the other, each once the service saw the previous
+//       one, so they are all in flight together and arrive in a fixed order; they are released after the abort answered).
 //
 //   node benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs --tree <dir>
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { NORMALISED, Signal, callOutcome, createNormaliser, withLoggedDaemon } from './lib/session-daemon-harness.mjs';
-import { runSessionRecorder } from './lib/session-rec.mjs';
+import { exact } from './lib/exact.mjs';
+import { DEADLINE_MS, DETERMINISM, FIXED_CWD, FIXED_NOW, Signal, installDeterminism, withLoggedDaemon } from './lib/session-wire-harness.mjs';
+import { outcomeExact, runSessionRecorder } from './lib/session-rec.mjs';
+
+installDeterminism();
+
+/** A promise with a deadline: the recorder never waits unbounded. */
+const withDeadline = (promise, label, ms = DEADLINE_MS) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`timed out waiting for: ${label}`)), ms);
+  promise.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
+});
 
 await runSessionRecorder(import.meta.url, {
   set: 'session-transport-steering-recovery',
   testFile: 'scripts/session-transport/steering-recovery.test.mjs',
-  entry: 'Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded); case 139 ran the real HTTP session transport + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.',
-  replay: 'mixdog-core-session S/control.rs steer / S/actor.rs restore_taken, restored_reply (ACK before auto-clear, targeted abort reclaim), the durable pending queue (steering persisted with its submission id/time) and the abort control path: drive the same ordered steps and compare each step\'s outcome and the observed state (enqueued count, queue length, restored text/ids, commandBusy, release states, spool rows, abort options/result, service call order).',
+  entry: 'Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded with their path and bytes); case 139 ran the real HTTP session transport (behind a TCP tap that records every HTTP exchange) + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.',
+  replay: 'Cases 14 and 90 are the Node TUI client\'s steering/restore logic (createSessionApiA/B): it has no Rust counterpart (list as Rust-side work). What the Rust core must equal is what a client observes through the app-server protocol (native/core/crates/mixdog-app-protocol): turn/start while a turn is busy (ACK before the queue settles), turn/interrupt with {restorePrompt, submissionId} returning the restored text, thread/resume restoring the queued steering before the thread is released, and, for case 139, turn/interrupt answered at once while 64 thread/read requests are in flight (compare the ordered service calls, the abort options the runtime received and its result). Case 75 (the persisted steering spool: path, bytes, restored rows with their submission identity) is a durable-queue contract: compare the spool rows after the same appends when the Rust pending queue persists steering; otherwise Rust-side work.',
+  values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: [
-    'case 75: ids ts_<base36 ms>_<8 hex> (steeringPersistId, spool text) -> ts_<id>; 13-digit ms timestamps in the spool text -> <ms>; submittedAt is recorded as its offset from the time the recorder took (-50 as in the test)',
-    'case 139: the 64 reads reach the service in HTTP arrival order, which varies: recorded sorted by their args[0] index; the single abort call is recorded with its position relative to the reads (after all 64 started)',
-    ...NORMALISED,
+    'case 75: spool paths are recorded as relative to the runtime root with the separator Node produced (a backslash on Windows); the root itself (a temp dir) is not recorded. Files are listed in the directory-walk order the OS returns them, not sorted',
+    'wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised',
+    ...DETERMINISM,
   ],
 }, async ({ imp }) => {
   const S = await imp('scripts/session-transport/_shared.mjs');
@@ -42,10 +53,10 @@ await runSessionRecorder(import.meta.url, {
       nextId: () => 'generated-id',
       flags: {}, pending: [], listeners: new Set(),
       getState: () => state, getPublishedState: () => state,
-      set: (patch) => { state = { ...state, ...patch }; log.push({ set: patch }); },
+      set: (patch) => { state = { ...state, ...patch }; log.push({ set: exact(patch) }); },
       routeState: () => ({}),
       autoClearBeforeSubmit: () => { log.push('autoClearBeforeSubmit called'); return clearGate.promise; },
-      enqueue: (text, options) => { enqueued += 1; queued.push({ text, id: options.id }); log.push({ enqueue: { text, id: options.id } }); return true; },
+      enqueue: (text, options) => { enqueued += 1; queued.push({ text, id: options.id }); log.push({ enqueue: exact({ text, id: options.id }) }); return true; },
       restoreQueued: (_current, selectedId) => {
         const index = queued.findIndex((entry) => entry.id === selectedId);
         log.push({ restoreQueued: selectedId, found: index >= 0 });
@@ -56,33 +67,29 @@ await runSessionRecorder(import.meta.url, {
     });
     const steps = [];
     const ack = await api.submitAsync('recover before busy', { id: 'actual-session-idle-1' });
-    steps.push({ step: "submitAsync('recover before busy', {id: actual-session-idle-1}) (auto-clear gate still pending)", result: ack, enqueued });
+    steps.push({ step: "submitAsync('recover before busy', {id: actual-session-idle-1}) (auto-clear gate still pending)", result: exact(ack), enqueued });
     const restored = api.abort({ restorePrompt: true, submissionId: 'actual-session-idle-1' });
-    steps.push({ step: "abort({restorePrompt: true, submissionId: 'actual-session-idle-1'})", result: restored, queuedLength: queued.length });
+    steps.push({ step: "abort({restorePrompt: true, submissionId: 'actual-session-idle-1'})", result: exact(restored), queuedLength: queued.length });
     clearGate.resolve();
     steps.push({ step: 'resolve the auto-clear gate', queuedLength: queued.length, enqueued });
-    cases.push({ name: 'submit-ack-does-not-wait-for-auto-clear-and-remains-reclaimable', testLine: 14, input: { submit: { text: 'recover before busy', options: { id: 'actual-session-idle-1' } }, abort: { restorePrompt: true, submissionId: 'actual-session-idle-1' }, initialState: { busy: false, commandBusy: false } }, result: { steps, log, finalState: state } });
+    cases.push({ name: 'submit-ack-does-not-wait-for-auto-clear-and-remains-reclaimable', testLine: 14, input: exact({ submit: { text: 'recover before busy', options: { id: 'actual-session-idle-1' } }, abort: { restorePrompt: true, submissionId: 'actual-session-idle-1' }, initialState: { busy: false, commandBusy: false } }), result: { steps, log, finalState: exact(state) } });
   }
 
   // test line 75
   {
-    const ids = createNormaliser(S.RUNTIME_ROOT);
-    const now = Date.now();
     const sessionId = 'steering-recovery-recorded';
-    const entry = { id: 'desktop-submit-retry-1', text: 'ship it', submittedAt: now - 50 };
+    const entry = { id: 'desktop-submit-retry-1', text: 'ship it', submittedAt: FIXED_NOW - 50 };
     await S.appendTuiSteeringPersist(sessionId, entry);
     const restored = await S.readTuiSteeringPersist(sessionId);
     const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? walk(join(dir, d.name)) : [join(dir, d.name)]));
     const spool = walk(S.RUNTIME_ROOT).filter((f) => /pending|spool/i.test(f) && statSync(f).isFile());
-    const normText = (t) => t.replace(/ts_[0-9a-z]+_[0-9a-f]{8}/g, 'ts_<id>').replace(/\b1[0-9]{12}\b/g, (m) => (Number(m) === entry.submittedAt ? '<submittedAt>' : '<ms>'));
     cases.push({
       name: 'persisted-steering-keeps-the-desktop-submission-identity-across-recovery',
       testLine: 75,
-      input: { sessionId, entry: { id: entry.id, text: entry.text, submittedAt: '<now-50>' } },
+      input: exact({ sessionId, entry, clock: { 'Date.now()': FIXED_NOW } }),
       result: {
-        restored: restored.map((row) => ({ ...row, steeringPersistId: row.steeringPersistId.replace(/ts_[0-9a-z]+_[0-9a-f]{8}/, 'ts_<id>'), submittedAt: row.submittedAt === entry.submittedAt ? '<now-50>' : row.submittedAt })),
-        restoredSubmittedAtEqualsEntry: restored[0]?.submittedAt === entry.submittedAt,
-        spoolFiles: spool.map((f) => ({ path: relative(S.RUNTIME_ROOT, f).replaceAll('\\', '/').replace(/ts_[0-9a-z]+_[0-9a-f]{8}/g, 'ts_<id>'), text: ids.norm(normText(readFileSync(f, 'utf8'))) })).sort((a, b) => (a.path < b.path ? -1 : 1)),
+        restored: exact(restored),
+        spoolFiles: spool.map((f) => ({ path: relative(S.RUNTIME_ROOT, f), text: readFileSync(f, 'utf8') })),
       },
     });
   }
@@ -101,7 +108,7 @@ await runSessionRecorder(import.meta.url, {
       nextId: () => `resume-item-${++sequence}`,
       flags: {}, lifecycle: {}, listeners: new Set(),
       getState: () => state,
-      set: (patch) => { sets.push({ patch, restoredAtSet: restored }); if (patch.commandBusy === false) releaseStates.push(restored); state = { ...state, ...patch }; },
+      set: (patch) => { sets.push({ patch: exact(patch), restoredAtSet: restored }); if (patch.commandBusy === false) releaseStates.push(restored); state = { ...state, ...patch }; },
       flushEmitImmediate: () => {},
       replaceItems: (items) => items,
       clearToastTimers: () => {},
@@ -112,62 +119,63 @@ await runSessionRecorder(import.meta.url, {
     const steps = [];
     let settled = false;
     const resuming = api.resume('restart-session', { quiet: true }).then((value) => { settled = true; return value; });
-    await restoreStarted.promise;
-    await new Promise((resolve) => setImmediate(resolve));
-    steps.push({ step: "resume('restart-session', {quiet: true}) started; steering restore pending; one setImmediate turn", commandBusy: state.commandBusy, settled });
+    await withDeadline(restoreStarted.promise, 'resume started its steering restore');
+    steps.push({ step: "resume('restart-session', {quiet: true}) started its steering restore (restore gate pending)", state: exact(state), settled, setsSoFar: sets.length });
     restoreGate.resolve();
-    const value = await resuming;
-    steps.push({ step: 'steering restore gate resolved; resume settled', resumeResult: value, commandBusy: state.commandBusy, releaseStates });
-    cases.push({ name: 'process-restart-resume-restores-queued-steering-before-releasing-commandbusy', testLine: 90, input: { resume: { id: 'restart-session', options: { quiet: true } } }, result: { steps, sets, finalState: state } });
+    const value = await withDeadline(resuming, 'resume settled after the steering restore gate resolved');
+    steps.push({ step: 'steering restore gate resolved; resume settled', resumeResult: exact(value), state: exact(state), releaseStates: exact(releaseStates) });
+    cases.push({ name: 'process-restart-resume-restores-queued-steering-before-releasing-commandbusy', testLine: 90, input: exact({ resume: { id: 'restart-session', options: { quiet: true } } }), result: { steps, sets, finalState: exact(state) } });
   }
 
   // test line 139
   {
-    const ids = createNormaliser(S.RUNTIME_ROOT);
     const signal = new Signal();
     let startedWork = 0;
     let abortCalls = 0;
-    let abortOptions = null;
+    const abortOptions = [];
     const workGate = Promise.withResolvers();
     const sessionFactory = async () => ({
       ...S.createStubSessionRuntime(),
       getSettingsSnapshot() { startedWork += 1; signal.notify(); return workGate.promise; },
       abort(options) {
         abortCalls += 1;
-        abortOptions = options;
+        abortOptions.push(exact(options));
         return { aborted: true, restoreText: 'queued prompt', pastedTexts: { text_1: { text: 'restored text' } } };
       },
     });
-    const result = await withLoggedDaemon(S, ids.norm, ids, async ({ discovery, calls }) => {
-      const client = await S.attachSession({ discovery, cwd: process.cwd() });
-      const { sessionId } = await client.call('session.create', { cwd: process.cwd() });
-      const work = Array.from({ length: 64 }, (_, index) => client.call('session.read', { sessionId, action: 'getSettingsSnapshot', args: [index] }, { callId: `reserved-capacity-work:${index}` }));
+    const result = await withLoggedDaemon(S, async ({ discovery, calls, wire }) => {
+      const client = await S.attachSession({ discovery, cwd: FIXED_CWD });
+      const created = await client.call('session.create', { cwd: FIXED_CWD });
+      const { sessionId } = created;
+      const work = [];
       let abort;
       let startedBeforeAbort;
       let workOutcomes;
       try {
-        await signal.until(() => startedWork === work.length, 'the 64 ordinary session.read calls started at the service');
+        // Each read is issued once the service has seen the previous one: all 64 are in flight together, in a fixed order.
+        for (let index = 0; index < 64; index += 1) {
+          work.push(client.call('session.read', { sessionId, action: 'getSettingsSnapshot', args: [index] }, { callId: `reserved-capacity-work:${index}` }));
+          await signal.until(() => startedWork === index + 1, `read ${index} reached the service`);
+        }
         startedBeforeAbort = startedWork;
-        abort = await callOutcome(ids.norm, client.call('session.abort', { sessionId, options: { restorePrompt: false, submissionId: 'desktop-submit-1' } }, { callId: 'reserved-capacity-abort' }));
+        abort = await outcomeExact(() => client.call('session.abort', { sessionId, options: { restorePrompt: false, submissionId: 'desktop-submit-1' } }, { callId: 'reserved-capacity-abort' }));
       } finally {
         workGate.resolve();
-        workOutcomes = await Promise.all(work.map((promise) => callOutcome(ids.norm, promise)));
+        workOutcomes = await Promise.all(work.map((promise) => outcomeExact(() => promise)));
         await client.close('recorder end');
       }
-      const reads = calls.filter((c) => c.name === 'session.read').sort((a, b) => a.args.args[0] - b.args.args[0]);
       return {
+        created: exact(created),
         startedBeforeAbort,
         abort,
-        abortCallIndex: calls.findIndex((c) => c.name === 'session.abort'),
-        serviceCallNamesInOrder: calls.map((c) => c.name).map((n, i, all) => (n === 'session.read' ? 'session.read' : n)).filter((n, i, all) => n !== 'session.read' || all[i - 1] !== 'session.read'),
-        reads: reads.map(({ args, context, result, error }) => ({ args, callIdContext: context, result: result ?? null, error: error ?? null })),
         readOutcomes: workOutcomes,
-        abortCall: calls.find((c) => c.name === 'session.abort'),
+        serviceCalls: calls,
         abortCalls,
         abortOptions,
+        wire: await wire.exchanges(),
       };
     }, { sessionFactory });
-    cases.push({ name: 'abort-starts-immediately-while-ordinary-session-calls-remain-in-flight', testLine: 139, input: { reads: 64, readCallIds: 'reserved-capacity-work:<0..63>', abort: { options: { restorePrompt: false, submissionId: 'desktop-submit-1' }, callId: 'reserved-capacity-abort' } }, result });
+    cases.push({ name: 'abort-starts-immediately-while-ordinary-session-calls-remain-in-flight', testLine: 139, input: exact({ reads: 64, readCallIds: 'reserved-capacity-work:<0..63>', abort: { options: { restorePrompt: false, submissionId: 'desktop-submit-1' }, callId: 'reserved-capacity-abort' }, cwd: FIXED_CWD }), result });
   }
   return { cases };
 });
