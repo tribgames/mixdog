@@ -321,7 +321,7 @@ impl Shared {
 
     // ---- requests
 
-    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, mut request: JsonRpcRequest) -> Inbound {
+    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, request: JsonRpcRequest) -> Inbound {
         let id = request.id.clone();
         // No origin is no scope to judge the call by: refuse, never assume one.
         let Some(origin) = (self.origin_of)(conn.id) else {
@@ -400,7 +400,7 @@ impl Shared {
     fn admitted(
         self: &Arc<Self>,
         conn: &Arc<Connection>,
-        request: JsonRpcRequest,
+        mut request: JsonRpcRequest,
         spec: &'static MethodSpec,
         origin: Origin,
         slot: crate::connection::Slot,

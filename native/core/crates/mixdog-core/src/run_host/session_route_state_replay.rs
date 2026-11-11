@@ -43,8 +43,52 @@ use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
 use super::context_world::tests::{Fixed, Quiet, WindowFacts};
-use super::inheritance_fit::tests::{TextOnly, seams};
 use super::inheritance_fit::{HostInheritanceFit, MeasuredThreads, RouteWindows};
+use super::run_seams::ConfigRunSeams;
+
+struct NoEvidence;
+
+#[async_trait]
+impl mixdog_core_agents::agents::AgentEvidence for NoEvidence {
+    async fn home_greeted(&self, _: &str) -> bool {
+        false
+    }
+    async fn home_chatted(&self, _: &str) -> bool {
+        false
+    }
+    async fn mixy_owns_routines(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
+/// The process seams over an empty saved configuration and an empty environment (the recorder ran with neither).
+async fn seams() -> (tempfile::TempDir, Arc<ConfigRunSeams>) {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+    let agents = mixdog_core_agents::agents::AgentDefinitions::new(
+        dir.path(),
+        dir.path(),
+        tokens.interactive_io,
+        mixdog_core_config::config::AgentRoutes::new(config.clone(), dir.path()),
+        Arc::new(NoEvidence),
+        Arc::new(|| Value::Null),
+        dir.path().join("workspace"),
+    );
+    let seams = ConfigRunSeams::new(config, Arc::new(agents), dir.path().to_path_buf(), dir.path().to_path_buf(), Arc::new(|_| None));
+    (dir, Arc::new(seams))
+}
+
+struct TextOnly;
+impl MediaMeter for TextOnly {
+    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+        match part {
+            mixdog_core_api::domain::provider::ContentPart::Text(text, _) => mixdog_agent::compact::estimate::PartMeter { text: text.clone(), tokens: 0 },
+            other => panic!("media part in a text-only golden: {other:?}"),
+        }
+    }
+}
 
 fn recording() -> Exact {
     Exact::load(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-route-state/recording.json"))

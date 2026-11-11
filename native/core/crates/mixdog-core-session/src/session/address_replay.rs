@@ -205,6 +205,12 @@ impl super::ThreadStore for HeldStore {
             read.await
         })
     }
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        self.store.copies_of(id)
+    }
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        self.store.record_offload_scan(session, ordinal, sources)
+    }
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         self.store.purge_deleted()
     }

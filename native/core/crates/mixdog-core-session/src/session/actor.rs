@@ -1198,7 +1198,6 @@ impl SessionActor {
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
                 Some(msg) = self.ch.inbox_rx.recv(), if !self.recovering => self.take_inbox(msg).await,
-                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 else => break,
             }
             // The header writes a finished route move held, in order, until one of them starts the next move.
