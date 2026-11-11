@@ -211,7 +211,7 @@ async fn a_send_that_never_answers_is_thrown_at_twenty_seconds() {
 #[tokio::test]
 async fn an_unreachable_endpoint_reads_as_node_shows_it() {
     use super::collaborators::CustomProviders as _;
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
     let closed = {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         format!("http://{}/v1", listener.local_addr().unwrap())
@@ -254,7 +254,7 @@ impl HttpSend for Refusing {
 #[tokio::test]
 async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
     use super::collaborators::CustomProviders as _;
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
     let link = Arc::new(Refusing { sends: Mutex::new(Vec::new()) });
     let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(link.clone())).await;
     let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
@@ -286,7 +286,7 @@ impl HttpSend for TimingOut {
 #[tokio::test(start_paused = true)]
 async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds_as_node_shows() {
     use super::collaborators::CustomProviders as _;
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
     for (site, protocol, base) in [("customOpenaiChatProbe", "openai-chat", "https://x.test/v1"), ("customAnthropicProbe", "anthropic", "https://x.test")] {
         let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(Arc::new(TimingOut))).await;
         let input = json!({ "name": "Probe", "protocol": protocol, "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });

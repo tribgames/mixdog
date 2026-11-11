@@ -992,7 +992,7 @@ mod op_scope_tests {
     #[test]
     fn every_scope_the_composition_asks_for_has_a_gate() {
         let sources = [
-            include_str!("compose_flip.rs"),
+            mixdog_testkit::fixture!("src/compose_flip.rs"),
             include_str!("compose_domains.rs"),
             include_str!("compose_domains/rows.rs"),
             include_str!("compose_domains/local.rs"),

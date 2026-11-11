@@ -226,7 +226,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_recorded_stream_reads_as_nodes_does() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/cache-warm/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/cache-warm/golden.json")).unwrap();
         let rows = golden["stream"].as_array().unwrap();
         assert_eq!(rows.len(), 10);
         for row in rows {

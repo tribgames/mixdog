@@ -772,7 +772,7 @@ mod tests {
     #[test]
     fn the_ports_fetch_refuses_fail_before_connecting() {
         let golden: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
         let recorded: Vec<u16> = golden["badPorts"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
         let refused: Vec<u16> =
             (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();

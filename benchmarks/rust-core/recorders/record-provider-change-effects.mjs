@@ -14,7 +14,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, recordingProvenance, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'provider-change-effects');
@@ -141,5 +141,5 @@ await settle(400);
 const retried = { firstAttempt, afterBackoff: [...retry.calls], retryMs: 60 };
 
 writeJson(join(stage, 'golden.json'), { steps, retried });
-writeSetManifest(stage, { set: 'provider-change-effects', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, { set: 'provider-change-effects', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']) });
 commitStage(stage, finalDir);

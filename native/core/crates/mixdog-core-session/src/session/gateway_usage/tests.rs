@@ -35,7 +35,7 @@ use super::Scheduler;
 use super::store::Cancel;
 use crate::session::Clock;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/gateway-usage/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/gateway-usage/golden.json");
 const PER_CHUNK: usize = 3;
 
 struct TestClock(AtomicI64);
@@ -217,7 +217,7 @@ async fn replay(case: &Value, modelsdev: &Value) {
 }
 
 async fn cases_chunk(chunk: usize) {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let cases = golden["cases"].as_array().unwrap();
     let range = mixdog_rt::testing::chunk_range(cases.len(), chunk, PER_CHUNK);
     for case in &cases[range] {
@@ -227,7 +227,7 @@ async fn cases_chunk(chunk: usize) {
 
 #[test]
 fn the_chunks_cover_the_recording() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     mixdog_rt::testing::assert_chunks_registered(CASES, golden["cases"].as_array().unwrap().len(), PER_CHUNK);
 }
 

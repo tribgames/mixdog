@@ -1216,7 +1216,7 @@ async fn a_turn_creates_the_session_of_a_thread_that_has_none() {
 /// The scripted fit answers what Node measured for the conversation of that size; the compactor answers what it answered Node.
 #[tokio::test(start_paused = true)]
 async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/inheritance-carry/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
     let ctx = CallContext::internal("test");
     let conversation = |messages: &Value| -> Vec<Value> { messages.as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect() };
     async fn append(directory: &SessionDirectory, id: String, messages: Vec<Value>) {
@@ -1303,7 +1303,7 @@ async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
 /// `worktree-intents.mjs`: committed or live): an idle session whose turn settled still has its conversation.
 #[tokio::test(start_paused = true)]
 async fn the_conversation_reads_of_a_workspace_move_equal_nodes() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/inheritance-carry/golden.json")).expect("golden");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden");
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
