@@ -166,7 +166,7 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     await within('the stop completion to arm its 30 minute timer', virtual.whenArmedAfter(stopFrom, (t) => t.api === 'setTimeout' && t.ms === 1_800_000));
     const settled = await paneAfterAdvance('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId));
     mark('stopped', { stopped, settled, lastPane: paneRows.at(-1) });
-    return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } };
+    return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: armedInCanonicalOrder(virtual.armed), fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } };
   } finally {
     virtual.restore();
     Date.now = realNow;
@@ -178,6 +178,14 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
   }
 });
 
+/** Timers armed at one virtual instant by independent async chains of Node's code (the session reload at virtual 1200) are armed in an order that
+ *  is Node's own interleaving, not behaviour anyone asserts: within `timers.armed`, entries with the same atMs are written ordered by api, then ms,
+ *  then the original index (only to keep equal entries stable). Nothing else is reordered; `fired`, `advances`, the steps and the pane rows are as observed. */
+function armedInCanonicalOrder(armed) {
+  return armed.map((entry, index) => ({ entry, index }))
+    .sort((a, b) => a.entry.atMs - b.entry.atMs || (a.entry.api < b.entry.api ? -1 : a.entry.api > b.entry.api ? 1 : 0) || (a.entry.ms ?? -1) - (b.entry.ms ?? -1) || a.index - b.index)
+    .map(({ entry }) => entry);
+}
 await set.finish({
   entry: {
     runs: 'standalone/session-service.mjs createSessionService (idle eviction), daemon-local-session-bridge.mjs, daemon-desktop-runtime.mjs, the desktop SessionHost (setVisibleSessions, subscribeSessionStates, stopShellJob), tools/shell-command.mjs execShellCommand (auto background), builtin/shell-jobs.mjs, builtin/task-tool.mjs stopBackgroundShellJob, native-spawn-client.mjs over the REAL native spawn server',
@@ -185,7 +193,7 @@ await set.finish({
     nativeSpawnBinary: { path: binaryAt, sha256, bytes: readFileSync(binaryAt).length, sourceCommit: '6bf0a5bbf (o1)', sourceTree: 'native/mixdog-spawn tree 6d9cf9666bdf622151ae5d9ff78c4bbdbe560baa at 6bf0a5bbf; the same tree id is at HEAD of the branch (w11) that built the binary', note: 'a debug build made by another worker; its sources are the committed tree above (its working-copy Cargo.lock differed, so the build is not bit-reproducible from o1). Nothing in golden.json depends on it: no path, version or build string is recorded, only job rows, statuses and exit codes. A replay must build native/mixdog-spawn from o1 6bf0a5bbf itself (cargo build, not run here) and must not compare the sha256 of this binary, which is provenance only.' },
     scripted: scriptedUuids,
   },
-  replay: { entry: 'mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole', normalised: {} },
+  replay: { entry: 'mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole', normalised: { timersArmedOrder: { path: '$.cases[0].observed.timers.armed', rule: 'entries with the same atMs ordered by api, then ms, then original index; all other lists (fired, advances, steps, paneRows) exactly as observed', reason: "the order in which Node's independent async chains arm timers at one virtual instant is Node's own interleaving, not asserted behaviour", evidence: 'two interleavings seen over about 40 runs, about 1 run in 15 showing the second. At virtual 1200, after the session reload, four entries swap places among the same-instant entries: the first reads setTimeout 0, setTimeout 30000, (setTimeout 300 unchanged), setImmediate; the second reads setTimeout 30000, setImmediate, (setTimeout 300 unchanged), setTimeout 0. The diff of the two raw goldens is 4 lines added and 4 removed, all inside timers.armed; fired, advances, steps and paneRows are identical' } } },
   replaceInText: [[fixtureRoot, '<fixtureRoot>']],
   replaceRegex: [[/job_\d{13}_/g, 'job_<ms>_'], [/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z/g, '<iso>']],
   normaliseReason: 'the isolated test environment root is written <fixtureRoot>; the wall clock is real (the job records are files with real mtimes) plus the virtual elapsed time: job ids job_<ms of the wall clock>_N are written job_<ms>_N and ISO times <iso>, the virtual offsets are in steps[].atMs',
