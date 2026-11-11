@@ -284,8 +284,7 @@ async function main() {
       scenarios: Object.keys(SCENARIOS),
       exclusions: [
         'client.published: the session id the runtime names (process id and clock) is written <session>',
-        'client.published: a publication that does not carry turnEffort (the first snapshot of a route that never changed, scenario none) has no frame in the core, which publishes none for a route that did not change; the replay compares the publications that carry it',
-        'client.published: the replay compares turnEffort in each publication; the other keys of Node\'s first publication (sessionId, sessionProvider, sessionModel, contextWindow, rawContextWindow, effectiveContextWindowPercent, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, agentScope) are recorded but not compared: the replay thread stores no route, and the windows and limits are the core\'s thread/context/updated section',
+        'client.published: every publication is compared whole, in order, with the core\'s (its route frames\' turnEffort, its first context frame\'s windows and limits for the first publication); the keys that differ are named and asserted exactly, not left out: in the first publication sessionId and agentScope (no core frame carries them: the frame\'s threadId names the thread), sessionProvider and sessionModel (the replay thread stores no route) and contextWindow, rawContextWindow, effectiveContextWindowPercent (the replay route has no catalog window: null where the recording has 500000, 500000, 100); no key differs in a later publication. The publication without turnEffort (scenario none: a route that never changed) is compared as it is: the core has no route frame and no such key',
       ],
       ...recorderProvenance(import.meta.url),
     },
