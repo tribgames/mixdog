@@ -21,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "a22b6fb782dfb9f9c6290935b82654961925333fd2a1feb33734ce43cdfd2a4a"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -63,6 +63,15 @@
       ],
       "sha256": "e649224ba3f4ee853203b388c9b5927b9dd7ca341c25e8a97bae80899ba56c80"
     },
+    "patches": [
+      {
+        "file": "node-fix-session-host-read-set.patch",
+        "paths": [
+          "apps/desktop/src/main/session-host-transport.ts"
+        ],
+        "sha256": "e649224ba3f4ee853203b388c9b5927b9dd7ca341c25e8a97bae80899ba56c80"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
@@ -88,9 +97,7 @@
       "mixdog-app-protocol/src/inventory.rs:1115-1145: prefetchSession -> thread/read, readTranscriptHistory -> thread/items/list, setVisibleSessions -> thread/resume, submitToSession -> turn/start"
     ],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
-    "replayedBy": "apps/desktop/src/main/session-host-transport-read-set-replay.test.mjs: the K1 desktop SessionHostTransport.invokeSession (the lane is the desktop's choice; the core serves whichever method the action maps to). readActions, configureActions, configureActionSent and every lane compared whole, in recorded order.",
-    "nodeBug": "b6f10295a's transport sent 12 daemon read actions as `configure` (a refused call); fixed in the recorded tree by node-fix-session-host-read-set.patch (d34d8a2ce's change) and in K1 the same way."
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-host-transport-read-set-cases",
   "totalBytes": 18091,
