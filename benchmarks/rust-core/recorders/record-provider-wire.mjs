@@ -5,6 +5,8 @@
 //                      answered with the search call, its sources and a citation as each wire reports them;
 //   vertex-maas        a Vertex AI open model over the OpenAI-compatible endpoint: token refresh after a 401, a 429 and a 529 retry;
 //   vertex-claude      Claude on Vertex AI through streamRawPredict (`_sendClaude`): plain, with tools and effort, a 529 retried;
+//   vertex-claude-cancel the caller's signal (vertex-ai.mjs:507-537) aborting that send before the first byte, mid-stream
+//                      and during the retry wait, with what the endpoint saw (requests, a connection the client closed);
 //   antigravity-claude the Claude replay normalisation of antigravity-request.mjs:54-176 (the ten cases of antigravity-request.test.mjs:402-795);
 //   anthropic-fallback a turn served by Anthropic's server-side fallback model, with the ledger row accountProviderSend writes
 //                      and the assistant turn the loop commits;
@@ -17,7 +19,9 @@ process.env.TZ = 'Asia/Seoul';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import http from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { cleanHeaders } from './lib/headers.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 import {
   FIXTURES_ROOT,
@@ -471,6 +475,55 @@ for (const [name, tools, opts, script] of VERTEX_CLAUDE) {
   scenarios.push({ group: 'vertex-claude', name, provider: 'vertex-ai-adc', model: 'claude-sonnet-4-6', messages: claudeTurn, tools: tools ? GLOB : null, opts, script });
 }
 
+// The caller cancelling a Vertex AI Claude send (`opts.signal`, vertex-ai.mjs:507-537). `hold` answers are served by the
+// holding endpoint below: `head` sends nothing, `part` sends the head and the bytes given, then each signals that step
+// (the caller aborts) and records whether the client closed the connection. The retry wait is a 529 advising a wait
+// far longer than the run; the caller aborts when Node announces it (`onStageChange('reconnecting')`).
+const claudeOpening = anthropicStream([
+  { type: 'message_start', message: { id: 'msg_x', type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [], usage: { input_tokens: 20, output_tokens: 1 } } },
+  { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+  { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'The answer' } },
+]);
+const VERTEX_CLAUDE_CANCEL = [
+  ['before-first-byte', () => router(sequence({ status: 200, hold: 'head', body: '' }))],
+  ['mid-stream', () => router(sequence({ ...ok(claudeOpening), hold: 'part' }))],
+  ['retry-wait', () => router(sequence({ ...ok(j({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }), 'application/json'), status: 529, headers: { 'retry-after-ms': '600000' } }, ok(anthropicText('claude-sonnet-4-6'))))],
+];
+for (const [name, script] of VERTEX_CLAUDE_CANCEL) {
+  scenarios.push({ group: 'vertex-claude-cancel', name, cancel: name, provider: 'vertex-ai-adc', model: 'claude-sonnet-4-6', messages: claudeTurn, tools: null, opts: {}, script });
+}
+
+// The holding endpoint: the hub's request record and answers, plus `hold` and `closedByClient`. `abortNow` is the running
+// scenario's caller abort; `closings` the connections still to settle before its record is written.
+let abortNow = () => {};
+let closings = [];
+const holding = http.createServer(async (req, res) => {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const origin = req.headers['x-bench-origin'] ?? null;
+  const rec = { transport: 'http', origin, method: req.method, path: req.url, headers: cleanHeaders(req.headers, origin), rawHeaderOrder: req.rawHeaders.filter((_v, i) => i % 2 === 0).map((n) => n.toLowerCase()).filter((n) => n !== 'x-bench-origin'), bodyText: Buffer.concat(chunks).toString('utf8') };
+  hub.records.push(rec);
+  const reply = hub.script.http(rec, hub.records.length);
+  rec.served = reply.body;
+  if (!reply.hold) {
+    res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
+    res.end(reply.body);
+    return;
+  }
+  rec.hold = reply.hold;
+  closings.push(new Promise((resolve) => res.on('close', () => {
+    rec.closedByClient = !res.writableEnded;
+    resolve();
+  })));
+  // `head`: nothing was sent, so the request itself is the step; `part`: the caller aborts once it has read the delta.
+  if (reply.hold === 'head') abortNow();
+  else {
+    res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream' });
+    res.write(reply.body);
+  }
+});
+await new Promise((resolve) => holding.listen(0, '127.0.0.1', resolve));
+
 // Anthropic server-side fallback (anthropic-server-fallback.mjs), as the stream carries it: before any output (message_start
 // already names the fallback model) and mid-output (message_start names the requested model).
 const fallbackBlock = { type: 'fallback', from: { model: 'claude-opus-5' }, to: { model: 'claude-opus-4-8' }, trigger: { type: 'refusal', category: 'cyber' } };
@@ -579,6 +632,9 @@ for (const s of selected) {
   const events = [];
   let callbackNames = [];
   let result;
+  // A cancelled send is answered by the holding endpoint (global fetch reads the hub's port per request).
+  const hubPort = hub.httpPort;
+  if (s.cancel) hub.httpPort = holding.address().port;
   await hub.run({ http: s.script() }, async () => {
     const provider = await PROVIDERS[s.provider]();
     // anthropic-oauth fires `void this._refreshModelCache()` after a reply; it is settled inside its own scenario so its
@@ -593,6 +649,7 @@ for (const s of selected) {
       };
     }
     const ac = new AbortController();
+    abortNow = s.cancel === 'before-first-byte' ? () => ac.abort() : () => {};
     // Every callback the caller passes, in the order the provider calls them. A hosted search passes only onStageChange
     // and onStreamDelta (native-web-search.mjs:76-77); a turn of the loop passes the stream callbacks of
     // ask-turn-loop-options.mjs:113-236, where an onStreamDelta with no kind is 'semantic' (:232).
@@ -603,12 +660,16 @@ for (const s of selected) {
       },
       onStageChange: (stage, detail) => {
         if (stage === 'notice') events.push({ on: 'notice', tone: detail?.tone ?? null, message: detail?.message ?? null });
+        if (stage === 'reconnecting' && s.cancel === 'retry-wait') ac.abort();
       },
       onStreamDelta: (kind = 'semantic') => events.push({ on: 'streamDelta', kind }),
       ...(s.group === 'hosted-search'
         ? {}
         : {
-            onTextDelta: (text) => events.push({ on: 'textDelta', text }),
+            onTextDelta: (text) => {
+              events.push({ on: 'textDelta', text });
+              if (s.cancel === 'mid-stream') ac.abort();
+            },
             onTextReset: (detail) => events.push({ on: 'textReset', ...detail }),
             onReasoningDelta: (text) => events.push({ on: 'reasoningDelta', text }),
             onStreamItemStart: (detail) => events.push({ on: 'itemStart', ...detail }),
@@ -627,7 +688,10 @@ for (const s of selected) {
       result = { error: { name: e?.name ?? null, message: String(e?.message ?? e), status: e?.status ?? e?.httpStatus ?? null, code: e?.code ?? null } };
     }
     await Promise.all(background);
+    await Promise.all(closings);
+    closings = [];
   }, id);
+  hub.httpPort = hubPort;
   const dir = join(stage, s.group, s.name);
   const credential = CREDENTIALS[s.provider];
   writeJson(join(dir, 'input.json'), {
@@ -671,12 +735,16 @@ writeSetManifest(stage, {
       'core item starts of a plain text or reasoning block: Node reports a started item only for a client tool call or a phased message (send-callbacks.mjs reportStreamItemStart and its callers), so those are compared and the core\'s other openings are not callbacks',
       'stream callback placement of a delta\'s kind report (before or after the delta, by path): compared as one with its delta',
       'Codex identity (installation id, user agent OS, beta features): the recording machine\'s, given to the replay as the recorder had it',
-      'HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude groups) states it; records keep the body served',
+      'HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude, vertex-claude-cancel groups) states it; records keep the body served',
+      'vertex-claude-cancel error name, message and code: the DOMException AbortError Node\'s fetch and withRetry throw; the core\'s send ends as Cancelled, compared as that pairing',
+      'vertex-claude-cancel/retry-wait retrySleeps: empty in Node (the abort lands before its sleep starts); the core\'s wait is likewise never entered, shown by no further request',
     ],
     ...recorderProvenance(import.meta.url),
   },
 });
 await hub.close();
+holding.closeAllConnections();
+holding.close();
 closeUsageLedgers();
 commitStage(stage, finalDir);
 rmSync(dataDir, { recursive: true, force: true });

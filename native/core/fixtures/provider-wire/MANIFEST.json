@@ -20,9 +20,11 @@
     "core item starts of a plain text or reasoning block: Node reports a started item only for a client tool call or a phased message (send-callbacks.mjs reportStreamItemStart and its callers), so those are compared and the core's other openings are not callbacks",
     "stream callback placement of a delta's kind report (before or after the delta, by path): compared as one with its delta",
     "Codex identity (installation id, user agent OS, beta features): the recording machine's, given to the replay as the recorder had it",
-    "HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude groups) states it; records keep the body served"
+    "HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude, vertex-claude-cancel groups) states it; records keep the body served",
+    "vertex-claude-cancel error name, message and code: the DOMException AbortError Node's fetch and withRetry throw; the core's send ends as Cancelled, compared as that pairing",
+    "vertex-claude-cancel/retry-wait retrySleeps: empty in Node (the abort lands before its sleep starts); the core's wait is likewise never entered, shown by no further request"
   ],
-  "fileCount": 168,
+  "fileCount": 177,
   "files": [
     {
       "bytes": 5943,
@@ -775,6 +777,51 @@
       "sha256": "b6e0fc162300b55154f933f1ec3da254fd263b823307d85364857a9f2ef74fc5"
     },
     {
+      "bytes": 3332,
+      "path": "vertex-claude-cancel/before-first-byte/exchange.json",
+      "sha256": "36c95e0fc08847b0a638d29aa065a4b6a70a17fb23cb5322eb990e764d925fa1"
+    },
+    {
+      "bytes": 762,
+      "path": "vertex-claude-cancel/before-first-byte/input.json",
+      "sha256": "d2dd843ed8ba35629e32ba0dc6c942d901a87555989337f62d0c18feddebc5cb"
+    },
+    {
+      "bytes": 172,
+      "path": "vertex-claude-cancel/before-first-byte/result.json",
+      "sha256": "96112f7594bd3db4adc5559f60f64bcdd2255bb29efc0fa4795259c98eeef42c"
+    },
+    {
+      "bytes": 4049,
+      "path": "vertex-claude-cancel/mid-stream/exchange.json",
+      "sha256": "6a758d900cf69e5960fc7c4202f02b19cb4dcb0c6c5b377cd0918207687ef0ef"
+    },
+    {
+      "bytes": 762,
+      "path": "vertex-claude-cancel/mid-stream/input.json",
+      "sha256": "d2dd843ed8ba35629e32ba0dc6c942d901a87555989337f62d0c18feddebc5cb"
+    },
+    {
+      "bytes": 431,
+      "path": "vertex-claude-cancel/mid-stream/result.json",
+      "sha256": "994fa1478421b8d59ce9a82678b2136e280a422998da02d9923187558d73311a"
+    },
+    {
+      "bytes": 3362,
+      "path": "vertex-claude-cancel/retry-wait/exchange.json",
+      "sha256": "967d08b2731ab09afce183ec26795b43eaac137493216981beca65c426b75035"
+    },
+    {
+      "bytes": 762,
+      "path": "vertex-claude-cancel/retry-wait/input.json",
+      "sha256": "d2dd843ed8ba35629e32ba0dc6c942d901a87555989337f62d0c18feddebc5cb"
+    },
+    {
+      "bytes": 172,
+      "path": "vertex-claude-cancel/retry-wait/result.json",
+      "sha256": "96112f7594bd3db4adc5559f60f64bcdd2255bb29efc0fa4795259c98eeef42c"
+    },
+    {
       "bytes": 6253,
       "path": "vertex-claude/retry-529/exchange.json",
       "sha256": "d0cd25c519b4d8e2090105ca9d9a507c1973e3c447713e226d24197237bbc7df"
@@ -871,6 +918,10 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
+      "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
@@ -894,7 +945,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "aa804f2d18c8cce19a6cddbfa3af9bb1d5a28ae5132ae7a9766254752404714b",
+  "recorderSha256": "fe759591d073208c7aa882d34a26b511006b04def5f1fb8c2f3cb7e6806e1c68",
   "set": "provider-wire",
-  "totalBytes": 378934
+  "totalBytes": 392738
 }

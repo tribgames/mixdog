@@ -1,0 +1,39 @@
+{
+  "provider": "vertex-ai-adc",
+  "config": {
+    "authMode": "adc",
+    "projectId": "fixture-project",
+    "location": "global"
+  },
+  "credential": {
+    "file": "adc.json",
+    "document": {
+      "type": "authorized_user",
+      "client_id": "fixture-client",
+      "client_secret": "fixture-secret",
+      "refresh_token": "fixture-refresh-token"
+    }
+  },
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}

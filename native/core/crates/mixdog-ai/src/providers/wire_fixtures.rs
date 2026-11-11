@@ -580,10 +580,17 @@ pub(crate) fn assert_minted_bearer(sent: &[WireRequest], recorded: &Recorded, na
 /// The recorder's hub: each request is answered with the recorded answer to the first unanswered record of the same
 /// method and URL (`served`), with the status the scenario's script gave it (200 unless `refuse` names the n-th such
 /// request), and kept.
+///
+/// A record the recorder's holding endpoint held (`hold`) is held the same way: `head` answers nothing, `part` sends the
+/// head and the recorded bytes and nothing more. A held `head` signals `step` when it arrives; the connection a held
+/// answer keeps open is closed by the client when it drops the pending send or body (`closed`, Node's `closedByClient`).
 pub(crate) struct Hub {
     records: Mutex<Vec<Option<Value>>>,
     refusals: Mutex<Vec<(String, u16, Vec<(String, String)>)>>,
     pub sent: Mutex<Vec<WireRequest>>,
+    pub step: tokio::sync::Notify,
+    /// Per request sent: `None` unless held, then whether the client closed its connection.
+    closed: Arc<Mutex<Vec<Option<bool>>>>,
 }
 
 impl Hub {
@@ -592,7 +599,14 @@ impl Hub {
             records: Mutex::new(recorded.exchange["records"].as_array().expect("records").iter().cloned().map(Some).collect()),
             refusals: Mutex::default(),
             sent: Mutex::default(),
+            step: tokio::sync::Notify::new(),
+            closed: Arc::default(),
         })
+    }
+
+    /// `closedByClient` of each request sent, in order (absent for an answer that was not held).
+    pub fn closed(&self) -> Vec<Option<bool>> {
+        self.closed.lock().unwrap().clone()
     }
 
     /// The first request whose path ends with `path_end` is answered with `status` and `headers` (the scenario's script).
@@ -612,6 +626,31 @@ struct Served(Option<bytes::Bytes>);
 impl crate::transport::BodyStream for Served {
     async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
         self.0.take().map(Ok)
+    }
+}
+
+/// The connection of a held answer: dropped by the client, it is closed.
+struct Open {
+    closed: Arc<Mutex<Vec<Option<bool>>>>,
+    at: usize,
+}
+
+impl Drop for Open {
+    fn drop(&mut self) {
+        self.closed.lock().unwrap()[self.at] = Some(true);
+    }
+}
+
+/// A held `part` answer: the recorded bytes, then nothing until the client lets go.
+struct Held(Option<bytes::Bytes>, #[allow(dead_code, reason = "closes the connection when dropped")] Open);
+
+#[async_trait::async_trait]
+impl crate::transport::BodyStream for Held {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        match self.0.take() {
+            Some(bytes) => Some(Ok(bytes)),
+            None => std::future::pending().await,
+        }
     }
 }
 
@@ -642,6 +681,26 @@ impl crate::transport::HttpSend for Hub {
         };
         let path = record["path"].as_str().unwrap_or_default().to_owned();
         self.sent.lock().unwrap().push(request);
+        let held = record["hold"].as_str().map(|hold| {
+            let mut closed = self.closed.lock().unwrap();
+            closed.push(Some(false));
+            (hold.to_owned(), Open { closed: Arc::clone(&self.closed), at: closed.len() - 1 })
+        });
+        if held.is_none() {
+            self.closed.lock().unwrap().push(None);
+        }
+        let body = bytes::Bytes::from(record["served"].as_str().unwrap_or_default().to_owned());
+        match held {
+            Some((hold, open)) if hold == "head" => {
+                self.step.notify_one();
+                let _open = open;
+                return std::future::pending().await;
+            }
+            Some((_, open)) => {
+                return Ok(crate::transport::HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Held(Some(body), open)) });
+            }
+            None => {}
+        }
         let (status, headers) = {
             let mut refusals = self.refusals.lock().unwrap();
             match refusals.iter().position(|(end, _, _)| path.ends_with(end.as_str())) {
@@ -652,7 +711,6 @@ impl crate::transport::HttpSend for Hub {
                 None => (200, Vec::new()),
             }
         };
-        let body = bytes::Bytes::from(record["served"].as_str().unwrap_or_default().to_owned());
         Ok(crate::transport::HttpResponse { status, headers, body: Box::new(Served(Some(body))) })
     }
 }
