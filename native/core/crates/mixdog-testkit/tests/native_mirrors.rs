@@ -188,6 +188,9 @@ fn tokens(text: &str) -> Vec<Token> {
                 }
                 out.push(Token::Text(chars[open + 1..end.min(chars.len())].iter().collect()));
                 i = end + 1 + hashes;
+            } else if hashes == 1 && chars.get(open).is_some_and(|c| word(*c)) {
+                // `r#type`: the identifier `type`, read as the word that follows.
+                i = open;
             } else {
                 out.push(Token::Word("r".to_owned()));
                 i += 1;
@@ -298,6 +301,10 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                     i += 3;
                     continue;
                 }
+                // Any other `mod` (one a macro writes: `mod $name;`) names a file this walk cannot find.
+                [Word(keyword), ..] if keyword == "mod" => {
+                    panic!("{}: a `mod` that is not `mod name;` or `mod name {{` (a macro-generated module?) is not followed by this test", file.display())
+                }
                 [Word(keyword), Mark('!'), Mark('('), Text(path), ..] if ["include", "include_str", "include_bytes"].contains(&keyword.as_str()) => {
                     files.push(canonical(dir.join(path)));
                 }
@@ -334,18 +341,29 @@ fn the_module_walk_follows_nested_inline_and_attributed_modules() {
     };
     write(
         "build.rs",
-        "// mod commented;\nmod plain;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nfn main() { let _ = \"mod in_a_string;\"; }\n",
+        "// mod commented;\nmod plain;\nmod r#type;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nfn main() { let _ = \"mod in_a_string;\"; }\n",
     );
     write("plain.rs", "mod child;\n");
     write("plain/child.rs", "");
     write("outer/inner.rs", "");
     write("outer/deeper/leaf.rs", "");
     write("elsewhere/attributed.rs", "");
+    write("type.rs", "");
     write("rules.yml", "mod not_rust;\n");
     let mut found: Vec<String> = script_files(&dir.join("build.rs")).iter().map(|f| f.strip_prefix(canonical(&dir)).unwrap().to_string_lossy().replace('\\', "/")).collect();
     found.sort();
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(found, ["build.rs", "elsewhere/attributed.rs", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml"]);
+    assert_eq!(found, ["build.rs", "elsewhere/attributed.rs", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml", "type.rs"]);
+}
+
+#[test]
+#[should_panic(expected = "macro-generated module")]
+fn the_module_walk_refuses_a_module_a_macro_writes() {
+    let dir = std::env::temp_dir().join(format!("native-mirrors-macro-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("build.rs"), "macro_rules! m { ($n:ident) => { mod $n; } }\nm!(hidden);\nfn main() {}\n").unwrap();
+    script_files(&dir.join("build.rs"));
 }
 
 #[test]
