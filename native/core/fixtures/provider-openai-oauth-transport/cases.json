@@ -1,0 +1,989 @@
+{
+  "set": "provider-openai-oauth-transport",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "suppressed-reasoning-permits-fresh-ws-retry:response.reasoning_text.delta",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:77",
+      "input": {
+        "closeFrames": [
+          "response.created",
+          "response.reasoning_text.delta"
+        ],
+        "closeCode": 1006
+      },
+      "result": {
+        "result": {
+          "content": "ws-recovered",
+          "toolCalls": [],
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "ephemeral"
+          }
+        },
+        "fresh": [
+          false,
+          true
+        ],
+        "progress": [
+          "transport",
+          "reasoning"
+        ],
+        "text": [],
+        "streams": 2
+      }
+    },
+    {
+      "id": "suppressed-reasoning-permits-fresh-ws-retry:response.reasoning_summary_text.delta",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:77",
+      "input": {
+        "closeFrames": [
+          "response.created",
+          "response.reasoning_summary_text.delta"
+        ],
+        "closeCode": 1006
+      },
+      "result": {
+        "result": {
+          "content": "ws-recovered",
+          "toolCalls": [],
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "ephemeral"
+          }
+        },
+        "fresh": [
+          false,
+          true
+        ],
+        "progress": [
+          "transport",
+          "reasoning"
+        ],
+        "text": [],
+        "streams": 2
+      }
+    },
+    {
+      "id": "suppressed-reasoning-permits-fresh-ws-retry:response.reasoning.summary.delta",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:77",
+      "input": {
+        "closeFrames": [
+          "response.created",
+          "response.reasoning.summary.delta"
+        ],
+        "closeCode": 1006
+      },
+      "result": {
+        "result": {
+          "content": "ws-recovered",
+          "toolCalls": [],
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "ephemeral"
+          }
+        },
+        "fresh": [
+          false,
+          true
+        ],
+        "progress": [
+          "transport",
+          "reasoning"
+        ],
+        "text": [],
+        "streams": 2
+      }
+    },
+    {
+      "id": "reasoning-only-closes-exhaust-ws-budget-switch-to-http",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:111",
+      "input": {
+        "closeFrames": [
+          "response.created",
+          "response.reasoning_summary_text.delta"
+        ],
+        "closeCode": 1006
+      },
+      "result": {
+        "first": {
+          "content": "http-recovered",
+          "toolCalls": []
+        },
+        "afterFirst": {
+          "acquires": 6,
+          "httpCalls": 1
+        },
+        "second": {
+          "content": "http-recovered",
+          "toolCalls": []
+        },
+        "afterSecond": {
+          "acquires": 6,
+          "httpCalls": 2
+        },
+        "delaysMs": [
+          215,
+          421,
+          773,
+          1559,
+          3478
+        ],
+        "baseDelaysMs": [
+          200,
+          400,
+          800,
+          1600,
+          3200
+        ]
+      }
+    },
+    {
+      "id": "http-401-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "httpStatus": 401
+        },
+        "expectedClassification": "auth"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 401,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "auth",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 3
+        }
+      }
+    },
+    {
+      "id": "http-403-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "httpStatus": 403
+        },
+        "expectedClassification": "auth"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 403,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "auth",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-429-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "httpStatus": 429,
+          "retryAfterMs": 15000
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 429,
+          "retryAfterMs": 15000,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-503-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "httpStatus": 503
+        },
+        "expectedClassification": "transient"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 503,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "transient",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-unknown-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {},
+        "expectedClassification": "unknown"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "unknown",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-cancelled-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "name": "AbortError"
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "AbortError",
+          "message": "current HTTP failure",
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-visible text-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "liveTextEmitted": true,
+          "unsafeToRetry": true
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "liveTextEmitted": true,
+          "unsafeToRetry": true,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-dispatched tool-stays-current-failure-after-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": false,
+        "httpErrorFields": {
+          "emittedToolCall": true,
+          "unsafeToRetry": true
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "emittedToolCall": true,
+          "unsafeToRetry": true,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 1,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 1,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-401-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "httpStatus": 401
+        },
+        "expectedClassification": "auth"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 401,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "auth",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-403-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "httpStatus": 403
+        },
+        "expectedClassification": "auth"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 403,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "auth",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-429-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "httpStatus": 429,
+          "retryAfterMs": 15000
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 429,
+          "retryAfterMs": 15000,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-503-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "httpStatus": 503
+        },
+        "expectedClassification": "transient"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "httpStatus": 503,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "transient",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-unknown-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {},
+        "expectedClassification": "unknown"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "unknown",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-cancelled-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "name": "AbortError"
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "AbortError",
+          "message": "current HTTP failure",
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-visible text-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "liveTextEmitted": true,
+          "unsafeToRetry": true
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "liveTextEmitted": true,
+          "unsafeToRetry": true,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "http-dispatched tool-stays-current-failure-after-auth-recovery-and-ws-fallback",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:163",
+      "input": {
+        "authRetry": true,
+        "httpErrorFields": {
+          "emittedToolCall": true,
+          "unsafeToRetry": true
+        },
+        "expectedClassification": "permanent"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "current HTTP failure",
+          "emittedToolCall": true,
+          "unsafeToRetry": true,
+          "previousTransportError": {
+            "name": "Error",
+            "message": "WS disconnected",
+            "wsCloseCode": 1006,
+            "code": "ECONNRESET",
+            "retryClassifier": "ws_1006",
+            "wsRetriesExhausted": true
+          },
+          "cause": {
+            "name": "Error",
+            "message": "current HTTP cause"
+          }
+        },
+        "isTheHttpError": true,
+        "causeIsTheHttpCause": true,
+        "previousTransportErrorIsTheWsError": true,
+        "classification": "permanent",
+        "afterFailure": {
+          "wsCalls": 2,
+          "httpCalls": 1
+        },
+        "next": {
+          "result": {
+            "content": "http-ok",
+            "toolCalls": []
+          }
+        },
+        "afterNext": {
+          "wsCalls": 2,
+          "httpCalls": 2
+        }
+      }
+    },
+    {
+      "id": "handshake-404-falls-back-to-http-once",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:211",
+      "input": {
+        "handshakeStatus": 404
+      },
+      "result": {
+        "result": {
+          "content": "http-ok",
+          "toolCalls": []
+        },
+        "acquires": 1,
+        "httpCalls": 1,
+        "catalogRefreshes": 0
+      }
+    },
+    {
+      "id": "application-404-stays-model-error",
+      "source": "scripts/provider-toolcall/openai-oauth-transport.test.mjs:247",
+      "input": {
+        "wsError": {
+          "message": "model_not_found",
+          "httpStatus": 404
+        }
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "model_not_found",
+          "httpStatus": 404
+        },
+        "wsCalls": 2,
+        "httpCalls": 0,
+        "catalogRefreshes": 1
+      }
+    }
+  ]
+}
