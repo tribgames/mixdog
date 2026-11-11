@@ -8,6 +8,7 @@
 //
 //   node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a with node_modules>
+import { readFileSync } from 'node:fs';
 import { RecorderError, within } from './lib/recorder-error.mjs';
 import { FIXED_NOW, openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
@@ -618,8 +619,11 @@ await set.finish({
   },
   replay: {
     entry: 'mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case\'s observed fields whole',
+    // What the replay states about itself (typed fields, declared and open cases): lib/replay-notes/model-proxy-host-cases.json.
+    ...Object.fromEntries(Object.entries(JSON.parse(readFileSync(new URL('./lib/replay-notes/model-proxy-host-cases.json', import.meta.url), 'utf8'))).filter(([key]) => key !== '_about')),
     normalised: { secretShapedInputs: 'the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike', transportScope: 'the PC scope is <session>#proxy:<uuid>; the uuid is a counter (scripted crypto.randomUUID), recorded as it came' },
   },
   replaceInText: [],
+  dataFiles: ['benchmarks/rust-core/recorders/lib/replay-notes/model-proxy-host-cases.json'],
 });
 process.exit(0);
