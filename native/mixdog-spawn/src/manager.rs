@@ -92,8 +92,11 @@ pub trait OutputFilter: Send {
     /// Output still held back when the stream ends.
     fn finish(&mut self) -> Vec<u8>;
     /// The chunk the last `filter` or `finish` returned is entering the feed (its flow gate let it in): called under the feed's lock,
-    /// never for a chunk the feed drops.
-    fn admitted(&mut self) {}
+    /// never for a chunk the feed drops. True when something now waits for the pump to take exactly this chunk (a terminal tab's
+    /// activity change): the feed keeps the chunk an event of its own (see [`crate::feed::Feed::admit`]).
+    fn admitted(&mut self) -> bool {
+        false
+    }
 }
 
 /// Runs on the process's waiter thread once the root has ended and its output pipes are finished
