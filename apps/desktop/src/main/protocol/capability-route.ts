@@ -19,6 +19,7 @@ import type {
   DesktopCapabilityResult,
   SessionSnapshot,
 } from '../../shared/contract';
+import { remoteSessionIdOf, withRemoteSession } from '../../shared/blank-snapshot';
 import { normalizeSessionTitle } from '../../shared/session-title.mjs';
 import { isSessionId } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
@@ -302,11 +303,17 @@ export function createCapabilityLane({
   };
   const stateOf = async (threadId: string): Promise<SessionSnapshot> => {
     const read = await request('thread/read', { threadId, window: { none: true } });
-    const hostShellJobs = protocol.snapshot().entries.find((entry) => entry.section === 'hostShellJobs')?.value;
-    return desktopSessionState(
-      sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
-      pendingApprovals() as Parameters<typeof desktopSessionState>[1],
-      hostShellJobs as Parameters<typeof desktopSessionState>[2]
+    const { entries } = protocol.snapshot();
+    const hostShellJobs = entries.find((entry) => entry.section === 'hostShellJobs')?.value;
+    const remoteSession = entries.find((entry) => entry.section === 'hostState' && entry.key === 'remoteSession')?.value;
+    // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
+    return withRemoteSession(
+      desktopSessionState(
+        sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
+        pendingApprovals() as Parameters<typeof desktopSessionState>[1],
+        hostShellJobs as Parameters<typeof desktopSessionState>[2]
+      ),
+      remoteSessionIdOf(remoteSession)
     ) as unknown as SessionSnapshot;
   };
   return {

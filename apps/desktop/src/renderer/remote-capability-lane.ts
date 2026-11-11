@@ -35,8 +35,12 @@ function laneOf(client: Client) {
   return createCapabilityLane({
     protocol: {
       call,
-      // The sections the lane reads into a call's session state: the host's shell jobs and the config switches.
-      snapshot: () => ({ status: 'ready', entries: [...client.store.sections('hostShellJobs'), ...client.store.sections('config')] }),
+      // The sections the lane reads into a call's session state: the host's shell jobs, the remote channel's session and the
+      // config switches.
+      snapshot: () => ({
+        status: 'ready',
+        entries: [...client.store.sections('hostShellJobs'), ...client.store.sections('hostState' as never), ...client.store.sections('config')],
+      }),
       noteUserInput: () => undefined,
       respond: (id, answer) => client.respond(id, answer as never),
       pendingServerRequests: () => client.pendingServerRequests(),
