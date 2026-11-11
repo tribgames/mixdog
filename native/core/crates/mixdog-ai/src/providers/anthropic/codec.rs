@@ -137,12 +137,6 @@ impl AnthropicConfig {
     pub fn messages_url(&self) -> String {
         format!("{}/v1/messages", self.base_url.trim_end_matches('/'))
     }
-
-    /// Whether this is Anthropic's own messages endpoint (the only one that
-    /// takes a gzip request body).
-    pub fn is_official_messages_url(&self) -> bool {
-        self.messages_url() == format!("{DEFAULT_BASE_URL}/v1/messages")
-    }
 }
 
 pub struct AnthropicCodec {

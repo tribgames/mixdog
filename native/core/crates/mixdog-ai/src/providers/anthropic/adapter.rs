@@ -19,7 +19,8 @@ use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::GzBuilder;
+use futures::future::BoxFuture;
 use mixdog_core_api::domain::cache_warm::CacheWarmSend;
 use mixdog_core_api::domain::cache_warm::cache_warm_request;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
@@ -90,6 +91,21 @@ fn gzip_failure(cause: &dyn std::fmt::Display) -> ProviderError {
 /// Request bodies at least this large are sent gzip-encoded.
 const GZIP_MIN_BYTES: usize = 8 * 1024;
 
+/// A compressor standing in for the gzip lane, as `createAnthropicApiKeyFetch({ compress })` takes one; set only by
+/// tests ([`AnthropicAdapter::with_compressor`]).
+pub type Compressor = Arc<dyn Fn(Vec<u8>) -> BoxFuture<'static, Result<Vec<u8>, String>> + Send + Sync>;
+
+/// The gzip header's operating-system byte Node's zlib writes (`OS_CODE` of zlib's `zutil.h`): the compressed body
+/// is byte for byte Node's.
+const GZIP_OS: u8 = if cfg!(windows) { 10 } else if cfg!(target_os = "macos") { 19 } else { 3 };
+
+/// `officialMessagesUrl` (`anthropic-api-key-fetch.mjs:10-17`): the request goes to exactly
+/// `https://api.anthropic.com` at path `/v1/messages`, decided on the final URL so a custom base, proxy or gateway
+/// never gets a compressed body.
+fn official_messages_url(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| u.origin().ascii_serialization() == ANTHROPIC_ORIGIN && u.path() == "/v1/messages")
+}
+
 /// `anthropicGzipLatch` (`request-compression.mjs:29`): set once a compressed body refused with 400/415 was accepted
 /// plain; from then on no Anthropic body of this process is compressed.
 static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
@@ -98,6 +114,13 @@ static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
 #[cfg(any(test, feature = "test-support"))]
 pub fn reset_gzip_latch() {
     GZIP_LATCHED.store(false, Ordering::SeqCst);
+}
+
+/// `anthropicGzipLatch.disabled()` without the environment switch: whether a refused compressed body latched
+/// compression off.
+#[cfg(any(test, feature = "test-support"))]
+pub fn gzip_latched() -> bool {
+    GZIP_LATCHED.load(Ordering::SeqCst)
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +201,8 @@ pub struct AnthropicAdapter {
     preconnect: Option<Preconnect>,
     /// The process settings the request reads (Node's `process.env`).
     settings: Setting,
+    /// A test's compressor in place of the gzip lane.
+    compressor: Option<Compressor>,
 }
 
 /// The origin the subscription route warms (`anthropic-oauth.mjs:352`, `:535`), whatever its base URL.
@@ -233,7 +258,16 @@ impl AnthropicAdapter {
             gzip_lane,
             preconnect: None,
             settings: Arc::new(|name| std::env::var(name).ok()),
+            compressor: None,
         }
+    }
+
+    /// Compresses with `compressor` instead of the gzip lane (Node's `compress` option of
+    /// `createAnthropicApiKeyFetch`, which only its tests pass).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_compressor(mut self, compressor: Compressor) -> Self {
+        self.compressor = Some(compressor);
+        self
     }
 
     /// The process settings read from `settings` instead of the process environment.
@@ -260,12 +294,15 @@ impl AnthropicAdapter {
     /// queued job, so a cancelled request compresses nothing.
     async fn gzip(&self, body: &[u8]) -> Result<Vec<u8>, ProviderError> {
         let raw = body.to_vec();
+        if let Some(compress) = &self.compressor {
+            return compress(raw).await.map_err(|e| gzip_failure(&e));
+        }
         let cancel = CancellationToken::new();
         let _cancel_on_drop = cancel.clone().drop_guard();
         let job = self
             .gzip_lane
             .submit_wait(&cancel, move |_| {
-                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                let mut encoder = GzBuilder::new().operating_system(GZIP_OS).write(Vec::new(), Compression::default());
                 encoder.write_all(&raw)?;
                 encoder.finish()
             })
@@ -276,14 +313,21 @@ impl AnthropicAdapter {
             .map_err(|e| gzip_failure(&e))
     }
 
-    /// One POST, compressed as `sendWithCompression` compresses it (`request-compression.mjs:75-82`): official-URL
-    /// bodies of at least `GZIP_MIN_BYTES` that carry no `content-encoding`, unless the process latch or
+    /// One POST of `wire` with the credential.
+    async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
+        self.fetch(self.request_with(wire, secret)).await
+    }
+
+    /// The client's `fetch` (`createAnthropicApiKeyFetch`, the subscription's `postMessages`): one request, compressed
+    /// as `sendWithCompression` compresses it (`request-compression.mjs:75-82`): a POST to the official messages URL
+    /// with a body of at least `GZIP_MIN_BYTES` that carries no `content-encoding`, unless the process latch or
     /// `MIXDOG_ANTHROPIC_REQ_GZIP=0` turned compression off; a compression failure sends the body plain. A 400/415 to
     /// the compressed body is drained and the same request sent once plain; when that plain send succeeds,
     /// compression is off for the rest of the process.
-    async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
-        let request = self.request_with(wire, secret);
-        let eligible = self.codec.config().is_official_messages_url()
+    pub async fn fetch(&self, request: WireRequest) -> Result<HttpResponse, ProviderError> {
+        let wire = &request;
+        let eligible = wire.method.eq_ignore_ascii_case("POST")
+            && official_messages_url(&wire.url)
             && wire.body.len() >= GZIP_MIN_BYTES
             && !GZIP_LATCHED.load(Ordering::SeqCst)
             && (self.settings)("MIXDOG_ANTHROPIC_REQ_GZIP").as_deref() != Some("0")
@@ -296,8 +340,9 @@ impl AnthropicAdapter {
         };
         let mut compressed = request.clone();
         compressed.body = packed;
-        // `withContentEncoding` appends it after the request's own headers, spelled `Content-Encoding`
-        // (`request-compression.mjs:46`).
+        // `withContentEncoding` drops the plain body's `content-length` and appends `Content-Encoding` after the
+        // request's own headers (`request-compression.mjs:39-48`).
+        compressed.headers.retain(|h| !h.0.eq_ignore_ascii_case("content-length"));
         compressed.headers.push(("Content-Encoding".to_owned(), "gzip".to_owned()));
         let response = self.http.send(compressed, MODEL_STREAM).await?;
         if !matches!(response.status, 400 | 415) {
@@ -369,6 +414,26 @@ impl AnthropicAdapter {
             directive,
             send_group: request.options.send_group.as_deref(),
         }))
+    }
+
+    /// `issueNonStreamingFallback` (anthropic-api-recovery.mjs:41-64): the request once more without streaming, under
+    /// the non-streaming timeout, its whole response as the turn's events.
+    async fn non_streaming(&self, request: &ModelRequest, wire: &WireRequest, secret: &Secret) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let mut wire = wire.clone();
+        if let Some(body) = super::nonstream::body(&wire.body) {
+            wire.body = body;
+        }
+        wire.headers.push(("x-stainless-timeout".to_owned(), super::nonstream::TIMEOUT_SECONDS.to_owned()));
+        let read = self.post(&wire, secret).await?.read_all().await?;
+        if !read.status.is_some_and(|status| (200..300).contains(&status)) {
+            return Err(self.codec.classify(&read));
+        }
+        let message: Value = serde_json::from_slice(&read.body).map_err(|e| {
+            let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            err.message = format!("Anthropic non-streaming response is not JSON: {e}");
+            err
+        })?;
+        Ok(Box::new(AnthropicStream::ready(super::nonstream::events(&self.id, &request.model, &message))))
     }
 
     async fn failure(&self, response: HttpResponse) -> ProviderError {
@@ -573,6 +638,11 @@ impl ProviderAdapter for AnthropicAdapter {
                     plain = self.codec.encode_plain(&request)?;
                     continue 'plan;
                 }
+                // A gateway that 404s the streaming endpoint but serves non-streaming: one non-streaming re-issue,
+                // nothing having streamed yet (anthropic.mjs:363-368).
+                if self.codec.flavor() == Flavor::ApiKey && rejected.status == Some(404) {
+                    return self.non_streaming(&request, &wire, &secret).await;
+                }
                 return Err(err);
             }
         }
@@ -601,6 +671,18 @@ impl AnthropicStream {
             body: Some(body),
             decoder,
             queue: VecDeque::new(),
+            failed: None,
+            last_usage: None,
+            thread: None,
+        }
+    }
+
+    /// A turn already whole: its events, then the end.
+    fn ready(events: Vec<StreamEvent>) -> Self {
+        Self {
+            body: None,
+            decoder: Box::new(super::decoder::AnthropicDecoder::for_model(ProviderId::from(""), "")),
+            queue: events.into(),
             failed: None,
             last_usage: None,
             thread: None,

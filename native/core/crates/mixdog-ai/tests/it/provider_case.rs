@@ -25,7 +25,8 @@
 //!   arrival order and case, body bytes; `clientClosedConnection` when a held response saw the client close).
 //! - [`CaseSet::assert_requests`]`(case, arrivals, either_order)`: whole and in order, after the manifest's declared rules
 //!   only: `host` as the addressed origin's host (or `127.0.0.1:<port>`), the `x-stainless-*` recording-host placeholders,
-//!   and one declared either-order pair of request indexes.
+//!   a `Content-Encoding: gzip` body as its gzip header and inflated bytes, and one declared either-order pair of
+//!   request indexes.
 //! - [`assert_exact`]: whole comparison, failing with the first differing path; [`within`] / [`Endpoint::until`]: every
 //!   wait is an event with a deadline on the machine's clock and a message naming it.
 #![allow(dead_code, reason = "the shared driver of every provider set: each set uses part of it")]
@@ -298,6 +299,12 @@ impl CaseSet {
             })
             .collect();
         let mut got = self.ruled(arrivals);
+        let (want, got_inflated): (Vec<Exact>, Vec<Exact>) = if self.declares("`Content-Encoding: gzip`") {
+            (want.iter().map(inflated).collect(), got.iter().map(inflated).collect())
+        } else {
+            (want, got.clone())
+        };
+        got = got_inflated;
         if let Some((a, b)) = either_order
             && got.len() > a.max(b)
             && got[a] == want[b]
@@ -307,6 +314,56 @@ impl CaseSet {
         }
         assert_exact(&format!("{} {}: requests", self.set, case.id), &Exact::Array(want), &Exact::Array(got));
     }
+}
+
+/// A request under the declared gzip rule: a `Content-Encoding: gzip` body as its 10-byte gzip header and inflated
+/// bytes, its `content-length` as `<the arrived body's length>` (checked equal to that length here).
+fn inflated(request: &Exact) -> Exact {
+    let Exact::Object(entries) = request else { unreachable!("a request is an object") };
+    let gzip = request.get("headers").as_array().iter().any(|pair| {
+        let pair = pair.as_array();
+        pair[0].as_str().eq_ignore_ascii_case("content-encoding") && pair[1].as_str() == "gzip"
+    });
+    if !gzip {
+        return request.clone();
+    }
+    let Exact::Bytes { bytes, .. } = request.get("body") else { panic!("a gzip body is bytes: {request:?}") };
+    let mut text = Vec::new();
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(bytes.as_slice()), &mut text).expect("a gzip body");
+    let length = bytes.len().to_string();
+    Exact::Object(
+        entries
+            .iter()
+            .map(|(key, value)| match key.as_str() {
+                "body" => (
+                    key.clone(),
+                    Exact::Object(vec![
+                        ("gzipHeader".into(), Exact::String(format!("{:02x?}", &bytes[..10]))),
+                        ("inflated".into(), Exact::String(String::from_utf8_lossy(&text).into_owned())),
+                    ]),
+                ),
+                "headers" => (
+                    key.clone(),
+                    Exact::Array(
+                        value
+                            .as_array()
+                            .iter()
+                            .map(|pair| {
+                                let pair = pair.as_array();
+                                if pair[0].as_str().eq_ignore_ascii_case("content-length") {
+                                    assert_eq!(pair[1].as_str(), length, "content-length is the arrived body's length");
+                                    Exact::Array(vec![pair[0].clone(), Exact::String("<the arrived body's length>".into())])
+                                } else {
+                                    Exact::Array(pair.to_vec())
+                                }
+                            })
+                            .collect(),
+                    ),
+                ),
+                _ => (key.clone(), value.clone()),
+            })
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
