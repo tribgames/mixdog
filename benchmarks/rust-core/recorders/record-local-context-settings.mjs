@@ -45,7 +45,7 @@ await rec.run('persist-validate-reset', `${SRC}:10`, { entry: { id: entry.id, co
   for (const tokens of [16384, 32768, entry.maxContextWindow]) {
     saveLocalContext(entry, tokens, dataDir);
     const model = localProviderCatalogStatus({ dataDir }).models.find((row) => row.id === entry.id);
-    out.saved.push({ tokens, contextWindow: model.contextWindow, runtimeContextWindow: model.runtimeContextWindow, maxContextWindow: model.maxContextWindow });
+    out.saved.push({ tokens, model });
   }
   out.invalid = [0, 511, 8192, 16383, 1.5, '16384', undefined, NaN, Infinity, entry.maxContextWindow + 1].map((value) => ({ value: typeof value === 'number' && !Number.isFinite(value) ? String(value) : value ?? '<undefined>', ...attempt(() => saveLocalContext(entry, value, dataDir)) }));
   out.otherModel = localContextSettings({ ...entry, id: 'another-model' }, dataDir).configuredContextWindow;
@@ -64,23 +64,29 @@ await rec.run('corrupt-or-out-of-range-file-falls-back', `${SRC}:33`, {}, () => 
   for (const contents of ['{not json', 'null', JSON.stringify({ tokens: entry.maxContextWindow + 1 }), JSON.stringify({ tokens: 8192 })]) {
     writeFileSync(file, contents);
     const settings = localContextSettings(entry, dataDir);
-    rows.push({ contents, configuredContextWindow: settings.configuredContextWindow, contextWindow: settings.contextWindow, defaultContextWindow: entry.contextWindow });
+    rows.push({ contents, settings, defaultContextWindow: entry.contextWindow });
   }
   return { rows };
 });
-await rec.run('apply-waits-for-inference-then-exposes-capacity', `${SRC}:55`, {}, async () => {
+// Every step that decides the order is an input (`input.steps`) and an event of the recorded ordered list `steps`, the gate release included.
+const APPLY_STEPS = ['start an inference request that holds the request slot behind a gate', 'call setLocalProviderContext(entry.id, 16384)', 'advance the virtual clock 1 ms', 'read the configured context window (the change must not have applied)', 'release the gate', 'await the inference and the change', 'read the runtime context window', 'call setLocalProviderContext("missing", 16384)'];
+await rec.run('apply-waits-for-inference-then-exposes-capacity', `${SRC}:55`, { steps: APPLY_STEPS }, async () => {
   const dataDir = caseDir('ctx-queue');
   const steps = [];
   let finish;
   const gate = new Promise((resolve) => { finish = resolve; });
-  const inference = runLocalProviderRequest(async (signal) => { await gate; steps.push({ inferenceSignalAborted: signal.aborted }); });
+  steps.push({ event: 'inference-started' });
+  const inference = runLocalProviderRequest(async (signal) => { await gate; steps.push({ event: 'inference-ran', inferenceSignalAborted: signal.aborted }); });
+  steps.push({ event: 'change-requested', tokens: 16384 });
   const change = setLocalProviderContext(entry.id, 16384, { dataDir });
-  await rec.clock.advance(1);
-  steps.push({ afterOneMsConfigured: localContextSettings(entry, dataDir).configuredContextWindow });
+  await rec.clock.advance(1, { what: 'one millisecond while the inference holds the slot' });
+  steps.push({ event: 'read-configured', configuredContextWindow: localContextSettings(entry, dataDir).configuredContextWindow });
+  steps.push({ event: 'gate-released' });
   finish();
   await Promise.all([inference, change]);
-  steps.push({ afterApplyRuntimeContextWindow: localContextSettings(entry, dataDir).runtimeContextWindow });
-  const missing = await setLocalProviderContext('missing', 16384, { dataDir }).then(() => null, (error) => error);
+  steps.push({ event: 'read-runtime', settings: localContextSettings(entry, dataDir) });
+  steps.push({ event: 'change-requested', model: 'missing', tokens: 16384 });
+  const missing = await setLocalProviderContext('missing', 16384, { dataDir }).then(() => undefined, (error) => error);
   return { steps, unknownModel: missing, files: filesOf(dataDir) };
 });
 await rec.run('below-agent-minimum-runs-at-gguf-minimum', `${SRC}:80`, {}, () => {

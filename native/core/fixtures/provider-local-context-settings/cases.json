@@ -18,21 +18,96 @@
         "saved": [
           {
             "tokens": 16384,
-            "contextWindow": 16384,
-            "runtimeContextWindow": 16384,
-            "maxContextWindow": 262144
+            "model": {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": 16384,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 16384,
+              "runtimeContextWindow": 16384,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
           },
           {
             "tokens": 32768,
-            "contextWindow": 32768,
-            "runtimeContextWindow": 32768,
-            "maxContextWindow": 262144
+            "model": {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": 32768,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
           },
           {
             "tokens": 262144,
-            "contextWindow": 262144,
-            "runtimeContextWindow": 262144,
-            "maxContextWindow": 262144
+            "model": {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": 262144,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 262144,
+              "runtimeContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
           }
         ],
         "invalid": [
@@ -623,26 +698,50 @@
         "rows": [
           {
             "contents": "{not json",
-            "configuredContextWindow": null,
-            "contextWindow": 32768,
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
             "defaultContextWindow": 32768
           },
           {
             "contents": "null",
-            "configuredContextWindow": null,
-            "contextWindow": 32768,
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
             "defaultContextWindow": 32768
           },
           {
             "contents": "{\"tokens\":262145}",
-            "configuredContextWindow": null,
-            "contextWindow": 32768,
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
             "defaultContextWindow": 32768
           },
           {
             "contents": "{\"tokens\":8192}",
-            "configuredContextWindow": null,
-            "contextWindow": 32768,
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
             "defaultContextWindow": 32768
           }
         ]
@@ -779,17 +878,53 @@
     {
       "id": "apply-waits-for-inference-then-exposes-capacity",
       "source": "src/runtime/local-provider/context-settings.test.mjs:55",
-      "input": {},
+      "input": {
+        "steps": [
+          "start an inference request that holds the request slot behind a gate",
+          "call setLocalProviderContext(entry.id, 16384)",
+          "advance the virtual clock 1 ms",
+          "read the configured context window (the change must not have applied)",
+          "release the gate",
+          "await the inference and the change",
+          "read the runtime context window",
+          "call setLocalProviderContext(\"missing\", 16384)"
+        ]
+      },
       "result": {
         "steps": [
           {
-            "afterOneMsConfigured": null
+            "event": "inference-started"
           },
           {
+            "event": "change-requested",
+            "tokens": 16384
+          },
+          {
+            "event": "read-configured",
+            "configuredContextWindow": null
+          },
+          {
+            "event": "gate-released"
+          },
+          {
+            "event": "inference-ran",
             "inferenceSignalAborted": false
           },
           {
-            "afterApplyRuntimeContextWindow": 16384
+            "event": "read-runtime",
+            "settings": {
+              "configuredContextWindow": 16384,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 16384,
+              "runtimeContextWindow": 16384
+            }
+          },
+          {
+            "event": "change-requested",
+            "model": "missing",
+            "tokens": 16384
           }
         ],
         "unknownModel": {
@@ -887,8 +1022,7 @@
           "advanceMs": 1,
           "fromMs": 0,
           "fired": [],
-          "toMs": 1,
-          "armed": []
+          "toMs": 1
         }
       ]
     },
