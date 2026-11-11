@@ -2601,6 +2601,228 @@
       ]
     },
     {
+      "id": "anthropic-oauth-redacts-an-echoed-credential-in-a-429",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs:90",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "ProviderQuotaError",
+          "message": "Anthropic OAuth API 429 quota/rate limit retryAfter=30s: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"limit for Bearer [REDACTED] and [REDACTED] {\\\"refresh_token\\\":\\\"[REDACTED]\\\"}\"}}",
+          "code": "rate_limit_error",
+          "props": {
+            "name": "ProviderQuotaError",
+            "headers": {
+              "headers": [
+                [
+                  "anthropic-ratelimit-unified-representative-claim",
+                  "five_hour"
+                ],
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "retry-after",
+                  "30"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "response": {
+              "status": 429,
+              "headers": {
+                "headers": [
+                  [
+                    "anthropic-ratelimit-unified-representative-claim",
+                    "five_hour"
+                  ],
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "retry-after",
+                    "30"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              }
+            },
+            "retryAfterMs": 30000,
+            "providerQuota": true,
+            "quotaExceeded": true,
+            "status": 429,
+            "httpStatus": 429,
+            "initialResponseError": true,
+            "fastDowngraded": false
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "30",
+              "anthropic-ratelimit-unified-representative-claim": "five_hour"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"limit for Bearer fixture-access-token and sk-ant-echo-1 {\\\"refresh_token\\\":\\\"fixture-refresh-token\\\"}\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "opencode-go-gemini-raises-the-ladder-stage",
       "source": "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141",
       "input": {

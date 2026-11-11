@@ -654,7 +654,11 @@ impl ProviderAdapter for AnthropicAdapter {
                 if self.codec.flavor() == Flavor::ApiKey && rejected.status == Some(404) {
                     return self.non_streaming(&request, &wire, &secret).await;
                 }
-                if self.codec.flavor() == Flavor::OAuth && rejected.status != Some(429) {
+                if self.codec.flavor() == Flavor::OAuth && rejected.status == Some(429) {
+                    // `anthropicQuotaError(status, headers, scrubTokens(text))` (initial-status.mjs:90): the quota wording
+                    // over the scrubbed body, never the body's own message.
+                    err.message = super::errors::quota_error_text(&rejected);
+                } else if self.codec.flavor() == Flavor::OAuth {
                     // `judgeInitialStatus` (initial-status.mjs:101) words a transient status alone; any other refusal
                     // is worded and logged by `_handleHttpError` (anthropic-oauth.mjs:862, :949).
                     let status = rejected.status.unwrap_or(0);

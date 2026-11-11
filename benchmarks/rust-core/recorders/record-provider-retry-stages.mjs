@@ -214,6 +214,15 @@ const routes = [
     [json(400, anthropicError('invalid_request_error', 'rejected Bearer fixture-access-token and sk-ant-echo-1 {"refresh_token":"fixture-refresh-token"}'))],
   ],
   [
+    'anthropic-oauth-redacts-an-echoed-credential-in-a-429',
+    'src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs:90',
+    { provider: 'anthropic-oauth', credentials: { 'anthropic-oauth-credentials.json': { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } } } },
+    () => new AnthropicOAuthProvider({}),
+    'claude-sonnet-4-6',
+    // A quota refusal (subscription window headers) whose body echoes the credential it was sent: the quota error carries the scrubbed body.
+    [json(429, anthropicError('rate_limit_error', 'limit for Bearer fixture-access-token and sk-ant-echo-1 {"refresh_token":"fixture-refresh-token"}'), { 'retry-after': '30', 'anthropic-ratelimit-unified-representative-claim': 'five_hour' })],
+  ],
+  [
     'opencode-go-gemini-raises-the-ladder-stage',
     'src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141',
     { provider: 'opencode-go-oauth', credentials: { 'opencode-go-oauth.json': { ...OAUTH, access_token: 'fixture-key' } }, modelsDev: MODELS_DEV },

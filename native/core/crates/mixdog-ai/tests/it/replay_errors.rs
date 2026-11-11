@@ -141,6 +141,9 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             "AbortError" => assert!(left.cancelled, "{what}: an AbortError is the caller's cancel"),
             "StreamStalledError" | "AgentStallAbortError" => assert!(left.error(field).timed_out, "{what}: {mapping}"),
             "GeminiTimeoutError" => assert!(left.error(field).timed_out, "{what}: {mapping}"),
+            // `anthropicQuotaError`: the subscription window's headers make it a quota error, else a rejection.
+            "ProviderQuotaError" => assert_eq!(left.error(field).kind, mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted, "{what}: {mapping}"),
+            "ProviderRequestRejectedError" => assert_ne!(left.error(field).kind, mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted, "{what}: {mapping}"),
             "TruncatedStreamError" => assert_eq!(left.error(field).transport, Some(TransportFault::TruncatedStream), "{what}: {mapping}"),
             // An error the stream's own frame carried: no transport fault, no timer.
             "GeminiInBandError" => {
@@ -258,6 +261,13 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "attempts" => assert_eq!(left.attempts, Some(value.as_f64() as u32), "{what}: {mapping}"),
         // The Devin wire error's server text, which the error's message carries.
         "detail" => assert!(left.error(field).message.contains(value.as_str()), "{what}: {mapping}: {:?}", left.error(field).message),
+        "providerQuota" | "quotaExceeded" => assert_eq!(
+            left.error(field).kind == mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted,
+            opt_bool(value),
+            "{what}: {mapping}"
+        ),
+        // No speed was dropped: the send's one request is the whole wire (the arrivals are compared).
+        "fastDowngraded" => assert!(!opt_bool(value), "{what}: {mapping}: a downgrade is not replayed here"),
         "retryable" => {
             use mixdog_core_api::domain::provider::ErrorKind;
             let retryable = matches!(left.error(field).kind, ErrorKind::Transient | ErrorKind::Overloaded | ErrorKind::RateLimited);
