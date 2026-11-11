@@ -5,6 +5,7 @@
 mod cache_retention;
 mod chunk_audit;
 mod chunk_quality_handoff;
+mod core_file;
 mod history_duplicates;
 mod hybrid_sql_exact;
 mod light_ko_morph;
