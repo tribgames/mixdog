@@ -236,8 +236,10 @@ export function createCapabilityLane({
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
     if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args)) return sendOnce(capability, args, sessionId);
     for (let attempt = 0; ; attempt += 1) {
+      // The thread's creation is outside the retry, as Node's `ensureControlSession` is: a failed start goes to the caller at once.
+      const thread = await controlThread();
       try {
-        return await sendOnce(capability, args, sessionId);
+        return await sendOnce(capability, args, thread);
       } catch (error) {
         control = null;
         if (!SESSION_READ_ACTION_SET.has(capability) || attempt > 0) throw error;
