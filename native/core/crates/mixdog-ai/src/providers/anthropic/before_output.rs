@@ -73,4 +73,8 @@ impl ModelStream for BeforeOutput {
     fn delivery(&self) -> DeliveryState {
         self.rest.delivery()
     }
+
+    fn on_wire_left(&mut self, left: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.rest.on_wire_left(left);
+    }
 }

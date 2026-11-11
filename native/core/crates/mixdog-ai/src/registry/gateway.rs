@@ -138,6 +138,9 @@ impl ModelStream for Rerouted {
     fn delivery(&self) -> DeliveryState {
         self.inner.delivery()
     }
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.inner.on_wire_left(left);
+    }
 }
 
 /// A refused answer's body, read whole and served again as it arrived.
