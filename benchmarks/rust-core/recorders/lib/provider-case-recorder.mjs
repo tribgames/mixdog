@@ -18,6 +18,21 @@ import { exact } from './exact.mjs';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { installDeterministicWorld } from './deterministic-world.mjs';
 import { recorderProvenance } from './provenance.mjs';
+import { startWsWorld } from './ws-world.mjs';
+
+/** Plain descriptions of live objects a replay must rebuild: a stream as its chunks, a Response as status, headers and body bytes, a constructed instance as its constructor arguments. */
+const described = new WeakMap();
+export const describe = (object, description) => {
+  described.set(object, description);
+  return object;
+};
+/** A Response whose body is delivered chunk by chunk (strings or bytes), described as status, headers and the chunks as delivered. */
+export const scriptedResponse = (chunks, init = {}) => {
+  const encoder = new TextEncoder();
+  const bytes = chunks.map((c) => (typeof c === 'string' ? Buffer.from(encoder.encode(c)) : Buffer.from(c)));
+  const response = new Response(new ReadableStream({ start(controller) { for (const b of bytes) controller.enqueue(new Uint8Array(b)); controller.close(); } }), init);
+  return describe(response, { $response: { status: response.status, statusText: response.statusText, headers: [...response.headers.entries()], bodyChunks: bytes } });
+};
 
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 export const T0 = Date.parse('2026-11-09T12:00:00Z');
@@ -59,18 +74,51 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     return { id, unref() { return this; }, ref() { return this; }, hasRef: () => true, refresh() { return this; }, [Symbol.toPrimitive]: () => id };
   };
   globalThis.clearTimeout = (timer) => void clock.timers.delete(timer?.id ?? timer);
-  /** Moves the virtual clock by `ms`, running every timer that comes due in due-time order (microtasks drained between). */
-  clock.advance = async (ms) => {
-    const end = world.now() + ms;
+  /**
+   * Moves the virtual clock by `ms`, running every timer that comes due in due-time order. A step is finished when what it caused has settled,
+   * not after a fixed number of turns: the callback's returned promise is awaited, then one real event-loop turn (which drains every microtask
+   * the callback queued), then, when the case names one, the observable event `until` (polled once per real turn) - each wait has a deadline
+   * and names its step. Every step is appended to `clock.trace` (the ordered record of the case): the advance, the clock before and after, the
+   * timers that fired (due time relative to the start of the recording) and the timers still armed.
+   */
+  clock.trace = [];
+  const realSetImmediate = globalThis.setImmediate;
+  const turn = () => new Promise((resolve) => realSetImmediate(resolve));
+  const within = async (promise, what) => {
+    let timer;
+    const limit = new Promise((_, reject) => {
+      timer = realSetTimeout(() => reject(new Error(`recorder: clock step did not settle within ${CASE_DEADLINE_MS} ms: ${what}`)), CASE_DEADLINE_MS);
+    });
+    try {
+      return await Promise.race([promise, limit]);
+    } finally {
+      realClearTimeout(timer);
+    }
+  };
+  clock.advance = async (ms, { until, what = 'clock step' } = {}) => {
+    const start = world.now();
+    const end = start + ms;
+    const step = { advanceMs: ms, fromMs: start - T0, fired: [] };
     for (;;) {
       const next = [...clock.timers.values()].filter((t) => t.due <= end).sort((a, b) => a.due - b.due || a.id - b.id)[0];
       if (!next) break;
       clock.timers.delete(next.id);
       world.advance(Math.max(0, next.due - world.now()));
-      next.fn(...next.rest);
-      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+      step.fired.push({ id: next.id, dueMs: next.due - T0 });
+      const returned = next.fn(...next.rest);
+      if (returned && typeof returned.then === 'function') await within(returned, `${what}: timer ${next.id} callback`);
+      await within(turn(), `${what}: timer ${next.id} settle`);
     }
     world.advance(Math.max(0, end - world.now()));
+    if (until) {
+      const waitFor = async () => {
+        while (!until()) await turn();
+      };
+      await within(waitFor(), `${what}: observable event`);
+    }
+    step.toMs = world.now() - T0;
+    step.armed = [...clock.timers.values()].map((x) => ({ id: x.id, dueMs: x.due - T0 })).sort((a, b) => a.dueMs - b.dueMs || a.id - b.id);
+    clock.trace.push(step);
   };
   clock.pending = () => [...clock.timers.values()].map((t) => ({ due: t.due - T0 })).sort((a, b) => a.due - b.due);
 
@@ -134,6 +182,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
   // exact form: it is recorded as the plain object { callback: <name> }; the classes below are recorded as the plain value they carry. Any
   // other live object throws with its path (a case must not record what it cannot hold).
   const asPlain = (value) => {
+    if (value !== null && typeof value === 'object' && described.has(value)) return asPlain(described.get(value));
     if (typeof value === 'function') return { callback: value.name };
     if (Array.isArray(value)) return value.map(asPlain);
     if (value !== null && typeof value === 'object' && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, asPlain(v)]));
@@ -143,6 +192,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     Headers: (h) => ({ headers: [...h.entries()] }),
     URL: (u) => ({ href: u.href }),
     AbortSignal: (s) => ({ aborted: s.aborted, reason: s.reason }),
+    AbortController: (c) => ({ aborted: c.signal.aborted, reason: c.signal.reason }),
     Response: (r) => ({ status: r.status, statusText: r.statusText, url: r.url, headers: [...r.headers.entries()] }),
   };
   const view = (value) => exact(asPlain(value), { classes: CLASSES });
@@ -153,12 +203,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
   const shared = [];
   const sharedIndex = new Map();
   const argView = (arg) => {
-    let v;
-    try {
-      v = view(arg);
-    } catch (error) {
-      v = { unrecordable: error.message };
-    }
+    const v = view(arg);
     if (v !== null && typeof v === 'object') {
       const text = JSON.stringify(v);
       if (text.length > 4000) {
@@ -186,13 +231,14 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
   const wrapExport = (name, fn) => {
     if (wrappedCache.has(fn)) return wrappedCache.get(fn);
     const wrapped = isClass(fn)
-      ? new Proxy(fn, { construct(target, args, newTarget) { logCall(`new ${name}`, args); return wrapInstance(name, Reflect.construct(target, args, newTarget === wrapped ? target : newTarget)); } })
+      ? new Proxy(fn, { construct(target, args, newTarget) { logCall(`new ${name}`, args); const instance = Reflect.construct(target, args, newTarget === wrapped ? target : newTarget); const proxy = wrapInstance(name, instance); const description = { $instance: name, constructedWith: args.map(argView) }; described.set(instance, description); described.set(proxy, description); return proxy; } })
       : Object.assign(Object.defineProperty(function (...args) { logCall(name, args); return Reflect.apply(fn, this, args); }, 'name', { value: fn.name }), fn);
     wrappedCache.set(fn, wrapped);
     return wrapped;
   };
   const wrapModule = (label, ns) => new Proxy(ns, { get: (target, key) => (typeof target[key] === 'function' && typeof key === 'string' ? wrapExport(`${label}.${key}`, target[key]) : target[key]) });
   const cases = [];
+  let wsWorld = null;
   const rec = {
     tree,
     dataDir,
@@ -200,6 +246,12 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     net: hub,
     secrets,
     view,
+    T0,
+    describe,
+    /** A real WebSocket server on loopback (lib/ws-world.mjs); closed when the recording finishes. */
+    wsWorld: async () => (wsWorld ??= await startWsWorld({ tree })),
+    /** A product module as it is, its calls not logged (plumbing the recorder drives, not the entry under test). */
+    raw: (rel) => import(pathToFileURL(join(tree, 'src/runtime', rel)).href),
     load: async (rel) => wrapModule(rel, await import(pathToFileURL(join(tree, rel)).href)),
     P: async (rel) => wrapModule(`src/runtime/${rel}`, await import(pathToFileURL(join(tree, 'src/runtime', rel)).href)),
     write: (name, text) => {
@@ -210,6 +262,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       if (only && only !== id) return;
       hub.records = [];
       hub.reply = null;
+      clock.trace.length = 0;
       const row = { id, source, input: view(input) };
       const calls = [];
       current = calls;
@@ -228,12 +281,14 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       }
       current = null;
       if (calls.length) row.calls = calls;
+      if (clock.trace.length) row.clock = clock.trace.map((x) => ({ ...x }));
       if (hub.records.length) row.requests = hub.records.map((r) => view(r));
       cases.push(row);
     },
     /** Writes `cases.json` + MANIFEST.json of `<set>` and stops the loopback endpoint. */
     async finish(extra = {}) {
       server?.close();
+      wsWorld?.close();
       const finalDir = join(FIXTURES_ROOT, set);
       const stage = stageSet(finalDir);
       writeJson(join(stage, 'cases.json'), { set, nodeCommit: NODE_COMMIT, shared, cases, ...extra });
@@ -242,7 +297,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
         recorder: recorderProvenance(recorderUrl).recorder,
         command: `node ${recorderProvenance(recorderUrl).recorder} --tree <exact export of ${NODE_COMMIT}>`,
         identity,
-        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, compare, calls: 'every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {"$shared": n}', valueTags: { '{"$cycle":true}': 'a reference back to an ancestor object',  '{"$undefined":true}': 'undefined (a key or array element that held undefined keeps the tag; none is dropped)', '{"$number":"NaN"|"Infinity"|"-Infinity"|"-0"}': 'a number JSON cannot hold', '{"$bigint":"<digits>"}': 'bigint', '{"$date":"<ISO>"}': 'Date', '{"$bytesHex":"<hex>"}': 'Buffer / Uint8Array', '{"$map":[[k,v]...]}': 'Map, insertion order', '{"$set":[v...]}': 'Set, insertion order', '{"$function":"<name>"}': 'a function', '{"$symbol":"<text>"}': 'a symbol' }, ...(net ? { replayExclusions: { 'request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)': 'written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded' } } : {}), exclusions: [...exclusions, 'no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix', 'net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host\'s OS, architecture and Node version', 'net requests: the recorder\'s x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)'] },
+        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, compare, calls: 'every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {"$shared": n}', values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {"$exact": <kind>} tag', describedValues: { '{"$stream": [chunk...]}': 'an async stream the recorder handed the product, as the chunks it yields in order', '{"$response": {status, statusText, headers, bodyChunks}}': 'a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)', '{"$instance": name, constructedWith: [args]}': 'an instance of a product class, as the arguments it was constructed with', '{"callback": name}': 'a function the recorder handed the product; its scripted behaviour is the case body' }, ...(net ? { replayExclusions: { 'request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)': 'written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded' } } : {}), exclusions: [...exclusions, 'no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix', 'net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host\'s OS, architecture and Node version', 'net requests: the recorder\'s x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)'] },
       });
       commitStage(stage, finalDir);
       console.log(`${set}: ${cases.length} case(s) recorded`);
@@ -253,9 +308,10 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
 }
 
 /** An async iterable over `values`. */
-export async function* stream(values) {
+export async function* streamGenerator(values) {
   yield* values;
 }
+export const stream = (values) => describe(streamGenerator(values), { $stream: values });
 
 /** A Chat Completions SSE body from chunk objects. */
 export const sseBody = (events, named = false) => events.map((e) => `${named ? `event: ${e.type}\n` : ''}data: ${JSON.stringify(e)}\n\n`).join('');

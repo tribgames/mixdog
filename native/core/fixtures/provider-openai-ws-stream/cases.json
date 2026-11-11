@@ -169,29 +169,6 @@
           },
           "generationMs": 0
         },
-        "text": [
-          "Hello ",
-          "world"
-        ],
-        "tools": [
-          {
-            "id": "call_1",
-            "name": "read",
-            "arguments": {
-              "path": "a.txt"
-            }
-          }
-        ],
-        "progress": [
-          "transport",
-          "text",
-          "text",
-          "tool",
-          "tool",
-          "tool",
-          "tool",
-          "semantic"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -202,14 +179,255 @@
           "startedToolCall": true,
           "emittedToolCall": true
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "K5TQeiIznWnIjx59KWcutg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: jus6pkoT0jpYqz8cLtcpldb2z1c="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"Hello \"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"world\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_1\",\"delta\":\"{\\\"path\\\"\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc_1\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\",\"end_turn\":false,\"usage\":{\"input_tokens\":12,\"output_tokens\":3,\"input_tokens_details\":{\"cached_tokens\":4}},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello world\"}]}]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "Hello "
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "world"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "tool",
+            "call": {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "semantic"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -303,21 +521,6 @@
             "$exact": "undefined"
           }
         },
-        "text": [],
-        "tools": [
-          {
-            "id": "call_late",
-            "name": "search",
-            "arguments": {
-              "q": 1
-            }
-          }
-        ],
-        "progress": [
-          "transport",
-          "tool",
-          "tool"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -326,14 +529,187 @@
           "responseFailedPayload": null,
           "emittedToolCall": true
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "FVZKu/WbTdHtP9oPq0w0pQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 1Rk+ydpPRHaCez5ZlcKuGjxcU4k="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc_late\",\"arguments\":\"{\\\"q\\\":1}\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"function_call\",\"id\":\"fc_late\",\"call_id\":\"call_late\",\"name\":\"search\"}]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "tool",
+            "call": {
+              "id": "call_late",
+              "name": "search",
+              "arguments": {
+                "q": 1
+              }
+            }
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -416,13 +792,6 @@
             "unsafeToRetry": true
           }
         },
-        "text": [],
-        "tools": [],
-        "progress": [
-          "transport",
-          "tool",
-          "semantic"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -430,14 +799,177 @@
           "wsCloseCode": null,
           "responseFailedPayload": null
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "+lzvFCYSnwAZ8j22rvFRnw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: DJDnsUhH0JnmpIHFCKUxWU/HSAs="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc_lost\",\"arguments\":\"{}\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"output\":[]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "semantic"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -516,24 +1048,6 @@
             "$exact": "undefined"
           }
         },
-        "text": [
-          "Sure. "
-        ],
-        "tools": [
-          {
-            "id": "call_leaked_ff49be67d5edff28",
-            "name": "read",
-            "arguments": {
-              "path": "a.txt"
-            }
-          }
-        ],
-        "progress": [
-          "transport",
-          "text",
-          "tool",
-          "semantic"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -543,14 +1057,206 @@
           "emittedText": true,
           "emittedToolCall": true
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "uMuETdZEMkgf1A7+uSELvQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: qDkNtL4ZhqCYaF1wtPWRsXVN7Gw="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"Sure. \"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"<function_calls><invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke></function_calls>\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"output\":[]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "text",
+            "chunk": "Sure. "
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "tool",
+            "call": {
+              "id": "call_leaked_ff49be67d5edff28",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "semantic"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "knownToolNames": [
+                "read"
+              ]
             }
           ]
         }
@@ -615,14 +1321,6 @@
             "$exact": "undefined"
           }
         },
-        "text": [
-          "partial"
-        ],
-        "tools": [],
-        "progress": [
-          "transport",
-          "text"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -631,14 +1329,177 @@
           "responseFailedPayload": null,
           "emittedText": true
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "TyS64ApRHwiQNEx5Uw4UDw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 9LXQ8I9XfBehlrZiePsE3zDZDX8="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.incomplete\",\"response\":{\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "partial"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -724,11 +1585,6 @@
             }
           }
         },
-        "text": [],
-        "tools": [],
-        "progress": [
-          "transport"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -745,14 +1601,161 @@
             }
           }
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "0E+xuwwnoeljveyvhGXXRA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: vJ1u1QFz/rTUm4iDAkmA0ncaFEg="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"boom\",\"code\":\"server_error\",\"status\":503}}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -821,11 +1824,6 @@
             }
           }
         },
-        "text": [],
-        "tools": [],
-        "progress": [
-          "transport"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -833,14 +1831,161 @@
           "wsCloseCode": null,
           "responseFailedPayload": null
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "FpJw1qtkidDL8vKjqI5Vrg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 53KAieHTOSRKYufp6vCh0FXvVMM="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.done\",\"response\":{\"status\":\"cancelled\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -881,10 +2026,10 @@
         "error": {
           "$exact": "error",
           "name": "Error",
-          "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
           "props": {
             "wsCloseCode": 1006,
-            "wsCloseReason": "gone",
+            "wsCloseReason": "",
             "partialContent": "half",
             "partialToolCalls": {
               "$exact": "undefined"
@@ -925,15 +2070,6 @@
             "unsafeToRetry": true
           }
         },
-        "text": [
-          "half"
-        ],
-        "tools": [],
-        "progress": [
-          "transport",
-          "text",
-          "tool"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -943,14 +2079,176 @@
           "emittedText": true,
           "startedToolCall": true
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "cjqb9L6LvFfDffZkbHtvhw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 004EguE3eZ/g/lya8SzGU/hTXbg="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"half\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_open\",\"call_id\":\"c\",\"name\":\"n\"}}"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "half"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -1016,10 +2314,10 @@
         "error": {
           "$exact": "error",
           "name": "Error",
-          "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
           "props": {
             "wsCloseCode": 1006,
-            "wsCloseReason": "gone",
+            "wsCloseReason": "",
             "partialContent": "",
             "partialToolCalls": [
               {
@@ -1076,24 +2374,6 @@
             "unsafeToRetry": true
           }
         },
-        "text": [],
-        "tools": [
-          {
-            "id": "call_done",
-            "name": "read",
-            "arguments": {
-              "path": "a.txt"
-            }
-          }
-        ],
-        "progress": [
-          "transport",
-          "tool",
-          "tool",
-          "tool",
-          "tool",
-          "tool"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -1103,14 +2383,218 @@
           "startedToolCall": true,
           "emittedToolCall": true
         },
-        "closes": []
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "MOeagdrY22yoIGVHcDqdwA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: NWc35HtlFiCgdpfijY3vYcRUTAw="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_done\",\"call_id\":\"call_done\",\"name\":\"read\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.function_call_arguments.done\",\"item_id\":\"fc_done\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_done\",\"call_id\":\"call_done\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_open\",\"call_id\":\"call_open\",\"name\":\"edit\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_open\",\"delta\":\"{\\\"pa\"}"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "tool",
+            "call": {
+              "id": "call_done",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          }
+        ]
       },
       "calls": [
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -1130,8 +2614,10 @@
           }
         ],
         "abort": {
+          "$exact": "error",
           "name": "Error",
-          "message": "stop"
+          "message": "stop",
+          "props": {}
         }
       },
       "result": {
@@ -1167,11 +2653,6 @@
             }
           }
         },
-        "text": [],
-        "tools": [],
-        "progress": [
-          "transport"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -1180,11 +2661,120 @@
           "responseFailedPayload": null,
           "userAbort": true
         },
-        "closes": [
-          [
-            4002,
-            "aborted"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "dcNfjVOrzu00kSkjsKi/vg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: zf3lvoBsfdNjBWc0st1K8FCp1S0="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4002,
+            "reason": "aborted"
+          }
         ]
       },
       "calls": [
@@ -1192,7 +2782,28 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -1212,8 +2823,12 @@
           }
         ],
         "abort": {
+          "$exact": "error",
           "name": "AgentStallAbortError",
-          "message": "stalled"
+          "message": "stalled",
+          "props": {
+            "name": "AgentStallAbortError"
+          }
         }
       },
       "result": {
@@ -1250,11 +2865,6 @@
             }
           }
         },
-        "text": [],
-        "tools": [],
-        "progress": [
-          "transport"
-        ],
         "state": {
           "sessionId": "ws-stream-test",
           "sawResponseCreated": true,
@@ -1263,11 +2873,120 @@
           "responseFailedPayload": null,
           "watchdogAbort": "AgentStallAbortError"
         },
-        "closes": [
-          [
-            4002,
-            "aborted"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "lmXwCE8NENc9uHbtp3pQdA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 3TmY8f3yd5vsawCiXKlL/PyCOMo="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4002,
+            "reason": "aborted"
+          }
         ]
       },
       "calls": [
@@ -1275,7 +2994,28 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         }
@@ -1344,11 +3084,113 @@
           }
         },
         "stateFirstByteTimeout": true,
-        "closes": [
-          [
-            4000,
-            "first_byte_timeout"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "s3EZujatVQENnbOeyf4ggA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: zEQrGSVEWvYIeZwt+y8U2v3iaaA="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 20,
+            "nowMs": 20
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_byte_timeout"
+          }
         ]
       },
       "calls": [
@@ -1356,7 +3198,49 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "_timeouts": {
+                "preResponseCreatedMs": 20
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 20,
+          "fromMs": 0,
+          "fired": [
+            {
+              "id": 153,
+              "dueMs": 20
+            }
+          ],
+          "toMs": 20,
+          "armed": [
+            {
+              "id": 157,
+              "dueMs": 30020
+            },
+            {
+              "id": 158,
+              "dueMs": 30020
             }
           ]
         }
@@ -1439,11 +3323,141 @@
             "unsafeToRetry": true
           }
         },
-        "closes": [
-          [
-            4000,
-            "inter_chunk_timeout"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "MzcqQXQ4thrpjxy6StKsGQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: kEL9csI5MfkpMoLzyc05sYx+014="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"kept\"}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "kept"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 20,
+            "nowMs": 40
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "inter_chunk_timeout"
+          }
         ]
       },
       "calls": [
@@ -1451,7 +3465,47 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false,
+              "_timeouts": {
+                "preResponseCreatedMs": 5000,
+                "interChunkMs": 20,
+                "firstMeaningfulMs": 5000
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 20,
+          "fromMs": 20,
+          "fired": [
+            {
+              "id": 167,
+              "dueMs": 40
+            }
+          ],
+          "toMs": 40,
+          "armed": [
+            {
+              "id": 169,
+              "dueMs": 30040
             }
           ]
         }
@@ -1528,13 +3582,6 @@
         ]
       },
       "result": {
-        "whileThinking": {
-          "closes": [],
-          "progress": [
-            "transport",
-            "transport"
-          ]
-        },
         "result": {
           "content": "answer",
           "model": "gpt-fixture",
@@ -1609,15 +3656,267 @@
           },
           "generationMs": 360000
         },
-        "progress": [
-          "transport",
-          "transport",
-          "reasoning",
-          "text",
-          "semantic"
-        ],
-        "text": [
-          "answer"
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "kPQsycBipXJp48fzX+dx8g=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: DWIQmUi3Y8b3iZrfqBvM9klWO8s="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 60040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 120040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 180040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 240040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 300040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 360040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[]}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"answer\"}]}]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "reasoning"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "answer"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "semantic"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
         ]
       },
       "calls": [
@@ -1625,7 +3924,121 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 60000,
+          "fromMs": 40,
+          "fired": [],
+          "toMs": 60040,
+          "armed": [
+            {
+              "id": 180,
+              "dueMs": 300040
+            },
+            {
+              "id": 176,
+              "dueMs": 585040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 60040,
+          "fired": [],
+          "toMs": 120040,
+          "armed": [
+            {
+              "id": 181,
+              "dueMs": 360040
+            },
+            {
+              "id": 176,
+              "dueMs": 585040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 120040,
+          "fired": [],
+          "toMs": 180040,
+          "armed": [
+            {
+              "id": 182,
+              "dueMs": 420040
+            },
+            {
+              "id": 176,
+              "dueMs": 585040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 180040,
+          "fired": [],
+          "toMs": 240040,
+          "armed": [
+            {
+              "id": 183,
+              "dueMs": 480040
+            },
+            {
+              "id": 176,
+              "dueMs": 585040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 240040,
+          "fired": [],
+          "toMs": 300040,
+          "armed": [
+            {
+              "id": 184,
+              "dueMs": 540040
+            },
+            {
+              "id": 176,
+              "dueMs": 585040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 300040,
+          "fired": [],
+          "toMs": 360040,
+          "armed": [
+            {
+              "id": 176,
+              "dueMs": 585040
+            },
+            {
+              "id": 185,
+              "dueMs": 600040
             }
           ]
         }
@@ -1660,7 +4073,6 @@
         "advanceMsAfter": 1
       },
       "result": {
-        "closesBeforeDeadline": [],
         "error": {
           "$exact": "error",
           "name": "StreamStalledError",
@@ -1706,11 +4118,267 @@
             }
           }
         },
-        "closes": [
-          [
-            4000,
-            "first_output_timeout"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "QbskeZtdRCKcbI9hEk2V7w=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: wKapD7B4lMUOv1vKw7OqbbRpmeM="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 420040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 480040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 540040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 600040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 660040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 720040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 780040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 840040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 900040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 44999,
+            "nowMs": 945039
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 1,
+            "nowMs": 945040
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_output_timeout"
+          }
         ]
       },
       "calls": [
@@ -1718,7 +4386,202 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 60000,
+          "fromMs": 360040,
+          "fired": [],
+          "toMs": 420040,
+          "armed": [
+            {
+              "id": 202,
+              "dueMs": 660040
+            },
+            {
+              "id": 199,
+              "dueMs": 945040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 420040,
+          "fired": [],
+          "toMs": 480040,
+          "armed": [
+            {
+              "id": 203,
+              "dueMs": 720040
+            },
+            {
+              "id": 199,
+              "dueMs": 945040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 480040,
+          "fired": [],
+          "toMs": 540040,
+          "armed": [
+            {
+              "id": 204,
+              "dueMs": 780040
+            },
+            {
+              "id": 199,
+              "dueMs": 945040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 540040,
+          "fired": [],
+          "toMs": 600040,
+          "armed": [
+            {
+              "id": 205,
+              "dueMs": 840040
+            },
+            {
+              "id": 199,
+              "dueMs": 945040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 600040,
+          "fired": [],
+          "toMs": 660040,
+          "armed": [
+            {
+              "id": 206,
+              "dueMs": 900040
+            },
+            {
+              "id": 199,
+              "dueMs": 945040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 660040,
+          "fired": [],
+          "toMs": 720040,
+          "armed": [
+            {
+              "id": 199,
+              "dueMs": 945040
+            },
+            {
+              "id": 207,
+              "dueMs": 960040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 720040,
+          "fired": [],
+          "toMs": 780040,
+          "armed": [
+            {
+              "id": 199,
+              "dueMs": 945040
+            },
+            {
+              "id": 208,
+              "dueMs": 1020040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 780040,
+          "fired": [],
+          "toMs": 840040,
+          "armed": [
+            {
+              "id": 199,
+              "dueMs": 945040
+            },
+            {
+              "id": 209,
+              "dueMs": 1080040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 840040,
+          "fired": [],
+          "toMs": 900040,
+          "armed": [
+            {
+              "id": 199,
+              "dueMs": 945040
+            },
+            {
+              "id": 210,
+              "dueMs": 1140040
+            }
+          ]
+        },
+        {
+          "advanceMs": 44999,
+          "fromMs": 900040,
+          "fired": [],
+          "toMs": 945039,
+          "armed": [
+            {
+              "id": 199,
+              "dueMs": 945040
+            },
+            {
+              "id": 211,
+              "dueMs": 1200040
+            }
+          ]
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 945039,
+          "fired": [
+            {
+              "id": 199,
+              "dueMs": 945040
+            }
+          ],
+          "toMs": 945040,
+          "armed": [
+            {
+              "id": 213,
+              "dueMs": 975040
             }
           ]
         }
@@ -1749,7 +4612,6 @@
         "advanceMsAfter": 1
       },
       "result": {
-        "closesBeforeIdle": [],
         "error": {
           "$exact": "error",
           "name": "StreamStalledError",
@@ -1798,11 +4660,206 @@
             "unsafeToRetry": true
           }
         },
-        "closes": [
-          [
-            4000,
-            "semantic_idle_timeout"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "T+jfUfv9IhGXcgIc03Fvuw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: k5wuLk/QswGOrfTNunMDEZ/USyo="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"kept\"}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "text",
+            "chunk": "kept"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1005040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1065040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1125040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1185040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 59999,
+            "nowMs": 1245039
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 1,
+            "nowMs": 1245040
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "semantic_idle_timeout"
+          }
         ]
       },
       "calls": [
@@ -1810,7 +4867,122 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "ws-stream-test"
+              },
+              "logSuppressedReasoningDeltas": false
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 60000,
+          "fromMs": 945040,
+          "fired": [],
+          "toMs": 1005040,
+          "armed": [
+            {
+              "id": 223,
+              "dueMs": 1245040
+            },
+            {
+              "id": 224,
+              "dueMs": 1245040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1005040,
+          "fired": [],
+          "toMs": 1065040,
+          "armed": [
+            {
+              "id": 224,
+              "dueMs": 1245040
+            },
+            {
+              "id": 225,
+              "dueMs": 1305040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1065040,
+          "fired": [],
+          "toMs": 1125040,
+          "armed": [
+            {
+              "id": 224,
+              "dueMs": 1245040
+            },
+            {
+              "id": 226,
+              "dueMs": 1365040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1125040,
+          "fired": [],
+          "toMs": 1185040,
+          "armed": [
+            {
+              "id": 224,
+              "dueMs": 1245040
+            },
+            {
+              "id": 227,
+              "dueMs": 1425040
+            }
+          ]
+        },
+        {
+          "advanceMs": 59999,
+          "fromMs": 1185040,
+          "fired": [],
+          "toMs": 1245039,
+          "armed": [
+            {
+              "id": 224,
+              "dueMs": 1245040
+            },
+            {
+              "id": 228,
+              "dueMs": 1485040
+            }
+          ]
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1245039,
+          "fired": [
+            {
+              "id": 224,
+              "dueMs": 1245040
+            }
+          ],
+          "toMs": 1245040,
+          "armed": [
+            {
+              "id": 230,
+              "dueMs": 1275040
             }
           ]
         }
@@ -1858,15 +5030,15 @@
         ]
       },
       "result": {
-        "startedAtMs": 1794226845040,
+        "startedAtMs": 1245040,
         "firstOut": {
           "error": {
             "$exact": "error",
             "name": "Error",
-            "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
+            "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
             "props": {
               "wsCloseCode": 1006,
-              "wsCloseReason": "gone",
+              "wsCloseReason": "",
               "partialContent": "",
               "partialToolCalls": {
                 "$exact": "undefined"
@@ -1905,7 +5077,6 @@
           }
         },
         "retryKeepaliveMs": 184999,
-        "retryClosesBeforeDeadline": [],
         "retry": {
           "error": {
             "$exact": "error",
@@ -1953,11 +5124,395 @@
             }
           }
         },
-        "retryCloses": [
-          [
-            4000,
-            "first_output_timeout"
-          ]
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "3xDYIRyeSYqMygYU4SHQqQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: uRH3Xq3PX2ikVl9xugIxzNdS+Rg="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[]}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1305040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1365040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1425040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1485040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1545040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1605040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 40000,
+            "nowMs": 1645040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "terminate",
+            "by": "server"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "reopen",
+            "startedAtMs": 1245040
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "gsQ1rOZWVrDVxJA2bTVSpw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: V/gLIWAvaJ9iZMh46uaAsKoi+C4="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1705040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1765040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1825040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 4999,
+            "nowMs": 1830039
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 1,
+            "nowMs": 1830040
+          }
         ]
       },
       "calls": [
@@ -1972,7 +5527,23 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "sess_ws_retry_deadline"
+              },
+              "logSuppressedReasoningDeltas": false
             }
           ]
         },
@@ -1987,7 +5558,218 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "sess_ws_retry_deadline"
+              },
+              "logSuppressedReasoningDeltas": false
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 60000,
+          "fromMs": 1245040,
+          "fired": [],
+          "toMs": 1305040,
+          "armed": [
+            {
+              "id": 240,
+              "dueMs": 1545040
+            },
+            {
+              "id": 237,
+              "dueMs": 1830040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1305040,
+          "fired": [],
+          "toMs": 1365040,
+          "armed": [
+            {
+              "id": 241,
+              "dueMs": 1605040
+            },
+            {
+              "id": 237,
+              "dueMs": 1830040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1365040,
+          "fired": [],
+          "toMs": 1425040,
+          "armed": [
+            {
+              "id": 242,
+              "dueMs": 1665040
+            },
+            {
+              "id": 237,
+              "dueMs": 1830040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1425040,
+          "fired": [],
+          "toMs": 1485040,
+          "armed": [
+            {
+              "id": 243,
+              "dueMs": 1725040
+            },
+            {
+              "id": 237,
+              "dueMs": 1830040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1485040,
+          "fired": [],
+          "toMs": 1545040,
+          "armed": [
+            {
+              "id": 244,
+              "dueMs": 1785040
+            },
+            {
+              "id": 237,
+              "dueMs": 1830040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1545040,
+          "fired": [],
+          "toMs": 1605040,
+          "armed": [
+            {
+              "id": 237,
+              "dueMs": 1830040
+            },
+            {
+              "id": 245,
+              "dueMs": 1845040
+            }
+          ]
+        },
+        {
+          "advanceMs": 40000,
+          "fromMs": 1605040,
+          "fired": [],
+          "toMs": 1645040,
+          "armed": [
+            {
+              "id": 237,
+              "dueMs": 1830040
+            },
+            {
+              "id": 246,
+              "dueMs": 1905040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1645040,
+          "fired": [],
+          "toMs": 1705040,
+          "armed": [
+            {
+              "id": 253,
+              "dueMs": 1830040
+            },
+            {
+              "id": 255,
+              "dueMs": 1945040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1705040,
+          "fired": [],
+          "toMs": 1765040,
+          "armed": [
+            {
+              "id": 253,
+              "dueMs": 1830040
+            },
+            {
+              "id": 256,
+              "dueMs": 2005040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1765040,
+          "fired": [],
+          "toMs": 1825040,
+          "armed": [
+            {
+              "id": 253,
+              "dueMs": 1830040
+            },
+            {
+              "id": 257,
+              "dueMs": 2065040
+            }
+          ]
+        },
+        {
+          "advanceMs": 4999,
+          "fromMs": 1825040,
+          "fired": [],
+          "toMs": 1830039,
+          "armed": [
+            {
+              "id": 253,
+              "dueMs": 1830040
+            },
+            {
+              "id": 258,
+              "dueMs": 2125040
+            }
+          ]
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 1830039,
+          "fired": [
+            {
+              "id": 253,
+              "dueMs": 1830040
+            }
+          ],
+          "toMs": 1830040,
+          "armed": [
+            {
+              "id": 260,
+              "dueMs": 1860040
             }
           ]
         }
@@ -2017,7 +5799,6 @@
         "advanceMsAfter": 1
       },
       "result": {
-        "closesBeforeIdle": [],
         "retry": {
           "error": {
             "$exact": "error",
@@ -2065,11 +5846,195 @@
             }
           }
         },
-        "closes": [
-          [
-            4000,
-            "semantic_idle_timeout"
-          ]
+        "events": [
+          {
+            "event": "clock-step",
+            "advanceMs": 10000,
+            "nowMs": 1840040
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4000,
+            "reason": "first_output_timeout"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-stream-test"
+              ],
+              [
+                "thread-id",
+                "ws-stream-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-stream-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "tFerTqoGuamAjVrQaaemmQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: vqGGySTIR6PVAWmxTyOkepWDHN4="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[],\"stream\":true}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1900040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 1960040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 2020040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 60000,
+            "nowMs": 2080040
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 59999,
+            "nowMs": 2140039
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_1\"}}"
+          },
+          {
+            "event": "client-frame-handled"
+          },
+          {
+            "event": "clock-step",
+            "advanceMs": 1,
+            "nowMs": 2140040
+          }
         ]
       },
       "calls": [
@@ -2098,7 +6063,138 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
           "args": [
             {
-              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+              "entry": {
+                "$connection": "the provider client socket of this case: a real WebSocket to the loopback server; its wire events are the ordered events of the case"
+              },
+              "externalSignal": null,
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "state": {
+                "sessionId": "sess_ws_retry_after_output"
+              },
+              "logSuppressedReasoningDeltas": false
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 10000,
+          "fromMs": 1830040,
+          "fired": [],
+          "toMs": 1840040,
+          "armed": [
+            {
+              "id": 260,
+              "dueMs": 1860040
+            },
+            {
+              "id": 261,
+              "dueMs": 1860040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1840040,
+          "fired": [],
+          "toMs": 1900040,
+          "armed": [
+            {
+              "id": 268,
+              "dueMs": 2140040
+            },
+            {
+              "id": 269,
+              "dueMs": 2140040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1900040,
+          "fired": [],
+          "toMs": 1960040,
+          "armed": [
+            {
+              "id": 269,
+              "dueMs": 2140040
+            },
+            {
+              "id": 270,
+              "dueMs": 2200040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 1960040,
+          "fired": [],
+          "toMs": 2020040,
+          "armed": [
+            {
+              "id": 269,
+              "dueMs": 2140040
+            },
+            {
+              "id": 271,
+              "dueMs": 2260040
+            }
+          ]
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 2020040,
+          "fired": [],
+          "toMs": 2080040,
+          "armed": [
+            {
+              "id": 269,
+              "dueMs": 2140040
+            },
+            {
+              "id": 272,
+              "dueMs": 2320040
+            }
+          ]
+        },
+        {
+          "advanceMs": 59999,
+          "fromMs": 2080040,
+          "fired": [],
+          "toMs": 2140039,
+          "armed": [
+            {
+              "id": 269,
+              "dueMs": 2140040
+            },
+            {
+              "id": 273,
+              "dueMs": 2380040
+            }
+          ]
+        },
+        {
+          "advanceMs": 1,
+          "fromMs": 2140039,
+          "fired": [
+            {
+              "id": 269,
+              "dueMs": 2140040
+            }
+          ],
+          "toMs": 2140040,
+          "armed": [
+            {
+              "id": 275,
+              "dueMs": 2170040
             }
           ]
         }
