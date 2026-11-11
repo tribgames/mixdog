@@ -3,195 +3,348 @@
   "source": "src/standalone/channel-restart.test.mjs",
   "cases": [
     {
+      "name": "channel retries reuse results only for the same payload (test line 95)",
+      "session": {
+        "label": "same callId resent by one client, then reused with another payload (case 95)",
+        "wire": [
+          {
+            "step": "register the client",
+            "request": {
+              "head": [
+                "POST /client/register HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 32"
+              ],
+              "body": "{\"leadPid\":41001,\"passive\":true}"
+            },
+            "response": {
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 67",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
+              "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
+            }
+          },
+          {
+            "step": "call same-call",
+            "request": {
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 113"
+              ],
+              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"first\"}}"
+            },
+            "response": {
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 21",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
+              "body": "{\"result\":{\"call\":1}}"
+            }
+          },
+          {
+            "step": "resend the same payload",
+            "request": {
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 113"
+              ],
+              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"first\"}}"
+            },
+            "response": {
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 21",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
+              "body": "{\"result\":{\"call\":1}}"
+            }
+          },
+          {
+            "step": "reuse same-call with another payload",
+            "request": {
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 114"
+              ],
+              "body": "{\"token\":\"<client-token-1>\",\"callId\":\"same-call\",\"name\":\"send_reply\",\"args\":{\"text\":\"second\"}}"
+            },
+            "response": {
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 91",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
+              "body": "{\"error\":\"callId 'same-call' was reused with a different payload\",\"code\":\"ECALLIDCONFLICT\"}"
+            }
+          }
+        ],
+        "handleCalls": [
+          {
+            "name": "send_reply",
+            "args": {
+              "text": "first"
+            },
+            "caller": {
+              "clientToken": "<client-token-1>",
+              "leadPid": 41001,
+              "cwd": null
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "channel call ids belong to the calling process, not the addressed session (test line 110)",
       "session": {
         "label": "same callId, two processes, one session",
         "wire": [
           {
-            "step": "register client 1 (lead pid = recorder)",
+            "step": "register client 1 (lead pid 41001)",
             "request": {
-              "method": "POST",
-              "path": "/client/register",
-              "headers": {
-                "content-type": "application/json",
-                "x-mixdog-daemon-token": "<daemon-token>"
-              },
-              "body": {
-                "leadPid": "<pid-self>",
-                "passive": true
-              }
+              "head": [
+                "POST /client/register HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 32"
+              ],
+              "body": "{\"leadPid\":41001,\"passive\":true}"
             },
             "response": {
-              "status": 200,
-              "headers": {
-                "cache-control": "no-store",
-                "connection": "keep-alive",
-                "content-length": "60",
-                "content-type": "application/json; charset=utf-8",
-                "date": "<date>",
-                "keep-alive": "timeout=5",
-                "x-content-type-options": "nosniff"
-              },
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 67",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
               "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
             }
           },
           {
-            "step": "register client 2 (lead pid = recorder parent)",
+            "step": "register client 2 (lead pid 41002)",
             "request": {
-              "method": "POST",
-              "path": "/client/register",
-              "headers": {
-                "content-type": "application/json",
-                "x-mixdog-daemon-token": "<daemon-token>"
-              },
-              "body": {
-                "leadPid": "<pid-parent>",
-                "passive": true
-              }
+              "head": [
+                "POST /client/register HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 32"
+              ],
+              "body": "{\"leadPid\":41002,\"passive\":true}"
             },
             "response": {
-              "status": 200,
-              "headers": {
-                "cache-control": "no-store",
-                "connection": "keep-alive",
-                "content-length": "60",
-                "content-type": "application/json; charset=utf-8",
-                "date": "<date>",
-                "keep-alive": "timeout=5",
-                "x-content-type-options": "nosniff"
-              },
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 67",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
               "body": "{\"token\":\"<client-token-2>\",\"pid\":\"<pid-self>\"}"
             }
           },
           {
             "step": "call shared-id from client 1",
             "request": {
-              "method": "POST",
-              "path": "/call",
-              "headers": {
-                "content-type": "application/json",
-                "x-mixdog-daemon-token": "<daemon-token>"
-              },
-              "body": {
-                "callId": "shared-id",
-                "name": "send_reply",
-                "args": {
-                  "sessionId": "same_session",
-                  "text": "hello"
-                },
-                "token": "<client-token-1>"
-              }
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 140"
+              ],
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}"
             },
             "response": {
-              "status": 200,
-              "headers": {
-                "cache-control": "no-store",
-                "connection": "keep-alive",
-                "content-length": "21",
-                "content-type": "application/json; charset=utf-8",
-                "date": "<date>",
-                "keep-alive": "timeout=5",
-                "x-content-type-options": "nosniff"
-              },
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 21",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
               "body": "{\"result\":{\"call\":1}}"
             }
           },
           {
             "step": "call shared-id from client 2",
             "request": {
-              "method": "POST",
-              "path": "/call",
-              "headers": {
-                "content-type": "application/json",
-                "x-mixdog-daemon-token": "<daemon-token>"
-              },
-              "body": {
-                "callId": "shared-id",
-                "name": "send_reply",
-                "args": {
-                  "sessionId": "same_session",
-                  "text": "hello"
-                },
-                "token": "<client-token-2>"
-              }
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 140"
+              ],
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-2>\"}"
             },
             "response": {
-              "status": 200,
-              "headers": {
-                "cache-control": "no-store",
-                "connection": "keep-alive",
-                "content-length": "21",
-                "content-type": "application/json; charset=utf-8",
-                "date": "<date>",
-                "keep-alive": "timeout=5",
-                "x-content-type-options": "nosniff"
-              },
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 21",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
               "body": "{\"result\":{\"call\":2}}"
             }
           },
           {
             "step": "retry shared-id from client 1 (same payload)",
             "request": {
-              "method": "POST",
-              "path": "/call",
-              "headers": {
-                "content-type": "application/json",
-                "x-mixdog-daemon-token": "<daemon-token>"
-              },
-              "body": {
-                "callId": "shared-id",
-                "name": "send_reply",
-                "args": {
-                  "sessionId": "same_session",
-                  "text": "hello"
-                },
-                "token": "<client-token-1>"
-              }
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 140"
+              ],
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}"
             },
             "response": {
-              "status": 200,
-              "headers": {
-                "cache-control": "no-store",
-                "connection": "keep-alive",
-                "content-length": "21",
-                "content-type": "application/json; charset=utf-8",
-                "date": "<date>",
-                "keep-alive": "timeout=5",
-                "x-content-type-options": "nosniff"
-              },
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 21",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
               "body": "{\"result\":{\"call\":1}}"
             }
           },
           {
             "step": "client 1 reuses shared-id with another payload",
             "request": {
-              "method": "POST",
-              "path": "/call",
-              "headers": {
-                "content-type": "application/json",
-                "x-mixdog-daemon-token": "<daemon-token>"
-              },
-              "body": {
-                "callId": "shared-id",
-                "name": "send_reply",
-                "args": {
-                  "sessionId": "same_session",
-                  "text": "other"
-                },
-                "token": "<client-token-1>"
-              }
+              "head": [
+                "POST /call HTTP/1.1",
+                "host: 127.0.0.1:<port>",
+                "connection: keep-alive",
+                "content-type: application/json",
+                "x-mixdog-daemon-token: <daemon-token>",
+                "accept: */*",
+                "accept-language: *",
+                "sec-fetch-mode: cors",
+                "user-agent: node",
+                "accept-encoding: gzip, deflate",
+                "content-length: 140"
+              ],
+              "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"other\"},\"token\":\"<client-token-1>\"}"
             },
             "response": {
-              "status": 200,
-              "headers": {
-                "cache-control": "no-store",
-                "connection": "keep-alive",
-                "content-length": "91",
-                "content-type": "application/json; charset=utf-8",
-                "date": "<date>",
-                "keep-alive": "timeout=5",
-                "x-content-type-options": "nosniff"
-              },
+              "head": [
+                "HTTP/1.1 200 OK",
+                "Content-Type: application/json; charset=utf-8",
+                "Content-Length: 91",
+                "Cache-Control: no-store",
+                "X-Content-Type-Options: nosniff",
+                "Date: <date>",
+                "Connection: keep-alive",
+                "Keep-Alive: timeout=5"
+              ],
               "body": "{\"error\":\"callId 'shared-id' was reused with a different payload\",\"code\":\"ECALLIDCONFLICT\"}"
             }
           }
@@ -205,7 +358,7 @@
             },
             "caller": {
               "clientToken": "<client-token-1>",
-              "leadPid": "<pid-self>",
+              "leadPid": 41001,
               "cwd": null
             }
           },
@@ -217,7 +370,7 @@
             },
             "caller": {
               "clientToken": "<client-token-2>",
-              "leadPid": "<pid-parent>",
+              "leadPid": 41002,
               "cwd": null
             }
           }
@@ -233,122 +386,128 @@
             {
               "step": "register client 1",
               "request": {
-                "method": "POST",
-                "path": "/client/register",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "leadPid": "<pid-self>",
-                  "passive": true
-                }
+                "head": [
+                  "POST /client/register HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 32"
+                ],
+                "body": "{\"leadPid\":41001,\"passive\":true}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "60",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 67",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
               }
             },
             {
               "step": "register client 2 (same lead pid)",
               "request": {
-                "method": "POST",
-                "path": "/client/register",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "leadPid": "<pid-self>",
-                  "passive": true
-                }
+                "head": [
+                  "POST /client/register HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 32"
+                ],
+                "body": "{\"leadPid\":41001,\"passive\":true}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "60",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 67",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"token\":\"<client-token-2>\",\"pid\":\"<pid-self>\"}"
               }
             },
             {
               "step": "call shared-id from client 1",
               "request": {
-                "method": "POST",
-                "path": "/call",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "callId": "shared-id",
-                  "name": "send_reply",
-                  "args": {
-                    "sessionId": "same_session",
-                    "text": "hello"
-                  },
-                  "token": "<client-token-1>"
-                }
+                "head": [
+                  "POST /call HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 140"
+                ],
+                "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-1>\"}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "21",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 21",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"result\":{\"call\":1}}"
               }
             },
             {
               "step": "call shared-id from client 2",
               "request": {
-                "method": "POST",
-                "path": "/call",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "callId": "shared-id",
-                  "name": "send_reply",
-                  "args": {
-                    "sessionId": "same_session",
-                    "text": "hello"
-                  },
-                  "token": "<client-token-2>"
-                }
+                "head": [
+                  "POST /call HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 140"
+                ],
+                "body": "{\"callId\":\"shared-id\",\"name\":\"send_reply\",\"args\":{\"sessionId\":\"same_session\",\"text\":\"hello\"},\"token\":\"<client-token-2>\"}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "21",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 21",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"result\":{\"call\":1}}"
               }
             }
@@ -362,7 +521,7 @@
               },
               "caller": {
                 "clientToken": "<client-token-1>",
-                "leadPid": "<pid-self>",
+                "leadPid": 41001,
                 "cwd": null
               }
             }
@@ -374,90 +533,96 @@
             {
               "step": "register client",
               "request": {
-                "method": "POST",
-                "path": "/client/register",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "leadPid": "<pid-self>",
-                  "passive": true
-                }
+                "head": [
+                  "POST /client/register HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 32"
+                ],
+                "body": "{\"leadPid\":41001,\"passive\":true}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "60",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 67",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"token\":\"<client-token-1>\",\"pid\":\"<pid-self>\"}"
               }
             },
             {
               "step": "call without callId",
               "request": {
-                "method": "POST",
-                "path": "/call",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "name": "send_reply",
-                  "args": {
-                    "text": "x"
-                  },
-                  "token": "<client-token-1>"
-                }
+                "head": [
+                  "POST /call HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 88"
+                ],
+                "body": "{\"name\":\"send_reply\",\"args\":{\"text\":\"x\"},\"token\":\"<client-token-1>\"}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "21",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 21",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"result\":{\"call\":1}}"
               }
             },
             {
               "step": "same call without callId again",
               "request": {
-                "method": "POST",
-                "path": "/call",
-                "headers": {
-                  "content-type": "application/json",
-                  "x-mixdog-daemon-token": "<daemon-token>"
-                },
-                "body": {
-                  "name": "send_reply",
-                  "args": {
-                    "text": "x"
-                  },
-                  "token": "<client-token-1>"
-                }
+                "head": [
+                  "POST /call HTTP/1.1",
+                  "host: 127.0.0.1:<port>",
+                  "connection: keep-alive",
+                  "content-type: application/json",
+                  "x-mixdog-daemon-token: <daemon-token>",
+                  "accept: */*",
+                  "accept-language: *",
+                  "sec-fetch-mode: cors",
+                  "user-agent: node",
+                  "accept-encoding: gzip, deflate",
+                  "content-length: 88"
+                ],
+                "body": "{\"name\":\"send_reply\",\"args\":{\"text\":\"x\"},\"token\":\"<client-token-1>\"}"
               },
               "response": {
-                "status": 200,
-                "headers": {
-                  "cache-control": "no-store",
-                  "connection": "keep-alive",
-                  "content-length": "21",
-                  "content-type": "application/json; charset=utf-8",
-                  "date": "<date>",
-                  "keep-alive": "timeout=5",
-                  "x-content-type-options": "nosniff"
-                },
+                "head": [
+                  "HTTP/1.1 200 OK",
+                  "Content-Type: application/json; charset=utf-8",
+                  "Content-Length: 21",
+                  "Cache-Control: no-store",
+                  "X-Content-Type-Options: nosniff",
+                  "Date: <date>",
+                  "Connection: keep-alive",
+                  "Keep-Alive: timeout=5"
+                ],
                 "body": "{\"result\":{\"call\":2}}"
               }
             }
@@ -470,7 +635,7 @@
               },
               "caller": {
                 "clientToken": "<client-token-1>",
-                "leadPid": "<pid-self>",
+                "leadPid": 41001,
                 "cwd": null
               }
             },
@@ -481,7 +646,7 @@
               },
               "caller": {
                 "clientToken": "<client-token-1>",
-                "leadPid": "<pid-self>",
+                "leadPid": 41001,
                 "cwd": null
               }
             }

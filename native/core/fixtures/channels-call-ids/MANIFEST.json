@@ -1,16 +1,17 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-channels-call-ids.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "the daemon behind handleCall (scripted: it returns {call: n}); the remote intent files (no remoteIntentPath is given)",
     "runs": "createChannelTransport (channel-transport.mjs): its HTTP server, client registry, call dispatch (call-dispatch.mjs: callId idempotency cache keyed by caller owner and callId, rpc-call-identity.mjs) over real loopback fetch"
   },
-  "exclusions": "test case 38 (restore vs manual ON order) is not recorded: it needs a poll of transport.activeCount; 95 is covered; 123 belongs to gaps-memory-channels; 161 and 191 are WebSocket / core stop concerns",
+  "exclusions": "test case 38 (restore vs manual ON order) is not recorded: the Node test polls transport.activeCount and no event exists; 123 is pending branch gaps-memory-channels (benchmarks/rust-core/recorders/record-channel-remote-intent.mjs there); 161 and 191 are WebSocket / core stop concerns",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16460,
+      "bytes": 24363,
       "path": "golden.json",
-      "sha256": "789beabf3282e0eeefbf3e7fba9e91a1c455ad995d65c042b668a84a0dbbd705"
+      "sha256": "55f77b8348074ba8aab59abb62bdc9ac4d278fdaf154e4b9cd5ddcf95cd13f52"
     }
   ],
   "inputs": [
@@ -20,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -31,7 +32,7 @@
   "normalised": {
     "client tokens": "random tokens written as <client-token-N> by order of registration",
     "date": "response Date header written as <date>",
-    "lead pids": "the recorder pid and its parent pid written as <pid-self> / <pid-parent> (the registration body keeps the recorded values replaced the same way)",
+    "pids": "the two clients use fixed lead pids 41001 and 41002 (not this machine's); the pid in the register answer is the recorder process's own, written \"<pid-self>\", and the recorded Content-Length is the length of the recorded text",
     "port": "not recorded (loopback ephemeral)"
   },
   "product": {
@@ -52,10 +53,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channels-call-ids.mjs",
-  "recorderSha256": "f35991976eca8299acbfa6a06293e961302a0435252fb0d7b1452c8b80432502",
-  "replay": "mixdog-services channels: ch/call.rs run_call / call_owner (pid + token, not session) and the op-id cache, with the caller identity a core connection carries; the HTTP/SSE wire is replaced by WebSocket (protocol.md:854-865), so a replay compares per step the results and the handleCall list (name, args, caller), mapping `leadPid` to the connection's owner pid. The wire entries are what Node sent and answered over HTTP, for the replay author",
+  "recorderSha256": "f6b88de6d2d8c4362093b91e68bb555ef858f45b66d855e6ea5db21210359c19",
+  "replay": "the `channel/call` protocol method (mixdog-app-protocol methods.rs:102), reached through ChannelService::call (mixdog-services channels/service.rs:138; `req.op` is the callId, service.rs:107): two connections with different owners send the same op, name and payload, then a retry, then a changed payload; compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection's owner",
   "set": "channels-call-ids",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 16460,
+  "totalBytes": 24363,
   "uuidsNormalised": "none"
 }
