@@ -284,8 +284,13 @@ pub(crate) enum RunShown {
 pub enum CallMark {
     /// The `streaming` stage: the response began.
     Streaming,
-    /// A tool call began in the stream (`onStreamItemStart` of a tool: `withdrawLiveCall`).
+    /// A tool call began in the stream (`onStreamItemStart` of a tool: `withdrawLiveCall`), and its batch opens
+    /// (`openToolCalls`: `closeThinkingForToolBatch` with `taskWaitSpinnerMode`).
     ToolCall,
+    /// A call waits for the person's answer (`approveToolRequest`: the spinner's `tool-approval` mode).
+    ToolApproval,
+    /// The tool batch is over and the turn goes back to the model (`onToolPhaseCompleted`: `requesting`).
+    ToolPhaseCompleted,
 }
 
 /// What a compaction pass's summary model used (ccumulateCompactUsage).

@@ -319,6 +319,9 @@ pub enum RunEvent {
     AssistantText { text: String, committed: bool },
     ToolCalls { iteration: u32, calls: Vec<ToolCall> },
     ToolResult { call_id: String, kind: ToolKind },
+    /// The tool batch of `iteration` (`calls` calls) is over and the turn goes back to the model (`onToolPhaseCompleted`,
+    /// `loop/tool-phase.mjs:95`, after the step judgment is started).
+    ToolPhaseCompleted { iteration: u32, calls: usize },
     SteerInjected(SteerInjected),
     Usage { iteration: u32, usage: Usage, delta: UsageDelta },
     ContextPressure {

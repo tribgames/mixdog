@@ -646,7 +646,15 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::Streaming));
             }
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
-            RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
+            RunEvent::Stage(Stage::ApprovalWait { waiting }) => {
+                if waiting {
+                    let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolApproval));
+                }
+                self.progress.approval_wait(waiting);
+            }
+            RunEvent::ToolPhaseCompleted { .. } => {
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolPhaseCompleted));
+            }
             RunEvent::TextDelta(text) => {
                 self.end_reasoning();
                 if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
