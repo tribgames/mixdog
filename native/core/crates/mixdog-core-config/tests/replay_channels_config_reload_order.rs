@@ -11,9 +11,9 @@
 //! - Case 92 reloads the real `ChannelRuntime` (Node's `createConfigReloader`), live (`automationRunning: true`: its
 //!   automation started before the follow). Mapping of Node's reloader ports to the runtime's:
 //!   `load()` ↔ the schedule rows read (`ScheduleRecords::list`, held by the replay and settled with
-//!   `value.schedules ?? []`); `setConfig(value)` ↔ the load settled in that step is the one applied (the runtime keeps
-//!   no copy of the config: it reads the stores, so the applied value shows as the rows the scheduler is reloaded with
-//!   in the same step); `scheduler.reloadConfig(schedules, {restart})` ↔ `Scheduler::reload_config` (call recorder);
+//!   `value.schedules ?? []`); `setConfig(value)` ↔ the runtime applying that load (`record_applied_reloads`: the
+//!   ticket of each reload whose load it applied; the runtime keeps no copy of the config, so the config held is the
+//!   value of the last load it applied); `scheduler.reloadConfig(schedules, {restart})` ↔ `Scheduler::reload_config` (call recorder);
 //!   `syncWebhookAndEventRuntime({reload})` / `stopWebhookAndEventRuntime()` ↔ `AutomationServices::sync` / `stop`.
 //!   The reloads' promises Node awaits are the `reload_config` calls the follow starts, observed by a delegating
 //!   `ChannelLifecycle`.
@@ -480,6 +480,9 @@ async fn replay(target: usize) {
     scheduler.record_calls(calls.clone());
     let runtime = ChannelRuntime::new(scheduler, loads.clone(), Arc::new(Services(events.clone())), Arc::new(Providers));
     runtime.start_automation().await.expect("the automation runtime starts");
+    // `setConfig(loaded)`: the reloads (by ticket = the load they started, 1 = load #1) whose load the runtime applied.
+    let applied_reloads: Arc<Mutex<Vec<u64>>> = Arc::default();
+    runtime.record_applied_reloads(applied_reloads.clone());
     events.lock().unwrap().clear();
     calls.lock().unwrap().clear();
     *loads.hold.lock().unwrap() = true;
@@ -499,9 +502,6 @@ async fn replay(target: usize) {
         }
         out.extend(std::mem::take(&mut *events.lock().unwrap()));
         out
-    };
-    let value_of = |step: &Exact, at: usize| -> Exact {
-        step.get("events").as_array().get(at).map(|e| e.get("value").clone()).unwrap_or_else(|| panic!("the recorded setConfig value"))
     };
     let rows_of = |value: &Exact| -> Vec<Schedule> {
         match value.try_get("schedules") {
@@ -526,25 +526,27 @@ async fn replay(target: usize) {
         ("disk", dir.disk()),
     ]));
 
-    // Load #2 settles with the value Node's load #2 resolved with; what is applied in this step is that value.
-    let second = value_of(&steps[2], 0);
+    // The values the loads resolve with are the replay's inputs (the step labels name them: load #2 with
+    // {revision: 2}, load #1 with {revision: 1}); which of them the runtime applies, and so the config it holds, is
+    // observed (`record_applied_reloads`).
+    let first = obj(vec![("revision", Exact::Number(1.0))]);
+    let second = obj(vec![("revision", Exact::Number(2.0))]);
+    let loaded = |ticket: u64| if ticket == 1 { first.clone() } else { second.clone() };
+    // The step's events, `setConfig` first, and the config held after it.
+    let observe = |events: Vec<Exact>, held: Exact| -> (Vec<Exact>, Exact) {
+        let tickets: Vec<u64> = std::mem::take(&mut *applied_reloads.lock().unwrap());
+        let mut out: Vec<Exact> = tickets.iter().map(|t| obj(vec![("event", text("setConfig")), ("value", loaded(*t))])).collect();
+        out.extend(events);
+        (out, tickets.last().map_or(held, |last| loaded(*last)))
+    };
     loads.settle(2, rows_of(&second));
     reloads.settled(1, "reload #2 to apply").await;
-    let mut applied = take(&events);
-    let config_now = if applied.is_empty() { Exact::Null } else { second.clone() };
-    if !applied.is_empty() {
-        applied.insert(0, obj(vec![("event", text("setConfig")), ("value", second.clone())]));
-    }
+    let (applied, config_now) = observe(take(&events), Exact::Null);
     actual.push(obj(vec![("step", text("load #2 resolves with {revision: 2} -> applied")), ("events", Exact::Array(applied)), ("config", config_now.clone())]));
 
-    let first = obj(vec![("revision", Exact::Number(1.0))]);
     loads.settle(1, rows_of(&first));
     reloads.settled(2, "reload #1 to settle").await;
-    let mut discarded = take(&events);
-    let config_last = if discarded.is_empty() { config_now } else { first.clone() };
-    if !discarded.is_empty() {
-        discarded.insert(0, obj(vec![("event", text("setConfig")), ("value", first)]));
-    }
+    let (discarded, config_last) = observe(take(&events), config_now);
     actual.push(obj(vec![
         ("step", text("load #1 (older) resolves with {revision: 1} last -> discarded")),
         ("events", Exact::Array(discarded)),

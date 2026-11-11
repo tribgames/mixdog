@@ -73,8 +73,12 @@ pub struct ChannelRuntime {
     state: Mutex<State>,
     /// One start at a time: a second caller joins the first.
     start_gate: Gate,
-    /// One reload applies at a time (the newest started; see [`Self::reload_runtime`]).
-    reload_gate: Gate,
+    /// The newest-reload check and the scheduler's re-arm happen together (`config-reload.mjs:29-34`, with no
+    /// await between them); the service sync after it is outside, so a newer edit never waits behind it.
+    reload_apply: Mutex<()>,
+    /// Test support: the reloads (by ticket, 1 = the first started) whose load was applied, in order.
+    #[cfg(any(test, feature = "test-support"))]
+    applied: Mutex<Option<Arc<Mutex<Vec<u64>>>>>,
     /// Reloads started so far: the ticket of the newest.
     reloads_started: std::sync::atomic::AtomicU64,
     /// The newest reload that ended, and how.
@@ -86,6 +90,8 @@ pub struct ChannelRuntime {
     busy: std::sync::OnceLock<BusyProbe>,
     /// `wakeDeferredWarmups()`: wakes the deferred start that parked on a busy runtime.
     start_wake: tokio::sync::Notify,
+    /// `notifyRemoteAcquired()`: told each time the bridge connects ([`Self::on_bridge_connected`]).
+    connected: std::sync::OnceLock<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// Publishes how reload `ticket` ended, for the older reloads that answer with it: its result, or
@@ -143,13 +149,29 @@ impl ChannelRuntime {
             agent,
             state: Mutex::new(State::default()),
             start_gate: Gate::new(),
-            reload_gate: Gate::new(),
+            reload_apply: Mutex::new(()),
+            #[cfg(any(test, feature = "test-support"))]
+            applied: Mutex::new(None),
             reloads_started: Default::default(),
             reloads_settled: tokio::sync::watch::Sender::new((0, Ok(()))),
             shutdown: CancellationToken::new(),
             busy: std::sync::OnceLock::new(),
             start_wake: tokio::sync::Notify::new(),
+            connected: std::sync::OnceLock::new(),
         })
+    }
+
+    /// Binds who hears that the bridge connected (`notifyRemoteAcquired`): the channel calls, which announce the
+    /// manual ON in flight as acquired.
+    pub fn on_bridge_connected(&self, notify: Arc<dyn Fn() + Send + Sync>) {
+        let _ = self.connected.set(notify);
+    }
+
+    /// Test support: writes the ticket of each later reload whose load is applied (Node's `setConfig(loaded)`) into
+    /// `log`, in order.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn record_applied_reloads(&self, log: Arc<Mutex<Vec<u64>>>) {
+        *self.applied.lock().unwrap() = Some(log);
     }
 
     /// Binds the busy probe the deferred start parks on (a turn running, a session being created).
@@ -318,6 +340,10 @@ impl ChannelRuntime {
 
     async fn activate_bridge(&self) -> Result<(), String> {
         self.state.lock().unwrap().bridge_connected = true;
+        // Reached only on a not-connected -> connected transition (owned-start.mjs:53-57).
+        if let Some(notify) = self.connected.get() {
+            notify();
+        }
         self.init_providers().await;
         {
             let mut st = self.state.lock().unwrap();
@@ -367,19 +393,23 @@ impl ChannelRuntime {
             Err(error) => return settle.with(Err(error.to_string())),
         };
         let newest = || self.reloads_started.load(std::sync::atomic::Ordering::SeqCst);
-        let applied = self
-            .reload_gate
-            .run(&epoch, async {
-                if newest() != ticket {
-                    return None;
+        // Gated only until the load completed: the newest applies its rows at once, older ones answer with it.
+        let live = {
+            let _apply = self.reload_apply.lock().unwrap();
+            (newest() == ticket).then(|| {
+                #[cfg(any(test, feature = "test-support"))]
+                if let Some(log) = self.applied.lock().unwrap().clone() {
+                    log.lock().unwrap().push(ticket);
                 }
-                Some(self.apply_reload(rows).await)
+                self.rearm(rows)
             })
-            .await;
-        match applied {
-            Err(_) => Ok(()),
-            Ok(Some(result)) => settle.with(result),
-            Ok(None) => {
+        };
+        match live {
+            Some(live) => match epoch.run_until_cancelled(self.sync_after_reload(live)).await {
+                None => Ok(()),
+                Some(result) => settle.with(result),
+            },
+            None => {
                 settle.ticket = 0;
                 let target = newest();
                 let mut settled = self.reloads_settled.subscribe();
@@ -391,7 +421,8 @@ impl ChannelRuntime {
         }
     }
 
-    async fn apply_reload(&self, rows: Vec<Schedule>) -> Result<(), String> {
+    /// `setConfig` + `reloadScheduler()`: returns whether the runtime is supposed to be running.
+    fn rearm(&self, rows: Vec<Schedule>) -> bool {
         let live = {
             let st = self.state.lock().unwrap();
             st.automation_running || st.bridge_connected
@@ -399,6 +430,10 @@ impl ChannelRuntime {
         // The scheduler must be RE-ARMED by the reload whenever it is supposed to be running:
         // otherwise every saved or edited schedule would stay silently disarmed.
         self.scheduler.reload_config(rows, live);
+        live
+    }
+
+    async fn sync_after_reload(&self, live: bool) -> Result<(), String> {
         if live {
             self.services.sync(true).await
         } else {

@@ -572,6 +572,45 @@ async fn reload_config_rearms_the_scheduler_and_leaves_the_agent_runtime_alone()
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
+/// `config-reload.mjs`: a reload is gated only until its load completed. A second edit arriving while the first
+/// reload's service sync is still running re-arms the scheduler with its rows at once and syncs, not after it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_edit_during_a_reloads_service_sync_applies_without_waiting_for_it() {
+    let e = env().await;
+    e.runtime.start_automation().await.unwrap();
+    let held = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.services.sync_gate.lock().unwrap() = Some(held.clone());
+    e.schedules.upsert(&sched("first")).await.unwrap();
+    // The start's sync left its notification stored: take it.
+    let _ = tokio::time::timeout(Duration::ZERO, e.services.entered.notified()).await;
+    let entered = e.services.entered.notified();
+    let first = tokio::spawn({
+        let runtime = e.runtime.clone();
+        async move { runtime.reload_runtime().await }
+    });
+    signal_from(entered, "the first reload syncs").await;
+    e.schedules.upsert(&sched("second")).await.unwrap();
+    let entered = e.services.entered.notified();
+    let second = tokio::spawn({
+        let runtime = e.runtime.clone();
+        async move { runtime.reload_runtime().await }
+    });
+    signal_from(entered, "the second edit's reload syncs while the first sync is still running").await;
+    let mut armed: Vec<String> = e.runtime.scheduler().status().into_iter().map(|r| r.name).collect();
+    armed.sort();
+    assert_eq!(armed, ["first", "second"], "the second edit's rows are armed while the first sync runs");
+    assert!(!first.is_finished(), "the first reload is still in its service sync");
+    held.add_permits(2);
+    first.await.unwrap().unwrap();
+    second.await.unwrap().unwrap();
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// Waits for a notification registered before the action that gives it.
+async fn signal_from(notified: tokio::sync::futures::Notified<'_>, what: &str) {
+    tokio::time::timeout(Duration::from_secs(15), notified).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_webhook_settings_patch_and_the_setup_view() {
     let e = env().await;
