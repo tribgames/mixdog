@@ -85,9 +85,26 @@ use self::views::Views;
 use super::Clock;
 use mixdog_core_ports::ports::threads::ThreadState;
 
+/// What a load of the stored index hands over, relative to the revision the registry holds.
+pub enum Index {
+    /// Nothing was written since the revision asked about.
+    Unchanged,
+    /// What was written since it: the sessions whose `worker` map changed with the map now (`None`: it is gone), listed in
+    /// index order (newest session first), and the agent-only sessions when they changed.
+    Delta { revision: u64, maps: Vec<(String, Option<Row>)>, sessions: Option<Vec<Row>> },
+    /// Every map and every agent-only session; `revision` is what a later load asks the changes since of (`None`: the store
+    /// keeps none).
+    Full { revision: Option<u64>, maps: Vec<(String, Row)>, sessions: Vec<Row> },
+}
+
 /// The stored side of the worker index.
 #[async_trait]
 pub trait WorkerStore: Send + Sync {
+    /// The index as it is now, in the least the store can tell from the revision the caller holds. A store that keeps no
+    /// revision hands over everything.
+    async fn index_since(&self, _since: Option<u64>) -> Result<Index, String> {
+        Ok(Index::Full { revision: None, maps: self.worker_maps().await?, sessions: self.agent_sessions().await? })
+    }
     /// Every session's `worker` map, newest session first.
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String>;
     /// The agent-only sessions' list rows, closed ones included.
@@ -125,9 +142,11 @@ pub struct AgentRegistry {
     reap: Arc<dyn ReapWindow>,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
-    /// Held while the index is loaded; `loads_started` counts the loads begun.
+    /// Held while the index is loaded; `loads_started` counts the loads begun, `loaded_from` is the number of the latest
+    /// one that completed (the load of a failed or cancelled one never reached the index).
     loading: tokio::sync::Mutex<()>,
     loads_started: AtomicU64,
+    loaded_from: AtomicU64,
 }
 
 #[derive(Default)]
@@ -140,6 +159,8 @@ struct State {
     tag_generation: u64,
     /// Every session's worker map: the index as last loaded, with this process's writes.
     maps: Maps,
+    /// The store's revision of the last load.
+    revision: Option<u64>,
     /// Writes the loaded index did not show yet.
     pending: HashMap<String, Option<Row>>,
     /// The agent-only sessions as last loaded.
@@ -323,7 +344,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), loading: tokio::sync::Mutex::new(()), loads_started: AtomicU64::new(0) }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), loading: tokio::sync::Mutex::new(()), loads_started: AtomicU64::new(0), loaded_from: AtomicU64::new(0) }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -339,26 +360,69 @@ impl AgentRegistry {
     }
 
     /// Reloads the index; this process's writes it does not show yet stay applied. A caller that arrives while a load is
-    /// under way waits for the next one and shares it with the others that wait (it reads the store after the caller
-    /// arrived), so the threads one status signal wakes load the index once or twice, not once each.
+    /// under way waits for the next one and shares it with the others that wait, when that load read the store after the
+    /// caller arrived and completed, so the threads one status signal wakes load the index once or twice, not once each.
     async fn reload(&self) {
         let arrived = self.loads_started.load(AtomicOrdering::SeqCst);
         let _turn = self.loading.lock().await;
-        if self.loads_started.load(AtomicOrdering::SeqCst) > arrived {
+        if self.loaded_from.load(AtomicOrdering::SeqCst) > arrived {
             return;
         }
-        self.loads_started.fetch_add(1, AtomicOrdering::SeqCst);
-        self.load().await;
+        let number = self.loads_started.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+        if self.load().await {
+            self.loaded_from.store(number, AtomicOrdering::SeqCst);
+        }
     }
 
-    async fn load(&self) {
-        let (Ok(maps), Ok(sessions)) = (self.store.worker_maps().await, self.store.agent_sessions().await) else {
-            return;
+    /// Whether the index was read and applied.
+    async fn load(&self) -> bool {
+        let since = self.lock().revision;
+        let Ok(index) = self.store.index_since(since).await else {
+            return false;
         };
         #[cfg(test)]
         work::note(|c| c.reloads += 1);
         let mut guard = self.lock();
         let st = &mut *guard;
+        match index {
+            Index::Unchanged => {}
+            Index::Delta { revision, maps, sessions } => {
+                Self::apply_delta(st, maps);
+                if let Some(sessions) = sessions {
+                    Self::load_sessions(st, sessions);
+                }
+                st.revision = Some(revision);
+            }
+            Index::Full { revision, maps, sessions } => {
+                Self::load_maps(st, maps);
+                Self::load_sessions(st, sessions);
+                st.revision = revision;
+            }
+        }
+        true
+    }
+
+    /// The maps the store wrote since the held revision, each compared with the one held; a map this process wrote that the
+    /// store does not show yet stays as written.
+    fn apply_delta(st: &mut State, maps: Vec<(String, Option<Row>)>) {
+        // Index order lists the newest session first; a session new to the index goes in front.
+        for (id, map) in maps.into_iter().rev() {
+            #[cfg(test)]
+            work::note(|c| c.maps_compared += 1);
+            if let Some(held) = st.pending.get(&id) {
+                if *held == map {
+                    st.pending.remove(&id);
+                }
+                continue;
+            }
+            if st.maps.get(&id) != map.as_ref() {
+                st.maps.set(&id, map);
+                st.views.get_mut().touched(&id);
+            }
+        }
+    }
+
+    fn load_maps(st: &mut State, maps: Vec<(String, Row)>) {
         // The same sessions in the same order (the usual load): one pass over the maps finds those that differ. A session
         // this process wrote that the store does not show yet stays as written; one it shows now is no longer pending.
         let maps = match st.maps.differing(maps) {
@@ -380,7 +444,6 @@ impl AgentRegistry {
         if let Some(maps) = maps {
             Self::rebuild(st, maps);
         }
-        Self::load_sessions(st, sessions);
     }
 
     /// The maps of a load whose sessions or order differ from the held ones, with the pending writes applied on top.
@@ -1294,6 +1357,16 @@ impl StoreWorkers {
 
 #[async_trait]
 impl WorkerStore for StoreWorkers {
+    /// The store keeps no log of what changed: an index written since the revision is read whole, an index not written since
+    /// costs nothing.
+    async fn index_since(&self, since: Option<u64>) -> Result<Index, String> {
+        let revision = self.index.revision();
+        if since == Some(revision) {
+            return Ok(Index::Unchanged);
+        }
+        Ok(Index::Full { revision: Some(revision), maps: self.worker_maps().await?, sessions: self.agent_sessions().await? })
+    }
+
     async fn worker_maps(&self) -> Result<Vec<(String, Row)>, String> {
         let rows = self.index.worker_rows(None, WorkerScope::All).await.map_err(|e| format!("{e:?}"))?;
         Ok(rows.into_iter().map(|row| (row.session, row.worker)).collect())
