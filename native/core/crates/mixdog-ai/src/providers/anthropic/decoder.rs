@@ -173,6 +173,10 @@ pub(crate) struct AnthropicDecoder {
     skipped: HashSet<u64>,
     /// The server-side fallbacks the stream reported (`turn.fallbackEvents`), as `parseAnthropicFallbackBlock` records them.
     fallbacks: Vec<Value>,
+    /// `turn.hasThinkingContent`: a thinking delta or a redacted thinking block streamed.
+    has_thinking: bool,
+    /// `turn.contentBlockTypes`: the delta types and `fallback`, first-seen order.
+    block_types: Vec<String>,
     /// An output block opened (`turn.firstOutputAt`).
     output_started: bool,
     /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
@@ -211,6 +215,8 @@ impl AnthropicDecoder {
             leaked_dispatched: 0,
             skipped: HashSet::new(),
             fallbacks: Vec::new(),
+            has_thinking: false,
+            block_types: Vec::new(),
             output_started: false,
         }
     }
@@ -339,6 +345,8 @@ impl AnthropicDecoder {
         if !self.fallbacks.is_empty() {
             out.push(StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": self.fallbacks })));
         }
+        // `hasThinkingContent` / `contentBlockTypes` (turn-outcome.mjs:143-144).
+        out.push(StreamEvent::ContentSummary { has_thinking: self.has_thinking, block_types: self.block_types.clone() });
         out.push(StreamEvent::Completed {
             pricing_model: None,
             request_ms: None,
@@ -428,6 +436,7 @@ impl AnthropicDecoder {
                     record["category"] = json!(category);
                 }
                 self.fallbacks.push(record);
+                self.note_block_type("fallback");
                 self.serve(&to, out);
                 out.push(StreamEvent::Progress(ProgressKind::Semantic));
             }
@@ -463,6 +472,7 @@ impl AnthropicDecoder {
                 );
             }
             "redacted_thinking" => {
+                self.has_thinking = true;
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
                 out.push(StreamEvent::Progress(ProgressKind::Reasoning));
                 self.blocks.insert(index, Block::Redacted { data: text_of("data") });
@@ -502,9 +512,23 @@ impl AnthropicDecoder {
         }
     }
 
+    /// `turn.contentBlockTypes.add(kind)`: first-seen order, each once.
+    fn note_block_type(&mut self, kind: &str) {
+        if !self.block_types.iter().any(|k| k == kind) {
+            self.block_types.push(kind.to_owned());
+        }
+    }
+
     fn block_delta(&mut self, index: u64, delta: Option<&Value>, out: &mut Vec<StreamEvent>) {
         let Some(delta) = delta else { return };
         let str_of = |field: &str| delta.get(field).and_then(Value::as_str).unwrap_or("");
+        // content-block-delta.mjs:96: every delta's (non-empty) type.
+        if let Some(kind) = delta.get("type").and_then(Value::as_str).filter(|k| !k.is_empty()) {
+            self.note_block_type(kind);
+        }
+        if matches!(delta.get("type").and_then(Value::as_str), Some("thinking_delta" | "signature_delta")) {
+            self.has_thinking = true;
+        }
         match delta.get("type").and_then(Value::as_str).unwrap_or("") {
             "text_delta" => {
                 let text = str_of("text").to_owned();

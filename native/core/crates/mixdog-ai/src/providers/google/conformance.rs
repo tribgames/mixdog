@@ -998,6 +998,8 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
 // Structure
 // ---------------------------------------------------------------------------
 
+/// The one content timer, the stream's first-byte watchdog Node has (`createRestStreamWatchdogs`), lives in
+/// `watchdog.rs`, outside this scan.
 #[test]
 fn no_content_timer_exists_in_the_provider_sources() {
     let sources = [

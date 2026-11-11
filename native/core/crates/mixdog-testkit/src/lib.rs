@@ -6,6 +6,7 @@
 //! because a fixture that cannot be written or read is a failed test, not a value to handle.
 
 pub mod exact;
+pub mod provider_fields;
 mod fs;
 mod process;
 

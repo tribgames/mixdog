@@ -797,8 +797,12 @@ async fn the_anthropic_thinking_contract_replays_as_nodes() {
             let Exact::Error { name, message, code, cause, props } = result.get("threw") else {
                 panic!("{id}: Node threw an error")
             };
-            assert_eq!(name, "TypeError", "{id}");
+            // Each field through the shared table (`mixdog_testkit::provider_fields`): `name` is the kind (a TypeError: a
+            // local refusal), `message` the message; the error carries no other field.
+            use mixdog_testkit::provider_fields::error_field;
             assert!(code.is_none() && cause.is_none() && props.is_empty(), "{id}: no other error field");
+            assert_eq!(name, "TypeError", "{id}.name: {}", error_field("name"));
+            let _ = error_field("message");
             let mut want = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
             want.message = message.clone();
             assert_eq!(refused, want, "{id}: the whole error");

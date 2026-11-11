@@ -145,8 +145,6 @@ fn call_json(call: &ToolCall) -> Value {
 
 /// Node's whole recorded result (`ok` and the calls dispatched live), with only the fields the core has no counterpart
 /// of left out, each declared in the manifest's exclusions (`fixtures/provider-wire/MANIFEST.json`):
-/// - `hasThinkingContent`, `contentBlockTypes`: Anthropic's summary of its blocks for the empty-turn trace
-///   (ask-turn-commit.mjs:65-66), derived from the blocks the compared replay carries;
 /// - `assistantBlocks`: Anthropic's block list, which Node also returns as `providerReplay.items`
 ///   (turn-outcome.mjs:156-157): checked equal to it here, and the replay is compared;
 /// - `requestServiceTier`: stamped on the result object by Node's accounting (usage-accounting.mjs:98); the core's
@@ -161,9 +159,7 @@ pub(crate) fn node_result(result: &Value) -> Value {
     if let Some(blocks) = map.shift_remove("assistantBlocks") {
         assert_eq!(Some(&blocks), map.get("providerReplay").and_then(|r| r.get("items")), "Node returns its blocks twice");
     }
-    for key in ["hasThinkingContent", "contentBlockTypes", "requestServiceTier"] {
-        map.shift_remove(key);
-    }
+    map.shift_remove("requestServiceTier");
     if map.get("stopReason").is_some_and(Value::is_null) {
         map.shift_remove("stopReason");
     }
@@ -232,6 +228,10 @@ pub(crate) fn core_result_at(events: &[StreamEvent], at: &[i64], requested: &str
             }
             StreamEvent::ResponseId(id) => {
                 ok.insert("responseId".into(), json!(id));
+            }
+            StreamEvent::ContentSummary { has_thinking, block_types } => {
+                ok.insert("hasThinkingContent".into(), json!(has_thinking));
+                ok.insert("contentBlockTypes".into(), json!(block_types));
             }
             StreamEvent::Usage(usage) => {
                 let mut out = Map::new();
