@@ -113,11 +113,26 @@ export function nodeSide(recording) {
       delete h.raw;
       return heardNow;
     });
+  // A state that changed only fields of hw-phone-worktree-args is owed by that branch: the core holds their values from its first state,
+  // so it publishes no frame where Node's changed them (the replay's barrier does not wait for one; the comparison still reports them).
+  let previous = null;
+  for (const h of history) {
+    if (h.kind !== 'state') continue;
+    h.othersOnly = previous !== null && differingFields(previous, h.value).every((f) => OTHER_BRANCH_FIELDS.has(f.field));
+    previous = h.value;
+  }
   // The thread list the phone heard: the host's catalog publications, each at its clock, less one that changes nothing since the last
   // (the relay sends none: remote-relay-catalog.ts:79-91 isNoListDelta; the phone's baseline is the empty list its join read).
   const roster = heard(recording.roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) })));
   return { history, inputs: recording.inputs, roster };
 }
+
+/** The state fields branch hw-phone-worktree-args owns (the context window and compaction limits, the conversation's route and place). */
+export const OTHER_BRANCH_FIELDS = new Set([
+  'contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'contextPercent', 'displayContextWindow', 'compactBoundaryTokens',
+  'autoCompactTokenLimit', 'streamingPartial', 'transcriptSpilled', 'goal', 'todo', 'promptRestore', 'quotaResume', 'remoteSessionId',
+  'remoteEnabled', 'workspace', 'cwd', 'agentScope', 'sessionModel', 'sessionProvider',
+]);
 
 /** Every difference between two normalized values, at its deepest path: `{ path, node, core }` each. */
 export function allDifferences(node, core, path = '') {
@@ -468,7 +483,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     // clock move's) effect is out before the next input, however many frames Node split it into.
     const owe = async (owed, what) => {
       const want = kinds(owed);
-      const windows = new Set(owed.filter((h) => h.kind === 'state').map((h) => node.inputs.filter((i) => i.at <= h.at).length)).size;
+      const windows = new Set(owed.filter((h) => h.kind === 'state' && !h.othersOnly).map((h) => node.inputs.filter((i) => i.at <= h.at).length)).size;
       await until(() => kinds(log).reply >= want.reply && kinds(log).state >= windows, what);
       reached.matched = owed.length;
     };
