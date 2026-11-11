@@ -470,11 +470,12 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     );
     // Where it happened, for the server's refusal of every place that is no free-text field: the strings that held one,
     // not the ones that hold a real U+FFFD; a place outside the params (the method name) behind `#`.
-    // The places are a set; the order is the parsed map's.
+    // A string is named once per lone unit it held (a size Node measures on the serialised value counts each); the order is
+    // the parsed map's.
     let mut named = request.lone_surrogates.clone();
     named.sort();
-    let mut expected =
-        vec![LoneAt::Value("#/method".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
+    let a = || LoneAt::Value("/a".into());
+    let mut expected = vec![LoneAt::Value("#/method".into()), a(), a(), a(), a(), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
     expected.sort();
     assert_eq!(named, expected);
     let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;

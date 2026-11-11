@@ -118,7 +118,7 @@ impl LoneAt {
 }
 
 /// Every place in JSON text `text` that held a lone surrogate escape ([`LoneAt`]), in document
-/// order. Empty for text that is not JSON or holds none.
+/// order; a string value is named once per lone unit it held. Empty for text that is not JSON or holds none.
 pub fn lone_surrogates(text: &str) -> Vec<LoneAt> {
     let mut out = Vec::new();
     if without_lone_surrogates(text.as_bytes()).1 == 0 {
@@ -141,10 +141,10 @@ pub fn lone_surrogate_pointers(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Parsed text (json_parse.rs) as the core reads it, and whether it held a lone surrogate (read as U+FFFD).
-fn read_parsed(text: &str) -> (String, bool) {
+/// Parsed text (json_parse.rs) as the core reads it, and how many lone surrogates it held (each read as U+FFFD).
+fn read_parsed(text: &str) -> (String, usize) {
     let mut out = String::with_capacity(text.len());
-    let mut lone = false;
+    let mut lone = 0;
     let mut chars = text.char_indices();
     while let Some((at, c)) = chars.next() {
         if !crate::json_parse::is_esc(c) {
@@ -154,7 +154,7 @@ fn read_parsed(text: &str) -> (String, bool) {
         let rest = &text[at + c.len_utf8()..];
         let (kept, len) = match crate::json_parse::escape_at(rest) {
             Some((crate::json_parse::Escape::Surrogate(_), len)) => {
-                lone = true;
+                lone += 1;
                 ('\u{fffd}', len)
             }
             Some((crate::json_parse::Escape::Escaped, len)) => (c, len),
@@ -172,10 +172,9 @@ fn read_parsed(text: &str) -> (String, bool) {
 fn collect(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<LoneAt>) {
     let len = pointer.len();
     match value {
+        // Named once per lone unit: a size Node measures on the serialised value counts each as its six-character escape.
         serde_json::Value::String(text) => {
-            if read_parsed(text).1 {
-                out.push(LoneAt::Value(pointer.clone()));
-            }
+            out.extend(std::iter::repeat_n(LoneAt::Value(pointer.clone()), read_parsed(text).1));
         }
         serde_json::Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
@@ -189,7 +188,7 @@ fn collect(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<LoneAt
             // The map's keys are the parsed text's (escape markers and all, json_parse.rs): every key is
             // named as the core reads it. Keys equal in the text are one key already (the last value, as
             // Node's); keys that differ in the text but are read alike merge only through a lone unit.
-            let read: Vec<(String, bool)> = map.keys().map(|key| read_parsed(key)).collect();
+            let read: Vec<(String, bool)> = map.keys().map(|key| read_parsed(key)).map(|(key, lone)| (key, lone > 0)).collect();
             let mut seen = std::collections::HashMap::<&str, usize>::with_capacity(read.len());
             for (as_read, _) in &read {
                 *seen.entry(as_read.as_str()).or_default() += 1;
@@ -219,6 +218,17 @@ mod tests {
         assert_eq!(lone_surrogate_pointers(&text), ["/a", "/c/1", "/\u{fffd}~1~0/f"]);
         assert!(lone_surrogate_pointers(r#"{"a":"\ud83d\ude00","b":"\ufffd"}"#).is_empty());
         assert!(lone_surrogate_pointers(r#"{"a":"\ud800"#).is_empty());
+    }
+
+    /// A string is named once per lone unit (a size Node measures on the serialised value counts each as six characters); a
+    /// key once.
+    #[test]
+    fn a_string_is_named_once_per_lone_unit() {
+        let mut found = lone_surrogates(r#"{"a":"\ud83d\ufffd\udc00x\ud800","\ud800\udc01\udc02":"\ud83d\ude00"}"#);
+        found.sort();
+        let mut expected = vec![LoneAt::Value("/a".into()), LoneAt::Value("/a".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{10001}\u{fffd}".into())];
+        expected.sort();
+        assert_eq!(found, expected);
     }
 
     /// A key that held a lone unit is named as a key, apart from a value at the same place; keys equal in the text are one

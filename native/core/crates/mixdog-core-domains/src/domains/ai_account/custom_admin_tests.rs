@@ -245,7 +245,7 @@ async fn every_step_does_what_node_does() {
                     .unwrap();
                 None
             }
-            "save" => Some(w.admin.save(args[0].clone()).await),
+            "save" => Some(w.admin.save(args[0].clone(), 0).await),
             "saveKey" => Some(w.admin.save_key(args[0].as_str().unwrap(), &args[1]).await),
             "updateModel" => {
                 let patch = args.as_array().unwrap().get(2).cloned();
@@ -364,11 +364,11 @@ async fn the_connection_test_sends_a_real_request_through_the_key_pool() {
     let (base, seen) = endpoint(vec!["Bearer sk-primary".into()], 0).await;
     let w = world(HashMap::new()).await;
     let input = json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-primary", "extraApiKeys": [{ "apiKey": "sk-extra" }] });
-    let saved = w.admin.save(input).await.unwrap();
+    let saved = w.admin.save(input, 0).await.unwrap();
     let id = saved["id"].as_str().unwrap();
     let key = saved["extraApiKeys"][0]["id"].as_str().unwrap().to_owned();
     let probe = json!({ "id": id, "schemaVersion": 2, "name": "Pool", "protocol": "openai-chat", "baseURL": base });
-    let answer = w.admin.test(probe.clone()).await.unwrap();
+    let answer = w.admin.test(probe.clone(), 0).await.unwrap();
     assert_eq!(answer, json!({ "ok": true, "key": { "id": key, "number": 2 } }));
     let seen = seen.lock().unwrap().clone();
     let chats: Vec<&Seen> = seen.iter().filter(|s| s.path == "/chat/completions").collect();
@@ -381,7 +381,7 @@ async fn the_connection_test_sends_a_real_request_through_the_key_pool() {
 
     // A key nobody refuses answers as the primary: no key is named.
     let (open, _) = endpoint(Vec::new(), 0).await;
-    let plain = w.admin.test(json!({ "name": "Plain", "protocol": "openai-chat", "baseURL": open, "apiKey": "sk-x" })).await.unwrap();
+    let plain = w.admin.test(json!({ "name": "Plain", "protocol": "openai-chat", "baseURL": open, "apiKey": "sk-x" }), 0).await.unwrap();
     assert_eq!(plain, json!({ "ok": true }));
 }
 
@@ -391,7 +391,7 @@ async fn a_send_every_key_is_refused_is_thrown_with_the_key_redacted() {
     let w = world(HashMap::new()).await;
     let failure = w
         .admin
-        .test(json!({ "name": "Refused", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-only-secret-key" }))
+        .test(json!({ "name": "Refused", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-only-secret-key" }), 0)
         .await
         .unwrap_err();
     assert!(failure.message().contains("quota"), "{}", failure.message());
@@ -402,7 +402,7 @@ async fn a_send_every_key_is_refused_is_thrown_with_the_key_redacted() {
 async fn a_transient_failure_is_retried_as_every_send_is() {
     let (base, seen) = endpoint(Vec::new(), 1).await;
     let w = world(HashMap::new()).await;
-    let answer = w.admin.test(json!({ "name": "Flaky", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-x" })).await.unwrap();
+    let answer = w.admin.test(json!({ "name": "Flaky", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-x" }), 0).await.unwrap();
     assert_eq!(answer, json!({ "ok": true }));
     let chats = seen.lock().unwrap().iter().filter(|s| s.path == "/chat/completions").count();
     assert_eq!(chats, 2, "the 503 was retried by the shared send path");
@@ -414,11 +414,11 @@ async fn every_key_refused_ends_with_the_last_refusal() {
     let w = world(HashMap::new()).await;
     let saved = w
         .admin
-        .save(json!({ "name": "Dry", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-primary", "extraApiKeys": [{ "apiKey": "sk-extra" }] }))
+        .save(json!({ "name": "Dry", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-primary", "extraApiKeys": [{ "apiKey": "sk-extra" }] }), 0)
         .await
         .unwrap();
     let probe = json!({ "id": saved["id"], "schemaVersion": 2, "name": "Dry", "protocol": "openai-chat", "baseURL": base });
-    let failure = w.admin.test(probe).await.unwrap_err();
+    let failure = w.admin.test(probe, 0).await.unwrap_err();
     assert_eq!(failure.message(), "429 You exceeded your current quota");
     let keys: Vec<String> = seen.lock().unwrap().iter().filter(|s| s.path == "/chat/completions").map(|s| s.authorization.clone()).collect();
     assert_eq!(keys, ["Bearer sk-primary", "Bearer sk-extra"]);
@@ -427,7 +427,7 @@ async fn every_key_refused_ends_with_the_last_refusal() {
 #[tokio::test]
 async fn a_key_kept_in_the_private_file_is_labelled_so() {
     let w = world(HashMap::new()).await;
-    let saved = w.admin.save(json!({ "name": "Kept", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" })).await.unwrap();
+    let saved = w.admin.save(json!({ "name": "Kept", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" }), 0).await.unwrap();
     assert_eq!(saved["detail"], "stored in keychain");
     let id = saved["id"].as_str().unwrap();
     w.vault.fallback.lock().unwrap().push(format!("agent.{id}.apiKey"));
@@ -440,7 +440,7 @@ async fn a_key_kept_in_the_private_file_is_labelled_so() {
 #[tokio::test]
 async fn a_key_read_that_never_ran_fails_the_change_and_leaves_the_stored_key() {
     let w = world(HashMap::new()).await;
-    let saved = w.admin.save(json!({ "name": "Kept", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" })).await.unwrap();
+    let saved = w.admin.save(json!({ "name": "Kept", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" }), 0).await.unwrap();
     let id = saved["id"].as_str().unwrap().to_owned();
     w.vault.unrun_reads.store(true, Ordering::SeqCst);
     assert!(w.admin.save_key(&id, &json!("sk-b")).await.is_err());
@@ -455,7 +455,7 @@ async fn a_removal_that_cannot_read_the_additional_key_list_deletes_nothing() {
     let w = world(HashMap::new()).await;
     let saved = w
         .admin
-        .save(json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }))
+        .save(json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }), 0)
         .await
         .unwrap();
     let id = saved["id"].as_str().unwrap().to_owned();
@@ -476,12 +476,12 @@ async fn a_removed_key_the_keychain_keeps_is_logged_and_the_save_holds() {
     let base = "http://localhost:1/v1";
     let saved = w
         .admin
-        .save(json!({ "name": "Log", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }))
+        .save(json!({ "name": "Log", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }), 0)
         .await
         .unwrap();
     let (id, key) = (saved["id"].as_str().unwrap(), saved["extraApiKeys"][0]["id"].as_str().unwrap().to_owned());
     w.vault.refuse_extra_deletes.store(true, Ordering::SeqCst);
-    let row = w.admin.save(json!({ "id": id, "schemaVersion": 2, "name": "Log", "protocol": "openai-chat", "baseURL": base, "extraApiKeys": [] })).await.unwrap();
+    let row = w.admin.save(json!({ "id": id, "schemaVersion": 2, "name": "Log", "protocol": "openai-chat", "baseURL": base, "extraApiKeys": [] }), 0).await.unwrap();
     assert!(row.get("extraApiKeys").is_none(), "the roster no longer lists the key");
     assert_eq!(
         w.log.lock().unwrap().clone(),
