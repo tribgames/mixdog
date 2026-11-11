@@ -11,6 +11,21 @@ process.env.TZ = 'UTC';
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 export { importFrom, within };
 
+/** The virtual clock: `Date.now()` and `new Date()` stand still at `ms` for the whole run (every step of it is an input of the recording). */
+export function freezeClock(ms) {
+  const RealDate = Date;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) {
+      if (args.length === 0) super(ms);
+      else super(...args);
+    }
+
+    static now() {
+      return ms;
+    }
+  };
+}
+
 /** JSON-safe copy of a value: what JSON cannot hold is written as a tagged object (NaN, infinities, undefined, bigint, Set, Map). */
 export function plain(value) {
   if (value === undefined) return { $undefined: true };

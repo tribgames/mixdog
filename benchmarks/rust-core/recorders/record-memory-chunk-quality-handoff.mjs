@@ -6,12 +6,12 @@
 // members, single root, a root whose summary was altered), with the projected rows and the rendered text.
 //
 //   node benchmarks/rust-core/recorders/record-memory-chunk-quality-handoff.mjs --tree <dir>
-import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom } from './lib/mc-record.mjs';
 
 const ctx = begin();
 // makeChunkQuality stamps verifiedAt from Date.now(): the virtual clock stands still at this input for the whole run.
 const CLOCK_MS = 1_700_000_000_000;
-Date.now = () => CLOCK_MS;
+freezeClock(CLOCK_MS);
 const dir = 'src/runtime/memory/lib/';
 const { assessChunkQuality, makeChunkQuality } = await importFrom(ctx.tree, `${dir}memory-chunk-quality.mjs`);
 const { compactHandoffRows } = await importFrom(ctx.tree, `${dir}compact-handoff.mjs`);

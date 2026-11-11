@@ -7,11 +7,11 @@
 // 38 (legacy audit report), 101 (non-string scope) are not recorded; 55 and 65 are covered by the cycles golden.
 //
 //   node benchmarks/rust-core/recorders/record-memory-chunk-audit.mjs --tree <dir>
-import { begin, capture, finish, importFrom } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = 1_700_000_000_000;
-Date.now = () => CLOCK_MS; // makeChunkQuality stamps verifiedAt
+freezeClock(CLOCK_MS); // makeChunkQuality stamps verifiedAt
 const dir = 'src/runtime/memory/lib/';
 const { makeChunkQuality } = await importFrom(ctx.tree, `${dir}memory-chunk-quality.mjs`);
 const { createQueryHandlers } = await importFrom(ctx.tree, `${dir}query-handlers.mjs`);

@@ -1,0 +1,57 @@
+{
+  "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-memory-query-handlers.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL and the hybrid retrieval: searchRelevantHybrid is replaced by db.search at the module boundary (as the test file does), and db.query answers only the browse statement from the scripted rows",
+    "runs": "createQueryHandlers(...).handleSearch (query-handlers.mjs) with its real planning, paging, enrichment, duplicate collapse and rendering (query-search-plan, query-ranking, history-duplicates, recall-format)"
+  },
+  "exclusions": "none: the whole text of every call is stored (several MB for the 100-row pages)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 139089,
+      "path": "golden.json",
+      "sha256": "8c46d3e6de320dfe75c33232767d1046b76b8161b2a5c35c5d96a38edc7f078f"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "a77c6c7ed731f67d9ec1dce798d2080b7c82613f6a1021b0c7920b40b9fdf58c"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "row timestamps": "Date.now() fixed at clock.dateNowMs; text rendered in UTC"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-query-handlers.mjs",
+  "recorderSha256": "ec69ad072e891649ca5feb4e28158af0db76adfbaf601097fb26c2bf5754d4dc",
+  "replay": "mixdog-services memory: mem/recall search (plan.rs caps 100/500 and page_bounds, retrieve_candidates limit, expand_and_bound, page_rows) over a candidate seam that returns the scripted rows; compares the rendered text (whole, error flag included), the search options handed to the seam (limit, offset, rootOnly, period bounds) and the browse statements in order",
+  "set": "memory-query-handlers",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 139089
+}
