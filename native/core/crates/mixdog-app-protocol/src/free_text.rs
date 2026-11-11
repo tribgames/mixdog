@@ -43,9 +43,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         "turn/start",
         &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
     ),
-    // A server's arguments, environment values and header values as a person typed them (the names stay identifiers).
-    (Kind::Request, "mcp/addMcpServer", &["/input/args/*", "/input/env/*", "/input/headers/*"]),
-    (Kind::Request, "mcp/saveMcpServer", &["/input/args/*", "/input/env/*", "/input/headers/*"]),
+    // A server's arguments and environment values as a person typed them (the names stay identifiers). Its header values are
+    // not here: they go on every request to the server, where Node's fetch refuses a lone unit and the core's HTTP library
+    // would send the U+FFFD bytes (recorded, native/core/fixtures/lone-surrogate-wire).
+    (Kind::Request, "mcp/addMcpServer", &["/input/args/*", "/input/env/*"]),
+    (Kind::Request, "mcp/saveMcpServer", &["/input/args/*", "/input/env/*"]),
     (Kind::Request, "thread/askSide", &["/question"]),
     (Kind::Request, "thread/queue/delete", &["/currentText"]),
     (Kind::Request, "thread/requestWorktree", &["/input/prompt"]),
@@ -274,5 +276,7 @@ mod tests {
         // A map: its values are free text by `*`, its keys stay refused unless a `{}` pattern names them.
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/env/HOME")]), None);
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/env/HOME".into())]), Some("/input/env/HOME"));
+        // A server's header value goes on the wire: refused.
+        assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/headers/X-Token")]), Some("/input/headers/X-Token"));
     }
 }

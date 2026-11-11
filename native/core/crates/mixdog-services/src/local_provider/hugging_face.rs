@@ -383,6 +383,37 @@ mod tests {
         assert!(c.search(None).await.is_err());
     }
 
+    /// Records every URL fetched; answers no rows.
+    struct Asked(Arc<Mutex<Vec<String>>>);
+
+    #[async_trait::async_trait]
+    impl HfHttp for Asked {
+        async fn get_json(&self, url: &str, _: usize) -> Result<Value, String> {
+            self.0.lock().unwrap().push(url.to_owned());
+            Ok(json!([]))
+        }
+        async fn get_range(&self, _: &str, _: u64) -> Result<RangeResponse, String> {
+            Err("no range requests here".into())
+        }
+    }
+
+    /// A query a person typed holding half an emoji (`native/core/fixtures/lone-surrogate-wire` `hf-search-lone`,
+    /// record-lone-surrogate-wire.mjs): Node's `URLSearchParams` writes the lone unit as the UTF-8 of U+FFFD, and the core,
+    /// which reads it as U+FFFD (the query is free text), fetches the same URL and answers as Node did.
+    #[tokio::test]
+    async fn a_query_holding_a_lone_surrogate_is_the_url_node_fetched() {
+        let text = include_str!("../../../../fixtures/lone-surrogate-wire/golden.json");
+        let golden: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text)).unwrap();
+        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "hf-search-lone").expect("the case");
+        let fetched = Arc::new(Mutex::new(Vec::new()));
+        let dir = tempfile::tempdir().unwrap();
+        let c = HuggingFaceCatalog::new(Box::new(Asked(fetched.clone())), Arc::new(RegisteredModels::new(dir.path(), mixdog_rt::testing::tokens().durability_io)));
+        // The query as the frame decoder gives it: the golden's `asked.query` read with each lone unit as U+FFFD.
+        let answer = c.search(Some(&case["asked"]["query"])).await.unwrap();
+        assert_eq!(json!({"ok": true, "value": answer}), case["node"]["answer"]);
+        assert_eq!(json!(*fetched.lock().unwrap()), case["node"]["fetched"]);
+    }
+
     #[tokio::test]
     async fn inspect_lists_files_then_previews_one_and_register_needs_the_license() {
         let dir = tempfile::tempdir().unwrap();
