@@ -5,12 +5,13 @@ export const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: glo
 /** A deadline on the real clock for a step whose timers are virtual. */
 export const realDeadline = (label, promise, ms = 60_000) => new Promise((resolve, reject) => { const timer = realTimers.setTimeout(() => reject(new Error(`${label}: no answer within ${ms} ms`)), ms); promise.then((v) => { realTimers.clearTimeout(timer); resolve(v); }, (e) => { realTimers.clearTimeout(timer); reject(e); }); });
 /** A virtual clock for setTimeout / setInterval (armed and fired are recorded; nothing fires until `advance`); setImmediate is counted and passed through,
- *  `idle()` resolves once every setImmediate armed so far (and those they arm) has run, `whenArmed(test)` once a timer matching `test` has been armed. */
+ *  `idle()` resolves once every setImmediate armed so far (and those they arm) has run, `whenArmed(test)` once a timer matching `test` has been armed, `nextArmed()` once the next timer of any kind is armed. */
 export function virtualTimers() {
   let now = 0; let next = 0; let immediates = 0;
   const pendingTimers = new Map();
   const armed = []; const fired = []; const idleWaiters = []; const armedWaiters = [];
   const note = (entry) => { armed.push(entry); for (const w of armedWaiters.splice(0)) { if (w.test(entry)) w.resolve(entry); else armedWaiters.push(w); } };
+  const anyArmed = () => true;
   const arm = (api, repeat) => (fn, ms = 1, ...args) => {
     const handle = { id: (next += 1), unref() { return this; }, ref() { return this; }, hasRef: () => true };
     note({ api, ms, atMs: now });
@@ -34,6 +35,7 @@ export function virtualTimers() {
     elapsed: () => now,
     pending: () => [...pendingTimers.values()].map(({ api, ms, due }) => ({ api, ms, dueMs: due })),
     idle: () => (immediates === 0 ? Promise.resolve() : new Promise((resolve) => idleWaiters.push(resolve))),
+    nextArmed: () => new Promise((resolve) => armedWaiters.push({ test: anyArmed, resolve })),
     whenArmed: (test) => { const found = armed.find(test); return found ? Promise.resolve(found) : new Promise((resolve) => armedWaiters.push({ test, resolve })); },
     advance(ms) {
       const target = now + ms;
