@@ -1,0 +1,89 @@
+{
+  "cases": 6,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-desktop-visibility-restart-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test: the registry emits frames to a local onFrame; each frame envelope is recorded whole.",
+    "notRun": "the daemon transport (the registry's onFrame is a local array); the host is a scripted object (registrations and published lane rows)",
+    "runs": "DesktopServiceRegistry (init / invoke setVisibleSessions / releaseClient / unsubscribe) with the real createDesktopServiceStateSync adapter over a scripted host, the lifecycle-desktop-service fixture module, and the real snapshot delta decoder"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 37160,
+      "path": "golden.json",
+      "sha256": "16d3e1f4378f7cbb4ecec566a2f56e5b8339cce22408f5ec91638d7397bc0bd0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-desktop-visibility-restart-cases.mjs",
+  "recorderSha256": "8144cc3dd2d4fd091dba3dbcfa8ae67e41416c8935eb3a7879c9eb71ca738c1f",
+  "replay": {
+    "compare": "mixdog-app-server connection.rs (desktop registration): replay each trace step: the same init/invoke/release/unsubscribe calls and published rows; compare registrations after each step and the frames (kind, sessionId, wire) whole",
+    "entry": "Drive these public items on o1: thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125).",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "the desktop service registry (init / versioned setVisibleSessions / releaseClient / unsubscribe and its frames): no Rust counterpart found"
+    ],
+    "normalised": {},
+    "protocolMethods": [
+      "thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125)"
+    ],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "desktop-visibility-restart-cases",
+  "totalBytes": 37160,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

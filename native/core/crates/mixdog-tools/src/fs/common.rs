@@ -46,6 +46,11 @@ pub(crate) const NOISE_DIRS: &[&str] = &[
     ".gradle",
 ];
 
+/// The result's `meta` keys the run's trace row reads (Node's `resultTelemetry` and `localSearchTelemetry` objects of
+/// the call, `agent-trace-format.mjs` `traceAgentTool`); never model text.
+pub const RESULT_TELEMETRY_META: &str = "resultTelemetry";
+pub const LOCAL_SEARCH_META: &str = "localSearchTelemetry";
+
 pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
     ToolOutput {
         parts: vec![ToolPart::Text(text.into())],

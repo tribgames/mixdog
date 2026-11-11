@@ -51,7 +51,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9589fead747478ec019ecaf501b504bb240bfc83723f69039ea16c1ebc2d088a"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ts-register.mjs",

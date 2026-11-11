@@ -1,0 +1,344 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "startProjectTask opens and publishes its shell despite a real recency publication failure",
+      "observed": {
+        "snapshot": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<root>\\project",
+          "currentProject": "<root>\\project",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<root>\\project"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "hostSnapshot": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<root>\\project",
+          "currentProject": "<root>\\project",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<root>\\project"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "renameAttempts": 1,
+        "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+        "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}"
+      }
+    },
+    {
+      "case": "an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency",
+      "observed": {
+        "runs": [
+          {
+            "cause": "publication",
+            "options": {
+              "id": "recency-submit-publication"
+            },
+            "draft": {
+              "projectPath": "<root>\\project"
+            },
+            "result": {
+              "accepted": true,
+              "sessionId": "sess_desktop_2ac54e28d96e66554ea63166384859f72c815cb891cfc3b590705cf4edac266e",
+              "snapshot": {
+                "sessionId": "sess_desktop_2ac54e28d96e66554ea63166384859f72c815cb891cfc3b590705cf4edac266e",
+                "items": [],
+                "queued": [],
+                "cwd": "<root>\\project",
+                "currentProject": "<root>\\project",
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              }
+            },
+            "receipt": {
+              "signature": "<sha256 of the per-run project path>",
+              "sessionId": "sess_desktop_2ac54e28d96e66554ea63166384859f72c815cb891cfc3b590705cf4edac266e",
+              "phase": "accepted"
+            },
+            "retry": {
+              "accepted": true,
+              "sessionId": "sess_desktop_2ac54e28d96e66554ea63166384859f72c815cb891cfc3b590705cf4edac266e",
+              "snapshot": {
+                "sessionId": "sess_desktop_2ac54e28d96e66554ea63166384859f72c815cb891cfc3b590705cf4edac266e",
+                "items": [],
+                "queued": [],
+                "cwd": "<root>\\project",
+                "currentProject": "<root>\\project",
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              }
+            },
+            "calls": {
+              "creates": 1,
+              "submits": 1,
+              "unsubscribes": 0
+            }
+          },
+          {
+            "cause": "corrupt registry",
+            "options": {
+              "id": "recency-submit-corrupt registry"
+            },
+            "draft": {
+              "projectPath": "<root>\\project"
+            },
+            "result": {
+              "accepted": true,
+              "sessionId": "sess_desktop_979a5e7872d3e28b07378ea5669ec6e98dfc6a7738aa5815a19062c398b0a7cf",
+              "snapshot": {
+                "sessionId": "sess_desktop_979a5e7872d3e28b07378ea5669ec6e98dfc6a7738aa5815a19062c398b0a7cf",
+                "items": [],
+                "queued": [],
+                "cwd": "<root>\\project",
+                "currentProject": "<root>\\project",
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              }
+            },
+            "receipt": {
+              "signature": "<sha256 of the per-run project path>",
+              "sessionId": "sess_desktop_979a5e7872d3e28b07378ea5669ec6e98dfc6a7738aa5815a19062c398b0a7cf",
+              "phase": "accepted"
+            },
+            "retry": {
+              "accepted": true,
+              "sessionId": "sess_desktop_979a5e7872d3e28b07378ea5669ec6e98dfc6a7738aa5815a19062c398b0a7cf",
+              "snapshot": {
+                "sessionId": "sess_desktop_979a5e7872d3e28b07378ea5669ec6e98dfc6a7738aa5815a19062c398b0a7cf",
+                "items": [],
+                "queued": [],
+                "cwd": "<root>\\project",
+                "currentProject": "<root>\\project",
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              }
+            },
+            "calls": {
+              "creates": 1,
+              "submits": 1,
+              "unsubscribes": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "enter keeps registration and unhiding when only the recency write fails",
+      "observed": {
+        "startFiles": {
+          "desktop-projects.json": {
+            "version": 2,
+            "hidden": [
+              "<root>\\project"
+            ],
+            "aliases": {}
+          }
+        },
+        "entered": [
+          "<root>\\project"
+        ],
+        "renameAttempts": 1,
+        "desktopProjectsAfter": "{\n  \"version\": 2,\n  \"aliases\": {},\n  \"hidden\": []\n}\n",
+        "knownPath": "<root>\\project",
+        "project": "<root>\\project"
+      }
+    },
+    {
+      "case": "explicit ${action} still rejects the original registry persistence error",
+      "observed": {
+        "runs": [
+          {
+            "action": "add",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry publication failed",
+              "code": "EIO",
+              "props": {}
+            },
+            "renameAttempts": 1,
+            "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "hostSnapshot": null
+          },
+          {
+            "action": "enter",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry publication failed",
+              "code": "EIO",
+              "props": {}
+            },
+            "renameAttempts": 1,
+            "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "hostSnapshot": null
+          },
+          {
+            "action": "rename",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry publication failed",
+              "code": "EIO",
+              "props": {}
+            },
+            "renameAttempts": 1,
+            "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "hostSnapshot": null
+          },
+          {
+            "action": "remove",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry publication failed",
+              "code": "EIO",
+              "props": {}
+            },
+            "renameAttempts": 1,
+            "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "hostSnapshot": null
+          },
+          {
+            "action": "touch",
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry publication failed",
+              "code": "EIO",
+              "props": {}
+            },
+            "renameAttempts": 1,
+            "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+            "hostSnapshot": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "registration and project-authority failures are not swallowed as recency failures",
+      "observed": {
+        "injected": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "registry unreadable",
+          "code": "EIO",
+          "props": {}
+        },
+        "results": {
+          "startProject": {
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry unreadable",
+              "code": "EIO",
+              "props": {}
+            }
+          },
+          "startProjectTask": {
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry unreadable",
+              "code": "EIO",
+              "props": {}
+            }
+          },
+          "submitNewTask": {
+            "rejected": true,
+            "isTheOriginalError": true,
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "registry unreadable",
+              "code": "EIO",
+              "props": {}
+            }
+          }
+        },
+        "calls": {
+          "creates": 0,
+          "submits": 0,
+          "unsubscribes": 0
+        },
+        "registryFile": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}",
+        "originalRegistry": "{\"projects\":[{\"path\":\"<root>\\\\project\",\"name\":\"project\",\"addedAt\":1}]}"
+      }
+    },
+    {
+      "case": "a corrupt registry is recovered: its bytes are kept aside and project start still works",
+      "observed": {
+        "registryBytes": "{broken",
+        "firstStart": {
+          "rejected": true,
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "Project is not available.",
+            "code": "PROJECT_UNAVAILABLE",
+            "props": {}
+          },
+          "isSyntaxError": false
+        },
+        "snapshot": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<root>\\project",
+          "currentProject": "<root>\\project",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<root>\\project"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "project": "<root>\\project",
+        "asides": [
+          "projects.json.corrupt-1800000000000"
+        ],
+        "asideBytes": [
+          "{broken"
+        ]
+      }
+    }
+  ]
+}
