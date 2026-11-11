@@ -10,11 +10,12 @@
 //!   by its test-only call log (`Scheduler::record_calls`). `loadConfig` is the channel config load of Node's reload
 //!   (`config-reload.mjs:30`) and must come right before `scheduler.reload`, which gets the loaded schedules; Rust reads
 //!   the stores in `reload_runtime` before the same call.
-//! - The webhook server and event pipeline calls of one `syncWebhookAndEventRuntime` (`pipeline.*`, `wire.*`,
-//!   `webhook.new|reload|start`) ↔ one `AutomationServices::sync(reload)` (`reload` when the run holds a
-//!   `webhook.reload`/`pipeline.reload`); those of one `stopWebhookAndEventRuntime` (`webhook.stop`, `pipeline.stop`,
-//!   written only for what exists) ↔ one `AutomationServices::stop` while something runs. The recording services hold
-//!   what Node's state shows (`webhookServer`/`eventPipeline` non-null while synced).
+//! - The webhook server and event pipeline calls (`pipeline.*`, `wire.*`, `webhook.*`) are compared one by one with their
+//!   arguments, in order. The recording services stand in for `AutomationServices::sync(reload)` / `stop`: they write the
+//!   calls Node's `syncWebhookAndEventRuntime` / `stopWebhookAndEventRuntime` make for that seam call (first sync: `new`s;
+//!   a later one: `pipeline.start`..`webhook.start`, with the `reload` shapes when `reload`; stop: `webhook.stop`,
+//!   `pipeline.stop`, written only for what exists) and hold what Node's state shows (`webhookServer`/`eventPipeline`
+//!   non-null while synced).
 //! - `notify('notifications/mixdog/remote', {state:'acquired'})` is Node's hop from its channels worker to the daemon
 //!   (`owned-start.mjs:56`, `owned-runtime.mjs:20`). The daemon turns it into the remote state a client sees
 //!   (`remote-pointer.mjs` `acquireRemoteState`: `remoteAcquired`, `publishRemoteState`, the sticky badge frame). In the
@@ -94,7 +95,34 @@ struct Services {
 #[async_trait]
 impl AutomationServices for Services {
     async fn sync(&self, reload: bool) -> Result<(), String> {
-        self.log.lock().unwrap().push(json!(["services.sync", reload]));
+        // The seam is one `sync(reload)`; Node's `syncWebhookAndEventRuntime` makes these calls for it, in this order, with these
+        // arguments (`enabled` is the receiver's setting, whose default is the recorded one; the pipeline has no rules). Each one is
+        // compared with the recording, argument for argument.
+        let enabled = crate::channels::ports::WebhookSettings::default().enabled;
+        let rules = json!({"rules": []});
+        let calls = if !self.running.load(Ordering::SeqCst) {
+            vec![
+                json!(["pipeline.new", rules]),
+                json!(["wire.events", {}]),
+                json!(["pipeline.start"]),
+                json!(["webhook.new", {"enabled": enabled}]),
+                json!(["wire.webhook"]),
+                json!(["webhook.start"]),
+            ]
+        } else if reload {
+            vec![
+                json!(["pipeline.reload", rules]),
+                json!(["wire.events", {}]),
+                json!(["pipeline.start"]),
+                json!(["wire.webhook"]),
+                json!(["webhook.reload", {"enabled": enabled}, {"autoStart": false}]),
+                json!(["wire.webhook"]),
+                json!(["webhook.start"]),
+            ]
+        } else {
+            vec![json!(["pipeline.start"]), json!(["wire.webhook"]), json!(["webhook.start"])]
+        };
+        self.log.lock().unwrap().extend(calls);
         self.running.store(true, Ordering::SeqCst);
         match self.fails.lock().unwrap().take() {
             Some(error) => Err(error),
@@ -103,7 +131,7 @@ impl AutomationServices for Services {
     }
     async fn stop(&self) {
         if self.running.swap(false, Ordering::SeqCst) {
-            self.log.lock().unwrap().push(json!(["services.stop"]));
+            self.log.lock().unwrap().extend([json!(["webhook.stop"]), json!(["pipeline.stop"])]);
         }
     }
 }
@@ -202,9 +230,18 @@ async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> 
 }
 
 const NODE_ONLY: [&str; 6] = ["advert", "advert.clear", "locks.release", "snapshot.start", "snapshot.stop", "ownership"];
-const SYNC_CALLS: [&str; 8] =
-    ["pipeline.new", "pipeline.reload", "wire.events", "pipeline.start", "webhook.new", "wire.webhook", "webhook.reload", "webhook.start"];
-const STOP_CALLS: [&str; 2] = ["webhook.stop", "pipeline.stop"];
+const SERVICE_CALLS: [&str; 10] = [
+    "pipeline.new",
+    "pipeline.reload",
+    "wire.events",
+    "pipeline.start",
+    "webhook.new",
+    "wire.webhook",
+    "webhook.reload",
+    "webhook.start",
+    "webhook.stop",
+    "pipeline.stop",
+];
 
 /// One step's recorded calls in the vocabulary of the Rust ports (see the header).
 fn expected(calls: &Exact) -> Vec<Value> {
@@ -239,19 +276,9 @@ fn expected(calls: &Exact) -> Vec<Value> {
                 out.push(json!(["remote", "acquired", SESSION]));
                 i += 1;
             }
-            n if SYNC_CALLS.contains(&n) => {
-                let mut reload = false;
-                while i < calls.len() && SYNC_CALLS.contains(&name(i).as_str()) {
-                    reload |= matches!(name(i).as_str(), "webhook.reload" | "pipeline.reload");
-                    i += 1;
-                }
-                out.push(json!(["services.sync", reload]));
-            }
-            n if STOP_CALLS.contains(&n) => {
-                while i < calls.len() && STOP_CALLS.contains(&name(i).as_str()) {
-                    i += 1;
-                }
-                out.push(json!(["services.stop"]));
+            n if SERVICE_CALLS.contains(&n) => {
+                out.push(call.clone());
+                i += 1;
             }
             other => panic!("a recorded call with no Rust counterpart: {other} {call}"),
         }
