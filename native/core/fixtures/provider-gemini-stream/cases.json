@@ -1351,65 +1351,248 @@
       "id": "first-chunk-window-follows-caller-and-names-phase",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:197",
       "input": {
-        "firstByteTimeoutMs": 25,
-        "label": "fixture",
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [],
-            "bodyNeverEnds": true
-          }
-        },
-        "advanceMs": [
-          25
-        ]
+        "endpoint": "accepts the request, never writes a byte",
+        "clock": "every armed timer in due order until the send ends"
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "GeminiTimeoutError",
-          "message": "fixture first byte timed out after 25ms",
-          "code": "EGEMINITIMEOUT",
+          "name": "ProviderTimeoutError",
+          "message": "Gemini REST first byte timed out after 60000ms",
+          "code": "EPROVIDERTIMEOUT",
           "props": {
-            "name": "GeminiTimeoutError",
-            "timeoutPhase": "first-chunk"
+            "name": "ProviderTimeoutError",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryTerminal": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 10
           }
         }
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [],
-                "bodyNeverEnds": true
-              }
-            },
-            {
-              "label": "fixture",
-              "firstByteTimeoutMs": 25
+              "apiKey": "fixture-key"
             }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-2.5-pro",
+            [],
+            {}
           ]
         }
       ],
       "clock": [
         {
-          "advanceMs": 25,
+          "advanceMs": 499,
           "fromMs": 0,
           "fired": [
             {
-              "id": 49,
-              "dueMs": 25
+              "dueMs": 499
             }
           ],
-          "toMs": 25,
-          "armed": []
+          "toMs": 499
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 499,
+          "fired": [
+            {
+              "dueMs": 60499
+            }
+          ],
+          "toMs": 60499
+        },
+        {
+          "advanceMs": 4307,
+          "fromMs": 60499,
+          "fired": [
+            {
+              "dueMs": 64806
+            }
+          ],
+          "toMs": 64806
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 64806,
+          "fired": [
+            {
+              "dueMs": 124806
+            }
+          ],
+          "toMs": 124806
+        },
+        {
+          "advanceMs": 12952,
+          "fromMs": 124806,
+          "fired": [
+            {
+              "dueMs": 137758
+            }
+          ],
+          "toMs": 137758
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 137758,
+          "fired": [
+            {
+              "dueMs": 197758
+            }
+          ],
+          "toMs": 197758
+        },
+        {
+          "advanceMs": 15365,
+          "fromMs": 197758,
+          "fired": [
+            {
+              "dueMs": 213123
+            }
+          ],
+          "toMs": 213123
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 213123,
+          "fired": [
+            {
+              "dueMs": 273123
+            }
+          ],
+          "toMs": 273123
+        },
+        {
+          "advanceMs": 36864,
+          "fromMs": 273123,
+          "fired": [
+            {
+              "dueMs": 309987
+            }
+          ],
+          "toMs": 309987
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 309987,
+          "fired": [
+            {
+              "dueMs": 369987
+            }
+          ],
+          "toMs": 369987
+        },
+        {
+          "advanceMs": 34624,
+          "fromMs": 369987,
+          "fired": [
+            {
+              "dueMs": 404611
+            }
+          ],
+          "toMs": 404611
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 404611,
+          "fired": [
+            {
+              "dueMs": 464611
+            }
+          ],
+          "toMs": 464611
+        },
+        {
+          "advanceMs": 27010,
+          "fromMs": 464611,
+          "fired": [
+            {
+              "dueMs": 491621
+            }
+          ],
+          "toMs": 491621
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 491621,
+          "fired": [
+            {
+              "dueMs": 551621
+            }
+          ],
+          "toMs": 551621
+        },
+        {
+          "advanceMs": 27681,
+          "fromMs": 551621,
+          "fired": [
+            {
+              "dueMs": 579302
+            }
+          ],
+          "toMs": 579302
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 579302,
+          "fired": [
+            {
+              "dueMs": 639302
+            }
+          ],
+          "toMs": 639302
+        },
+        {
+          "advanceMs": 37827,
+          "fromMs": 639302,
+          "fired": [
+            {
+              "dueMs": 677129
+            }
+          ],
+          "toMs": 677129
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 677129,
+          "fired": [
+            {
+              "dueMs": 737129
+            }
+          ],
+          "toMs": 737129
+        },
+        {
+          "advanceMs": 36290,
+          "fromMs": 737129,
+          "fired": [
+            {
+              "dueMs": 773419
+            }
+          ],
+          "toMs": 773419
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 773419,
+          "fired": [
+            {
+              "dueMs": 833419
+            }
+          ],
+          "toMs": 833419
         }
       ]
     }
