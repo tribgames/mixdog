@@ -19,6 +19,7 @@ import type {
   DesktopCapabilityResult,
   SessionSnapshot,
 } from '../../shared/contract';
+import { SCHEDULE_RENAME_UNCERTAIN } from '../../shared/schedule-error-codes';
 import { normalizeSessionTitle } from '../../shared/session-title.mjs';
 import { isSessionId } from '../desktop-state';
 import type { ProtocolConnection } from './connection';
@@ -173,6 +174,25 @@ const hasRpcReason = (error: unknown, ...reasons: string[]): boolean => {
 
 const isThreadNotFound = (error: unknown): boolean => hasRpcReason(error, 'threadNotFound');
 
+/** Whether a `saveSchedule` entry renames its schedule: Node's `saveSchedule` (`channel-admin.mjs:344-345`) renames when
+ *  `newName`, trimmed, is not empty and is not the trimmed `name`. */
+const renamesSchedule = (entry: unknown): boolean => {
+  const { name, newName } = (entry ?? {}) as { name?: unknown; newName?: unknown };
+  const to = newName == null ? '' : String(newName).trim();
+  return to !== '' && to !== String(name || '').trim();
+};
+
+/** The client library's failure for an op whose outcome its reconciliation could not learn (`opOutcomeUnknown`). */
+const isOutcomeUnknown = (error: unknown): boolean =>
+  (error as { detail?: { kind?: unknown } } | null)?.detail?.kind === 'opOutcomeUnknown';
+
+/** Node's `scheduleRenameUncertainError(cause)` (`channels/lib/schedule-errors.mjs`), raised by its `renameSchedule` when the
+ *  call to the scheduler went unanswered (`session-runtime/channel-config-api.mjs:63`). */
+const scheduleRenameUncertain = (cause: string): Error =>
+  Object.assign(new Error(`The rename may or may not have applied (the scheduler did not answer: ${cause}). Check the schedule list.`), {
+    code: SCHEDULE_RENAME_UNCERTAIN,
+  });
+
 /** Whether `capability(...args)` addresses the call's own session, from declared metadata only: the generated method table's
  *  `thread` flag (`METHOD_ARGS`) for an ordinary mapping, and for an override its declared source
  *  (`OVERRIDE_THREAD_SOURCE`, `DESKTOP_OVERRIDE_THREAD_SOURCE`). Node sends every call that names no session to the control
@@ -294,6 +314,14 @@ export function createCapabilityLane({
           throw error;
         }
       );
+    }
+    // A rename whose op was sent and whose outcome the reconciliation could not learn (the connection cut after sending and
+    // `op/status` failing, or the op record gone): the user is told, as Node told them when its scheduler did not answer,
+    // that the rename may or may not have applied.
+    if (capability === 'saveSchedule' && renamesSchedule(args[0])) {
+      return request(method, params).catch((error: unknown) => {
+        throw isOutcomeUnknown(error) ? scheduleRenameUncertain((error as Error).message) : error;
+      });
     }
     if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
     return request(method, params).catch((error: unknown) => {
