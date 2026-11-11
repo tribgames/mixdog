@@ -2792,6 +2792,9 @@ mod tests {
     #[path = "../skill_wire_node_cases.rs"]
     mod skill_wire_node_cases;
 
+    #[path = "../completion_node_cases.rs"]
+    mod completion_node_cases;
+
     /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
     /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
     /// conversation, otherwise the stored transcript as it is (its iteration 1), and it writes, lists and probes nothing.

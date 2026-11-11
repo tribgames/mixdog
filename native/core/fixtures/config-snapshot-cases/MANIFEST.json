@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compared": "after each step, the whole config a read returns (loadConfig with secrets, `loaded`), once the snapshot took the step in, compared as its change from the read over an empty data dir (`stored`: createConfigPatch(base, loaded); the core's create_config_patch from its own loaded config over an empty data dir on its side): the core's loaded config lays no defaults on, Node's carries them",
+  "compared": "after each step, the whole config a read returns (loadConfig with secrets, `loaded`), once the snapshot took the step in, compared as its change from the read over an empty data dir (`stored`: createConfigPatch(base, loaded); the core's create_config_patch from its own loaded config over an empty data dir on its side): the core's loaded config lays no defaults on, Node's carries them. Also the config listener's first read (`listener`, test :197), whether each clock tick told the config inputs' listeners (`epochMoved`, test :380-402) and that a torn file moves nothing (`quiet`, test :263-267). A listener's notification count is not compared: the core's change cell coalesces ticks (`Config::changes`), where Node tells once per file event. The replay waits for each rebuild's notification and accepts, between the recorded moments, a rebuild equal to the last observation or to the empty-data-dir base: the core reads the file by path, and a foreign replace (temp file renamed over it, as `foreignWrite` does) can be read while the path is empty on Windows",
   "excluded": {
     "a credential file that cannot be stat’ed is not read as unchanged: the snapshot rebuilds, and again when it can: the logged EACCES": "the failed stat is Node's own probe of the watched file's stamp (config-snapshot.mjs:68-80, logged by watched-file-cache.mjs); the core keeps no stamp and never stats the file, so it has no stat failure to log; the config after the removal and after the rewrite is replayed",
     "a secret change moves the config inputs, so the next read rebuilds": "not observable: the test changes no secret value (config-snapshot.test.mjs:178-189 calls invalidateSecretCache on an unset key) and asserts only the input epoch moving and the snapshot's object identity changing (`assert.notEqual(full(), before)`), which no reader can see; the rebuilt config equals the one before",
@@ -10,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 170585,
+      "bytes": 170911,
       "path": "golden.json",
-      "sha256": "b15c5a547fcbaf04a875a6a72280b231a69363f7f04b1ddb66f2d0c9d3624b73"
+      "sha256": "e2bd352cbb5ef8f57c05805d4924d610504fc93ba69fa9619587e76ced982900"
     }
   ],
   "inputs": [
@@ -45,7 +45,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-config-snapshot-cases.mjs",
-  "recorderSha256": "f4c01836b6c6b0199ad4db054c9cb47898e8d2065bccc0b1c104dc6127350077",
+  "recorderSha256": "a83954bd1bea27f7b7870648a292c8e667d7a8c836baed68f3db605102eb6e96",
   "set": "config-snapshot-cases",
-  "totalBytes": 170585
+  "totalBytes": 170911
 }

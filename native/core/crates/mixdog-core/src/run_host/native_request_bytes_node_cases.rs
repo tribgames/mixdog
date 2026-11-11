@@ -3,7 +3,8 @@
 //! own pieces and the whole session afterwards against Node's —
 //!
 //! * a session opened and switched by [`ToolSurface::apply`] and [`ToolSurface::rebuild_for_provider`];
-//! * `load_tool` through `bridge::load` over the real [`SessionCatalog`] (the whole answer);
+//! * `load_tool` through the real [`LoadTool`] over the real [`SessionCatalog`] (the whole answer), with the servers'
+//!   status where the step has one (Node does not wait for a connecting server: it names it in the answer);
 //! * the late MCP catalog and the first-turn fold by [`ToolSurface::reconcile_mcp_catalog`] and
 //!   [`ToolSurface::refresh_initial_mcp_surface`], the pending delta through the turn's reminder block
 //!   ([`turn_reminders::build`]);
@@ -29,8 +30,18 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::WireCodec;
+use mixdog_core_api::domain::mock::MockApprovalGate;
+use mixdog_core_api::domain::mock::MockFileService;
+use mixdog_core_api::domain::mock::MockProcessManager;
+use mixdog_core_api::domain::mock::MockProgress;
+use mixdog_core_api::domain::tool::SurfaceKind;
+use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolAnnotations;
+use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::domain::tool::ToolIo;
+use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_tools::orch::bridge::LoadTool;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_core_ports::ports::threads::Section;
@@ -48,6 +59,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::context_world::request_definitions;
+use super::session_catalog::McpServerStatus;
 use super::session_catalog::RunningHeaders;
 use super::session_catalog::SessionCatalog;
 use super::skill_session::HeaderSkillArm;
@@ -169,6 +181,37 @@ fn thread() -> ThreadId {
     ThreadId::from("t1")
 }
 
+/// `mcpStatus()` as the step recorded it.
+struct Status(Value);
+
+#[async_trait]
+impl McpServerStatus for Status {
+    async fn status(&self, _: &ThreadId) -> Value {
+        self.0.clone()
+    }
+}
+
+fn call_context() -> ToolContext {
+    let tokens = mixdog_rt::testing::tokens();
+    ToolContext {
+        call_id: mixdog_protocol::ToolCallId::from("load"),
+        thread_id: thread(),
+        turn_id: mixdog_protocol::TurnId::from("turn"),
+        tool: "load_tool".into(),
+        cwd: mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).expect("absolute"),
+        surface: SurfaceKind::Lead,
+        cancel: tokio_util::sync::CancellationToken::new(),
+        deadline: None,
+        progress: Arc::new(MockProgress::default()),
+        io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+        approvals: Arc::new(MockApprovalGate::default()),
+        files: Arc::new(MockFileService::default()),
+        processes: Arc::new(MockProcessManager::default()),
+        options: Default::default(),
+        review: None,
+    }
+}
+
 /// The request one step sends, as the run takes it: the session's tools through `request_definitions` and its stored
 /// rows read by `message_of`, then the user's `go`; encoded by the provider's own codec, the body as JSON.
 fn request_body(session: &Value) -> Value {
@@ -246,8 +289,14 @@ async fn every_recorded_native_request_step_is_nodes() {
                 }
                 "load" => {
                     let store = Store::of(session);
-                    let catalog = SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), host.clone(), clock.clone());
-                    let text = mixdog_tools::orch::bridge::load(&catalog, &thread(), &step["args"]).await.expect("an answer");
+                    let mut catalog = SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), host.clone(), clock.clone());
+                    // Node reads the servers' status once, without waiting: a server still connecting is named in the answer.
+                    if !step["status"].is_null() {
+                        catalog = catalog.with_status(Arc::new(Status(step["status"].clone())));
+                    }
+                    // The model's call: the `load_tool` tool, not the function under it.
+                    let output = LoadTool::new(Arc::new(catalog)).call(&call_context(), step["args"].clone()).await.expect("an answer");
+                    let [ToolPart::Text(text)] = output.parts.as_slice() else { panic!("{at}: one text part") };
                     assert_eq!(text, step["result"].as_str().expect("text"), "{at}: the answer");
                     *session = store.session();
                 }

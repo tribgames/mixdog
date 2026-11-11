@@ -171,6 +171,14 @@ fn stored(base: &serde_json::Map<String, Value>, loaded: &serde_json::Map<String
     )
 }
 
+/// The one deadline of a wait on an event: what it waits for, named in the failure.
+async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
+    match tokio::time::timeout(Duration::from_secs(5), wait).await {
+        Ok(done) => done,
+        Err(_) => panic!("waited 5 s for {what}"),
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_replayed_config_snapshot_read_is_nodes() {
     let golden = fixture("golden.json");
@@ -204,6 +212,11 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
         let base = (*rig.loaded.get()).clone();
         let base = &base;
         let mut in_place: Option<std::fs::File> = None;
+        // The last observation, and the rebuilds applied when it was taken.
+        let mut last = Value::Null;
+        let mut applied_at = 0;
+        // A config-change listener, subscribed after each observation as the test subscribes its own.
+        let mut listener = rig.config.changes();
         for (index, step) in steps.iter().enumerate() {
             let text = step["text"].as_str().unwrap_or_default();
             // The snapshot is made at the first read, as Node's is.
@@ -240,29 +253,61 @@ async fn every_replayed_config_snapshot_read_is_nodes() {
                 "forgetTokens" => {
                     openai.forget("default").await.unwrap();
                 }
-                "tick" => ticks.advance(step["ms"].as_u64().unwrap()),
+                // The clock moves by the recorded tick; the pass at the expiry is the event that tells the listeners.
+                "tick" => {
+                    let sync = started.as_mut().unwrap();
+                    let before = *sync.applied.borrow_and_update();
+                    ticks.advance(step["ms"].as_u64().unwrap());
+                    if step["epochMoved"] == true {
+                        within(&format!("{name}, step {index}: the rebuild at the credential's expiry"), sync.applied.changed()).await.unwrap();
+                    } else {
+                        assert_eq!(*sync.applied.borrow(), before, "{name}, step {index}: nothing fires before the deadline");
+                    }
+                }
                 // Another process writing the file in place, caught halfway, then completing it.
                 "writeConfigInPlace" => {
+                    // A torn file makes no notification (the reload fails and the config keeps its last good document), so the
+                    // pass over its first bytes cannot be awaited: declared in the manifest.
                     let mut file = std::fs::File::create(&path).unwrap();
                     file.write_all(text.as_bytes()).unwrap();
                     file.sync_all().unwrap();
                     in_place = Some(file);
-                    // Node's own wait for the first bytes' events and notification pass.
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
                 }
                 "appendConfig" => {
                     let mut file = in_place.take().unwrap();
                     file.write_all(text.as_bytes()).unwrap();
                 }
+                // While the file stays torn no rebuild is applied (Node: the epoch holds).
+                "quiet" => {
+                    let sync = started.as_ref().unwrap();
+                    assert_eq!(*sync.applied.borrow() > applied_at, step["epochMoved"] == true, "{name}, step {index}: rebuilds while the file stays torn");
+                }
+                // The config-change listener's notification, and the config it reads then.
+                "listener" => {
+                    within(&format!("{name}, step {index}: the config-change notification"), listener.changed()).await.unwrap();
+                    let agent = rig.config.loaded_agent().await.unwrap();
+                    assert_eq!(json!([agent.get("heartbeat")]), step["seen"], "{name}, step {index}: what the listener reads");
+                }
                 "observe" => {
-                    // Node waited until its snapshot took the step in; this waits as long for the loaded config.
+                    // The loaded config at Node's recorded moment: taken in by the rebuild the step causes, each rebuild
+                    // announced by the sync's own notification. A rebuild that changes nothing is another notification of
+                    // the same state; any other state is a wrong intermediate.
                     let want = &step["stored"];
-                    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-                    while stored(base, &rig.loaded.get()) != *want && tokio::time::Instant::now() < deadline {
-                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    let sync = started.as_mut().unwrap();
+                    loop {
+                        sync.applied.borrow_and_update();
+                        let got = stored(base, &rig.loaded.get());
+                        if got == *want {
+                            break;
+                        }
+                        // Declared in the manifest: another process's replace of the file can be read while the path is empty.
+                        // The first observation has no earlier one: the watch is still taking in the case's own setup writes.
+                        assert!(last.is_null() || got == last || got == json!([]), "{name}, step {index}: an intermediate state\n got: {got}\nlast: {last}\nwant: {want}");
+                        within(&format!("{name}, step {index}: the rebuild that takes the step in"), sync.applied.changed()).await.unwrap();
                     }
-                    let got = stored(base, &rig.loaded.get());
-                    assert!(got == *want, "{name}, step {index}\n got: {got}\nwant: {want}");
+                    last = want.clone();
+                    applied_at = *sync.applied.borrow();
+                    listener = rig.config.changes();
                 }
                 other => panic!("{name}: step {other} has no replay"),
             }

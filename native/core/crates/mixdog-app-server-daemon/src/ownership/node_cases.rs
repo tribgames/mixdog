@@ -40,8 +40,12 @@ fn contender() {
 
 struct Contender {
     child: Child,
-    stdout: BufReader<std::process::ChildStdout>,
+    /// The contender's stdout lines, read on a thread of their own so that waiting for one has a deadline.
+    lines: std::sync::mpsc::Receiver<String>,
 }
+
+/// How long a contender has to answer: it acquires at once, so this only bounds a process that never starts.
+const VERDICT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl Contender {
     fn start(data: &Path) -> Self {
@@ -54,14 +58,25 @@ impl Contender {
             .spawn()
             .unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
-        Self { child, stdout }
+        let (send, lines) = std::sync::mpsc::channel();
+        // Ends when the contender's stdout closes (it is killed) or the receiver is gone.
+        std::thread::spawn(move || {
+            for line in stdout.lines().map_while(Result::ok) {
+                if send.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        Self { child, lines }
     }
 
     fn verdict(&mut self) -> Value {
-        let mut line = String::new();
         loop {
-            line.clear();
-            assert!(self.stdout.read_line(&mut line).unwrap() > 0, "contender exited before answering");
+            let line = match self.lines.recv_timeout(VERDICT_DEADLINE) {
+                Ok(line) => line,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("waited {VERDICT_DEADLINE:?} for a contender's verdict"),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("contender exited before answering"),
+            };
             // libtest prints `test <name> ... ` before the test's own output, on the same line.
             if let Some(start) = line.find("{\"held\"") {
                 return serde_json::from_str(line[start..].trim()).unwrap();

@@ -59,12 +59,9 @@ async fn live_hub(dir: &Path, scope: &str, servers: &[(String, Vec<String>, Valu
         .collect();
     hub.apply_in(scope, configs);
     for (name, _, _) in servers {
-        let server = hub.server_in(scope, name).unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        while !matches!(&*server.state(), ServerState::Ready(_)) {
-            assert!(std::time::Instant::now() < deadline, "{name} never became ready");
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
+        let mut states = hub.server_in(scope, name).unwrap().subscribe();
+        let ready = tokio::time::timeout(std::time::Duration::from_secs(20), states.wait_for(|state| matches!(&**state, ServerState::Ready(_)))).await;
+        assert!(matches!(ready, Ok(Ok(_))), "waited 20 s for server {name} to become ready");
     }
     hub
 }
@@ -118,7 +115,8 @@ async fn every_recorded_extension_scope_answer_is_nodes() {
                     })
                     .collect();
                 hub.close_all().await;
-                // Node's filter passes the test's non-MCP `read` through; only its MCP names are the hub's.
+                // Declared in the manifest (`declared`): Node's filter passes the test's non-MCP `read` through untouched
+                // (`filterMcpToolsForCwd`, extension-scopes.mjs:36-43); only its MCP names are the hub's.
                 let want_filters: Vec<Value> = recorded["filters"]
                     .as_array()
                     .unwrap()

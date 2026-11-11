@@ -130,6 +130,64 @@
           }
         ]
       }
+    },
+    {
+      "case": "notifySessionCompletion routes to the runtime that owns the session, hinted or discovered",
+      "recorded": {
+        "answers": [
+          {
+            "call": "hinted owner",
+            "owner": "sess_hint",
+            "text": "done",
+            "meta": {
+              "kind": "task"
+            },
+            "answer": true
+          },
+          {
+            "call": "discovered owner",
+            "owner": "sess_found",
+            "text": "done 2",
+            "meta": {},
+            "answer": true
+          },
+          {
+            "call": "missing owner",
+            "owner": "sess_missing",
+            "text": "x",
+            "meta": {},
+            "answer": false
+          },
+          {
+            "call": "owner whose runtime was disposed",
+            "owner": "sess_hint",
+            "text": "late",
+            "meta": {},
+            "answer": false
+          },
+          {
+            "call": "after the host closed",
+            "owner": "sess_found",
+            "text": "after close",
+            "meta": {},
+            "answer": false
+          }
+        ],
+        "delivered": [
+          [
+            "sess_hint",
+            "done",
+            {
+              "kind": "task"
+            }
+          ],
+          [
+            "sess_found",
+            "done 2",
+            {}
+          ]
+        ]
+      }
     }
   ]
 }

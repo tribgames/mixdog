@@ -11431,11 +11431,11 @@
             "_providerPrefixGuardState": {
               "messageHashes": [
                 "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
-                "953262ffef1d932a8ecf41781cb545b633931074ea138542b6b1365cc7ebe081",
-                "24fd50d44ef0270103cfb80d3e75999285cdca33212e7361e28be72ed074a3cd",
-                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
-                "2d0da97703a425028b98116e527c8578ab3b2fbde79083c95c059fa7359329cc",
-                "2aeddcefeac0a02c7f066c1e2b92bf1bca388ceae2680e5a41bc878bbaede8a2"
+                "0d07473604441b62cf36b357be35aadaa5b49a78d230b19d686a3a42b8146136",
+                "8bffd26181bb7b1fa930c47ffb7acb96afd9235ebbf1c03a01f05658ac9b6454",
+                "f2029f83e53997d69b288104958b44e38b09f4748fc6979dfe59a395a11a70bf",
+                "004eea1d76821925c8d79222dace65b45d877dc0ae47497611a712e691000289",
+                "1f84205c476f0a2a348913ec89073d0e928d32b9a54d6a0b3c0b649e803518c9"
               ],
               "requestPrefixHash": "4bfef383d536552258022000eb75c79b200d6dbc608dbdcd96ea9e62585efc54",
               "provider": "openai-oauth",
@@ -11443,7 +11443,7 @@
               "toolSchemaHash": "6e0cbc6e3eac060694df2a6fab44194aac09489fe1fed81ac07472e0d3c0a059",
               "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
             },
-            "lastProviderSendAt": 1794408133701,
+            "lastProviderSendAt": 1794435227871,
             "skillLoadedTools": [
               "office"
             ],
@@ -12466,11 +12466,11 @@
             "_providerPrefixGuardState": {
               "messageHashes": [
                 "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
-                "06f044b63ce1830d26bfbd6a12c8efc64c881e1c2eaf1b7d3e45ad7d22f33466",
-                "87167d1219032676660bdcf1737b2ee39bbaff2e8375500ab8bf892d25fc7e65",
-                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
-                "4e2a456d354332e09cc28389b7fe9d9ec1eb415ba234fb4654bd7517fce63d5f",
-                "8f7b71ac7be8f6e401bb39f7daa48f5b17f05e610e7764e6bbb8695ef47e499e"
+                "f8efbfb35eda125ce955ae6cfe566df814f8bc4fcd031d63dd861a3662ffb935",
+                "be2427199f6371c8c1a9297f7365238b94ba77658fc8e7397b957b6a9359c41d",
+                "f2029f83e53997d69b288104958b44e38b09f4748fc6979dfe59a395a11a70bf",
+                "d08da7a81c986f135d0a6f4641a1842ab9f6d2b2cbf7f08caf22bbca065c28f2",
+                "3d325b3772e224a9a18ca0f51d32f6107015411019149ef61be6367b89b3f9e2"
               ],
               "requestPrefixHash": "e48d9d2397fd688095177396cdecff040168c04981305a116067547b26410ca5",
               "provider": "anthropic-oauth",
@@ -12478,7 +12478,7 @@
               "toolSchemaHash": "6e0cbc6e3eac060694df2a6fab44194aac09489fe1fed81ac07472e0d3c0a059",
               "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
             },
-            "lastProviderSendAt": 1794408133718,
+            "lastProviderSendAt": 1794435227948,
             "lastProviderCachedPrefixTokens": 0,
             "skillLoadedTools": [
               "office"
@@ -13986,11 +13986,11 @@
             "_providerPrefixGuardState": {
               "messageHashes": [
                 "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
-                "98362fa1024eb5fa9af74012b00ac17f19aa8b07dabb366c38e8493303c29a6e",
-                "6a58d48e651414ae52e9759db495700d9e3e618ebab7f49f236b6acb4d2b32af",
-                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
-                "8c34ead516c500652e24815de28053e977d8d865e42e007f7f6f8114c0a36f55",
-                "cf9bcf3cb0e8ee92f8e5987ad2eb0920b055e72898fa77ac9fd9437afa8389e8"
+                "757280b0d68fd7b95fd346fc029f8a6f969af39f71365ff753cfa029ab6edf56",
+                "cd0031a4d7b6471af24e8256dca720c10bc4f6ddc6cde21d5f6983e19ed94090",
+                "f2029f83e53997d69b288104958b44e38b09f4748fc6979dfe59a395a11a70bf",
+                "ca9cf62728fda448638def97d1a2420e213af9a854f09c2b5a03776c00dc5d33",
+                "cdee103eded0721675e9345532d162a193260e0d1c28940cfe7fdf32d331ed8d"
               ],
               "requestPrefixHash": "0d38bce6c0c0120f790a10c29246ad57c1ae48d5a46fffd55c0e0f57df670442",
               "provider": "gemini",
@@ -13998,7 +13998,7 @@
               "toolSchemaHash": "2cfc417b5d05e4552b13c4a74480b6620924d8ed03b2290d035287ffaa02fb56",
               "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
             },
-            "lastProviderSendAt": 1794408133734,
+            "lastProviderSendAt": 1794435228027,
             "skillLoadedTools": [
               "office"
             ],
@@ -15555,11 +15555,11 @@
             "_providerPrefixGuardState": {
               "messageHashes": [
                 "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
-                "eee6fb86e03b36f6ea2b03f9c85a0e4209d652fc14e4d648aabe9678e066f2ea",
-                "e70a26178863414f4c5e4943b4ba9f315ee6b4e7e70a35d8e7c207a80021c7a0",
-                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
-                "8366bcfe928e3d860143d8a2e299a9bcb0b659646add5add893ec33ce19a8bd8",
-                "71f37f9e899645dfbf3ee2c82525c3cce76f0dee2b23a40f9742727d49a8ae5d"
+                "6f1f308b6b4fc9d75633874e86c35a896c0deaf67d78637dc1921d989fd2dea7",
+                "2467c9ff043f150501813c31149466642498d3aac5212d5f785b539ba24b634c",
+                "f2029f83e53997d69b288104958b44e38b09f4748fc6979dfe59a395a11a70bf",
+                "6cc0356624c975393d218a0f88272cd578de5cb461fc02341e37f829aedf6cce",
+                "71fde18ae1666f242eb0b5e8c903d30ae800390059367d49e5b00027d6c533e8"
               ],
               "requestPrefixHash": "3d7f1144a176fd195747245ef25123ffdaad6ecb93cea3000cecd50f4d611932",
               "provider": "openrouter",
@@ -15567,7 +15567,7 @@
               "toolSchemaHash": "2cfc417b5d05e4552b13c4a74480b6620924d8ed03b2290d035287ffaa02fb56",
               "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
             },
-            "lastProviderSendAt": 1794408133746,
+            "lastProviderSendAt": 1794435228071,
             "skillLoadedTools": [
               "office"
             ],

@@ -315,7 +315,13 @@ writeSetManifest(stage, {
     declared:
       "a tool the test defines without `description` (its `Skill`) goes on Node's wire with the key absent; the core's " +
       "tool definition always has a description string, so its codec sends `description: \"\"`. The replay drops that " +
-      'empty key from only those tools, named from the test input; every product tool has a description. ' +
+      'empty key from only those tools, named from the test input; no product source reaches a request without a ' +
+      'description (mcp/client.mjs:1647,323; session/manager/tool-resolution.mjs:35; runtime-core/tool-bridge.mjs:238; ' +
+      'builtin-tools.mjs; tool-defs.mjs:216). ' +
+      "The core's loop session also holds its turn pipeline's per-turn bookkeeping (usage totals and last-request readings, `turnHop`, `turnBotChain`, " +
+      "`transcriptEpoch`, `turnCoverage`, `title`, `titleUpdatedAt`, `reasoningUsage`, `usageMetricsTurnId`, `lastIterationIndex`, `lastTurnCompletedAt`, " +
+      "`closeProvenance`, the `_repeat*` guards): the test runs `agentLoop` alone, whose turn commit writes them elsewhere (ask-turn-execute.mjs:122); the replay " +
+      "names each in `TURN_BOOKKEEPING` (skill_wire_node_cases.rs) and fails on any other key Node's session lacks. " +
       "The loop session's `lastProviderSendAt` is each side's own send clock: compared as present and a number",
   },
 });

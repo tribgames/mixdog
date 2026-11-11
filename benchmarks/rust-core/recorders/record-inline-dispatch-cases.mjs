@@ -128,6 +128,48 @@ const cases = [{ case: 'agentDispatch rejects a missing or already-running dispa
   cases.push({ case: 'agent graph loading retries after a failure and shares the successful graph', recorded: { calls: retried } });
 }
 
+// The test's harness for completion routing: runtimes that record each completion delivered to them. Each call's
+// answer, in the test's order (hinted, discovered and missing owners, a disposed runtime's owner, and every owner once
+// the host is closed), and the completions the runtimes received.
+{
+  const delivered = [];
+  const host = createInlineSessionRuntimeHost({
+    cwd: 'C:/work',
+    loadLocalModule: async () => ({
+      async createLocalSessionRuntime(options = {}) {
+        const state = { sessionId: options.sessionId || null };
+        return {
+          getState: () => state,
+          setSessionId: (id) => {
+            state.sessionId = id;
+          },
+          deliverToolCompletion(sessionId, text, meta) {
+            delivered.push([sessionId, text, meta]);
+            return true;
+          },
+          async dispose() {},
+        };
+      },
+    }),
+    loadAgentGraph: async () => ({ config: { loadConfig: () => ({}) }, registry: { initProviders: async () => {} }, dispatch: {} }),
+    warmKeychain: async () => {},
+  });
+  const hinted = await host.create({ sessionId: 'sess_hint' });
+  const discovered = await host.create({});
+  discovered.setSessionId('sess_found');
+  const notify = (call, owner, text, meta) => ({ call, owner, text, meta, answer: host.notifySessionCompletion(owner, text, meta) });
+  const answers = [
+    notify('hinted owner', 'sess_hint', 'done', { kind: 'task' }),
+    notify('discovered owner', 'sess_found', 'done 2', {}),
+    notify('missing owner', 'sess_missing', 'x', {}),
+  ];
+  await hinted.dispose('bye');
+  answers.push(notify('owner whose runtime was disposed', 'sess_hint', 'late', {}));
+  await host.close('test over');
+  answers.push(notify('after the host closed', 'sess_found', 'after close', {}));
+  cases.push({ case: 'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered', recorded: { answers, delivered } });
+}
+
 const excluded = {
   'agentDispatch caches one dispatcher per agent and forwards the call parameters: the factory options and the dispatcher cache':
     "not reachable by a client: the one caller of the host's agentDispatch is the memory-cycle broker " +
@@ -138,11 +180,16 @@ const excluded = {
   'agent graph loading retries after a failure and shares the successful graph: the load count':
     "not observable: the graph is a lazy `import()` inside the host (session-runtime-inline-host/agent-dispatch.mjs); a " +
     'client sees each dispatch\'s outcome, replayed here, and the core has no module to import',
-  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered':
-    'the routing among several in-process JS runtimes (src/standalone/session-runtime-inline-host.mjs:91, hinted by ' +
-    'sessionId or discovered by setSessionId) has no core counterpart: the core runs every session in one daemon; the ' +
-    "observable delivery (the owner's session gets the completion, a missing one gets nothing) is replayed in " +
-    'agent-worker-cases "agent completion notifications route to the owner exactly once"',
+  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the runtime counts':
+    "`status.worker.runtimes` and `workloads.worker.runtimes` (session-runtime-inline-host.dispatch.test.mjs:159-165) count the " +
+    "host's in-process JS runtimes (session-runtime-inline-host.mjs:108-118), which the core, one daemon for every session, has no counterpart of",
+  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the disposed runtime':
+    "Node answers false once the owner's runtime is disposed (session-runtime-inline-host.mjs:91-94, `records.ownerRuntime`); the core has no " +
+    "disposal of a loaded thread's runtime, and its `OwnerNotify` answers `live` for any loaded handle (core-session agent_registry/flow.rs, `notify`), so the " +
+    'same call answers true there: open, not replayed',
+  'notifySessionCompletion routes to the runtime that owns the session, hinted or discovered: the host closed':
+    "the answer after `host.close()` (session-runtime-inline-host.mjs:91-93, `if (closed) return false`) is the host's own lifetime; the core's " +
+    'directory closes only with the daemon, whose shutdown is not a call a client makes',
   'agentControl forwards to the injected executor and the placeholder actions stay inert':
     "not reachable by a client: agentControl only forwards to the daemon's canonical agent control (src/standalone/daemon.mjs:1122 " +
     '`executeAgentControl: agentControl.execute`), whose answers the agent tool replays cover; agentSessionAction, ' +
