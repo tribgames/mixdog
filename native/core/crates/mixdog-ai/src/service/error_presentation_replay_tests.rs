@@ -7,8 +7,10 @@
 //! ([`present_error_text`]), `safeDetails` ([`safe_error_details`] of the value's string form) and, for an error
 //! object, `providerErrorKind` (the [`Descriptor`] the core persists as `errorKind`). `describe`,
 //! `persistedDescribe`, `summaryReDescribe`, `builtError` and the persisted-descriptor (`D`) probes are the desktop
-//! renderer's reading of a persisted item (`ErrorNotice.tsx` imports the shared JS module) and Node's own error
-//! classes: declared in the manifest's `replay.declaredExclusions`.
+//! renderer's reading of a persisted item (`ErrorNotice.tsx` imports the shared JS module): replayed against that
+//! code by `apps/desktop/src/renderer/error-presentation-replay.test.mjs`. A socket error's errno name is not an
+//! input here: the `ECONNRESET` probe carries only the typed fault and the `fetch failed` probe the link's text, so
+//! the recorded sentence `Connection to the provider was lost (ECONNRESET).` and its persisted code are the core's own.
 
 use std::io;
 use std::time::Duration;
@@ -33,6 +35,7 @@ use crate::providers::anthropic::errors::quota_error_text;
 use crate::retry::classify::Facts;
 use crate::retry::classify::kind_of;
 use crate::transport::fault::fault_from_io;
+use crate::transport::link::Surface;
 
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/error-presentation-cases/golden.json");
 
@@ -64,13 +67,16 @@ fn live_error(spec: &Value) -> (ProviderError, String) {
     let whole = |key: &str| fields[key].as_f64().map(|n| n as u64);
     let status = whole("status").filter(|s| *s > 0).map(|s| s as u16);
     let code = fields["code"].as_str().filter(|c| !c.is_empty());
+    // A socket error's `code` is Node's errno name: the core holds the typed fault and states the code from it.
+    let socket_code = code == Some("ECONNRESET");
+    let code = code.filter(|_| !socket_code);
     let retry_after = whole("retryAfterMs").filter(|ms| *ms > 0).map(Duration::from_millis);
     let reauth_required = fields["reauthRequired"] == json!(true);
     let transport = whole("wsCloseCode").map(|c| TransportFault::WsClose { code: Some(c as u16) });
     // A socket failure reaches the core as an I/O error, not as Node's errno text: `code: ECONNRESET` is the
     // reset socket, undici's `TypeError: fetch failed` the connection that never opened.
-    let transport = match (spec["t"].as_str(), code) {
-        (_, Some("ECONNRESET")) => Some(fault_from_io(&io::Error::from(io::ErrorKind::ConnectionReset), false)),
+    let transport = match (spec["t"].as_str(), socket_code) {
+        (_, true) => Some(fault_from_io(&io::Error::from(io::ErrorKind::ConnectionReset), false)),
         (Some("T"), _) => Some(fault_from_io(&io::Error::from(io::ErrorKind::ConnectionRefused), true)),
         _ => transport,
     };
@@ -82,7 +88,10 @@ fn live_error(spec: &Value) -> (ProviderError, String) {
     error.reset_at = whole("resetAt").map(|ms| SystemTime::UNIX_EPOCH + Duration::from_millis(ms));
     error.reauth_required = reauth_required;
     error.transport = transport;
-    error.message = spec["message"].as_str().unwrap().to_owned();
+    // The undici `TypeError: fetch failed` is the text the link gives a raw fetch's connection failure; the errno
+    // wording of a reset (`read ECONNRESET`, libuv's) has no typed source and stays the recording's input.
+    error.message = if spec["t"] == "T" { Surface::Fetch.text(|| unreachable!("a raw fetch has Node's text")) } else { spec["message"].as_str().unwrap().to_owned() };
+    assert!(spec["t"] != "T" || error.message == spec["message"].as_str().unwrap(), "the link's text is the recorded one");
     let name = if spec["t"] == "T" { "TypeError" } else { "Error" };
     (error, name.to_owned())
 }

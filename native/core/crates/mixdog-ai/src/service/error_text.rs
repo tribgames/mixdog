@@ -110,11 +110,16 @@ fn kind_name(kind: ErrorKind) -> &'static str {
     }
 }
 
-/// `error.code` as the provider error states it: its own code, else `TRUNCATED_STREAM` for a cut stream.
+/// `error.code` as the provider error states it: its own code, else `TRUNCATED_STREAM` for a cut stream and
+/// `ECONNRESET` for a reset socket (Node's sentence reads "(ECONNRESET)", here and in the persisted errorKind).
 pub fn sent_code(error: &ProviderError) -> String {
     let code = error.code.clone().unwrap_or_default();
-    if code.is_empty() && matches!(error.transport, Some(TransportFault::TruncatedStream)) {
-        return "TRUNCATED_STREAM".into();
+    if code.is_empty() {
+        match error.transport {
+            Some(TransportFault::TruncatedStream) => return "TRUNCATED_STREAM".into(),
+            Some(TransportFault::Reset) => return "ECONNRESET".into(),
+            _ => {}
+        }
     }
     code
 }

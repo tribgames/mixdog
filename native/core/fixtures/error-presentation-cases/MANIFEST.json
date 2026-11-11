@@ -75,33 +75,26 @@
         "probeKeys": [
           "describe",
           "persistedDescribe",
-          "summaryReDescribe"
-        ],
-        "reason": "describeError's full notice (recovery, recoveryTemplate, params, details, fingerprint) and its re-reading of a persisted item or summary are the desktop renderer's (apps/desktop/src/renderer/ErrorNotice.tsx imports the shared JS module); the core answers presentErrorText, safeErrorDetails and the persisted errorKind only"
-      },
-      {
-        "probeKeys": [
+          "summaryReDescribe",
           "builtError"
         ],
-        "reason": "Node's Error object built from the spec (name, props): the core holds the failure as ProviderError / ErrorResponse, built from the same fields in the replay"
+        "reason": "the renderer's reading of a persisted item (ErrorNotice.tsx, desktop-toast-state.ts, RendererRecovery.tsx import the shared JS module) and Node's Error built from the spec: replayed whole against that code by apps/desktop/src/renderer/error-presentation-replay.test.mjs, not by the core, which answers presentErrorText, safeErrorDetails and the persisted errorKind"
       },
       {
         "probes": "every input with t \"D\" (a persisted descriptor object)",
-        "reason": "presenting a stored errorKind again is the renderer's reading of a persisted item; the core presents a failure once, when it is recorded (mixdog-core-session/src/session/failure_record.rs failure_record)"
+        "reason": "presenting a stored errorKind again is the renderer's reading of a persisted item, replayed by apps/desktop/src/renderer/error-presentation-replay.test.mjs; the core presents a failure once, when it is recorded (mixdog-core-session/src/session/failure_record.rs failure_record), and the descriptor it stores is compared through providerErrorKind of the E/T/Q probes"
       },
       {
-        "case": "diagnostic payloads and display summaries have bounded size",
+        "case": "diagnostic payloads and display summaries have bounded size / both summaries and details redact credentials",
         "keys": [
-          "result"
-        ],
-        "reason": "describeError of the long input (the renderer notice, as describe above); safeDataOfLongJson is replayed"
-      },
-      {
-        "case": "both summaries and details redact credentials while retaining useful context",
-        "keys": [
+          "result",
           "texts"
         ],
-        "reason": "the notice's four shown strings, read from describe (renderer); the two the core answers, safeDetailsOfString and presentErrorText, are replayed with the probe under result"
+        "reason": "describeError's notice and its four shown strings are the renderer's, replayed by the desktop test; safeDataOfLongJson, safeDetailsOfString and presentErrorText are replayed in Rust"
+      },
+      {
+        "probes": "the E probe with code ECONNRESET: message \"read ECONNRESET\"",
+        "reason": "the message is libuv's errno wording, which the core has no typed source for; it stays an input of the replay, the code and kind come from the typed Reset fault (sent_code reads ECONNRESET from it), so the sentence `Connection to the provider was lost (ECONNRESET).`, its persisted code and the kind are the core's"
       },
       {
         "case": "typed codes classify errors; the wait and reset time are shown when known",
