@@ -143,6 +143,12 @@ impl ChannelRuntime {
         RuntimeStatus { running: st.automation_running || st.bridge_connected, pid: std::process::id() }
     }
 
+    /// Test support: the bridge is connected (Node's `getBridgeRuntimeConnected()`).
+    #[cfg(test)]
+    pub(crate) fn bridge_connected(&self) -> bool {
+        self.state.lock().unwrap().bridge_connected
+    }
+
     /// Whether the scheduler is armed by this process (schedules then move through it).
     pub fn automation_running(&self) -> bool {
         self.state.lock().unwrap().automation_running
@@ -254,7 +260,7 @@ impl ChannelRuntime {
             return Ok(());
         }
         let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
-        self.scheduler.reload_config(rows, false);
+        self.scheduler.load(rows);
         self.scheduler.start();
         // Node's `syncWebhookAndEventRuntime()` is synchronous: the runtime counts as up as the sync is
         // launched, before the listener has bound (`automation-start.mjs:30-42`).
@@ -269,7 +275,7 @@ impl ChannelRuntime {
         let already = self.state.lock().unwrap().automation_running;
         if !already {
             let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
-            self.scheduler.reload_config(rows, false);
+            self.scheduler.load(rows);
             self.scheduler.start();
         }
         let synced = self.services.sync(false).await;
