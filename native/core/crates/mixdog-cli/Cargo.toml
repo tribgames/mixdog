@@ -25,7 +25,7 @@ crash-gates = ["mixdog-core-session/crash-gates"]
 # (mixdog-rt virtual_clock.rs), and the memory store on the port the replay assigned (mixdog-services pg/cluster.rs `assigned_port`).
 virtual-clock = ["mixdog-ai/virtual-clock", "mixdog-core-session/virtual-clock", "mixdog-services/assigned-pg-port"]
 # A replay's barrier on the model's bytes (mixdog-ai transport/replay_bytes.rs, MIXDOG_REPLAY_BYTES).
-replay-bytes = ["mixdog-ai/replay-bytes"]
+replay-bytes = ["mixdog-ai/replay-bytes", "mixdog-core/replay-bytes"]
 # A replay's settled signal (mixdog-core-session session/replay_settled.rs, MIXDOG_REPLAY_SETTLED).
 replay-settled = ["mixdog-core-session/replay-settled"]
 # Every replay control, and for every library `mixdogd` links the features a test build gives it, so a test run and
