@@ -186,8 +186,8 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
 
 /// The provider's retry policy for one request: `retry_529: false` (Node `opts.retry529 === false`,
 /// `retry-executor.mjs`) stops an overload retrying, ahead of the overload fallback.
-fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borrow::Cow<'_, RetryPolicy> {
-    let policy = provider.retry_policy();
+fn request_policy<'a>(provider: &'a dyn ProviderAdapter, model: &str, retry_529: bool) -> std::borrow::Cow<'a, RetryPolicy> {
+    let policy = provider.retry_policy_for(model);
     if retry_529 {
         return std::borrow::Cow::Borrowed(policy);
     }
@@ -460,10 +460,34 @@ impl Run {
         self.emit(RunEvent::Stage(Stage::Streaming));
         let mut shown_chars = 0usize;
         let mut reasoning_shown = false;
+        self.settle_gate.send_replace(false);
+        // Invariant (`crate::batch::settle_gate`): the gate is open only while a pending `next` waits for the wire. It is
+        // opened here, between polls of `next`, and closed by the stream itself inside the poll in which the wire's
+        // terminal event arrives, before that `next` goes on to the ledger's write: both run on this task, so a waiter
+        // never finds it open from the instant the response ended, whether the `next` that ends it began on the wire or not.
+        let wire_left = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let (gate, left) = (self.settle_gate.clone(), Arc::clone(&wire_left));
+            stream.on_wire_left(Arc::new(move || {
+                left.store(true, std::sync::atomic::Ordering::Release);
+                gate.send_replace(false);
+            }));
+        }
         loop {
-            let next = or_cancelled(&self.cancel, stream.next())
-                .await
-                .ok_or(AgentError::Aborted)?;
+            let mut pending = std::pin::pin!(stream.next());
+            let ready = std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(pending.as_mut(), cx))).await;
+            let next = match ready {
+                std::task::Poll::Ready(next) => next,
+                std::task::Poll::Pending => {
+                    // Every byte received is handled and the response is still open.
+                    if !builder.completed() && !wire_left.load(std::sync::atomic::Ordering::Acquire) {
+                        self.settle_gate.send_replace(true);
+                    }
+                    let next = or_cancelled(&self.cancel, pending).await.ok_or(AgentError::Aborted)?;
+                    self.settle_gate.send_replace(false);
+                    next
+                }
+            };
             let event = match next {
                 None => break,
                 Some(Err(error)) => {
@@ -618,7 +642,7 @@ impl Run {
         let mut class = first_class(midstream);
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
-        let policy = request_policy(provider.as_ref(), self.config.retry_529);
+        let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
         let committed = loop {
             let decision = self.env.decider.verdict(
                 &decide_on,

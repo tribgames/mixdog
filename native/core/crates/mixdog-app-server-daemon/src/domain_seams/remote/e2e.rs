@@ -127,12 +127,10 @@ impl Desktop {
 #[async_trait::async_trait]
 impl HostChannel for Desktop {
     async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
-        let count = {
-            let mut asked = self.asked.lock().unwrap();
-            asked.push(method.as_str().to_owned());
-            asked.len()
-        };
-        self.reached.send_replace(count);
+        self.asked.lock().unwrap().push(method.as_str().to_owned());
+        // Counted under the channel's own lock: two asks at once each published the length they saw, and the later
+        // publication could be the smaller one, leaving the count one short for good.
+        self.reached.send_modify(|reached| *reached += 1);
         if !self.displays {
             std::future::pending::<()>().await;
         }

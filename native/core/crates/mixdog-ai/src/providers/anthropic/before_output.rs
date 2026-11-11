@@ -73,4 +73,50 @@ impl ModelStream for BeforeOutput {
     fn delivery(&self) -> DeliveryState {
         self.rest.delivery()
     }
+
+    fn on_wire_left(&mut self, left: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.rest.on_wire_left(left);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+
+    type Left = Arc<dyn Fn() + Send + Sync>;
+
+    /// Keeps the callback it is handed.
+    struct Keeps(Arc<Mutex<Option<Left>>>);
+
+    #[async_trait]
+    impl ModelStream for Keeps {
+        async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+            None
+        }
+        fn delivery(&self) -> DeliveryState {
+            DeliveryState::Accepted
+        }
+        fn on_wire_left(&mut self, left: Left) {
+            *self.0.lock().unwrap() = Some(left);
+        }
+    }
+
+    /// The stream under it is a leaf today, so the production stacks cannot show this hand-over; the wrapper is held
+    /// to it directly.
+    #[test]
+    fn the_consumers_callback_is_handed_to_the_stream_it_wraps() {
+        let handed = Arc::new(Mutex::new(None));
+        let mut stream = BeforeOutput { held: VecDeque::new(), failed: None, rest: Box::new(Keeps(Arc::clone(&handed))) };
+        let called = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&called);
+        stream.on_wire_left(Arc::new(move || flag.store(true, Ordering::SeqCst)));
+        let left = handed.lock().unwrap().take().expect("the wrapped stream was handed the callback");
+        left();
+        assert!(called.load(Ordering::SeqCst), "the callback handed on is the consumer's");
+    }
 }
