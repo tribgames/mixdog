@@ -1,6 +1,7 @@
 {
   "set": "provider-local-managed-runtime",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "manifest-pins-https-assets-matching-sizes",
@@ -218,7 +219,29 @@
             "present": false
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\catalog-rtx",
+              "platform": "win32",
+              "arch": "x64",
+              "hardware": {
+                "platform": "win32",
+                "arch": "x64",
+                "supported": true,
+                "gpu": {
+                  "vendor": "NVIDIA",
+                  "name": "NVIDIA GeForce RTX 3090",
+                  "memoryBytes": 25769803776
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "apple-silicon-metal-and-unsupported-hosts",
@@ -369,7 +392,39 @@
           ],
           "recommendation": null
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "platform": "darwin",
+              "arch": "arm64",
+              "hardware": {
+                "supported": true,
+                "gpu": {
+                  "vendor": "Apple",
+                  "name": "Apple M4",
+                  "memoryBytes": 34359738368
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "platform": "darwin",
+              "arch": "x64",
+              "hardware": {
+                "supported": false,
+                "gpu": null
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "no-recommendation-beyond-vram",
@@ -443,7 +498,28 @@
           ],
           "recommendation": null
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "platform": "win32",
+              "arch": "x64",
+              "hardware": {
+                "platform": "win32",
+                "arch": "x64",
+                "supported": true,
+                "gpu": {
+                  "vendor": "NVIDIA",
+                  "name": "NVIDIA GeForce RTX 3070",
+                  "memoryBytes": 8589934592
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "resume-partial-publish-after-sha256",
@@ -453,7 +529,7 @@
         "prefixBytes": 9
       },
       "result": {
-        "result": "<data>\\dl-resume\\asset.bin",
+        "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-resume\\asset.bin",
         "ranges": [
           "bytes=9-"
         ],
@@ -477,13 +553,34 @@
             "percent": 100
           }
         ],
-        "files": [
-          {
-            "name": "asset.bin",
-            "bytesHex": "7665726966696564206c6f63616c2070726f7669646572206173736574"
+        "files": {
+          "asset.bin": {
+            "$bytesHex": "7665726966696564206c6f63616c2070726f7669646572206173736574"
           }
-        ]
-      }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/asset.bin",
+              "size": 29,
+              "sha256": "59cf0d7b01d0e7f3d81e3c623aca26722fa15a7f7cd0bacf72f52c7153030df3"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-resume\\asset.bin",
+            {
+              "onProgress": {
+                "callback": "onProgress"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "digest-mismatch-not-published",
@@ -493,13 +590,34 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
-          "message": "[local-provider] SHA-256 mismatch for asset.bin"
+          "message": "[local-provider] SHA-256 mismatch for asset.bin",
+          "props": {}
         },
         "destinationExists": false,
         "partExists": false,
-        "files": []
-      }
+        "files": {}
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/asset.bin",
+              "size": 8,
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-digest\\asset.bin",
+            {
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "runtime-capacity-bounds-picker-and-restored-selection",
@@ -560,7 +678,53 @@
           "autoCompactTokenLimit": null,
           "compactBoundaryTokens": 8192
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\catalog-capacity",
+              "hardware": {
+                "gpu": {
+                  "vendor": "NVIDIA",
+                  "memoryBytes": 25769803776
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/context-meta.mjs.resolveSessionContextMeta",
+          "args": [
+            {
+              "name": "mixdog-local",
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              }
+            },
+            "qwen3.8-27b-q4-k-m",
+            {
+              "selectedContextWindow": 262144
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/context-meta.mjs.resolveSessionContextMeta",
+          "args": [
+            {
+              "name": "mixdog-local",
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              }
+            },
+            "qwen3.8-27b-q4-k-m",
+            {
+              "selectedContextWindow": 8192
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "partial-download-allowed-when-remaining-bytes-fit",
@@ -571,23 +735,64 @@
       },
       "result": {
         "first": {
-          "result": "<data>\\dl-space\\asset.bin"
+          "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin"
         },
         "spaceChecks": [
           9
         ],
         "second": {
-          "result": "<data>\\dl-space\\asset.bin"
+          "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin"
         },
         "secondFetches": 0,
         "secondSpaceChecks": 0,
-        "files": [
-          {
-            "name": "asset.bin",
-            "bytesHex": "61206d6f64656c207768696368206973206d6f73746c7920646f776e6c6f61646564"
+        "files": {
+          "asset.bin": {
+            "$bytesHex": "61206d6f64656c207768696368206973206d6f73746c7920646f776e6c6f61646564"
           }
-        ]
-      }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 34,
+              "sha256": "d3362bc463a4aa286af21489a6f66538cc6012ed04d4fcdcbcee1c2d35a12ebc"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin",
+            {
+              "checkDiskSpace": {
+                "callback": "checkDiskSpace"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 34,
+              "sha256": "d3362bc463a4aa286af21489a6f66538cc6012ed04d4fcdcbcee1c2d35a12ebc"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin",
+            {
+              "checkDiskSpace": {
+                "callback": "checkDiskSpace"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "server-declining-range-cannot-bypass-disk-check",
@@ -598,8 +803,10 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
-          "message": "disk space changed"
+          "message": "disk space changed",
+          "props": {}
         },
         "spaceChecks": [
           8,
@@ -607,8 +814,30 @@
         ],
         "streamCancelled": true,
         "destinationExists": false,
-        "files": []
-      }
+        "files": {}
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 13,
+              "sha256": "1aa8eca8a2ab2681f3ef808ad1a02bf29ddf5c2e4952506e84d3aa518413210e"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-range\\asset.bin",
+            {
+              "checkDiskSpace": {
+                "callback": "checkDiskSpace"
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "cancellation-closes-stream-preserves-partial-for-resume",
@@ -624,12 +853,18 @@
       "result": {
         "cancelledRun": {
           "error": {
+            "$exact": "error",
             "name": "AbortError",
             "message": "The operation was aborted",
             "code": "ABORT_ERR",
             "cause": {
+              "$exact": "error",
               "name": "Error",
-              "message": "user cancelled download"
+              "message": "user cancelled download",
+              "props": {}
+            },
+            "props": {
+              "name": "AbortError"
             }
           }
         },
@@ -645,26 +880,69 @@
           "streamCancelled": true,
           "destinationExists": false,
           "partialBytes": 8,
-          "files": [
-            {
-              "name": "asset.bin.part",
-              "bytesHex": "63616e63656c2061"
+          "files": {
+            "asset.bin.part": {
+              "$bytesHex": "63616e63656c2061"
             }
-          ]
+          }
         },
         "resumed": {
-          "result": "<data>\\dl-cancel\\asset.bin"
+          "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin"
         },
         "resumeRanges": [
           "bytes=8-"
         ],
-        "files": [
-          {
-            "name": "asset.bin",
-            "bytesHex": "63616e63656c20616e6420726573756d652074686973206d6f64656c"
+        "files": {
+          "asset.bin": {
+            "$bytesHex": "63616e63656c20616e6420726573756d652074686973206d6f64656c"
           }
-        ]
-      }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 28,
+              "sha256": "5f8a70e6d415e97e1eff28796ecfadc55fc0d6dd4341a7a4994a5ec88e46f8d5"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin",
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "fetchFn": {
+                "callback": "fetchFn"
+              },
+              "onProgress": {
+                "callback": "onProgress"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 28,
+              "sha256": "5f8a70e6d415e97e1eff28796ecfadc55fc0d6dd4341a7a4994a5ec88e46f8d5"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin",
+            {
+              "fetchFn": {
+                "callback": "fetchFn"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
