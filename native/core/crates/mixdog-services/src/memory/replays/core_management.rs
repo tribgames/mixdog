@@ -259,6 +259,17 @@ pub(in crate::memory::replays) mod pg {
         kill: fn(u32) -> std::process::Command,
         /// How long the kill command may run.
         kill_deadline: std::time::Duration,
+        /// How long the guard waits for the waiting thread to report the parser reaped once its tree is killed.
+        reap_deadline: std::time::Duration,
+    }
+
+    /// A thread that waits for `child` and sends how it ended.
+    fn reap(mut child: std::process::Child) -> std::sync::mpsc::Receiver<std::io::Result<std::process::ExitStatus>> {
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(child.wait());
+        });
+        finished
     }
 
     fn kill_tree_command(pid: u32) -> std::process::Command {
@@ -278,27 +289,60 @@ pub(in crate::memory::replays) mod pg {
 
     impl KillOnDrop {
         fn new(pid: u32, waited: std::sync::mpsc::Receiver<std::io::Result<std::process::Output>>) -> Self {
-            Self { pid, waited, answered: std::cell::Cell::new(false), kill: kill_tree_command, kill_deadline: std::time::Duration::from_secs(10) }
+            Self {
+                pid,
+                waited,
+                answered: std::cell::Cell::new(false),
+                kill: kill_tree_command,
+                kill_deadline: std::time::Duration::from_secs(10),
+                reap_deadline: std::time::Duration::from_secs(10),
+            }
         }
 
-        /// Runs the kill command and waits for it for at most `kill_deadline`; the error names what did not finish.
+        /// Runs the kill command and waits for it for at most `kill_deadline`. What is waited on is a real OS process (`taskkill` / `kill`,
+        /// `Child::wait` below), so the deadline is real time, not the virtual clock. When it is overrun the stuck command is killed
+        /// by a second command and the guard waits for both to end; the error names each one that did not.
         fn kill_tree(&self) -> Result<(), String> {
-            let mut command = (self.kill)(self.pid);
-            let mut kill = command
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
+            let quiet = |command: &mut std::process::Command| {
+                command.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()
+            };
+            let kill = quiet(&mut (self.kill)(self.pid))
                 .map_err(|e| format!("the command that ends the TUI parser's process tree (pid {}) did not start: {e}", self.pid))?;
             let kill_pid = kill.id();
-            let (done, finished) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let _ = done.send(kill.wait());
-            });
-            finished.recv_timeout(self.kill_deadline).map(drop).map_err(|_| {
-                // The stuck command is ended too, so it outlives neither the guard nor its waiting thread.
-                let _ = kill_tree_command(kill_pid).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
-                format!("the command that ends the TUI parser's process tree (pid {}) did not finish within {:?}", self.pid, self.kill_deadline)
-            })
+            let finished = reap(kill);
+            if finished.recv_timeout(self.kill_deadline).is_ok() {
+                return Ok(());
+            }
+            let fallback = match quiet(&mut kill_tree_command(kill_pid)) {
+                Err(e) => format!("the fallback command (on pid {kill_pid}) did not start: {e}"),
+                Ok(fallback) => match reap(fallback).recv_timeout(self.kill_deadline) {
+                    Ok(_) => "the fallback command ended".to_owned(),
+                    Err(_) => format!("the fallback command (on pid {kill_pid}) did not finish within {:?}", self.kill_deadline),
+                },
+            };
+            let stuck = if finished.recv_timeout(self.kill_deadline).is_ok() {
+                "the stuck command was ended".to_owned()
+            } else {
+                format!("the stuck command (pid {kill_pid}) is still running")
+            };
+            Err(format!(
+                "the command that ends the TUI parser's process tree (pid {}) did not finish within {:?}; {fallback}; {stuck}",
+                self.pid, self.kill_deadline
+            ))
+        }
+
+        /// Ends the parser's tree and returns once the parser is reaped and the kill commands have ended; the error names what did not.
+        fn finish(&self) -> Result<(), String> {
+            let killed = self.kill_tree();
+            let reaped = match self.waited.recv_timeout(self.reap_deadline) {
+                Ok(_) => Ok(()),
+                Err(_) => Err(format!("the TUI parser (pid {}) was not reaped within {:?}", self.pid, self.reap_deadline)),
+            };
+            match (killed, reaped) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(a), Ok(())) | (Ok(()), Err(a)) => Err(a),
+                (Err(a), Err(b)) => Err(format!("{a}; {b}")),
+            }
         }
     }
 
@@ -307,10 +351,14 @@ pub(in crate::memory::replays) mod pg {
             if self.answered.get() {
                 return;
             }
-            if let Err(message) = self.kill_tree() {
-                eprintln!("{message}");
+            if let Err(message) = self.finish() {
+                // A second panic while unwinding would abort the test binary.
+                if std::thread::panicking() {
+                    eprintln!("{message}");
+                } else {
+                    panic!("{message}");
+                }
             }
-            let _ = self.waited.recv_timeout(std::time::Duration::from_secs(10));
         }
     }
 
@@ -409,6 +457,26 @@ pub(in crate::memory::replays) mod pg {
         guard.kill_deadline = std::time::Duration::from_millis(300);
         let message = guard.kill_tree().expect_err("the kill command runs for 5 s, past the 300 ms deadline");
         assert!(message.contains("did not finish within"), "{message}");
+        assert!(message.contains("the fallback command ended") && message.contains("the stuck command was ended"), "{message}");
+        guard.answered.set(true);
+    }
+
+    /// A parser the waiting thread never reports reaped fails the guard with a message naming it, instead of returning as if it had ended.
+    #[test]
+    fn a_parser_that_is_not_reaped_fails_the_guard_naming_it() {
+        fn quick_kill(_pid: u32) -> std::process::Command {
+            let mut command = std::process::Command::new("node");
+            command.args(["-e", ""]);
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
+            command
+        }
+        let (_done, waited) = std::sync::mpsc::channel();
+        let mut guard = KillOnDrop::new(7, waited);
+        guard.kill = quick_kill;
+        guard.reap_deadline = std::time::Duration::from_millis(300);
+        let message = guard.finish().expect_err("nothing ever reports the parser reaped");
+        assert!(message.contains("the TUI parser (pid 7) was not reaped within"), "{message}");
         guard.answered.set(true);
     }
 

@@ -16,6 +16,7 @@ pub mod fakes;
 mod ingest;
 mod jobs;
 mod recall;
+mod recall_cancel;
 mod reindex;
 mod sensitive;
 mod service;
