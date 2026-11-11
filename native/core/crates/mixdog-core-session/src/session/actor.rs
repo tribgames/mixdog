@@ -5311,6 +5311,7 @@ impl SessionActor {
         {
             self.accept_record(reset, Class::Control, Display::None, Vec::new(), Vec::new());
         }
+        let died_mid_turn = !runs.is_empty();
         for rid in runs {
             let record = Record::Run(RunRecord {
                 rid: id(&rid),
@@ -5322,6 +5323,14 @@ impl SessionActor {
                 detail: None,
             });
             self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        }
+        // The turn's rows are finalized as Node's restart recovery leaves them (the cancelled calls and the restart
+        // line) by the next turn, which reads the model context (the run host's `close_crashed`).
+        if died_mid_turn {
+            let mut set = serde_json::Map::new();
+            set.insert("interruptedByRestart".into(), Value::Bool(true));
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+            self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
         }
     }
 
