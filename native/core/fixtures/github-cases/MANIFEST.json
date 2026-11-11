@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "f01774e9437804ec261de5fe208d19c472fd1193c4df8b9f202030aaae558676"
+      "sha256": "227390fd2d1f96b579ec2ce564d8884be0fc714379b484f3e77d93743f997538"
     }
   ],
   "nodeVersion": "v22.20.0",
