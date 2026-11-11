@@ -151,6 +151,26 @@ impl Routing<'_> {
         names.iter().find_map(|name| self.var(name))
     }
 
+    /// `xaiCacheRouting(opts, params, rawTools, model).key`: the `x-grok-conv-id` of a Chat request, always set
+    /// (the prefix lane for a shared-scope request, else the session's, else this process's ephemeral one).
+    pub fn chat_key(&self, request: &ModelRequest) -> String {
+        let options = &request.options;
+        let namespace = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()).unwrap_or(DEFAULT_NAMESPACE);
+        let model = if request.model.is_empty() { Value::Null } else { json!(request.model) };
+        let session = mixdog_js::js_trim(options.session_id.as_deref().unwrap_or_default());
+        let seed = if options.prompt_cache_scope.as_deref() == Some("shared") {
+            json!({ "scope": "xai-chat-prefix-v1", "providerKey": namespace, "model": model, "prefixHash": self.prefix_hash(request, namespace, &model) })
+        } else {
+            json!({
+                "scope": "xai-chat-session-v1",
+                "providerKey": namespace,
+                "model": model,
+                "sessionId": if session.is_empty() { format!("ephemeral:{}", std::process::id()) } else { session.to_owned() },
+            })
+        };
+        uuid_from_seed(&stable_stringify(&seed))
+    }
+
     /// `None` when the request goes out without a `prompt_cache_key`.
     pub fn key(&self, request: &ModelRequest) -> Option<String> {
         let options = &request.options;
