@@ -65,8 +65,9 @@ const opened = recorded.decoded[0].snapshot;
 const live = recorded.decoded[1].snapshot;
 const prov = await provider({ open: opened.items[0].text, live: live.items[1].text });
 const root = mkdtempSync(join(tmpdir(), 'lane-backlog-'));
-// Compaction is off: the 300 000-character row would otherwise make the core summarise before the live turn, which Node's
-// recording (two publications, no turn) has no part in.
+// Node's recording has no turn and no runtime (record-session-lane-backlog-cases.mjs:30-34 broadcasts two snapshots through the frame
+// stream), so compaction was neither on nor off there. The turns here only produce the recorded rows; with the core's automatic compaction on,
+// the 300 000-character row would make it summarise before the live turn and add a row no recorded publication has. Declared in the manifest.
 const config = { agent: { compaction: { auto: false }, providers: { [PROVIDER]: { enabled: true, type: 'custom', name: 'lb', protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: MODEL, contextWindow: 1_000_000 }] } } } };
 const core = await startCore({ bin: resolve(bin), root, config, clientName: 'lane-backlog-b' });
 let a = null;
@@ -99,11 +100,18 @@ try {
   await within(b.resumeThread(threadId, { lastItems: 10 }), LIMIT, 'client B watching the thread');
   if (!process.env.LB_NOPAUSE) socket.pause();
   const assistantTexts = (client) => (lib.sessionStateOf(client, threadId)?.items ?? []).filter((item) => item.kind === 'assistant').map((item) => item.text);
-  const turnDone = (count) => waitStore(b, () => (assistantTexts(b).length >= count && lib.sessionStateOf(b, threadId)?.busy === false ? true : undefined));
+  const shown = (client) => {
+    const state = lib.sessionStateOf(client, threadId);
+    return { ok: true, title: state?.desktopSessionTitle, texts: assistantTexts(client), streamingTail: state?.streamingTail ?? null };
+  };
+  const expected = recorded.decoded.map((entry) => ({ ok: entry.ok, title: entry.snapshot.title, texts: entry.snapshot.items.map((item) => item.text), streamingTail: entry.snapshot.streamingTail ?? null }));
+  // Client B reads while A is backed up: after each turn its state is the recorded publication's snapshot whole (ok, title, every row's text
+  // in order, streamingTail), compared when the core has settled the turn, never by row count or idleness alone.
+  const turnDone = (at) => waitStore(b, () => (lib.sessionStateOf(b, threadId)?.busy === false && JSON.stringify(shown(b)) === JSON.stringify(expected[at]) ? true : undefined));
   await within(b.call('thread/name/set', { threadId, title: opened.title }), LIMIT, 'thread/name/set');
   const t0 = Date.now();
   await within(b.call('turn/start', { threadId, input: { prompt: 'open', options: {} } }), LIMIT, 'the opening turn');
-  await within(turnDone(1), LIMIT, 'client B seeing the 300 000-character row while client A is backed up').catch(async (error) => {
+  await within(turnDone(0), LIMIT, 'client B seeing the 300 000-character row while client A is backed up').catch(async (error) => {
     const s = lib.sessionStateOf(b, threadId);
     const stored = await b.call('thread/items/list', { threadId, limit: 20 }).catch((e) => ({ error: e.message }));
     console.error(JSON.stringify(stored, (k, v) => (typeof v === 'string' && v.length > 200 ? `${v.slice(0, 200)}…(${v.length})` : v)).slice(0, 4000));
@@ -111,16 +119,12 @@ try {
   });
   await within(b.call('turn/start', { threadId, input: { prompt: 'live', options: {} } }), LIMIT, 'the live turn');
   console.error(`turn 1 done at ${Date.now() - t0} ms (${Date.now()})`);
-  await within(turnDone(2), LIMIT, 'client B seeing the live row while client A is backed up').catch(async (error) => {
+  await within(turnDone(1), LIMIT, 'client B seeing the live row while client A is backed up').catch(async (error) => {
     const s = lib.sessionStateOf(b, threadId);
     const stored = await b.call('thread/items/list', { threadId, limit: 20 }).catch((e) => ({ error: e.message }));
     console.error(JSON.stringify(stored, (k, v) => (typeof v === 'string' && v.length > 200 ? `${v.slice(0, 200)}…(${v.length})` : v)).slice(0, 3000));
     throw new Error(`${error.message}; busy=${s?.busy} rows=${JSON.stringify((s?.items ?? []).map((item) => [item.kind, String(item.text ?? '').slice(0, 40)]))}; provider requests ${prov.count()}; tail=${JSON.stringify(s?.streamingTail)?.slice(0, 300)} hint=${JSON.stringify(s?.progressHint)} status=${JSON.stringify(s?.commandStatus)}\n${core.tail()}`);
   });
-  const shown = (client) => {
-    const state = lib.sessionStateOf(client, threadId);
-    return { ok: true, title: state?.desktopSessionTitle, texts: assistantTexts(client), streamingTail: state?.streamingTail };
-  };
   // A has taken nothing since the pause: its state still holds no row.
   const backedUp = shown(a);
   assert.deepStrictEqual(backedUp.texts, [], 'client A took no frame while paused');
@@ -132,10 +136,9 @@ try {
   socket.resume();
   await within(waitStore(a, () => (assistantTexts(a).length >= 2 ? true : undefined)), LIMIT, 'client A taking its backed-up frames');
   unseen();
-  const expected = recorded.decoded.map((entry) => ({ ok: entry.ok, title: entry.snapshot.title, texts: entry.snapshot.items.map((item) => item.text), streamingTail: entry.snapshot.streamingTail ?? null }));
   const brief = (list) => JSON.stringify(list.map((entry) => ({ ...entry, texts: entry.texts.map((text) => `${text.slice(0, 12)}…(${text.length})`) })));
   assert.deepStrictEqual(seen.map((entry) => ({ ...entry, streamingTail: entry.streamingTail ?? null })), expected, `what client A shows after each publication: ${brief(seen)} against ${brief(expected)}`);
-  assert.deepStrictEqual(shown(b).texts, expected.at(-1).texts, 'client B shows the same rows');
+  assert.deepStrictEqual(shown(b), expected.at(-1), 'client B shows the last recorded publication whole');
   console.log(`${NAME}: replayed (${seen.length} publications)`);
 } finally {
   await a?.close().catch(() => {});

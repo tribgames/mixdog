@@ -132,6 +132,7 @@
       "idleEvictMs": "the recorder's idle-evict setting"
     },
     "normalised": {
+      "reclaim": "Node's `steps[1]`/`steps[4]` (live 0 and disposedSessions; live 1 and retained 1) are the host's session counters, which no core wire call shows. The core drops a thread when its last watcher leaves and nothing of it works, and keeps it while background work runs (mixdog-core-session tests.rs an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context, agent_activity_tests.rs a_thread_nobody_watched_stays_while_its_background_work_runs); the replay checks the desktop holds no state of the hidden session, so the pane after showing it again is the load's strip (`a_strip_at_load_keeps_a_finished_job_within_its_retention_and_drops_it_after`, shell_jobs.rs).",
       "jobId": "the recorder writes Node's minted job id as job_<ms>_000000; the core names a background job after its tool call (task-call_serve), mapped to the same placeholder",
       "startedAt/finishedAt": "an instant: the core's ms number and Node's ISO string are both written <iso>",
       "cwd": "the session folder is written <fixtureRoot>",

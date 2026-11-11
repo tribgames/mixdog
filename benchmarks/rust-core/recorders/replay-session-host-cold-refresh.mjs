@@ -84,6 +84,16 @@ try {
   }
   const sessionOf = new Map([...ids].map(([session, id]) => [id, session]));
 
+  // The desktop's clock is the replay's: its only sleeper is the reconnect backoff (packages/protocol-client client.ts, `clock.sleep`), and
+  // time moves only by `advance`. Node's refresh tick was 1 000 ms (`COLD_VIEW_REFRESH_MS`, session-host-catalog.ts:8); a client that arms any
+  // timer on this clock, a refresh tick or a backoff after a lost connection, is seen in `sleeps`.
+  const sleeps = [];
+  let virtualNow = 0;
+  const clock = { sleep: (ms) => new Promise((wake) => sleeps.push({ at: virtualNow + ms, ms, wake })) };
+  const advance = (ms) => {
+    virtualNow += ms;
+    for (const sleeper of sleeps) if (sleeper.at <= virtualNow) sleeper.wake();
+  };
   // The desktop, its outgoing reads named by the session they read.
   const reads = [];
   a = await within(lib.connect({
@@ -105,7 +115,7 @@ try {
     clientInfo: { name: 'cold-refresh-desktop', title: 'cold-refresh-desktop', version: String(JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version), kind: 'desktop' },
     capabilities: {},
     threadReducer: lib.sessionReducer,
-    clock: { sleep: (ms) => Promise.reject(new Error(`the desktop asked to sleep ${ms} ms (a reconnect backoff): its connection was lost`)) },
+    clock,
     random: Math.random,
   }), LIMIT, 'the desktop connecting');
   for (const [session, id] of ids) {
@@ -134,6 +144,12 @@ try {
       }
     }
   });
+  // The three ticks Node's refresh ran while nothing was written: the clock is advanced explicitly by one tick each, and after each the
+  // desktop has armed no timer, sent no read and shows no change.
+  for (let tick = 1; tick <= 3; tick += 1) {
+    advance(1_000);
+    assert.deepStrictEqual({ armedTimers: sleeps.length, reads: reads.slice(), published: published.slice() }, { armedTimers: 0, reads: [], published: [] }, `after tick ${tick} of an unchanged desktop`);
+  }
   const unchanged = { readsAfterThreeTicks: reads.slice(), published: published.slice() };
   const written = recorded.writtenSession;
   await write(ids.get(written), `${written}:2`);
