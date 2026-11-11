@@ -79,6 +79,49 @@
             "nextOffset": 1
           },
           "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-common-1",
+                "label": "#1",
+                "meta": "",
+                "description": "Common preference",
+                "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-1>",
+                "_element": "Common",
+                "_summary": "Common preference",
+                "_projectId": null,
+                "_origElement": "Common",
+                "_origSummary": "Common preference"
+              },
+              {
+                "value": "core-1",
+                "label": "More memories: call list with offset=1 and the same project scope/include_inactive.",
+                "description": "",
+                "_line": "More memories: call list with offset=1 and the same project scope/include_inactive."
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": null,
+                  "summary": "Common preference",
+                  "index_revision": "<uuid-1>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 2,
+              "listed": 1
+            }
+          },
           "indexReads": 1,
           "statements": [
             {
@@ -158,6 +201,43 @@
             "nextOffset": null
           },
           "formatted": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-mixdog-1",
+                "label": "#1",
+                "meta": "mixdog",
+                "description": "Project preference",
+                "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-2>",
+                "_element": "Active",
+                "_summary": "Project preference",
+                "_projectId": "mixdog",
+                "_origElement": "Active",
+                "_origSummary": "Project preference"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "mixdog",
+                  "summary": "Project preference",
+                  "index_revision": "<uuid-2>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 1,
+              "listed": 1
+            }
+          },
           "indexReads": 1,
           "statements": [
             {
@@ -239,6 +319,88 @@
             "nextOffset": null
           },
           "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\narchived_id=1 source=curated project=mixdog status=archived injection=disabled Archived — Old rule\nid=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-common-1",
+                "label": "#1",
+                "meta": "",
+                "description": "Common preference",
+                "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-1>",
+                "_element": "Common",
+                "_summary": "Common preference",
+                "_projectId": null,
+                "_origElement": "Common",
+                "_origSummary": "Common preference"
+              },
+              {
+                "value": "core-1",
+                "label": "archived_id=1 source=curated project=mixdog status=archived injection=disabled Archived — Old rule",
+                "description": "",
+                "_line": "archived_id=1 source=curated project=mixdog status=archived injection=disabled Archived — Old rule"
+              },
+              {
+                "value": "core-mixdog-1",
+                "label": "#1",
+                "meta": "mixdog",
+                "description": "Project preference",
+                "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-2>",
+                "_element": "Active",
+                "_summary": "Project preference",
+                "_projectId": "mixdog",
+                "_origElement": "Active",
+                "_origSummary": "Project preference"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": null,
+                  "summary": "Common preference",
+                  "index_revision": "<uuid-1>"
+                }
+              },
+              {
+                "id": false,
+                "projectId": false,
+                "summary": false,
+                "indexRevision": false,
+                "listed": {
+                  "id": null,
+                  "project_id": "mixdog",
+                  "summary": "Old rule",
+                  "index_revision": null
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "mixdog",
+                  "summary": "Project preference",
+                  "index_revision": "<uuid-2>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 3,
+              "listed": 3
+            }
+          },
           "indexReads": 1,
           "statements": [
             {
@@ -296,6 +458,43 @@
             "nextOffset": null
           },
           "formatted": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-mixdog-1",
+                "label": "#1",
+                "meta": "mixdog",
+                "description": "Project preference",
+                "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-2>",
+                "_element": "Active",
+                "_summary": "Project preference",
+                "_projectId": "mixdog",
+                "_origElement": "Active",
+                "_origSummary": "Project preference"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "mixdog",
+                  "summary": "Project preference",
+                  "index_revision": "<uuid-2>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 1,
+              "listed": 1
+            }
+          },
           "indexReads": 1,
           "statements": [
             {
@@ -564,6 +763,97 @@
             "nextOffset": null
           },
           "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference\nid=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference\nid=1 source=curated project=other status=active injection=enabled index_revision=<uuid-3> Other — Other preference",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-common-1",
+                "label": "#1",
+                "meta": "",
+                "description": "Common preference",
+                "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-1>",
+                "_element": "Common",
+                "_summary": "Common preference",
+                "_projectId": null,
+                "_origElement": "Common",
+                "_origSummary": "Common preference"
+              },
+              {
+                "value": "core-mixdog-1",
+                "label": "#1",
+                "meta": "mixdog",
+                "description": "Project preference",
+                "_line": "id=1 source=curated project=mixdog status=active injection=enabled index_revision=<uuid-2> Active — Project preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-2>",
+                "_element": "Active",
+                "_summary": "Project preference",
+                "_projectId": "mixdog",
+                "_origElement": "Active",
+                "_origSummary": "Project preference"
+              },
+              {
+                "value": "core-other-1",
+                "label": "#1",
+                "meta": "other",
+                "description": "Other preference",
+                "_line": "id=1 source=curated project=other status=active injection=enabled index_revision=<uuid-3> Other — Other preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-3>",
+                "_element": "Other",
+                "_summary": "Other preference",
+                "_projectId": "other",
+                "_origElement": "Other",
+                "_origSummary": "Other preference"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": null,
+                  "summary": "Common preference",
+                  "index_revision": "<uuid-1>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "mixdog",
+                  "summary": "Project preference",
+                  "index_revision": "<uuid-2>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "other",
+                  "summary": "Other preference",
+                  "index_revision": "<uuid-3>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 3,
+              "listed": 3
+            }
+          },
           "indexReads": 1,
           "statements": [
             {
@@ -619,6 +909,43 @@
             "nextOffset": null
           },
           "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-common-1",
+                "label": "#1",
+                "meta": "",
+                "description": "Common preference",
+                "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-1> Common — Common preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-1>",
+                "_element": "Common",
+                "_summary": "Common preference",
+                "_projectId": null,
+                "_origElement": "Common",
+                "_origSummary": "Common preference"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": null,
+                  "summary": "Common preference",
+                  "index_revision": "<uuid-1>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 1,
+              "listed": 1
+            }
+          },
           "indexReads": 1,
           "statements": [
             {
@@ -664,6 +991,21 @@
             "nextOffset": null
           },
           "formatted": "memory: empty",
+          "roundTrip": {
+            "parsed": [
+              {
+                "value": "core-0",
+                "label": "memory: empty",
+                "description": "",
+                "_line": "memory: empty"
+              }
+            ],
+            "perEntry": [],
+            "rowCount": {
+              "parsed": 1,
+              "listed": 0
+            }
+          },
           "indexReads": 1,
           "statements": [
             {

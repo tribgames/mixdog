@@ -20,6 +20,13 @@ const CLOCK_MS = 1_800_000_000_000;
 freezeClock(CLOCK_MS);
 const dir = 'src/runtime/memory/lib/';
 const { listManagedMemories, formatManagedMemories } = await importFrom(ctx.tree, `${dir}core-memory-management.mjs`);
+const { parseMemoryCoreRows } = await importFrom(ctx.tree, 'src/tui/app/input-parsers.mjs');
+// The property the deleted TUI parser proved: the ids, scope, summary and index revision of every entry come back out of the
+// formatted text. Recorded as format -> parse -> the whole parsed rows, plus the comparison with the listed entries.
+const roundTrip = (formatted, entries) => {
+  const parsed = parseMemoryCoreRows(formatted);
+  return { parsed: exact(parsed), perEntry: entries.map((entry, i) => ({ id: parsed[i]?._id === entry.id, projectId: parsed[i]?._projectId === (entry.project_id ?? null), summary: parsed[i]?._summary === entry.summary, indexRevision: parsed[i]?._indexRevision === (entry.index_revision === undefined ? undefined : String(entry.index_revision)), listed: { id: entry.id, project_id: entry.project_id ?? null, summary: entry.summary, index_revision: entry.index_revision ?? null } })), rowCount: { parsed: parsed.length, listed: entries.length } };
+};
 const { createMemoryActionHandlers } = await importFrom(ctx.tree, `${dir}memory-action-handlers.mjs`);
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-project-memory-')));
@@ -67,7 +74,7 @@ const step = async (label, args, fn, extra = () => ({})) => {
   steps.push({ label, args: scrub(exact(args)), ...scrub(out), ...extra(out), indexReads, statements: statements.slice(before) });
   return out;
 };
-const list = (label, scope, options) => step(label, { scope, options }, () => listManagedMemories(db, scope, options), (out) => (out.result ? { formatted: formatManagedMemories(out.result) } : {}));
+const list = (label, scope, options) => step(label, { scope, options }, () => listManagedMemories(db, scope, options), (out) => (out.result ? { formatted: formatManagedMemories(out.result), roundTrip: roundTrip(formatManagedMemories(out.result), out.result.entries) } : {}));
 
 const first = await list("'mixdog' limit 1", 'mixdog', { limit: 1 });
 await list("'mixdog' limit 1 at nextOffset", 'mixdog', { limit: 1, offset: first.result.nextOffset });
@@ -101,9 +108,9 @@ finish(ctx, {
     cases: [{ name: 'standing memory lists curated records by scope, page and activity (test line 11; the steps after the first eight are further shapes)', steps }],
   },
   extra: {
-    entry: { runs: 'listManagedMemories and formatManagedMemories (core-memory-management.mjs); createMemoryActionHandlers(...).handleMemoryAction({action:"core", op:"list"}) (memory-action-handlers.mjs) over real .mixdog/project.id directories', notRun: 'PostgreSQL (SQLite stand-in of the test file); the TUI parser parseMemoryCoreRows (deleted TUI)' },
+    entry: { runs: 'listManagedMemories and formatManagedMemories (core-memory-management.mjs); createMemoryActionHandlers(...).handleMemoryAction({action:"core", op:"list"}) (memory-action-handlers.mjs) over real .mixdog/project.id directories', notRun: 'PostgreSQL (SQLite stand-in of the test file)' },
     replay: 'mixdog-services memory: mem/core/list.rs list + format and mem/core/action.rs list with project_paths (project id from each path\'s .mixdog/project.id), over the same four rows; compares entries, nextOffset, projectScopes, formatted text, error text, the pg_advisory_xact_lock count per call (indexReads) and the ordered statements',
-    exclusions: 'parseMemoryCoreRows is not recorded (the formatted text it parsed is)',
+    exclusions: 'none: the TUI parser parseMemoryCoreRows (test line 77) is recorded as a Node round trip, `roundTrip` in every step that formats a list: the formatted text, the whole parsed rows (_id, _projectId, _summary, _element, _indexRevision, value, label, meta...) and per entry whether id, project, summary and index revision come back equal. The TUI is deleted in Rust; the Rust side proves the same property by parsing its own formatted text with whatever reads it there (the app-server list result is the structured source) and compares the same fields',
     normalised: { 'temp project root': 'every occurrence (exact, JSON-escaped, forward slashes) written as <root>; the replay creates its own folders with the stated project ids' },
   },
 });
