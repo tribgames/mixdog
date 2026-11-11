@@ -1,0 +1,10 @@
+{
+  "error": {
+    "name": "AbortError",
+    "message": "This operation was aborted",
+    "status": null,
+    "code": 20
+  },
+  "dispatchedToolCalls": [],
+  "events": []
+}

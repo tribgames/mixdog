@@ -1,0 +1,38 @@
+{
+  "provider": "muse-code-oauth",
+  "config": {
+    "preconnect": false
+  },
+  "credential": {
+    "file": "muse-code-oauth.json",
+    "document": {
+      "accessToken": "fixture-access-token",
+      "apiKey": "fixture-key",
+      "accountId": "acct-fixture",
+      "email": "fixture@example.invalid"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "muse-fixture",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}
