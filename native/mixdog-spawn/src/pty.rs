@@ -172,7 +172,11 @@ mod windows {
             let reader = File::from_raw_handle(out_read as RawHandle);
             let writer = File::from_raw_handle(in_write as RawHandle);
 
-            let process = winspawn::spawn(
+            #[cfg(feature = "core-test")]
+            let created = crate::testing::created_window;
+            #[cfg(not(feature = "core-test"))]
+            let created = || {};
+            let process = winspawn::spawn_observed(
                 containment.job(),
                 &winspawn::Spawn {
                     program: launch.program(),
@@ -181,9 +185,8 @@ mod windows {
                     env: Some(env),
                     stdio: winspawn::Stdio::Console(console),
                 },
+                created,
             )?;
-            #[cfg(feature = "core-test")]
-            crate::testing::created_window();
             Ok(PtyParts {
                 root: Root::Win(process),
                 pty,

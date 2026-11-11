@@ -35,6 +35,8 @@ use windows_sys::Win32::System::Threading::WaitForSingleObject;
 /// inheritable handle: the pipe of the second test would be held by the first test's helper.
 static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The one deadline of every wait on another process.
+const WITHIN: Duration = Duration::from_secs(20);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const PROGRAM_VAR: &str = "MIXDOG_ATOMIC_JOB_PROGRAM";
 const PARKED: &str = "MIXDOG_ATOMIC_JOB_CHILD_CREATED";
@@ -128,7 +130,14 @@ fn a_child_does_not_outlive_a_helper_killed_right_after_creating_it() {
     let child = pids.first().map(|pid| unsafe { OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, 0, *pid) });
     // The helper dies exactly where the child exists and the helper has not done anything more.
     helper.kill().unwrap();
-    helper.wait().unwrap();
+    let (exited, helper_gone) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = exited.send(helper.wait().map(|_| ()));
+    });
+    helper_gone
+        .recv_timeout(WITHIN)
+        .expect("the killed helper did not exit within 20 s")
+        .unwrap();
     reached.expect("the helper did not report its child created within 60 s");
     assert_eq!(pids.len(), 1, "exactly one child of the helper exists: {pids:?}");
     let child: HANDLE = child.unwrap();
@@ -163,7 +172,10 @@ async fn a_second_child_does_not_hold_the_first_childs_pipe_open() {
 
     let m = manager();
     let second = handle("atomic-second");
-    let spawned = m.spawn(request(&second, long_running(ping()))).await.unwrap();
+    let spawned = tokio::time::timeout(WITHIN, m.spawn(request(&second, long_running(ping()))))
+        .await
+        .expect("the second child was not started within 20 s")
+        .unwrap();
     // The first child exits: its last owner of the write end lets go.
     unsafe { CloseHandle(write) };
 
@@ -171,10 +183,12 @@ async fn a_second_child_does_not_hold_the_first_childs_pipe_open() {
     std::thread::spawn(move || {
         let _ = ended.send(first_output.read(&mut [0u8; 1]).map(|n| n == 0));
     });
-    let first_ended = eof.recv_timeout(Duration::from_secs(20));
-    assert!(pid_alive(spawned.pid), "the second child is still running");
+    let first_ended = eof.recv_timeout(WITHIN);
+    let second_alive = pid_alive(spawned.pid);
     m.kill(&second).unwrap();
-    let _ = collect(&m, &second).await;
+    let collected = tokio::time::timeout(WITHIN, collect(&m, &second)).await;
+    assert!(second_alive, "the second child is still running");
+    collected.expect("the killed second child did not end within 20 s");
     let at_end = first_ended
         .expect("the first child's pipe did not reach its end within 20 s while the second child ran: the second inherited it")
         .unwrap();
