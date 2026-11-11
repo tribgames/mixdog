@@ -1,16 +1,19 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-log-migration-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "after each case's steps: every session as Node's reader reads it from its log (valid, header, messages), whether every legacy json kept its bytes and mtime, and the leftover .tmp files; the disk-full case also after its failed run",
+  "differences": {
+    "legacy jsons after a completed run": "Node keeps every legacy json byte for byte (jsonsUnchanged: true); the core removes them once the run is verified complete. Decision: no rollback support (rust-core decisions.md:12, \"Version transition\"); the core asserts it in native/core/crates/mixdog-migrate/tests/it/recorded_145.rs:149 (`data/sessions/*.json` removed by contract). The replay checks that Node kept them, that the core left none after a complete run, and that a run which did not complete changed none."
+  },
   "excluded": {
-    "a busy session is skipped and retried at the next start": "equality impossible: the core migrates at boot under the data dir's owner lock, before it serves anything, so no other writer can hold a session (Node migrates after boot, beside processes that may hold one); there is no busy state to skip",
-    "a file that fails verification is skipped permanently until it changes": "the case needs Node's test loader (`unstableLoad`: a document that loads differently on every read); the product's loader and the core read a json the same way every time, so no file fails this verification"
+    "a busy session is skipped and retried at the next start": "equality impossible: Node skips a session whose writer claim another process holds (session-log-migration.mjs:250, MIGRATION_SKIP.BUSY :43), migrating after boot beside running writers; the core migrates at boot step 5 under the data dir's lock, before anything serves (native/core/crates/mixdog-app-server-daemon/src/boot.rs:1-7), so no writer can hold a session",
+    "a file that fails verification is skipped permanently until it changes": "nothing outside the module can reach it: VERIFY_MISMATCH (session-log-migration.mjs:56) needs a loader that reads the same json differently twice; the test injects one (`unstableLoad`, session-log-migration.test.mjs:104); the product's LEGACY_SESSION_LOADER is a pure parse of the bytes, so no product json fails this verification"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7257,
+      "bytes": 7258,
       "path": "golden.json",
-      "sha256": "02f7b6e6e7352c5017d70465530f8e49b6104f12334c79bc84f5ca7c57c1ee18"
+      "sha256": "7ae86fcdbcaa07b6eab68408597b99cebc93cea26401cc273b3e137c57d86950"
     }
   ],
   "inputs": [
@@ -43,7 +46,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-log-migration-cases.mjs",
-  "recorderSha256": "b07856eb4612df21cbf6cb40000466348e49fb8c437e239480b0fe34d0f7ecfd",
+  "recorderSha256": "0c5b82ad9cd5078c68c7299e2624da11375f5da8e3e4966fa5877a6f4dd9a3a7",
   "set": "session-log-migration-cases",
-  "totalBytes": 7257
+  "totalBytes": 7258
 }

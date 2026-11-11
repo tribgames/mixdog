@@ -170,7 +170,7 @@
         "sess_001.json": "{\"id\":\"sess_001\",\"title\":\"t1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m1\"}]}"
       },
       "logs": {
-        "sess_000": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"723cb7aa3bd26253821e0eac\",\"id\":\"sess_000\",\"prev\":null,\"legacy\":{\"sha1\":\"1cef35a41dc935b01647e3d5a04f621811b9f7b5\",\"size\":133,\"mtimeMs\":1794381114302.381},\"header\":{\"id\":\"sess_000\",\"title\":\"t0\"}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m0\"}]}\n"
+        "sess_000": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9caa4d1c8473fff933f4b511\",\"id\":\"sess_000\",\"prev\":null,\"legacy\":{\"sha1\":\"1cef35a41dc935b01647e3d5a04f621811b9f7b5\",\"size\":133,\"mtimeMs\":1794391195264.7295},\"header\":{\"id\":\"sess_000\",\"title\":\"t0\"}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"m0\"}]}\n"
       },
       "steps": [
         "run"
