@@ -35,6 +35,7 @@ export function virtualTimers() {
     elapsed: () => now,
     pending: () => [...pendingTimers.values()].map(({ api, ms, due }) => ({ api, ms, dueMs: due })),
     idle: () => (immediates === 0 ? Promise.resolve() : new Promise((resolve) => idleWaiters.push(resolve))),
+    whenArmedAfter: (index, test) => { const found = armed.slice(index).find(test); return found ? Promise.resolve(found) : new Promise((resolve) => armedWaiters.push({ test: (entry) => armed.indexOf(entry) >= index && test(entry), resolve })); },
     nextArmed: () => new Promise((resolve) => armedWaiters.push({ test: anyArmed, resolve })),
     whenArmed: (test) => { const found = armed.find(test); return found ? Promise.resolve(found) : new Promise((resolve) => armedWaiters.push({ test, resolve })); },
     advance(ms) {
