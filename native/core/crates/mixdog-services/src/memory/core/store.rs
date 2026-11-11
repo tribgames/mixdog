@@ -330,7 +330,17 @@ pub async fn delete(
     removed.map(|row| CoreEntry::from_row(&row)).ok_or_else(missing)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// When set, the `Date.now()` of core memory on this thread (a replay's recorded clock).
+    pub(crate) static NOW_MS: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+
 pub fn now_ms() -> i64 {
+    #[cfg(test)]
+    if let Some(now) = NOW_MS.with(std::cell::Cell::get) {
+        return now;
+    }
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))

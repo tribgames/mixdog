@@ -119,13 +119,15 @@ pub async fn refresh(lane: DurabilityIo, db: &Db, data_dir: &Path, reserved: &st
     let on_disk = read(lane, data_dir).await.map_or(0, |snapshot| snapshot.revision);
     let revision = reserve(reserved, on_disk);
     let directory = index::sync(db).await?;
-    let rows = db
-        .query(
-            "SELECT id, summary, project_id, agent_id, updated_at FROM core_entries
-              WHERE status IS NULL OR status = 'active' ORDER BY project_id NULLS FIRST, id ASC",
-            &[],
-        )
-        .await?;
+    const CURATED_SQL: &str = "
+      SELECT id, summary, project_id, agent_id, updated_at
+      FROM core_entries
+      WHERE status IS NULL OR status = 'active'
+      ORDER BY project_id NULLS FIRST, id ASC
+    ";
+    #[cfg(test)]
+    index::observe(CURATED_SQL, None, false);
+    let rows = db.query(CURATED_SQL, &[]).await?;
     let mut curated = Vec::new();
     for row in &rows {
         let id: i64 = row.get(0);
@@ -164,16 +166,38 @@ fn reserve(reserved: &std::sync::atomic::AtomicU64, on_disk: u64) -> u64 {
     }
 }
 
+/// `writeCoreMemoryFileSnapshot(dataDir, { curated }, { revision })`: writes the curated rows (normalised as a read
+/// normalises them; a row without text is dropped) at `revision`, or at a newly reserved one when None, unless the
+/// file already holds that revision or a newer one. Returns the revision on disk afterwards and whether it is the
+/// requested one (Node's `written`, which is also true when the file already held exactly that revision).
+pub async fn write_snapshot(
+    lane: DurabilityIo,
+    data_dir: &Path,
+    curated: &[Value],
+    revision: Option<u64>,
+    reserved: &std::sync::atomic::AtomicU64,
+) -> Result<(u64, bool)> {
+    let revision = match revision {
+        Some(revision) => revision.max(1),
+        None => reserve(reserved, read(lane, data_dir).await.map_or(0, |snapshot| snapshot.revision)),
+    };
+    let curated = curated.iter().filter_map(normalized_entry).collect();
+    write(lane, data_dir, Snapshot { version: VERSION, revision, updated_at: super::store::now_ms(), curated }).await
+}
+
 async fn write(lane: DurabilityIo, data_dir: &Path, snapshot: Snapshot) -> Result<(u64, bool)> {
     let path = file_path(data_dir);
     // A slower refresh may finish after a newer one: never overwrite it.
     if let Some(current) = read(lane, data_dir).await
         && current.revision >= snapshot.revision {
-            return Ok((current.revision, false));
+            return Ok((current.revision, current.revision == snapshot.revision));
         }
     fsio::create_dir_all(lane, data_dir).await?;
     let temp = data_dir.join(format!("{FILE_NAME}.{}.tmp", uuid::Uuid::new_v4().simple()));
-    fsio::write(lane, &temp, serde_json::to_vec(&snapshot)?).await?;
+    // `writeJsonAtomicAsync(..., { compact: true })`: compact JSON and a final newline.
+    let mut bytes = serde_json::to_vec(&snapshot)?;
+    bytes.push(b'\n');
+    fsio::write(lane, &temp, bytes).await?;
     fsio::rename(lane, &temp, &path).await?;
     Ok((snapshot.revision, true))
 }
