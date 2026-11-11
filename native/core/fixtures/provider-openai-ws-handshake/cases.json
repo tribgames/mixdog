@@ -1,0 +1,60 @@
+{
+  "set": "provider-openai-ws-handshake",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "unexpected-response-preserves-status-headers-body",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.mjs:28",
+      "input": {
+        "statusCode": 429,
+        "headers": {
+          "retry-after": "30",
+          "x-request-id": "req_1"
+        },
+        "chunks": [
+          "{\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"",
+          "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\",\"resets_at\":1893456000}}"
+        ]
+      },
+      "result": {
+        "ok": false,
+        "status": 429,
+        "httpStatus": 429,
+        "headers": {
+          "retry-after": "30",
+          "x-request-id": "req_1"
+        },
+        "code": "usage_limit_reached",
+        "retryAfterMs": 30000,
+        "resetAt": 1893456000000,
+        "httpBody": "{\"error\":{\"type\":\"usage_limit_reached\",\"message\":\"mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\",\"resets_at\":1893456000}}",
+        "message": "OpenAI WS handshake 429: You’ve hit your usage limit. Try again at Jan 1st, 2030 12:00 AM.",
+        "messageLength": 90
+      }
+    },
+    {
+      "id": "non-json-body-keeps-status-and-headers",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.mjs:46",
+      "input": {
+        "statusCode": 403,
+        "headers": {
+          "server": "cloudflare"
+        },
+        "chunks": [
+          "<html>blocked</html>"
+        ]
+      },
+      "result": {
+        "ok": false,
+        "status": 403,
+        "httpStatus": 403,
+        "headers": {
+          "server": "cloudflare"
+        },
+        "httpBody": "<html>blocked</html>",
+        "message": "OpenAI WS handshake 403: <html>blocked</html>",
+        "messageLength": 45
+      }
+    }
+  ]
+}
