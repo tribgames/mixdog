@@ -113,9 +113,9 @@ for (const split of [false, true]) {
 await set.run('an undecided profile is decided once by the desktop, and the decision changes no answer', async () => {
   const dataDir = profile({ thread: reports });
   const log = [];
-  log.push({ step: 'undecided', created: (await routes.getLeadStatus()).created });
+  log.push({ step: 'undecided', status: await routes.getLeadStatus() });
   log.push({ step: 'desktop shows', shows: await desktopShows(dataDir) });
-  log.push({ step: 'after the desktop decided', created: (await routes.getLeadStatus()).created, heartbeat: await heartbeatRuns(dataDir) });
+  log.push({ step: 'after the desktop decided', status: await routes.getLeadStatus(), heartbeat: await heartbeatRuns(dataDir) });
   writeFileSync(join(dataDir, 'sessions', `${HOME}.json`), JSON.stringify({ id: HOME, messages: [...reports, said('hi')] }));
   log.push({ step: 'the user wrote to her', desktop: await desktopShows(dataDir), heartbeat: await heartbeatRuns(dataDir), routineOwnerProblem: await routineOwnerProblem('') });
   return { thread: reports, log, leadManifestAfter: manifestOf(dataDir) };
