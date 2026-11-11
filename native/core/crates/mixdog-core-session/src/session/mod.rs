@@ -83,6 +83,8 @@ mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
 #[cfg(test)]
+mod durability_settled_tests;
+#[cfg(test)]
 mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;

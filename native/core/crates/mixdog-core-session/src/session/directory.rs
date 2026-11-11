@@ -610,6 +610,28 @@ impl SessionDirectory {
         handles
     }
 
+    /// Replay-only (the core's `replay/storesSettled` control): once every loaded thread's durability task has nothing
+    /// pending, that is once every record its actor accepted before this call was committed (or failed) and released
+    /// ([`Inbox::Settled`]). How many threads were loaded, or which one closed before it answered.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn durability_settled(&self) -> Result<usize, String> {
+        let mut waits = Vec::new();
+        for handle in self.loaded_handles() {
+            let (tx, rx) = oneshot::channel();
+            if handle.inbox.send(Inbox::Settled { tx }).await.is_err() {
+                return Err(format!("thread {} ended before it could be asked whether its records are durable", handle.id.as_str()));
+            }
+            waits.push((handle.id.clone(), rx));
+        }
+        let loaded = waits.len();
+        for (id, rx) in waits {
+            if rx.await.is_err() {
+                return Err(format!("thread {} ended with records not yet durable", id.as_str()));
+            }
+        }
+        Ok(loaded)
+    }
+
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
     pub fn creating(&self) -> bool {
         self.inner.creating.load(std::sync::atomic::Ordering::SeqCst) > 0

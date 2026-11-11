@@ -7,6 +7,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Replay-only: the service answering `replay/storesSettled` (replay_stores_settled.rs) over the session directory's
+# `durability_settled`. For development builds only (build.rs fails a release-profile build with it).
+replay-controls = ["mixdog-app-server/replay-controls", "mixdog-core-session/test-support"]
+
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
@@ -121,6 +126,12 @@ mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).

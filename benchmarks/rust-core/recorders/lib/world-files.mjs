@@ -5,10 +5,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** `{ '<name>/<path>': Buffer }` of every file under each folder of `roots` (`{ name: absolute folder }`), `/`-separated, but those
- *  at or under a `skip` entry's path (`<name>/<path>`), or, for an entry with `prefix`, whose path starts with it. */
+ *  of a `skip` entry: its path (`<name>/<path>`) exactly or a file under it when it is a folder, and, for an entry with
+ *  `atomicTemp`, the temporary file of an atomic write of it, `<path>.mixdog-tmp-<16 lowercase hex>` exactly. */
 export function worldFiles(roots, skip = []) {
   const files = new Map();
-  const skipped = (path) => skip.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`) || (entry.prefix && path.startsWith(entry.path)));
+  const atomicTemp = (path, entry) => entry.atomicTemp && path.startsWith(`${entry.path}.mixdog-tmp-`) && /^[0-9a-f]{16}$/.test(path.slice(`${entry.path}.mixdog-tmp-`.length));
+  const skipped = (path) => skip.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`) || atomicTemp(path, entry));
   const walk = (dir, at) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = `${at}/${entry.name}`;

@@ -29,7 +29,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "70d55eb1e01fbde476cd61952a6f65871f8fe590ba70dafc3bfef3c7cd768db7"
+      "sha256": "283ae7d343956e3a17b74a9fee5f9b1a38309038fc8bcce1775ee380e47cb7b5"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lsp-echo-stub.mjs",
@@ -57,7 +57,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/world-files.mjs",
-      "sha256": "585b8e526733fc177cf7dfe6a7223d6fcdcb2c9f7c5ea06cfe2536e8f5a75623"
+      "sha256": "5e3aabbf481262ec4da4d533e0fe1b9539a0a015351522792c3232e60c23201f"
     },
     {
       "path": "native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json",
@@ -226,7 +226,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "4207a2b5db90c1a69b2d3b098a0bb1fa3494a3b361020bbb694f269aba8a66de",
+  "recorderSha256": "d85043fb7b07f0c154b2730be854b8f34f8338fb8395537f2bab499e07362df6",
   "refusedByRule": {
     "cases": [
       {
@@ -981,7 +981,12 @@
   "set": "lone-surrogate-wire",
   "totalBytes": 562840,
   "worldFiles": {
-    "barrier": "before each look at the files (before and after the call): on the desktop connection, config/setTheme with the theme config/getTheme answered at the first look, which mixdog-core-config writes through the config's one writer (Config::update on its write lane, written even when unchanged, as Node's updateConfig) and answers once written; a config write the refused call queued is written before it, and frames of one connection are read in order. Its answer must name the theme",
+    "barrier": {
+      "config": "the config file (core/data/mixdog-config.json): config/setTheme with the theme config/getTheme answered at the first look, which mixdog-core-config writes through the config's one writer (config/mod.rs Config::update on its write lane, written even when unchanged, as Node's updateConfig) and answers once written; a config write the refused call queued is written before it. Its answer must name the theme",
+      "mcpServerList": "in the config file: mcp/addMcpServer and mcp/saveMcpServer write the list through that same writer (mixdog-mcp mcp_service.rs save_servers -> save_config -> Config::update), so the config step covers it",
+      "secretsStore": "no step: a secret is written on the durability lane inside the call that writes it and before that call answers (mixdog-secrets lib.rs on_lane, windows.rs DpapiStore::set); nothing is queued past the answer",
+      "sessionStore": "replay/storesSettled, sent as a raw frame from the paired phone after the config step's answer (the desktop's protocol client sends only the method table's methods), a development-build control (mixdog-cli feature replay-controls; refused in a release build by build.rs): answered once every loaded thread's durability task has committed, or failed, every record its actor accepted before it (mixdog-core-session directory.rs SessionDirectory::durability_settled, actor Inbox::Settled answered when the outbox is empty), within a 20 s deadline that fails the call with what it waited for (mixdog-app-server-daemon replay_stores_settled.rs). Its answer must hold the number of loaded threads"
+    },
     "skip": [
       {
         "path": "core/data/daemon-owner.lock",
@@ -996,15 +1001,25 @@
         "reason": "the core's diagnostic log: lines from its own timers and events (a language server it stops when idle, for one), not stored state; a refused call is answered before any service runs, so it logs nothing a service would"
       },
       {
+        "atomicTemp": true,
         "path": "core/data/modelsdev-catalog.json",
-        "prefix": true,
-        "reason": "the models.dev catalog cache with its lock and temporary file: refreshed by the core on its own schedule from models.dev (not a stand-in server), as Node's catalog refresh does; no client call writes it"
+        "reason": "the models.dev catalog cache: refreshed by the core on its own schedule from models.dev (not a stand-in server), as Node's catalog refresh does; no client call writes it"
       },
       {
+        "path": "core/data/modelsdev-catalog.json.lock",
+        "reason": "the lock the models.dev catalog's refresh holds while it writes the cache (the entry above)"
+      },
+      {
+        "atomicTemp": true,
+        "path": "core/data/update-check-cache.json",
+        "reason": "the npm registry's latest version, cached 24 h by the core's own update check (mixdog-core-domains update.rs, Node's self-update.mjs) from registry.npmjs.org (not a stand-in server), written whenever that check, started by the core at its start, answers"
+      },
+      {
+        "atomicTemp": true,
         "path": "core/data/client-versions.json",
-        "prefix": true,
         "reason": "the last answer of each provider CLI's live version lookup (mixdog-ai client_versions.rs, Node's live CLI versions): written when a lookup the core started on its own answers, from the providers' sites (not a stand-in server); no client call writes it"
       }
-    ]
+    ],
+    "skipForm": "exact path (a folder: everything under it); atomicTemp: also <path>.mixdog-tmp-<16 lowercase hex>"
   }
 }

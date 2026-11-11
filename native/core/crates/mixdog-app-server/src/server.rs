@@ -129,6 +129,11 @@ pub enum Inbound {
     Close(CloseCode),
 }
 
+/// Replay-only (`replay-controls`): a request a replay sends before it looks at the core's files, answered once every store a
+/// call writes in the background has written what it was given (the core's service for it says which).
+#[cfg(feature = "replay-controls")]
+pub const REPLAY_STORES_SETTLED: &str = "replay/storesSettled";
+
 /// The method-table origin of a registered connection, `None` for one that is gone or was
 /// never registered (the transport's `ConnectionHub::origin_of`). Asked on every request.
 pub type OriginOf = Arc<dyn Fn(ConnectionId) -> Option<Origin> + Send + Sync>;
@@ -322,6 +327,11 @@ impl Shared {
             self.reject(conn, &id, &ErrorData::NotInitialized);
             return Inbound::Continue;
         }
+        #[cfg(feature = "replay-controls")]
+        if request.method == REPLAY_STORES_SETTLED {
+            self.replay_stores_settled(conn, id, origin);
+            return Inbound::Continue;
+        }
         let Some(spec) = method_index().get(request.method.as_str()).copied() else {
             self.reject(
                 conn,
@@ -417,6 +427,26 @@ impl Shared {
             }
         }
         Inbound::Continue
+    }
+
+    /// [`REPLAY_STORES_SETTLED`]: answered by the service the core registers for it, outside the method table (no ordinary build
+    /// has it), on the work runtime; a core that registers none answers it unclaimed.
+    #[cfg(feature = "replay-controls")]
+    fn replay_stores_settled(self: &Arc<Self>, conn: &Arc<Connection>, id: RequestId, origin: Origin) {
+        let (shared, owner, core) = (Arc::clone(self), Arc::clone(conn), Arc::clone(&self.core));
+        let request = CoreRequest {
+            method: Method(REPLAY_STORES_SETTLED),
+            params: empty_result(),
+            op: None,
+            ctx: CallContext::connection(conn.id, origin, conn.cancel.clone()),
+        };
+        mixdog_rt::spawn("replay-stores-settled", TaskClass::Work, async move {
+            let outcome = match core.domain_for(REPLAY_STORES_SETTLED) {
+                Some(domain) => domain.call(request).await,
+                None => Err(unclaimed(REPLAY_STORES_SETTLED)),
+            };
+            shared.finish(&owner, &id, outcome);
+        });
     }
 
     /// Refuses what the core's lifecycle does not serve. C0 controls always pass, so a client

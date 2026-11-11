@@ -224,13 +224,23 @@ const WORLD_FILES_SKIP = [
   },
   {
     path: 'core/data/modelsdev-catalog.json',
-    prefix: true,
+    atomicTemp: true,
     reason:
-      "the models.dev catalog cache with its lock and temporary file: refreshed by the core on its own schedule from models.dev (not a stand-in server), as Node's catalog refresh does; no client call writes it",
+      "the models.dev catalog cache: refreshed by the core on its own schedule from models.dev (not a stand-in server), as Node's catalog refresh does; no client call writes it",
+  },
+  {
+    path: 'core/data/modelsdev-catalog.json.lock',
+    reason: "the lock the models.dev catalog's refresh holds while it writes the cache (the entry above)",
+  },
+  {
+    path: 'core/data/update-check-cache.json',
+    atomicTemp: true,
+    reason:
+      "the npm registry's latest version, cached 24 h by the core's own update check (mixdog-core-domains update.rs, Node's self-update.mjs) from registry.npmjs.org (not a stand-in server), written whenever that check, started by the core at its start, answers",
   },
   {
     path: 'core/data/client-versions.json',
-    prefix: true,
+    atomicTemp: true,
     reason:
       "the last answer of each provider CLI's live version lookup (mixdog-ai client_versions.rs, Node's live CLI versions): written when a lookup the core started on its own answers, from the providers' sites (not a stand-in server); no client call writes it",
   },
@@ -307,8 +317,21 @@ writeSetManifest(stage, {
     // added, removed or changed fails it. Not read, with the reason:
     worldFiles: {
       skip: WORLD_FILES_SKIP,
-      barrier:
-        "before each look at the files (before and after the call): on the desktop connection, config/setTheme with the theme config/getTheme answered at the first look, which mixdog-core-config writes through the config's one writer (Config::update on its write lane, written even when unchanged, as Node's updateConfig) and answers once written; a config write the refused call queued is written before it, and frames of one connection are read in order. Its answer must name the theme",
+      // Each entry's `path` is one file or folder exactly (a folder: everything in it); `atomicTemp` adds the temporary file of an
+      // atomic write of that file, `<path>.mixdog-tmp-<16 hex>` exactly, and nothing else.
+      skipForm: 'exact path (a folder: everything under it); atomicTemp: also <path>.mixdog-tmp-<16 lowercase hex>',
+      // Before each look at the files (before and after the call), after the call's answer: one step per store a call can write,
+      // in this order, each answer required to be the expected one.
+      barrier: {
+        config:
+          "the config file (core/data/mixdog-config.json): config/setTheme with the theme config/getTheme answered at the first look, which mixdog-core-config writes through the config's one writer (config/mod.rs Config::update on its write lane, written even when unchanged, as Node's updateConfig) and answers once written; a config write the refused call queued is written before it. Its answer must name the theme",
+        mcpServerList:
+          "in the config file: mcp/addMcpServer and mcp/saveMcpServer write the list through that same writer (mixdog-mcp mcp_service.rs save_servers -> save_config -> Config::update), so the config step covers it",
+        sessionStore:
+          "replay/storesSettled, sent as a raw frame from the paired phone after the config step's answer (the desktop's protocol client sends only the method table's methods), a development-build control (mixdog-cli feature replay-controls; refused in a release build by build.rs): answered once every loaded thread's durability task has committed, or failed, every record its actor accepted before it (mixdog-core-session directory.rs SessionDirectory::durability_settled, actor Inbox::Settled answered when the outbox is empty), within a 20 s deadline that fails the call with what it waited for (mixdog-app-server-daemon replay_stores_settled.rs). Its answer must hold the number of loaded threads",
+        secretsStore:
+          "no step: a secret is written on the durability lane inside the call that writes it and before that call answers (mixdog-secrets lib.rs on_lane, windows.rs DpapiStore::set); nothing is queued past the answer",
+      },
     },
     // After the cases: every field the inventory refuses in a request or a notification, sent with a lone unit there and nothing
     // else (a frame is refused before its params are read). An answer's fields are not here: an answer only exists to a request
