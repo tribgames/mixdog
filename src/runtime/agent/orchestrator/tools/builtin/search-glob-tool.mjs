@@ -174,6 +174,9 @@ function createStatCache() {
 // fold the magic suffix into each pattern under that root.
 function globBaseEntry(basePath, workDir) {
   if (typeof basePath !== 'string' || !hasGlobMagic(basePath)) return { root: basePath, prefix: '' };
+  // A UNC or device-namespace path (`\\?\C:\x`, `\\?\UNC\server\share`) is never split at the `?` of its prefix: split, a
+  // missing one walked the whole drive root for a pattern no file can match, and the UNC form slipped past globUncRefusal.
+  if (isUncOrSmbPath(basePath)) return { root: basePath, prefix: '' };
   // Literal-first (same contract as grep's path handling): a directory
   // literally named e.g. "cache{v2}" is the root, not a pattern.
   try {
