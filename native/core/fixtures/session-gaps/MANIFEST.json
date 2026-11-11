@@ -1,7 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <exact export of b6f10295a>",
   "exclusions": [
-    "legacy-json-keys: each key and string of the document is recorded well-formed (String.prototype.toWellFormed: a lone surrogate as U+FFFD, and two keys that differ only there as one, last wins); no JSON a Rust reader accepts holds a lone surrogate, and the core reads one as U+FFFD (mixdog-migrate json::replace_lone_surrogates)",
     "attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>"
   ],
   "fileCount": 4,
@@ -22,9 +21,9 @@
       "sha256": "1bfbcccbb1f54f1e6c743d3b458365231c11909c3456acb2400876fc131c161f"
     },
     {
-      "bytes": 2371,
+      "bytes": 2860,
       "path": "legacy-json-keys.json",
-      "sha256": "378df245336b814f6ecda9acad8cded5f9607bc27561fcd6ed5a253b448d89e1"
+      "sha256": "6dfa17a5e3745f0deccb5a4b14076cc1d704ccc34352be50c8fadca61d841368"
     }
   ],
   "inputs": [
@@ -34,7 +33,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
-      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+      "sha256": "19b5e18bfa90ac12f591a14212b13f8662f3fcdba0329a06efed26937f93d6ea"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -60,7 +59,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
-  "recorderSha256": "dce015bc1f66b89bedc9fc41ffc44fa26dd947d5eda93f00d558e137567c0a58",
+  "recorderSha256": "70f488cffbe89070f447a0d2af68c6d9355ac1e7e6084e9e0c6d7721295ef452",
   "scenarios": [
     "legacy-json-keys",
     "image-strip",
@@ -68,6 +67,6 @@
     "compaction-pasted-text"
   ],
   "set": "session-gaps",
-  "totalBytes": 475123,
+  "totalBytes": 475612,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

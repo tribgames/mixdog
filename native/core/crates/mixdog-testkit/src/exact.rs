@@ -40,6 +40,10 @@ pub enum Exact {
     /// `code` and `cause` are `None` when the error had no such own property; `props` are its other
     /// own enumerable properties, in order. The stack is never recorded.
     Error { name: String, message: String, code: Option<Box<Exact>>, cause: Option<Box<Exact>>, props: Vec<(String, Exact)> },
+    /// A string holding a lone surrogate, as its UTF-16 code units (a Rust `String` cannot hold one).
+    Utf16(Vec<u16>),
+    /// An object with a key holding a lone surrogate: every key as its UTF-16 code units, in recorded order.
+    Utf16Keyed(Vec<(Vec<u16>, Exact)>),
 }
 
 impl Exact {
@@ -264,19 +268,39 @@ fn decode_tag(kind: &Value, map: &serde_json::Map<String, Value>, path: &str) ->
                 props,
             })
         }
+        "utf16" => {
+            shape(&["units"], &["units"])?;
+            Ok(Exact::Utf16(units(&map["units"], &format!("{path}.units"))?))
+        }
         "object" => {
             shape(&["entries"], &["entries"])?;
             let mut out = Vec::new();
             for (i, item) in array("entries")?.iter().enumerate() {
                 let at = format!("{path}.entries[{i}]");
                 let (k, v) = pair(item, &at)?;
-                let key = k.as_str().ok_or_else(|| format!("{at}[0]: key is not a string"))?;
-                out.push((key.to_owned(), decode_at(v, &format!("{path}.{key}"))?));
+                let key = match decode_at(k, &format!("{at}[0]"))? {
+                    Exact::String(key) => key.encode_utf16().collect(),
+                    Exact::Utf16(key) => key,
+                    _ => return Err(format!("{at}[0]: key is not a string")),
+                };
+                out.push((key, decode_at(v, &format!("{at}[1]"))?));
             }
-            Ok(Exact::Object(out))
+            Ok(match out.iter().map(|(k, v)| String::from_utf16(k).map(|k| (k, v.clone()))).collect::<Result<Vec<_>, _>>() {
+                Ok(keys) => Exact::Object(keys),
+                Err(_) => Exact::Utf16Keyed(out),
+            })
         }
         other => Err(format!("{path}: unknown tag {other:?}")),
     }
+}
+
+fn units(value: &Value, path: &str) -> Result<Vec<u16>, String> {
+    value
+        .as_array()
+        .ok_or_else(|| format!("{path}: not an array"))?
+        .iter()
+        .map(|u| u.as_u64().and_then(|u| u16::try_from(u).ok()).ok_or_else(|| format!("{path}: {u} is not a UTF-16 code unit")))
+        .collect()
 }
 
 fn to_plain_at(value: &Exact, path: &str) -> Result<Value, String> {
