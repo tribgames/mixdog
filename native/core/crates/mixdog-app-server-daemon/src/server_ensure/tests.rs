@@ -540,14 +540,18 @@ fn status_answer(lifecycle: &crate::lifecycle::Lifecycle) -> String {
     format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
 }
 
-/// `answer` in two parts, each written just inside `limit` of inactivity, so the whole takes twice the limit.
+/// `answer` in two parts, each written just inside `limit` of inactivity, so the whole takes twice the limit. Before
+/// each part the reader's read has timed out on the real clock: only the watch's clock may decide, so a machine that
+/// stalls the core between the accept and a write changes nothing.
 fn answer_in_two_parts(conn: &mut std::net::TcpStream, watch: &super::idle::IdleWatch, answer: &str, limit: Duration) {
     use std::io::Write;
     let (first, rest) = answer.split_at(answer.len() / 2);
     let just_inside = limit - Duration::from_millis(1);
+    watch.wait_a_read_timeout();
     watch.advance(just_inside);
     conn.write_all(first.as_bytes()).unwrap();
     watch.wait_chunks(1);
+    watch.wait_a_read_timeout();
     watch.advance(just_inside);
     conn.write_all(rest.as_bytes()).unwrap();
     conn.shutdown(std::net::Shutdown::Write).unwrap();
