@@ -56,10 +56,20 @@ pub(crate) fn spawn_command(
     rt: &Handle,
 ) -> std::io::Result<Proc> {
     let _entered = rt.enter();
-    let mut command = worker_command(program, args, envs);
-    let child = command.spawn()?;
-    let containment = Containment::attach(&child)?;
-    Ok(Proc { child, containment })
+    spawn_contained(worker_command(program, args, envs)).map_err(|(error, _child)| error)
+}
+
+/// Creates `command` and puts it under containment. The child of a failed attach (created suspended, never resumed) is
+/// ended and handed back with the error.
+fn spawn_contained(mut command: Command) -> Result<Proc, (std::io::Error, Option<Child>)> {
+    let mut child = command.spawn().map_err(|error| (error, None))?;
+    match Containment::attach(&child) {
+        Ok(containment) => Ok(Proc { child, containment }),
+        Err(error) => {
+            let _ = child.start_kill();
+            Err((error, Some(child)))
+        }
+    }
 }
 
 /// The launcher's OS-proxy decision. Node deletes it from `process.env` when it adopts it
@@ -356,5 +366,65 @@ mod tests {
         let envs: Vec<_> = command.as_std().get_envs().collect();
         assert!(envs.contains(&(std::ffi::OsStr::new(SYSTEM_PROXY_HANDOFF), None)), "removed from the child");
         assert!(envs.contains(&(std::ffi::OsStr::new("OTHER"), Some(std::ffi::OsStr::new("1")))), "the given env stays");
+    }
+
+    /// A worker that starts a grandchild (holding the worker's stdout) at once, then prints `ready` and stays alive.
+    fn starts_a_grandchild() -> Command {
+        #[cfg(windows)]
+        let (program, args) = ("cmd", ["/d", "/c", "start /b ping -n 100 127.0.0.1 & echo ready & ping -n 100 127.0.0.1 >nul"]);
+        #[cfg(unix)]
+        let (program, args) = ("sh", ["-c", "sleep 100 & echo ready; wait"]);
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        worker_command(Path::new(program), &args, &[])
+    }
+
+    /// A worker that starts a grandchild at its first instruction is ended, grandchild included, when its containment
+    /// ends: the grandchild holds the worker's stdout, so the pipe reaches its end only once the whole tree is gone.
+    #[tokio::test]
+    async fn a_worker_that_starts_a_grandchild_at_once_ends_with_its_job() {
+        use tokio::io::AsyncBufReadExt;
+        let Ok(mut proc) = spawn_contained(starts_a_grandchild()) else {
+            panic!("the start failed");
+        };
+        let mut stdout = tokio::io::BufReader::new(proc.child.stdout.take().unwrap());
+        let mut line = String::new();
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                line.clear();
+                assert!(stdout.read_line(&mut line).await.unwrap() > 0, "the worker ended before it said ready");
+                if line.trim() == "ready" {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("the worker says ready (its grandchild runs) in 30 s");
+        proc.containment.kill_group();
+        let mut rest = Vec::new();
+        tokio::time::timeout(std::time::Duration::from_secs(30), stdout.read_to_end(&mut rest))
+            .await
+            .expect("the grandchild ended with the job: its end of the stdout pipe closed in 30 s")
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), proc.child.wait())
+            .await
+            .expect("the worker ended in 30 s")
+            .unwrap();
+    }
+
+    /// A worker the job refuses is not started: the start fails and the child, created suspended and never resumed, is
+    /// ended.
+    #[tokio::test]
+    async fn a_failed_attach_fails_the_start_with_the_worker_ended() {
+        crate::containment::FAIL_NEXT_ATTACH.with(|fail| fail.set(true));
+        let (error, child) = match spawn_contained(starts_a_grandchild()) {
+            Ok(_) => panic!("a worker that could not be contained was started"),
+            Err(failed) => failed,
+        };
+        assert!(error.to_string().contains("attach failed"), "{error}");
+        let mut child = child.expect("the child was created");
+        tokio::time::timeout(std::time::Duration::from_secs(30), child.wait())
+            .await
+            .expect("the child of a failed attach ended in 30 s, not left suspended")
+            .unwrap();
     }
 }
