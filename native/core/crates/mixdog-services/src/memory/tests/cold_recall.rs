@@ -101,8 +101,8 @@ async fn a_recall_while_the_model_loads_answers_as_node_and_the_load_goes_on() {
 }
 
 /// A recall tool call whose turn is stopped during the cold wait ends at that instant, refused as Node's request signal refuses it
-/// (`embedRecallQuery` throws `abortReason(signal)`, `query-hybrid-search.mjs:40`; the tool answers `recall failed: …` with the error flag),
-/// and the model's load goes on. The clock is paused: the wait's 3 s would have to be advanced for the recall to end by the timer.
+/// (`embedRecallQuery` throws `abortReason(signal)`, `query-hybrid-search.mjs:40`; the proxy rejects the caller's call with the signal's
+/// reason, `rpc.mjs:74-78`, so the outcome is `cancelled`, not a reply), and the model's load goes on. The clock is paused: the wait's 3 s would have to be advanced for the recall to end by the timer.
 #[tokio::test]
 async fn a_recall_stopped_during_the_cold_wait_ends_at_once_and_the_load_goes_on() {
     let pg = TestPg::start().await;
@@ -141,6 +141,6 @@ async fn a_recall_stopped_during_the_cold_wait_ends_at_once_and_the_load_goes_on
     cancel.cancel();
     let outcome = awaiting("the stopped recall", answering).await.expect("answers");
     assert_eq!(tokio::time::Instant::now(), begun, "the stopped recall ended without the wait's time passing");
-    assert!(outcome.is_error && outcome.text.starts_with("recall failed: "), "the stopped recall is refused: {}", outcome.text);
+    assert!(outcome.cancelled, "the stopped recall is the caller's cancellation, not a reply: {}", outcome.text);
     assert_eq!(release.receiver_count(), 2, "the load goes on after the recall stopped waiting for it");
 }
