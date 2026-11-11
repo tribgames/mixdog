@@ -2219,6 +2219,58 @@ mod tests {
     }
 
 
+    /// The session catalog `call_tool` resolves its target in, bound once the directory exists (the composition's
+    /// `LateCatalog`).
+    #[derive(Default)]
+    struct LateCatalog(std::sync::OnceLock<Arc<dyn mixdog_tools::orch::bridge::CatalogView>>);
+
+    impl LateCatalog {
+        fn bound(&self) -> &dyn mixdog_tools::orch::bridge::CatalogView {
+            self.0.get().expect("the catalog is bound before a turn runs").as_ref()
+        }
+    }
+
+    #[async_trait]
+    impl mixdog_tools::orch::bridge::CatalogView for LateCatalog {
+        fn available(&self, thread: &ThreadId) -> Vec<mixdog_tools::orch::bridge::ToolDoc> {
+            self.bound().available(thread)
+        }
+        fn is_eager(&self, thread: &ThreadId, name: &str) -> bool {
+            self.bound().is_eager(thread, name)
+        }
+        fn block_reason(&self, thread: &ThreadId, name: &str) -> Option<String> {
+            self.bound().block_reason(thread, name)
+        }
+        fn alias_members(&self, key: &str) -> Vec<String> {
+            self.bound().alias_members(key)
+        }
+        fn mcp_server_members(&self, thread: &ThreadId, requested: &str) -> Vec<String> {
+            self.bound().mcp_server_members(thread, requested)
+        }
+        fn instructions_for(&self, thread: &ThreadId, names: &[String]) -> String {
+            self.bound().instructions_for(thread, names)
+        }
+        async fn announce(&self, thread: &ThreadId, names: &[String]) {
+            self.bound().announce(thread, names).await;
+        }
+        fn resolve_call(&self, thread: &ThreadId, name: &str) -> mixdog_tools::orch::bridge::CallResolution {
+            self.bound().resolve_call(thread, name)
+        }
+        async fn refresh(&self, thread: &ThreadId) {
+            self.bound().refresh(thread).await;
+        }
+    }
+
+    /// `call_tool`'s own pipeline, never reached: the loop projects a wire call onto its target before dispatch.
+    struct Unprojected;
+
+    #[async_trait]
+    impl mixdog_tools::orch::bridge::ToolDispatcher for Unprojected {
+        async fn dispatch(&self, _: &ToolContext, name: &str, _: Value) -> ToolOutcome {
+            panic!("call_tool dispatched {name} without the loop's projection")
+        }
+    }
+
     struct PoolResolver(Vec<Arc<dyn Tool>>);
     impl mixdog_tools::policy::ToolResolver for PoolResolver {
         fn resolve(&self, _scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
@@ -2424,7 +2476,12 @@ mod tests {
         let ledger = Arc::new(Ledger::default());
         let sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = ledger.clone();
         let accounting = mixdog_ai::registry::accounted::AccountingDeps::new(Arc::new(Pricing), Arc::new(move || Some(sink.clone())));
-        let pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
+        let mut pool: Vec<Arc<dyn Tool>> = vec![named("list"), named("Skill")];
+        // A Lead world's bridge sessions reach their deferred tools through the product's `call_tool`.
+        let late_catalog = Arc::new(LateCatalog::default());
+        if lead {
+            pool.push(Arc::new(mixdog_tools::orch::bridge::CallTool::new(late_catalog.clone(), Arc::new(Unprojected))));
+        }
         let processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager> = Arc::new(MockProcessManager::default());
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
         let connectors: Arc<dyn mixdog_tools::policy::ConnectorPermissions> = mixdog_mcp::permissions::ConnectorPolicy::new(
@@ -2447,6 +2504,7 @@ mod tests {
         let asked = Arc::new(AskedFor::default());
         let exclusions: Arc<mixdog_core_session::session::SessionToolExclusions> = Arc::default();
         let surfaces_from = exclusions.clone();
+        let surfaces_from_catalog = exclusions.clone();
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
             clock: clock.clone(),
@@ -2534,8 +2592,12 @@ mod tests {
         let settings = Arc::new(Mutex::new(serde_json::Map::new()));
         if lead {
             let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
-            let host = super::super::surface_host::tests::lead_host_over(threads.clone(), threads, mcp);
+            let host = super::super::surface_host::tests::lead_host_over(threads.clone(), threads.clone(), mcp);
             assert!(path.turn_settings.bind(Arc::new(host)).is_ok());
+            // As `compose_flip` binds it: the directory's running headers, the Lead's exclusions, the bridge definitions.
+            let catalog = super::super::session_catalog::SessionCatalog::new(directory.clone(), threads, surfaces_from_catalog, Arc::new(super::super::surface_host::tests::Bridge(super::super::surface_host::tests::node_bridge())), clock.clone())
+                .with_refresh(path.turn_settings.clone());
+            assert!(late_catalog.0.set(Arc::new(catalog)).is_ok());
         } else {
             assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
         }
@@ -2728,14 +2790,17 @@ mod tests {
     /// Node's tool calls once the session's cwd moved out of a plugin's project scope and back (`fixtures/mcp-cwd-scope`):
     /// one turn per recorded session, started in project A, each step a model's call dispatched through the real turn path
     /// after the cwd moved. The snapshot the turn start took, each call's result as the model got it back, the calls that
-    /// reached the server and the snapshot after each call are the recorded ones, on a native session, a bridge one and one
-    /// with no deferred provider mode.
+    /// reached the server and the snapshot after each call are the recorded ones, on a native session, a bridge one, one
+    /// with no deferred provider mode, a sub-agent's (`owner: agent`, judged on the agent surface) and a bridge session's
+    /// `call_tool` wire calls (projected onto their targets). The native case is replayed once more with its turn started
+    /// by a paired phone (a `turn/start` from a relay connection, the only way a phone reaches a tool).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_models_mcp_call_after_the_cwd_left_its_plugins_scope_gets_nodes_result() {
         use mixdog_core_api::domain::provider::{Content, ContentPart};
         let mut checked = 0;
         let text = include_str!("../../../../fixtures/mcp-cwd-scope/golden.json");
-        for case_index in 0..3 {
+        let runs = [(0, mixdog_protocol::Origin::Local), (1, mixdog_protocol::Origin::Local), (2, mixdog_protocol::Origin::Local), (3, mixdog_protocol::Origin::Local), (4, mixdog_protocol::Origin::Local), (0, mixdog_protocol::Origin::Relay)];
+        for (case_index, origin) in runs {
             let sandbox = tempfile::tempdir().unwrap();
             for project in ["project-a", "project-b"] {
                 std::fs::create_dir_all(sandbox.path().join(project)).unwrap();
@@ -2743,7 +2808,7 @@ mod tests {
             let escaped = serde_json::to_string(&sandbox.path().to_string_lossy()).unwrap();
             let rec = mixdog_js::fixture_tools::parse_golden(&text.replace("<SANDBOX>", &escaped[1..escaped.len() - 1])).expect("mcp cwd scope golden");
             let case = &rec["cases"][case_index];
-            let label = case["name"].as_str().unwrap();
+            let label = &format!("{} ({origin:?})", case["name"].as_str().unwrap());
             let steps = case["steps"].as_array().unwrap();
             let reached = Arc::new(Mutex::new(Vec::new()));
             let servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)> = rec["registry"]
@@ -2783,7 +2848,12 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(n, step)| {
-                    let call = ToolCall { id: format!("c{n}"), name: step["call"].as_str().unwrap().into(), arguments: json!({}), native_type: None };
+                    // A recorded wire call (`call_tool`) is what the model sent; otherwise the target itself.
+                    let (name, arguments) = match step.get("wire") {
+                        Some(wire) => (wire["name"].as_str().unwrap().to_owned(), wire["arguments"].clone()),
+                        None => (step["call"].as_str().unwrap().to_owned(), json!({})),
+                    };
+                    let call = ToolCall { id: format!("c{n}"), name, arguments, native_type: None };
                     vec![StreamEvent::ToolCallDone(call), done(StopReason::ToolUse)]
                 })
                 .collect();
@@ -2812,7 +2882,9 @@ mod tests {
             header.insert("cwd".into(), case["turnStart"]["cwd"].clone());
             let (id, handle) = started_thread(&world, Value::Object(header)).await;
             assert!(provider.thread.set((id.clone(), handle.clone())).is_ok());
-            let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+            let mut start = request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1");
+            start.ctx = CallContext::connection(ConnectionId(1), origin, mixdog_rt::CancellationToken::new());
+            let started = handle.request(start).await.expect("turn/start");
             let Reply::Value(started) = started else { panic!("turn/start answers a value") };
             assert_eq!(started["kind"], "started", "{label}");
             eventually_on_awaiting(
@@ -2847,7 +2919,7 @@ mod tests {
                 checked += 1;
             }
         }
-        assert_eq!(checked, 12);
+        assert_eq!(checked, 24);
     }
 
     /// A provider that hands each request it is asked to send to `sent` and answers with a text. Its codec is Grok's, so

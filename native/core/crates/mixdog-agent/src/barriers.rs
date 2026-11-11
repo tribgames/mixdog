@@ -89,6 +89,11 @@ pub(crate) struct Preceding {
 }
 
 impl Preceding {
+    /// The call has no barrier at all: it starts at once.
+    pub(crate) fn none(&self) -> bool {
+        self.has == [false; 3]
+    }
+
     /// Waits for the barriers in Node's order; the text the call is skipped with when an earlier mutation it depends on
     /// failed (`waitForPreceding`).
     pub(crate) async fn wait(self, name: &str) -> Option<String> {

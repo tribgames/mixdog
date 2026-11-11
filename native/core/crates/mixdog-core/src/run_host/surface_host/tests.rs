@@ -222,11 +222,11 @@ impl SkillsListed for NoSkills {
 /// The bridge exposure's own definitions, Node's `TOOL_BRIDGE_TOOLS` (`load_tool`, `call_tool`) as the session holds
 /// them, with their title. The recorded pool holds `load_tool` as `_getMcpTools` projects it (no title), which is not
 /// what the bridge appends to a session.
-fn node_bridge() -> Vec<Value> {
+pub(crate) fn node_bridge() -> Vec<Value> {
     ["load_tool", "call_tool"].iter().map(|name| mixdog_js::fixture_tools::definition(name).expect("a recorded bridge tool")).collect()
 }
 
-struct Bridge(Vec<Value>);
+pub(crate) struct Bridge(pub(crate) Vec<Value>);
 impl ToolSurfaceHost for Bridge {
     fn bridge_tools(&self) -> Vec<Value> {
         self.0.clone()

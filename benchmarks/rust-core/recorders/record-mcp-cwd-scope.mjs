@@ -9,7 +9,15 @@
 // `turn-prepare.mjs` `foldMcpSurface` for a session past its first fold: `reconcileDeferredMcpToolCatalog` over the
 // cwd's servers, whatever its provider mode) and the turn's steps: the cwd the session has moved to (in place, as the
 // `cwd` tool's `_applyResolvedCwdForCaller` does mid-turn), the tool called through `executeTool`, what it returned,
-// whether the server was called, and the session's MCP snapshot (`deferredMcpToolNames`) after.
+// whether the server was called, and the session's MCP snapshot (`deferredMcpToolNames`) at the next request, after the
+// refresh every request boundary runs (`request-boundary.mjs:77`).
+//
+// The other routes an MCP call can take: a sub-agent's session (`owner: 'agent'`) runs the same loop; a bridge session's
+// deferred call is a wire `call_tool` projected onto its target (`tool-call-resolution.mjs` `resolveExecutionToolCall`)
+// and then run with its wire call (`bridgeWireCall`); a channel client's `channel/call` names a tool to the channels
+// worker's dispatch (`channels/lib/tool-dispatch.mjs` `handleToolCall`, reached from `daemon-channels-loader.mjs:57`); an
+// `mcp_tool` hook runs `executeMcpTool(name, args, { scopeId: rt.mcpScopeId, ownerKey })` (`boot/infrastructure.mjs:93-101`)
+// from a session whose cwd is outside the plugin's scope.
 //
 //   node benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs --tree <exact export of b6f10295a with node_modules>
 //
@@ -38,9 +46,12 @@ try {
   const identity = exactProductIdentity(tree, NODE_COMMIT);
   const recorder = 'benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs';
   const U = (rel) => importFrom(tree, `src/runtime/agent/orchestrator/${rel}`);
-  const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, scopedMcpToolsFor } = await U('runtime-core/tool-catalog.mjs');
+  const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, refreshDeferredMcpToolCatalog, scopedMcpToolsFor } = await U('runtime-core/tool-catalog.mjs');
   const { executeTool } = await U('session/loop/tool-exec.mjs');
-  const { _registerMcpServerForTest, disconnectAll } = await U('mcp/client.mjs');
+  const { resolveExecutionToolCall } = await U('session/loop/tool-call-resolution.mjs');
+  const { preDispatchDenyForSession } = await U('session/loop/pre-dispatch-deny.mjs');
+  const { _registerMcpServerForTest, disconnectAll, executeMcpTool } = await U('mcp/client.mjs');
+  const { createToolDispatch } = await importFrom(tree, 'src/runtime/channels/lib/tool-dispatch.mjs');
   const { saveConfig } = await U('config.mjs');
 
   const projectA = join(sandbox, 'project-a');
@@ -67,7 +78,7 @@ try {
       },
     });
   }
-  const session = (provider, after = () => {}) => {
+  const session = (provider, after = () => {}, mode = 'lead') => {
     const current = {
       id: `sess_${provider}`,
       provider,
@@ -84,7 +95,7 @@ try {
       toolSpec: 'full',
       disallowedTools: [],
     };
-    applyDeferredToolSurface(current, 'lead', [], { provider });
+    applyDeferredToolSurface(current, mode, [], { provider });
     after(current);
     return current;
   };
@@ -100,28 +111,73 @@ try {
     ['a native session', session('anthropic-oauth')],
     ['a bridge session', session('openrouter')],
     ['a session with no deferred provider mode', session('anthropic-oauth', (current) => delete current.deferredProviderMode)],
+    [
+      'a sub-agent session',
+      session(
+        'anthropic-oauth',
+        (current) => {
+          current.id = 'sess_worker';
+          current.owner = 'agent';
+          current.agent = 'worker';
+        },
+        'full'
+      ),
+    ],
+    ['a bridge session calling through call_tool', session('openrouter', (current) => (current.id = 'sess_call_tool')), true],
   ];
   const cases = [];
-  for (const [name, current] of CASES) {
+  for (const [name, current, viaCallTool = false] of CASES) {
     const before = json(current);
     // The turn start (`foldMcpSurface`, `turn-prepare.mjs:63`).
     reconcileDeferredMcpToolCatalog(current, scopedMcpToolsFor(current));
     const turnStart = { cwd: current.cwd, mcpNames: json(current.deferredMcpToolNames ?? null) };
     const steps = [];
-    for (const [project, call] of STEPS) {
+    // Each request the loop sends first refreshes the snapshot for the cwd as it then is (`request-boundary.mjs:77`); the
+    // model's next call moves the cwd after that.
+    refreshDeferredMcpToolCatalog(current);
+    for (const [n, [project, call]] of STEPS.entries()) {
       current.cwd = project === 'a' ? projectA : projectB;
       ran.length = 0;
-      const result = await executeTool(call, {}, current.cwd, current.id, current, {});
-      steps.push({ cwd: current.cwd, call, result: json(result), ran: [...ran], mcpNames: json(current.deferredMcpToolNames ?? null) });
+      let result;
+      let wire;
+      if (viaCallTool) {
+        wire = { name: 'call_tool', arguments: { name: call, arguments: {} } };
+        const wireCall = { id: `c${n}`, ...wire };
+        const run = (projected) => executeTool(projected.name, projected.arguments, current.cwd, current.id, current, { bridgeWireCall: projected.wireCall });
+        // The streamed call is projected and its target started at once (`eager-dispatch.mjs:63`); the run refreshes the
+        // snapshot for the cwd as it is now.
+        const eager = resolveExecutionToolCall(wireCall, current);
+        const eagerResult = eager.bridgeError ? undefined : await run(eager);
+        // The tool phase projects the batch again (`tool-phase.mjs:45`), and a projection error answers the wire call
+        // before any eager result is consumed (`pre-dispatch-deny.mjs:110`).
+        const projected = resolveExecutionToolCall(wireCall, current);
+        result = preDispatchDenyForSession(current, projected) ?? eagerResult ?? (await run(projected));
+      } else {
+        result = await executeTool(call, {}, current.cwd, current.id, current, {});
+      }
+      refreshDeferredMcpToolCatalog(current);
+      steps.push({ cwd: current.cwd, call, ...(wire ? { wire } : {}), result: json(result), ran: [...ran], mcpNames: json(current.deferredMcpToolNames ?? null) });
     }
     cases.push({ name, before, turnStart, steps });
   }
+  // `channel/call` naming the plugin's tool: the channels worker's dispatch, which hosts only its lifecycle tools.
+  ran.length = 0;
+  const { handleToolCall } = createToolDispatch({ isChannelsDegraded: () => false, lifecycle: {} });
+  const channelCall = { name: BUILD, args: {}, result: json(await handleToolCall(BUILD, {})), ran: [...ran] };
+  // An `mcp_tool` hook of a session whose cwd is project B (outside the plugin's scope).
+  ran.length = 0;
+  const hook = {
+    cwd: projectB,
+    name: BUILD,
+    result: json(await executeMcpTool(BUILD, {}, { scopeId: SCOPE, ownerKey: `hook:${BUILD}` })),
+    ran: [...ran],
+  };
   await disconnectAll({ scopeId: SCOPE });
   const placeholder = (value) =>
     JSON.parse(JSON.stringify(value), (_, v) => (typeof v === 'string' ? [sandbox, sandbox.replaceAll('\\', '/'), JSON.stringify(sandbox).slice(1, -1)].reduce((out, form) => out.replaceAll(form, '<SANDBOX>'), v) : v));
   const finalDir = join(FIXTURES_ROOT, 'mcp-cwd-scope');
   const stage = stageSet(finalDir);
-  await writeJsonCompact(tree, join(stage, 'golden.json'), placeholder({ now: NOW, extensionScopes, registry: REGISTRY, cases }));
+  await writeJsonCompact(tree, join(stage, 'golden.json'), placeholder({ now: NOW, extensionScopes, registry: REGISTRY, cases, channelCall, hook }));
   writeSetManifest(stage, {
     set: 'mcp-cwd-scope',
     recorder,
@@ -132,10 +188,13 @@ try {
       syntheticInputs: [
         'the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`',
         'the scopes: `saveConfig({ extensionScopes })` into the sandbox profile',
-        'the session: a plain object as createSession leaves it, its surface built by `applyDeferredToolSurface(session, "lead", [], { provider })`; its cwd is moved in place between steps',
+        'the session: a plain object as createSession leaves it, its surface built by `applyDeferredToolSurface(session, mode, [], { provider })` ("full" for the sub-agent, which also carries owner "agent" and agent "worker"); its cwd is moved in place between steps',
+        'the call_tool case: each wire call `{ id, name: "call_tool", arguments: { name, arguments: {} } }` as the loop takes a streamed call: projected by `resolveExecutionToolCall` and run with `bridgeWireCall` at once (the eager dispatch), then projected again for the tool phase, whose `preDispatchDenyForSession` answers a projection error before the eager result is used',
+        'channelCall: `createToolDispatch({ isChannelsDegraded: () => false, lifecycle: {} }).handleToolCall(name, {})`',
+        'hook: `executeMcpTool(name, {}, { scopeId, ownerKey: "hook:<name>" })`, the call `boot/infrastructure.mjs` mcpToolRunner makes',
       ],
       normalisations: { sandboxPath: 'the sandbox folder (and its forward-slash form) in every string becomes <SANDBOX>' },
-      keptWhole: 'per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot',
+      keptWhole: 'per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)',
     },
   });
   commitStage(stage, finalDir);

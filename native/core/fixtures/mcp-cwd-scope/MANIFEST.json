@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12915,
+      "bytes": 22487,
       "path": "golden.json",
-      "sha256": "af8d08f5b1f899417a60747e006dbf5296754f2577e47aad2c0a556ed17bed52"
+      "sha256": "0e44ab25c6c0c1f037373d1ad1b397bd2b8ee25b318eb5c61c9c2c975cae22fa"
     }
   ],
   "inputs": [
@@ -22,7 +22,7 @@
       "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
     }
   ],
-  "keptWhole": "per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot",
+  "keptWhole": "per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)",
   "nodeVersion": "v22.20.0",
   "normalisations": {
     "sandboxPath": "the sandbox folder (and its forward-slash form) in every string becomes <SANDBOX>"
@@ -45,12 +45,15 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs",
-  "recorderSha256": "d05153704b0542e1ebd9f345c7b9f7f9670486893a9c48dd40586191ed04e3d4",
+  "recorderSha256": "20e4902ac419819a6cdd1949822c210f808c6a5435556f6d8f27fa6aa3e1bdf3",
   "set": "mcp-cwd-scope",
   "syntheticInputs": [
     "the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`",
     "the scopes: `saveConfig({ extensionScopes })` into the sandbox profile",
-    "the session: a plain object as createSession leaves it, its surface built by `applyDeferredToolSurface(session, \"lead\", [], { provider })`; its cwd is moved in place between steps"
+    "the session: a plain object as createSession leaves it, its surface built by `applyDeferredToolSurface(session, mode, [], { provider })` (\"full\" for the sub-agent, which also carries owner \"agent\" and agent \"worker\"); its cwd is moved in place between steps",
+    "the call_tool case: each wire call `{ id, name: \"call_tool\", arguments: { name, arguments: {} } }` as the loop takes a streamed call: projected by `resolveExecutionToolCall` and run with `bridgeWireCall` at once (the eager dispatch), then projected again for the tool phase, whose `preDispatchDenyForSession` answers a projection error before the eager result is used",
+    "channelCall: `createToolDispatch({ isChannelsDegraded: () => false, lifecycle: {} }).handleToolCall(name, {})`",
+    "hook: `executeMcpTool(name, {}, { scopeId, ownerKey: \"hook:<name>\" })`, the call `boot/infrastructure.mjs` mcpToolRunner makes"
   ],
-  "totalBytes": 12915
+  "totalBytes": 22487
 }

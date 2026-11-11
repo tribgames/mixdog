@@ -494,6 +494,357 @@
           ]
         }
       ]
+    },
+    {
+      "name": "a sub-agent session",
+      "before": {
+        "id": "sess_worker",
+        "provider": "anthropic-oauth",
+        "model": "model-x",
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpScopeId": "cwd-scope",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "# Base rules"
+          },
+          {
+            "role": "system",
+            "content": "# Profile"
+          },
+          {
+            "role": "system",
+            "cacheTier": "tier3",
+            "content": "# Core"
+          },
+          {
+            "role": "system",
+            "cacheTier": "env",
+            "content": "# Env"
+          }
+        ],
+        "toolSpec": "full",
+        "disallowedTools": [],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read"
+        ],
+        "deferredSelectedTools": [
+          "read"
+        ],
+        "deferredDiscoveredTools": [],
+        "mcpServerInstructions": {},
+        "deferredToolBp2Applied": true,
+        "updatedAt": 1700000000000,
+        "deferredAnnouncedTools": [],
+        "owner": "agent",
+        "agent": "worker"
+      },
+      "turnStart": {
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpNames": [
+          "mcp__plugin-unity-tools__build",
+          "mcp__demo__ping"
+        ]
+      },
+      "steps": [
+        {
+          "cwd": "<SANDBOX>\\project-a",
+          "call": "mcp__plugin-unity-tools__build",
+          "result": "ran plugin-unity-tools build",
+          "ran": [
+            "mcp__plugin-unity-tools__build"
+          ],
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
+        },
+        {
+          "cwd": "<SANDBOX>\\project-b",
+          "call": "mcp__plugin-unity-tools__build",
+          "result": "Error: MCP tool \"mcp__plugin-unity-tools__build\" is unavailable in the current session catalog; no call was sent.",
+          "ran": [],
+          "mcpNames": [
+            "mcp__demo__ping"
+          ]
+        },
+        {
+          "cwd": "<SANDBOX>\\project-b",
+          "call": "mcp__demo__ping",
+          "result": "ran demo ping",
+          "ran": [
+            "mcp__demo__ping"
+          ],
+          "mcpNames": [
+            "mcp__demo__ping"
+          ]
+        },
+        {
+          "cwd": "<SANDBOX>\\project-a",
+          "call": "mcp__plugin-unity-tools__build",
+          "result": "ran plugin-unity-tools build",
+          "ran": [
+            "mcp__plugin-unity-tools__build"
+          ],
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a bridge session calling through call_tool",
+      "before": {
+        "id": "sess_call_tool",
+        "provider": "openrouter",
+        "model": "model-x",
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpScopeId": "cwd-scope",
+        "tools": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "$tool": "load_tool",
+            "hash": "cc5a1cecdba77717"
+          },
+          {
+            "$tool": "call_tool",
+            "hash": "d856b640023cd779"
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "# Base rules"
+          },
+          {
+            "role": "system",
+            "content": "# Profile\n\n---\n\n<tool-bridge>\nDeferred tools (listed above, or announced later as added) are not defined here: run one with call_tool {name, arguments}, and use load_tool first to see its parameters (a keyword instead of a name searches the deferred tools). Call directly defined tools directly.\n</tool-bridge>"
+          },
+          {
+            "role": "system",
+            "cacheTier": "tier3",
+            "content": "# Core"
+          },
+          {
+            "role": "system",
+            "cacheTier": "env",
+            "content": "# Env"
+          }
+        ],
+        "toolSpec": "full",
+        "disallowedTools": [],
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "read tool",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read"
+        ],
+        "deferredProviderMode": "canonical",
+        "deferredNativeTools": false,
+        "deferredSurfaceMode": "lead",
+        "toolExposureMode": "bridge-v1",
+        "deferredCallableTools": [
+          "read"
+        ],
+        "deferredDiscoveredTools": [
+          "read"
+        ],
+        "deferredSelectedTools": [
+          "read"
+        ],
+        "mcpServerInstructions": {},
+        "deferredToolBp2Applied": true,
+        "updatedAt": 1700000000000,
+        "deferredAnnouncedTools": []
+      },
+      "turnStart": {
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpNames": [
+          "mcp__plugin-unity-tools__build",
+          "mcp__demo__ping"
+        ]
+      },
+      "steps": [
+        {
+          "cwd": "<SANDBOX>\\project-a",
+          "call": "mcp__plugin-unity-tools__build",
+          "wire": {
+            "name": "call_tool",
+            "arguments": {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {}
+            }
+          },
+          "result": "ran plugin-unity-tools build",
+          "ran": [
+            "mcp__plugin-unity-tools__build"
+          ],
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
+        },
+        {
+          "cwd": "<SANDBOX>\\project-b",
+          "call": "mcp__plugin-unity-tools__build",
+          "wire": {
+            "name": "call_tool",
+            "arguments": {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {}
+            }
+          },
+          "result": "Error: TOOL_NOT_FOUND: no tool named \"mcp__plugin-unity-tools__build\" is available in this session; find tools with load_tool {names: keyword}.",
+          "ran": [],
+          "mcpNames": [
+            "mcp__demo__ping"
+          ]
+        },
+        {
+          "cwd": "<SANDBOX>\\project-b",
+          "call": "mcp__demo__ping",
+          "wire": {
+            "name": "call_tool",
+            "arguments": {
+              "name": "mcp__demo__ping",
+              "arguments": {}
+            }
+          },
+          "result": "ran demo ping",
+          "ran": [
+            "mcp__demo__ping"
+          ],
+          "mcpNames": [
+            "mcp__demo__ping"
+          ]
+        },
+        {
+          "cwd": "<SANDBOX>\\project-a",
+          "call": "mcp__plugin-unity-tools__build",
+          "wire": {
+            "name": "call_tool",
+            "arguments": {
+              "name": "mcp__plugin-unity-tools__build",
+              "arguments": {}
+            }
+          },
+          "result": "Error: TOOL_NOT_FOUND: no tool named \"mcp__plugin-unity-tools__build\" is available in this session; find tools with load_tool {names: keyword}.",
+          "ran": [],
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
+        }
+      ]
     }
-  ]
+  ],
+  "channelCall": {
+    "name": "mcp__plugin-unity-tools__build",
+    "args": {},
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "unknown tool: mcp__plugin-unity-tools__build"
+        }
+      ],
+      "isError": true
+    },
+    "ran": []
+  },
+  "hook": {
+    "cwd": "<SANDBOX>\\project-b",
+    "name": "mcp__plugin-unity-tools__build",
+    "result": "ran plugin-unity-tools build",
+    "ran": [
+      "mcp__plugin-unity-tools__build"
+    ]
+  }
 }
