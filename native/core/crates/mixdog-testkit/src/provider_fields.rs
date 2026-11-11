@@ -56,6 +56,7 @@ pub const ERROR_FIELDS: &[(&str, &str, &str)] = &[
     ("quotaScope", "ProviderError.quota_scope", "o/providers/antigravity-retry-policy.mjs:165 o/providers/antigravity-retry-policy.mjs:166"),
     ("rawUsage", "ProviderError.partial_usage (the turn's usageMetadata; null: none reported)", "o/session/send-with-recovery.mjs:558"),
     ("requestID","unread", ""),
+    ("response", "ProviderError.status and retry_after (the response head `{status, headers}` Vertex AI's Claude route stamps on its initial-response error; the not-found check reads its status)", "o/providers/vertex-ai.mjs:143"),
     ("resetAt", "ProviderError.reset_at", "o/providers/openai-compat-error-contract.mjs:42 o/providers/openai-error-contract.mjs:231"),
     ("responseDoneStatus", "unread", ""),
     ("responseFailed", "ProviderError.kind (a response.failed frame)", "o/providers/provider-error-kind.mjs:72 o/providers/provider-error-kind.mjs:719 o/providers/retry-classification.mjs:585 o/providers/retry-midstream.mjs:197 o/session/image-strip-recovery.mjs:162 o/session/thinking-replay-recovery.mjs:19"),

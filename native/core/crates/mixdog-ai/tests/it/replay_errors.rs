@@ -23,6 +23,8 @@ pub struct Left<'a> {
     /// The send ended because a ladder ran out (`SendError::Exhausted`).
     pub exhausted: bool,
     pub events: &'a [StreamEvent],
+    /// The attempts the send made, when the replay counts them (`Left::of`: its discards and the last attempt).
+    pub attempts: Option<u32>,
 }
 
 impl<'a> Left<'a> {
@@ -33,7 +35,7 @@ impl<'a> Left<'a> {
             Err(SendError::Provider(e) | SendError::Exhausted(e) | SendError::Fallback { last: e, .. }) => (Some(e), false),
             Err(SendError::Admission(e)) => panic!("the send was not admitted: {e:?}"),
         };
-        Self { error, cancelled, exhausted: matches!(sent, Err(SendError::Exhausted(_))), events: &events.events }
+        Self { error, cancelled, exhausted: matches!(sent, Err(SendError::Exhausted(_))), events: &events.events, attempts: Some(events.discards + 1) }
     }
 
     fn text(&self) -> String {
@@ -246,6 +248,21 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
             assert_eq!(left.error(field).status, want, "{what}: {mapping}");
         }
         "headers" => assert_eq!(left.error(field).retry_after, retry_after_of(value), "{what}: {mapping}"),
+        // The response head `{status, headers}` stamped on an initial-response error.
+        "response" => {
+            let error = left.error(field);
+            assert_eq!(error.status.map(f64::from), Some(value.get("status").as_f64()), "{what}.status: {mapping}");
+            assert_eq!(error.retry_after, retry_after_of(value.get("headers")), "{what}.headers: {mapping}");
+        }
+        // The attempts the send made: one more than the attempts it discarded for a retry.
+        "attempts" => assert_eq!(left.attempts, Some(value.as_f64() as u32), "{what}: {mapping}"),
+        // The Devin wire error's server text, which the error's message carries.
+        "detail" => assert!(left.error(field).message.contains(value.as_str()), "{what}: {mapping}: {:?}", left.error(field).message),
+        "retryable" => {
+            use mixdog_core_api::domain::provider::ErrorKind;
+            let retryable = matches!(left.error(field).kind, ErrorKind::Transient | ErrorKind::Overloaded | ErrorKind::RateLimited);
+            assert_eq!(retryable, opt_bool(value), "{what}: {mapping}");
+        }
         "retryAfterMs" => {
             assert_eq!(left.error(field).retry_after, Some(Duration::from_millis(value.as_f64() as u64)), "{what}: {mapping}");
         }
@@ -305,6 +322,10 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         // The refusal was the response's own (a status), not a transport fault after it.
         "initialResponseError" => assert_eq!(left.error(field).status.is_some(), opt_bool(value), "{what}: {mapping}"),
         // The parsed body: its error object, compared as the error's `error`.
+        // An Anthropic envelope (`{ type: "error", error }`) is the error the SDK would carry whole.
+        "data" if value.try_get("type").is_some_and(|t| *t == Exact::String("error".into())) && value.try_get("error").is_some() => {
+            compare_field(&format!("{what}.error"), "error", value, left, user);
+        }
         "data" => {
             for (key, _) in value.entries() {
                 assert_eq!(key, "error", "{what}.{key}: a recorded property this comparison does not read");

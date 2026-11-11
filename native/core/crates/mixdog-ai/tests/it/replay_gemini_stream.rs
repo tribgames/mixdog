@@ -150,7 +150,7 @@ async fn every_case_consumes_as_nodes() {
                     assert_response(&what, &recorded, &events);
                 }
                 "error" => {
-                    let left = Left { error: error.as_ref(), cancelled: false, exhausted: false, events: &events };
+                    let left = Left { error: error.as_ref(), cancelled: false, exhausted: false, events: &events, attempts: None };
                     assert!(error.is_some(), "{what}: the core ended cleanly: {events:?}");
                     recorded.assert_error(&what, ErrorSide::Send(&left));
                 }

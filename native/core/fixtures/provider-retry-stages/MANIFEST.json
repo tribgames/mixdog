@@ -8,8 +8,10 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider('xai', { apiKey, apiMode?, preconnect: false }) and vertex-ai.mjs VertexAIProvider({ authMode: 'api-key', apiKey }) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.",
+  "entry": "anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider('xai', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: 'api-key', apiKey } or { authMode: 'adc', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.",
   "exclusions": [
+    "`draws` is not compared: the recorder's count of its own seeded `Math.random` stream before the send and during it (`Math.random` wrapped right after `startRecording`), not an output of the product; the replay reads it to find the retry jitter sample among the SDK clients' draws, and the sample is compared through the recorded wait",
+    "`attemptRequests` is not compared: the recorder's own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed",
     "`requesting and streaming stages` is not compared: the core raises them from its run loop around the whole send (mixdog-agent/src/send.rs:460, `RunEvent::Stage`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder's `reconnecting` stage, compared whole and in order",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -18,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 29911,
+      "bytes": 91665,
       "path": "cases.json",
-      "sha256": "d9b71c21844596e5bae29de2e6c3676e728e3a5cedbee36f24ed2acf259ea4c4"
+      "sha256": "d2c91e051ff85e4a3fe921c4985a14e5e9857969ce810f87a96dac70c48d596b"
     }
   ],
   "inputs": [
@@ -69,6 +71,34 @@
     {
       "id": "vertex-gemini-retries-its-stream-without-the-stage",
       "level": "wire"
+    },
+    {
+      "id": "anthropic-oauth-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "gateway-messages-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "grok-oauth-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "antigravity-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "vertex-claude-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "vertex-maas-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "devin-surfaces-the-first-failure",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -90,12 +120,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "89376be63ebbcab35d84bdec823ca146b854b02c926e9181bb8ff33478991266",
-  "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
+  "recorderSha256": "c37b90bfeec8d29415d2733c241b7cac0ef0d50f49c07c4583e81624a5b4a923",
+  "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 29911,
+  "totalBytes": 91665,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
