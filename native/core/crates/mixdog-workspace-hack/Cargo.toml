@@ -126,11 +126,15 @@ num = { version = "0.4" }
 num-bigint = { version = "0.4" }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "time"] }
 scopeguard = { version = "1" }
+toml_parser = { version = "1" }
 tower-http = { version = "0.6", default-features = false, features = ["decompression-br", "decompression-deflate", "decompression-gzip", "follow-redirect"] }
+winnow = { version = "1" }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
+toml_parser = { version = "1" }
+winnow = { version = "1" }
 
 [target.x86_64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
