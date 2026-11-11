@@ -2367,6 +2367,22 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
     assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
 }
 
+/// The restart notice's queue (`enqueuePendingMessage` then `settlePendingMessageWrites`, `restart-notify.mjs:116-119`): the
+/// call answers only once the entry's record is stored, and the same execution queued again (a retry after a crash before the
+/// row's stamp) stays one entry and is answered too.
+#[tokio::test(start_paused = true)]
+async fn a_durable_completion_answers_once_stored_and_a_repeat_is_one_entry() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let owner = start_with_session(&directory, json!({ "autoWakeCompletions": false })).await;
+    for attempt in 0..2 {
+        directory.queue_completion_durably(&owner.id, "agent", "restart:t-1", "failed", "lost".into()).await.expect("stored");
+        let queued = rig.store.records(&owner.id).into_iter().filter(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(_))).count();
+        assert_eq!(queued, 1, "attempt {attempt}: one entry, stored before the answer");
+    }
+}
+
 /// `autoWakeCompletions: false` (`infrastructure.mjs:154`) and an owner that is not the live
 /// session (`notification-bus.test.mjs` "no longer the live session"): the completion is kept
 /// for the next turn and starts none.
