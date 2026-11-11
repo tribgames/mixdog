@@ -1373,10 +1373,10 @@
             "describe": {
               "kind": "quota",
               "summary": "The provider usage limit was reached.",
-              "recovery": "It resets at 1/15 09:00. Switch accounts or providers to continue now.",
+              "recovery": "It resets at 09:00. Switch accounts or providers to continue now.",
               "recoveryTemplate": "It resets at {{time}}. Switch accounts or providers to continue now.",
               "params": {
-                "time": "1/15 09:00"
+                "time": "09:00"
               },
               "providerKind": "quota_exhausted",
               "resetAt": 1800003600000,
@@ -2425,10 +2425,10 @@
             "describe": {
               "kind": "quota",
               "summary": "The provider usage limit was reached.",
-              "recovery": "It resets at 1/15 09:00. Switch accounts or providers to continue now.",
+              "recovery": "It resets at 09:00. Switch accounts or providers to continue now.",
               "recoveryTemplate": "It resets at {{time}}. Switch accounts or providers to continue now.",
               "params": {
-                "time": "1/15 09:00"
+                "time": "09:00"
               },
               "providerKind": "quota_exhausted",
               "resetAt": 1800003600000,
@@ -2457,10 +2457,10 @@
             "persistedDescribe": {
               "kind": "quota",
               "summary": "The provider usage limit was reached.",
-              "recovery": "It resets at 1/15 09:00. Switch accounts or providers to continue now.",
+              "recovery": "It resets at 09:00. Switch accounts or providers to continue now.",
               "recoveryTemplate": "It resets at {{time}}. Switch accounts or providers to continue now.",
               "params": {
-                "time": "1/15 09:00"
+                "time": "09:00"
               },
               "providerKind": "quota_exhausted",
               "resetAt": 1800003600000,
