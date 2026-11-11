@@ -385,33 +385,20 @@ impl Sdk {
     /// The headers the SDK writes ahead of everything else (`client.buildHeaders`' first source): `accept`, its
     /// `user-agent`, the retry count, the timeout (Anthropic: 600 s), the platform headers of a Node host, and the
     /// Anthropic API version.
-    /// Each spelled as the SDK spells it (`client.js` `buildHeaders`, `internal/detect-platform.js`), which undici keeps
-    /// on the wire.
     fn base(self) -> Vec<(String, String)> {
         let (agent, package) = match self {
             Self::OpenAi => ("OpenAI/JS 6.49.0", "6.49.0"),
             Self::Anthropic => ("Anthropic/JS 0.137.0", "0.137.0"),
         };
-        let mut base = vec![("Accept".to_owned(), "application/json".to_owned()), ("User-Agent".to_owned(), agent.to_owned())];
+        let mut base = vec![("accept".to_owned(), "application/json".to_owned()), ("user-agent".to_owned(), agent.to_owned())];
         for (name, value) in crate::providers::grok::sdk_headers() {
-            let spelled = match name.as_str() {
-                "x-stainless-retry-count" => "X-Stainless-Retry-Count",
-                "x-stainless-lang" => "X-Stainless-Lang",
-                "x-stainless-package-version" => "X-Stainless-Package-Version",
-                "x-stainless-os" => "X-Stainless-OS",
-                "x-stainless-arch" => "X-Stainless-Arch",
-                "x-stainless-runtime" => "X-Stainless-Runtime",
-                "x-stainless-runtime-version" => "X-Stainless-Runtime-Version",
-                other => unreachable!("a platform header the SDK does not write: {other}"),
-            }
-            .to_owned();
             match name.as_str() {
-                "x-stainless-package-version" => base.push((spelled, package.to_owned())),
+                "x-stainless-package-version" => base.push((name, package.to_owned())),
                 "x-stainless-lang" if self == Self::Anthropic => {
-                    base.push(("X-Stainless-Timeout".to_owned(), "600".to_owned()));
-                    base.push((spelled, value));
+                    base.push(("x-stainless-timeout".to_owned(), "600".to_owned()));
+                    base.push((name, value));
                 }
-                _ => base.push((spelled, value)),
+                _ => base.push((name, value)),
             }
         }
         if self == Self::Anthropic {
@@ -421,18 +408,16 @@ impl Sdk {
     }
 }
 
-/// `buildHeaders` (the SDKs' `internal/headers`): the sources in order, each one replacing a name it sets (in any
-/// letter case), which then stands at its place in that source spelled as that source spells it: undici's header list
-/// keeps a name as it was appended.
+/// `buildHeaders` (the SDKs' `internal/headers`): the sources in order, each one replacing a name it sets, which
+/// then stands at its place in that source. Names are lower-case, as `Headers` keeps them.
 fn build_headers(sources: [Vec<(String, String)>; 5]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for source in sources {
         let mut seen: Vec<String> = Vec::new();
         for (name, value) in source {
-            let lower = name.to_ascii_lowercase();
-            if !seen.contains(&lower) {
-                out.retain(|(known, _)| !known.eq_ignore_ascii_case(&name));
-                seen.push(lower);
+            if !seen.contains(&name) {
+                out.retain(|(known, _)| *known != name);
+                seen.push(name.clone());
             }
             out.push((name, value));
         }
@@ -446,23 +431,22 @@ fn build_headers(sources: [Vec<(String, String)>; 5]) -> Vec<(String, String)> {
 fn sdk_order(sdk: Sdk, defaults: &[String], headers: Vec<(String, String)>) -> Vec<(String, String)> {
     let base = sdk.base();
     let (mut auth, mut client, mut body, mut own) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    let same = |list: &[(String, String)], name: &str, value: &str| list.iter().any(|(n, v)| n.eq_ignore_ascii_case(name) && v == value);
     for (name, value) in headers {
-        let lower = name.to_ascii_lowercase();
+        let name = name.to_ascii_lowercase();
         // The codec's own `accept` beside the same one among the gateway's headers is one header.
-        if same(&client, &name, &value) || same(&own, &name, &value) {
+        if client.contains(&(name.clone(), value.clone())) || own.contains(&(name.clone(), value.clone())) {
             continue;
         }
-        match lower.as_str() {
+        match name.as_str() {
             "authorization" | "x-api-key" => auth.push((name, value)),
             "content-type" => body.push((name, value)),
-            _ if defaults.contains(&lower) => client.push((name, value)),
-            _ if same(&base, &name, &value) => {}
+            _ if defaults.contains(&name) => client.push((name, value)),
+            _ if base.iter().any(|(n, v)| *n == name && *v == value) => {}
             _ => own.push((name, value)),
         }
     }
     // The client's `defaultHeaders` stand in the order the client was given them, wherever the codec wrote them.
-    client.sort_by_key(|(name, _)| defaults.iter().position(|d| d.eq_ignore_ascii_case(name)));
+    client.sort_by_key(|(name, _)| defaults.iter().position(|d| d == name));
     build_headers([base, auth, client, body, own])
 }
 
