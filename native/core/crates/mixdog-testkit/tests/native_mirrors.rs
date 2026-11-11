@@ -129,48 +129,223 @@ fn code(file: &Path) -> String {
     read_string(file).lines().filter(|l| !l.trim().starts_with("//")).collect::<Vec<_>>().join("\n")
 }
 
-/// Every file a build script compiles from, the script included: each `mod name;` (at `#[path = "…"]` when it has one,
-/// else `name.rs` or `name/mod.rs` where Rust looks for it) and each `include!`/`include_str!`/`include_bytes!`, followed
-/// through the files they bring in.
+/// What the module walk reads of a Rust file: identifiers and keywords, string literals (their content) and single
+/// punctuation characters; comments, character literals and lifetimes' quotes are dropped.
+#[derive(Debug, PartialEq)]
+enum Token {
+    Word(String),
+    Text(String),
+    Mark(char),
+}
+
+fn tokens(text: &str) -> Vec<Token> {
+    let chars: Vec<char> = text.chars().collect();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            // Block comments nest.
+            let mut depth = 1;
+            i += 2;
+            while i < chars.len() && depth > 0 {
+                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
+                    depth += 1;
+                    i += 2;
+                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        } else if c == '"' {
+            let mut text = String::new();
+            i += 1;
+            while i < chars.len() && chars[i] != '"' {
+                if chars[i] == '\\' {
+                    i += 1;
+                }
+                text.extend(chars.get(i));
+                i += 1;
+            }
+            i += 1;
+            out.push(Token::Text(text));
+        } else if c == 'r' && matches!(next, Some('"' | '#')) && !out.last().is_some_and(|t| matches!(t, Token::Word(_)) && i > 0 && word(chars[i - 1])) {
+            // A raw string `r"…"`, `r#"…"#`; `r#name` (a raw identifier) falls through to the word below.
+            let hashes = chars[i + 1..].iter().take_while(|c| **c == '#').count();
+            let open = i + 1 + hashes;
+            if chars.get(open) == Some(&'"') {
+                let mut end = open + 1;
+                while end < chars.len() && !(chars[end] == '"' && (1..=hashes).all(|k| chars.get(end + k) == Some(&'#'))) {
+                    end += 1;
+                }
+                out.push(Token::Text(chars[open + 1..end.min(chars.len())].iter().collect()));
+                i = end + 1 + hashes;
+            } else {
+                out.push(Token::Word("r".to_owned()));
+                i += 1;
+            }
+        } else if c == '\'' {
+            // `'\n'`, `'x'`: a character literal, skipped whole. Otherwise a lifetime: only its quote is skipped.
+            if next == Some('\\') {
+                i += 2;
+                while i < chars.len() && chars[i] != '\'' {
+                    i += 1;
+                }
+                i += 1;
+            } else if chars.get(i + 2) == Some(&'\'') {
+                i += 3;
+            } else {
+                i += 1;
+            }
+        } else if word(c) {
+            let start = i;
+            while i < chars.len() && word(chars[i]) {
+                i += 1;
+            }
+            out.push(Token::Word(chars[start..i].iter().collect()));
+        } else {
+            if !c.is_whitespace() {
+                out.push(Token::Mark(c));
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Every file a build script compiles from, the script included: each `mod name;` wherever it is written — at the top
+/// of a file or inside inline modules (`mod outer { mod inner; }` is `outer/inner.rs`) — at its `path` attribute when it
+/// has one (also inside a `cfg_attr`), else `name.rs` or `name/mod.rs` where Rust looks for it; and each
+/// `include!`/`include_str!`/`include_bytes!` of a literal path. Followed through the Rust files they bring in.
 fn script_files(script: &Path) -> Vec<PathBuf> {
+    use Token::{Mark, Text, Word};
     let mut files = vec![canonical(script)];
     let mut at = 0;
     while at < files.len() {
         let file = files[at].clone();
         at += 1;
+        if file.extension().is_none_or(|ext| ext != "rs") {
+            continue;
+        }
         let dir = file.parent().unwrap().to_path_buf();
         // A module of a file that is not a crate root or `mod.rs` lives in the directory named after the file.
         let stem = file.file_stem().unwrap().to_string_lossy().into_owned();
         let module_dir = if at == 1 || stem == "mod" { dir.clone() } else { dir.join(&stem) };
+        let tokens = tokens(&read_string(&file));
+        // The inline modules open at this point, each with the brace depth it was opened at.
+        let mut inline: Vec<(String, usize)> = Vec::new();
+        let mut depth = 0usize;
         let mut path_attribute: Option<String> = None;
-        for line in code(&file).lines().map(str::trim) {
-            if let Some(path) = line.strip_prefix("#[path = \"").and_then(|p| p.split('"').next()) {
-                path_attribute = Some(path.to_owned());
-                continue;
-            }
-            for include in ["include!(\"", "include_str!(\"", "include_bytes!(\""] {
-                if let Some(path) = line.split(include).nth(1).and_then(|p| p.split('"').next()) {
+        let mut i = 0;
+        while i < tokens.len() {
+            match &tokens[i..] {
+                // An attribute: skipped whole; a `path = "…"` anywhere in it belongs to the item that follows.
+                [Mark('#'), Mark('['), ..] | [Mark('#'), Mark('!'), Mark('['), ..] => {
+                    let open = i + tokens[i..].iter().position(|t| *t == Mark('[')).unwrap();
+                    let mut brackets = 0;
+                    let mut end = open;
+                    for (offset, token) in tokens[open..].iter().enumerate() {
+                        match token {
+                            Mark('[') => brackets += 1,
+                            Mark(']') => brackets -= 1,
+                            _ => {}
+                        }
+                        if brackets == 0 {
+                            end = open + offset;
+                            break;
+                        }
+                    }
+                    for window in tokens[open..end].windows(3) {
+                        if let [Word(key), Mark('='), Text(path)] = window
+                            && key == "path"
+                        {
+                            path_attribute = Some(path.clone());
+                        }
+                    }
+                    i = end + 1;
+                    continue;
+                }
+                [Word(keyword), Word(name), Mark(';'), ..] if keyword == "mod" => {
+                    let found = match path_attribute.take() {
+                        Some(path) => {
+                            assert!(inline.is_empty(), "{}: a `path` attribute on `mod {name};` inside an inline module is not followed by this test", file.display());
+                            dir.join(path)
+                        }
+                        None => {
+                            let base = inline.iter().fold(module_dir.clone(), |base, (outer, _)| base.join(outer));
+                            [base.join(format!("{name}.rs")), base.join(name).join("mod.rs")]
+                                .into_iter()
+                                .find(|p| exists(p))
+                                .unwrap_or_else(|| panic!("{}: module `{name}` not found under {}", file.display(), base.display()))
+                        }
+                    };
+                    files.push(canonical(found));
+                    i += 3;
+                    continue;
+                }
+                [Word(keyword), Word(name), Mark('{'), ..] if keyword == "mod" => {
+                    assert!(path_attribute.take().is_none(), "{}: a `path` attribute on the inline module `{name}` is not followed by this test", file.display());
+                    inline.push((name.clone(), depth));
+                    depth += 1;
+                    i += 3;
+                    continue;
+                }
+                [Word(keyword), Mark('!'), Mark('('), Text(path), ..] if ["include", "include_str", "include_bytes"].contains(&keyword.as_str()) => {
                     files.push(canonical(dir.join(path)));
                 }
+                [Mark('{'), ..] => {
+                    depth += 1;
+                    path_attribute = None;
+                }
+                [Mark('}'), ..] => {
+                    depth = depth.saturating_sub(1);
+                    if inline.last().is_some_and(|(_, opened_at)| *opened_at == depth) {
+                        inline.pop();
+                    }
+                    path_attribute = None;
+                }
+                [Mark(';'), ..] => path_attribute = None,
+                _ => {}
             }
-            let declaration = line.trim_start_matches("pub(crate) ").trim_start_matches("pub ");
-            if let Some(name) = declaration.strip_prefix("mod ").and_then(|d| d.strip_suffix(';')) {
-                let found = match path_attribute.take() {
-                    Some(path) => dir.join(path),
-                    None => [module_dir.join(format!("{name}.rs")), module_dir.join(name).join("mod.rs")]
-                        .into_iter()
-                        .find(|p| exists(p))
-                        .unwrap_or_else(|| panic!("{}: module `{name}` not found", file.display())),
-                };
-                files.push(canonical(found));
-            } else if !line.starts_with("#[") {
-                path_attribute = None;
-            }
+            i += 1;
         }
     }
     files.sort();
     files.dedup();
     files
+}
+
+#[test]
+fn the_module_walk_follows_nested_inline_and_attributed_modules() {
+    let dir = std::env::temp_dir().join(format!("native-mirrors-walk-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let write = |name: &str, text: &str| {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    write(
+        "build.rs",
+        "// mod commented;\nmod plain;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nfn main() { let _ = \"mod in_a_string;\"; }\n",
+    );
+    write("plain.rs", "mod child;\n");
+    write("plain/child.rs", "");
+    write("outer/inner.rs", "");
+    write("outer/deeper/leaf.rs", "");
+    write("elsewhere/attributed.rs", "");
+    write("rules.yml", "mod not_rust;\n");
+    let mut found: Vec<String> = script_files(&dir.join("build.rs")).iter().map(|f| f.strip_prefix(canonical(&dir)).unwrap().to_string_lossy().replace('\\', "/")).collect();
+    found.sort();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(found, ["build.rs", "elsewhere/attributed.rs", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml"]);
 }
 
 #[test]
