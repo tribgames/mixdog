@@ -13,7 +13,7 @@ mod hybrid_sql_exact;
 mod light_ko_morph;
 mod model_config;
 mod model_files;
-mod pg;
+pub(crate) mod pg;
 mod project_id;
 mod query_handlers;
 mod query_ranking;
@@ -120,10 +120,18 @@ fn integer(value: &Exact) -> Result<i64, String> {
     }
 }
 
+/// A BIGINT as a recording holds it: a number, or node-pg's text form when the row came from a database.
+pub(crate) fn bigint(value: &Exact) -> Result<i64, String> {
+    match value {
+        Exact::String(text) => text.parse().map_err(|_| format!("not a BIGINT text: {text:?}")),
+        other => integer(other),
+    }
+}
+
 fn opt_integer(value: &Exact) -> Result<Option<i64>, String> {
     match value {
         Exact::Null | Exact::Undefined => Ok(None),
-        other => integer(other).map(Some),
+        other => bigint(other).map(Some),
     }
 }
 
@@ -152,9 +160,9 @@ pub(crate) fn row(value: &Exact) -> Result<Row, String> {
                     row.core = true;
                     row.id = -text["core:".len()..].parse::<i64>().map_err(|e| at(e.to_string()))?;
                 }
-                other => row.id = integer(other).map_err(at)?,
+                other => row.id = bigint(other).map_err(at)?,
             },
-            "ts" => row.ts = integer(v).map_err(at)?,
+            "ts" => row.ts = bigint(v).map_err(at)?,
             "is_root" => row.is_root = integer(v).map_err(at)? as i16,
             "role" => row.role = opt_string(v).map_err(at)?,
             "content" => row.content = opt_string(v).map_err(at)?,
@@ -332,6 +340,10 @@ fn row_like(row: &Row, recorded: Option<&Exact>) -> Exact {
             if let Some(at) = fields.iter().position(|(k, _)| k == key) {
                 let (k, v) = fields.remove(at);
                 let v = match (k, &v, value) {
+                    // A BIGINT in the recorded row's form: node-pg hands it over as text.
+                    (_, Exact::Number(n), Exact::String(text)) if n.fract() == 0.0 && text.parse::<i64>().is_ok() => {
+                        string((*n as i64).to_string())
+                    }
                     ("members", Exact::Array(_), Exact::Array(recorded)) => {
                         let members = row.member_list();
                         Exact::Array(members.iter().enumerate().map(|(i, m)| row_like(m, recorded.get(i))).collect())

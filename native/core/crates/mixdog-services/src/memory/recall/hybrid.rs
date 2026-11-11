@@ -740,16 +740,6 @@ async fn read_query_raw(db: &Db, sql: &str, params: &[P]) -> Result<Vec<tokio_po
     crate::memory::recall::store::read_query_pg(db, sql, params).await
 }
 
-#[cfg(test)]
-thread_local! {
-    /// When set, the candidate rows (every lane's columns) each search on this thread read: what Node's recording of the
-    /// candidate statement holds, which the search's result does not carry.
-    pub(crate) static OBSERVED_CANDIDATES: std::cell::RefCell<Option<Vec<Vec<Row>>>> = const { std::cell::RefCell::new(None) };
-    /// When set, the next search's candidate statement is sent to no database and answered with these rows (a
-    /// recording whose stand-in database answered that statement with its own rows).
-    pub(crate) static CANDIDATE_ANSWER: std::cell::RefCell<Option<Vec<Row>>> = const { std::cell::RefCell::new(None) };
-}
-
 /// Hybrid search over `entries`. Numeric-only and empty queries find nothing.
 pub async fn search_relevant_hybrid(db: &Db, query: &str, options: &SearchOptions) -> Result<Vec<Row>> {
     let clean = js_trim(query);
@@ -758,24 +748,7 @@ pub async fn search_relevant_hybrid(db: &Db, query: &str, options: &SearchOption
     }
     let plan = Plan::new(clean, options);
     let (sql, params) = build_hybrid_query(&plan);
-    #[cfg(test)]
-    let answered = CANDIDATE_ANSWER.with(|answer| answer.borrow_mut().take());
-    #[cfg(not(test))]
-    let answered: Option<Vec<Row>> = None;
-    let mut raw = match answered {
-        Some(rows) => {
-            #[cfg(test)]
-            crate::memory::recall::store::observe_read(&sql, &params);
-            rows
-        }
-        None => read_query(db, &sql, &params).await?,
-    };
-    #[cfg(test)]
-    OBSERVED_CANDIDATES.with(|observed| {
-        if let Some(list) = observed.borrow_mut().as_mut() {
-            list.push(raw.clone());
-        }
-    });
+    let mut raw = read_query(db, &sql, &params).await?;
     if raw.is_empty() {
         return Ok(Vec::new());
     }
