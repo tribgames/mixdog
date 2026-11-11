@@ -44,7 +44,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
@@ -81,9 +81,10 @@
   "recorderSha256": "1891aad25c53f46f9cf9834ff091f13c397b0e2a6bef73ab9dce9824799ab107",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case's observed fields whole",
-    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",
+    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references; mixdog-core/src/run_host/model_proxy_pc.rs:80 PcQuotaProbe; mixdog-core/src/run_host/model_proxy_pc.rs:250 PcProviderConfig.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the PC host (createModelProxyHost: claim, heartbeat and lease, abort, providerConfig reads, quotaUsable): mixdog-core/src/run_host/model_proxy_pc.rs holds PcProviderConfig only"
+      "the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930"
     ],
     "normalised": {
       "secretShapedInputs": "the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike",
@@ -95,6 +96,16 @@
         "line": 76,
         "name": "without_attachment_references",
         "path": "native/core/crates/mixdog-ai/src/service/model_proxy.rs"
+      },
+      {
+        "line": 80,
+        "name": "PcQuotaProbe",
+        "path": "native/core/crates/mixdog-core/src/run_host/model_proxy_pc.rs"
+      },
+      {
+        "line": 250,
+        "name": "PcProviderConfig",
+        "path": "native/core/crates/mixdog-core/src/run_host/model_proxy_pc.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
