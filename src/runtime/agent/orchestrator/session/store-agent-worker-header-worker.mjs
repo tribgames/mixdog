@@ -15,6 +15,7 @@
 import { readWorkerRecordHeader } from './store-agent-worker-header.mjs';
 import { ABSENT_RECORD_STAMP, isSettledRecordStamp, sessionRecordFilesOf } from './store/session-record.mjs';
 import { sessionRecordStampSync } from './store/session-log-reader.mjs';
+import { sessionScanCheckpointDir } from './store/session-paths.mjs';
 import { serveWorkerRequests } from '../../../shared/worker-requests.mjs';
 
 // `path` names the session by its legacy record path; its stamp is the
@@ -34,7 +35,9 @@ function probe(path, known, fields) {
   if (known === before) return { same: true };
   let header = null;
   try {
-    header = readWorkerRecordHeader(path, fields);
+    // The worker retires when idle and starts again with no place of its own
+    // in any log: it takes the one the last worker left.
+    header = readWorkerRecordHeader(path, fields, { checkpoints: sessionScanCheckpointDir() });
   } catch {
     return { unreadable: true };
   }
