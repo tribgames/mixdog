@@ -185,10 +185,10 @@ fn every_waiter_is_served_as_room_frees() {
     let done = Arc::new(AtomicUsize::new(0));
 
     block_on(async {
-        let waiters: Vec<_> = (0..6)
+        let mut waiters: Vec<_> = (0..6)
             .map(|_| {
                 let done = done.clone();
-                tokio::spawn(async move {
+                Box::pin(async move {
                     let cancel = CancellationToken::new();
                     let handle = tokens
                         .cpu_bulk
@@ -201,12 +201,18 @@ fn every_waiter_is_served_as_room_frees() {
                 })
             })
             .collect();
-        // The lane is held full: no waiter can have run.
+        // One poll queues a waiter behind the full lane: all six are waiting before room frees.
+        for waiting in &mut waiters {
+            let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+            assert!(polled.is_pending(), "the full lane makes every caller wait");
+        }
         assert_eq!(done.load(SeqCst), 0);
         gate.open();
-        for w in waiters {
-            w.await.unwrap();
-        }
+        std::future::poll_fn(|cx| {
+            waiters.retain_mut(|waiting| waiting.as_mut().poll(cx).is_pending());
+            if waiters.is_empty() { std::task::Poll::Ready(()) } else { std::task::Poll::Pending }
+        })
+        .await;
     });
     assert_eq!(done.load(SeqCst), 6);
     for h in held {
