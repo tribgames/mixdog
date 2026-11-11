@@ -7,34 +7,234 @@
       "id": "stuck-upgrade-replaced-after-hedge-window",
       "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:46",
       "input": {
-        "hedgeMs": 30,
-        "deadlineMs": 5000,
-        "legs": [
-          "stuck (opens only if never aborted)",
-          "opens at once"
+        "hedgeMs": 3000,
+        "deadlineMs": 15000,
+        "answers": [
+          null,
+          "accept"
         ],
         "advanceMs": [
-          30
+          3000
         ]
       },
       "result": {
-        "opened": "the winner of leg 2",
-        "legs": 2,
-        "stuckLegAborted": true
+        "outcome": {
+          "value": {
+            "entry": {
+              "$connection": "the provider client socket: a real WebSocket to the loopback server (its wire events are the ordered events)"
+            },
+            "reused": false,
+            "ownerWaitMs": 0
+          }
+        },
+        "upgradeRequests": 2,
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "K5TQeiIznWnIjx59KWcutg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "FVZKu/WbTdHtP9oPq0w0pQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 1Rk+ydpPRHaCez5ZlcKuGjxcU4k="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
       },
-      "calls": [
+      "clock": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.openHedged",
-          "args": [
+          "advanceMs": 3000,
+          "fromMs": 0,
+          "fired": [
             {
-              "hedgeMs": 30,
-              "deadlineMs": 5000,
-              "deadlineError": {
-                "callback": "deadlineError"
-              },
-              "openLeg": {
-                "callback": "openLeg"
-              }
+              "id": 2,
+              "dueMs": 3000
+            }
+          ],
+          "toMs": 3000,
+          "armed": [
+            {
+              "id": 4,
+              "dueMs": 6000
+            },
+            {
+              "id": 1,
+              "dueMs": 15000
+            },
+            {
+              "id": 3,
+              "dueMs": 15000
+            },
+            {
+              "id": 5,
+              "dueMs": 18000
             }
           ]
         }
@@ -44,42 +244,260 @@
       "id": "http-status-from-any-leg-ends-the-race",
       "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:64",
       "input": {
-        "hedgeMs": 20,
-        "deadlineMs": 5000,
-        "legs": [
-          "stuck",
-          "rejects with httpStatus 429"
+        "hedgeMs": 3000,
+        "deadlineMs": 15000,
+        "answers": [
+          null,
+          {
+            "status": 429,
+            "headers": [
+              [
+                "retry-after",
+                "1"
+              ]
+            ],
+            "bodyChunks": [
+              "{\"error\":{\"message\":\"slow down\"}}"
+            ]
+          }
         ],
         "advanceMs": [
-          20
+          3000
         ]
       },
       "result": {
-        "rejectedWithTheLegError": true,
-        "error": {
-          "$exact": "error",
-          "name": "Error",
-          "message": "429",
-          "props": {
-            "httpStatus": 429
+        "outcome": {
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "OpenAI OAuth WS handshake 429: slow down",
+            "props": {
+              "providerError": {
+                "message": "slow down"
+              },
+              "status": 429,
+              "httpStatus": 429,
+              "headers": {
+                "retry-after": "1",
+                "content-length": "33",
+                "connection": "close"
+              },
+              "retryAfterMs": 1000,
+              "retryAfterAt": 1794225607000,
+              "httpBody": "{\"error\":{\"message\":\"slow down\"}}"
+            }
           }
         },
-        "legs": 2,
-        "stuckLegAborted": true
+        "upgradeRequests": 2,
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "+lzvFCYSnwAZ8j22rvFRnw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "uMuETdZEMkgf1A7+uSELvQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-refused",
+            "status": 429,
+            "statusText": "Too Many Requests",
+            "headers": [
+              [
+                "retry-after",
+                "1"
+              ]
+            ],
+            "bodyChunks": [
+              "{\"error\":{\"message\":\"slow down\"}}"
+            ]
+          }
+        ]
       },
-      "calls": [
+      "clock": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.openHedged",
-          "args": [
+          "advanceMs": 3000,
+          "fromMs": 3000,
+          "fired": [
             {
-              "hedgeMs": 20,
-              "deadlineMs": 5000,
-              "deadlineError": {
-                "callback": "deadlineError"
-              },
-              "openLeg": {
-                "callback": "openLeg"
-              }
+              "id": 8,
+              "dueMs": 6000
+            }
+          ],
+          "toMs": 6000,
+          "armed": [
+            {
+              "id": 11,
+              "dueMs": 9000
+            },
+            {
+              "id": 7,
+              "dueMs": 18000
+            },
+            {
+              "id": 10,
+              "dueMs": 18000
+            },
+            {
+              "id": 12,
+              "dueMs": 21000
             }
           ]
         }
@@ -89,42 +507,586 @@
       "id": "deadline-surfaces-acquire-timeout-when-no-leg-opens",
       "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:83",
       "input": {
-        "hedgeMs": 20,
-        "deadlineMs": 90,
-        "legs": [
-          "every leg stuck"
-        ],
+        "hedgeMs": 3000,
+        "deadlineMs": 15000,
+        "answers": "every upgrade left unanswered",
         "advanceMs": [
-          90
+          3000,
+          3000,
+          3000,
+          3000,
+          3000
         ]
       },
       "result": {
-        "rejectedWithTheDeadlineError": true,
-        "error": {
-          "$exact": "error",
-          "name": "Error",
-          "message": "acquire timeout",
-          "code": "EWSACQUIRETIMEOUT",
-          "props": {}
+        "outcome": {
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "OpenAI OAuth WS acquire timed out before open (15000ms)",
+            "code": "EWSACQUIRETIMEOUT",
+            "props": {
+              "acquireTimeoutMs": 15000
+            }
+          }
         },
-        "legs": 5,
-        "everyLegAborted": true
+        "upgradeRequests": 5,
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "TyS64ApRHwiQNEx5Uw4UDw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "0E+xuwwnoeljveyvhGXXRA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "FpJw1qtkidDL8vKjqI5Vrg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "cjqb9L6LvFfDffZkbHtvhw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "MOeagdrY22yoIGVHcDqdwA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-left-unanswered"
+          }
+        ]
       },
-      "calls": [
+      "clock": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.openHedged",
-          "args": [
+          "advanceMs": 3000,
+          "fromMs": 6000,
+          "fired": [
             {
-              "hedgeMs": 20,
-              "deadlineMs": 90,
-              "deadlineError": {
-                "callback": "deadlineError"
-              },
-              "openLeg": {
-                "callback": ""
-              }
+              "id": 14,
+              "dueMs": 9000
+            }
+          ],
+          "toMs": 9000,
+          "armed": [
+            {
+              "id": 16,
+              "dueMs": 12000
+            },
+            {
+              "id": 13,
+              "dueMs": 21000
+            },
+            {
+              "id": 15,
+              "dueMs": 21000
+            },
+            {
+              "id": 17,
+              "dueMs": 24000
             }
           ]
+        },
+        {
+          "advanceMs": 3000,
+          "fromMs": 9000,
+          "fired": [
+            {
+              "id": 16,
+              "dueMs": 12000
+            }
+          ],
+          "toMs": 12000,
+          "armed": [
+            {
+              "id": 18,
+              "dueMs": 15000
+            },
+            {
+              "id": 13,
+              "dueMs": 21000
+            },
+            {
+              "id": 15,
+              "dueMs": 21000
+            },
+            {
+              "id": 17,
+              "dueMs": 24000
+            },
+            {
+              "id": 19,
+              "dueMs": 27000
+            }
+          ]
+        },
+        {
+          "advanceMs": 3000,
+          "fromMs": 12000,
+          "fired": [
+            {
+              "id": 18,
+              "dueMs": 15000
+            }
+          ],
+          "toMs": 15000,
+          "armed": [
+            {
+              "id": 20,
+              "dueMs": 18000
+            },
+            {
+              "id": 13,
+              "dueMs": 21000
+            },
+            {
+              "id": 15,
+              "dueMs": 21000
+            },
+            {
+              "id": 17,
+              "dueMs": 24000
+            },
+            {
+              "id": 19,
+              "dueMs": 27000
+            },
+            {
+              "id": 21,
+              "dueMs": 30000
+            }
+          ]
+        },
+        {
+          "advanceMs": 3000,
+          "fromMs": 15000,
+          "fired": [
+            {
+              "id": 20,
+              "dueMs": 18000
+            }
+          ],
+          "toMs": 18000,
+          "armed": [
+            {
+              "id": 13,
+              "dueMs": 21000
+            },
+            {
+              "id": 15,
+              "dueMs": 21000
+            },
+            {
+              "id": 17,
+              "dueMs": 24000
+            },
+            {
+              "id": 19,
+              "dueMs": 27000
+            },
+            {
+              "id": 21,
+              "dueMs": 30000
+            },
+            {
+              "id": 22,
+              "dueMs": 33000
+            }
+          ]
+        },
+        {
+          "advanceMs": 3000,
+          "fromMs": 18000,
+          "fired": [
+            {
+              "id": 13,
+              "dueMs": 21000
+            }
+          ],
+          "toMs": 21000,
+          "armed": []
         }
       ]
     },
@@ -417,7 +1379,7 @@
         "args": {
           "auth": {
             "type": "openai-direct",
-            "apiKey": "k"
+            "apiKey": "fixture-key"
           },
           "poolKey": null,
           "cacheKey": "shared",
@@ -448,122 +1410,201 @@
         "third": {
           "reused": false
         },
-        "readyStates": [
-          1,
-          3,
-          3
+        "events": [
+          {
+            "event": "dial",
+            "host": "api.openai.com",
+            "port": 443,
+            "servername": "api.openai.com"
+          },
+          {
+            "event": "dial",
+            "host": "api.openai.com",
+            "port": 443,
+            "servername": "api.openai.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-key"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "x-client-request-id",
+                "75c35f8d53abceed34912923b0a8bfbe"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "lmXwCE8NENc9uHbtp3pQdA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.openai.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 3TmY8f3yd5vsawCiXKlL/PyCOMo="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-key"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "x-client-request-id",
+                "b37119ba36ad55010d9db39ec9fe2080"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "MzcqQXQ4thrpjxy6StKsGQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.openai.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: kEL9csI5MfkpMoLzyc05sYx+014="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "dial",
+            "host": "api.openai.com",
+            "port": 443,
+            "servername": "api.openai.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-key"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "x-client-request-id",
+                "90f42cc9c062a57269e3c7f35fe771f2"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "QbskeZtdRCKcbI9hEk2V7w=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.openai.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: wKapD7B4lMUOv1vKw7OqbbRpmeM="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          }
         ]
-      },
-      "calls": [
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
-          "args": []
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
-          "args": [
-            {
-              "callback": ""
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-direct",
-                "apiKey": "k"
-              },
-              "poolKey": null,
-              "cacheKey": "shared",
-              "codexHeaders": {}
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-direct",
-                "apiKey": "k"
-              },
-              "poolKey": null,
-              "cacheKey": "shared",
-              "codexHeaders": {}
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-direct",
-                "apiKey": "k"
-              },
-              "poolKey": null,
-              "cacheKey": "shared",
-              "codexHeaders": {}
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-direct",
-                "apiKey": "k"
-              },
-              "poolKey": null,
-              "cacheKey": "other",
-              "codexHeaders": {}
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
-          "args": []
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
-          "args": []
-        }
-      ]
+      }
     }
   ]
 }

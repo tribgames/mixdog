@@ -1,9 +1,16 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-ws-connect.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-ai providers::openai (adapter.rs:476-523 one dial, pool.rs:178-230 sessionless sockets, transport/ws.rs:280-288 lookup): feed `input` (hedgeMs, deadlineMs, the scripted legs, the virtual-clock steps) and compare `result` / `error` and the recorded leg and socket states. K1 gaps G6 (no hedge, no acquire deadline) and G15 (shared DNS) are OPEN in the core, so the first three cases and the DNS case are expected to differ.",
-  "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs openHedged({ hedgeMs, deadlineMs, deadlineError, openLeg }) / cachedLookup(host, opts, cb), openai-ws-pool.mjs acquireWebSocket / releaseWebSocket with _setOpenSocketForTest opening fake sockets. `legs` log every openLeg call (the abort state of each leg is read after the race settled).",
+  "compare": "mixdog-ai providers::openai pool.rs (:178-230 sessionless sockets), transport/ws.rs connect (:280-288 lookup): serve each case's `input.answers` per upgrade request and compare the ordered `events` (dial, upgrade request with every header, response or refusal, closes), the clock steps and the outcome (entry or error whole).",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "openai-ws-pool.mjs acquireWebSocket / releaseWebSocket (with openai-ws-connect.mjs openHedged inside, over the real ws client) against a loopback WebSocket server (lib/ws-world.mjs): a stuck upgrade is an upgrade request the server never answers; the hedge (3000 ms) and acquire deadline (15000 ms) run on the virtual clock, each step waiting for the dial it causes. cachedLookup is called directly (the host resolver). Not run: a live endpoint, a proxy.",
   "exclusions": [
+    "the server answers upgrade request n with input.answers[n-1] (null = never answered, absent = accepted); the 1006/terminate conventions are those of lib/ws-world.mjs",
     "the DNS case resolves `localhost` through the host resolver: the addresses are the recording host's",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
@@ -12,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14595,
+      "bytes": 40144,
       "path": "cases.json",
-      "sha256": "bced6ac978f5ffad63320890d970079574330872eae9ab6d4ebf23d79be99665"
+      "sha256": "a9267f58f70e1e196bd519354edf31daa273cf6781b82acd9ecce5437d79dc53"
     }
   ],
   "inputs": [
@@ -36,7 +43,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7af794122bfbb318bc6e920e13f654f5596962f285d5e574e233a7a6163ee979"
+      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -58,20 +69,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-connect.mjs",
-  "recorderSha256": "0c9eb1703b20d6a52d993ac6255e3eb4c4d717cbd42316349a6e3f14e603f194",
+  "recorderSha256": "c30eacd296f1969bd34985f2891832bcb688584351081349fb4fd8182142ac73",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai WsPool::checkout (openai/pool.rs:178) and mixdog_ai::transport::ws::connect (transport/ws.rs:237). There is no hedge or acquire deadline and no shared DNS resolution in Rust (K1 G6, G15): work for the Rust side.",
   "set": "provider-openai-ws-connect",
-  "totalBytes": 14595,
-  "valueTags": {
-    "{\"$bigint\":\"<digits>\"}": "bigint",
-    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
-    "{\"$cycle\":true}": "a reference back to an ancestor object",
-    "{\"$date\":\"<ISO>\"}": "Date",
-    "{\"$function\":\"<name>\"}": "a function",
-    "{\"$map\":[[k,v]...]}": "Map, insertion order",
-    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
-    "{\"$set\":[v...]}": "Set, insertion order",
-    "{\"$symbol\":\"<text>\"}": "a symbol",
-    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
-  }
+  "totalBytes": 40144,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
