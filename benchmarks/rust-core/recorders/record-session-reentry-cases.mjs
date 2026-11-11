@@ -109,7 +109,7 @@ for (const reopenBeforeSubmit of [true, false]) {
       f.persist('cold refresh');
       const refreshed = f.nextUpdate();
       mock.timers.tick(1_000);
-      await refreshed;
+      await within(refreshed, 10_000, 'the cold refresh update');
       f.mark('cold refresh tick', { lastText: f.texts().at(-1) });
     }
     const accepted = await f.host.submitToSession(f.id, 'next', { id: 'next' });
@@ -127,7 +127,7 @@ await run('a delayed stored reply cannot overwrite a newly materialized turn', a
   f.mark('opened with a stored answer');
   const held = f.holdRead();
   const reading = f.host.prefetchSession(f.id);
-  await held.captured.promise;
+  await within(held.captured.promise, 10_000, 'the held read to be captured');
   f.mark('prefetch read held');
   await f.host.submitToSession(f.id, 'new turn', { id: 'new-turn' });
   f.mark('new turn submitted while the read is held');
@@ -142,7 +142,7 @@ await run('cold refresh ticks do not stack reads while that session is still loa
   const held = f.holdRead();
   const reads = f.reads;
   mock.timers.tick(1_000);
-  await held.captured.promise;
+  await within(held.captured.promise, 10_000, 'the held read to be captured');
   mock.timers.tick(5_000);
   f.mark('1 s tick, read held, 5 s more ticks', { readsSinceOpen: f.reads - reads });
   const refreshing = f.lastColdRefresh;
@@ -162,7 +162,7 @@ await run('read tracing measures a held host read and propagates its correlation
   try {
     const held = f.holdRead();
     const reading = f.host.prefetchSession(f.id, undefined, 'read-host-1');
-    await held.captured.promise;
+    await within(held.captured.promise, 10_000, 'the held read to be captured');
     const recordsWhileHeld = structuredClone(records);
     now = 321;
     held.release.resolve();

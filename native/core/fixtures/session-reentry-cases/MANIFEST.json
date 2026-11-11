@@ -64,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-reentry-cases.mjs",
-  "recorderSha256": "a42980651467ca39a12cc5881501fa639432e459289b6a81e174db4b2e8bea41",
+  "recorderSha256": "7e93f7d96460011ff91a9e07428298c1f33eb113916aae9ce713e5eebac11146",
   "replay": {
     "compare": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
     "entry": "NO RUST ENTRY ON o1: idle eviction is private (mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict`); the host re-entry, replayed submission id join and read tracing diagnostics have no counterpart found.",
