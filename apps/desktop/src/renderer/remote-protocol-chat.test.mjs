@@ -190,6 +190,7 @@ function adapterFor(script) {
       sessionStateOf: () => script.state,
       whenFolded: (_threadId, resume) => resume().then(() => undefined),
       whenSettled: async () => undefined,
+      approvalRequestId: (cardId) => cardId,
       remoteToolOutput,
     }
   );

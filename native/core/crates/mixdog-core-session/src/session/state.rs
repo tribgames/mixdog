@@ -642,7 +642,8 @@ pub(crate) fn title_of(header: &Header) -> Option<String> {
 /// Today's `toolApprovalResult` for a resolution.
 pub(crate) fn approval_result(aid: &str, resolution: &ApprovalResolution) -> ToolApprovalResult {
     let mut result = ToolApprovalResult {
-        id: aid.to_owned(),
+        // The id the card showed (`room_approval::card_id`), as Node's result named its card's.
+        id: super::room_approval::card_id(aid),
         approved: false,
         device: String::new(),
         at: 0,

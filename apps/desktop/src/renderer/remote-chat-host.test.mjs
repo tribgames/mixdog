@@ -75,6 +75,7 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
     sessionStateOf: () => state,
     whenFolded: (_threadId, resume) => resume().then(() => undefined),
     whenSettled: async () => undefined,
+    approvalRequestId: (cardId) => cardId,
     remoteToolOutput: () => null,
     foldRows,
   };

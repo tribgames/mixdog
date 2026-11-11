@@ -4085,6 +4085,7 @@ impl SessionActor {
         // Node's card of the request (`state.toolApproval`, `normalizeToolApprovalRequest` of the hook request:
         // `room_approval.rs` `tool_approval`), which the phone shows as Node's did.
         params["card"] = super::room_approval::tool_approval(&request);
+        params["card"]["id"] = json!(super::room_approval::card_id(&request.id.0.to_string()));
         let method = request.ask.kind.method();
         let pending = PendingServerRequest {
             id: aid.request_id(),
