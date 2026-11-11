@@ -446,7 +446,14 @@ impl AgentRegistry {
         };
         let mut st = self.lock();
         if st.maps != maps {
+            // Node's index file keeps a deleted session's rows until its forget takes them (`gone-rows.mjs:214`) and every
+            // listing shows them with no header; the core's index drops them at the purge, so a row it stops listing stays
+            // held (a row this registry removed is no longer in `st.maps`).
+            let gone: Vec<(String, Row)> = st.maps.iter().filter(|(id, _)| !maps.iter().any(|(m, _)| m == id)).cloned().collect();
             st.maps = maps;
+            for (id, map) in gone {
+                st.put(&id, Some(map));
+            }
             st.changed();
         }
         st.sessions = sessions;

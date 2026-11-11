@@ -722,6 +722,50 @@ async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
     assert!(rig.store.map("s-lead").unwrap().contains_key("sessionId"));
 }
 
+/// A session deleted while the daemon runs: Node's purge hook forgets it (`agent-tool.mjs:347`, `gone-rows.mjs:214`), its
+/// index file keeps the working row, the Lead pool row and the owed restart failure, and every later listing shows them
+/// (`store-agent-worker-rows.mjs` `projectChildWorkerRow` over a null header); the settled row leaves as a tombstone. The
+/// core's index lists no row of a deleted session, so the registry keeps the rows Node keeps.
+#[tokio::test]
+async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
+    let rig = Rig::new();
+    // `isUnnotifiedRestartFailure`: failed by the process restart, its owner not told yet.
+    let owed = json!({ "status": "failed", "failureReason": "process-restart" });
+    for (id, tag, extra) in [
+        ("s-done", "done", json!({ "cwd": "/w" })),
+        ("s-busy", "busy", json!({ "status": "running" })),
+        ("s-lead", "lead", json!({ "agent": "lead" })),
+        ("s-owed", "owed", owed),
+    ] {
+        rig.store.write(id, Some(worker_row(id, tag, extra)));
+    }
+    let registry = rig.registry();
+    let row_of = |(agents, leads): &(Value, Value), id: &str| {
+        let rows = agents["workers"].as_array().unwrap().iter().chain(leads["workers"].as_array().unwrap());
+        rows.filter(|row| row["sessionId"] == id).cloned().collect::<Vec<Value>>()
+    };
+    let before = registry.pool_index().await;
+    let kept: Vec<(&str, Vec<Value>)> = ["s-busy", "s-lead", "s-owed"].into_iter().map(|id| (id, row_of(&before, id))).collect();
+    for (id, rows) in &kept {
+        assert_eq!(rows.len(), 1, "{id} is listed before the delete");
+    }
+    // The delete: the index drops every row of the deleted sessions.
+    rig.store.maps.lock().unwrap().clear();
+    assert!(registry.forget_deleted_session("s-done").await, "the settled row goes");
+    for (id, _) in &kept {
+        assert!(!registry.forget_deleted_session(id).await, "{id} stays");
+    }
+    for listing in 0..2 {
+        let after = registry.pool_index().await;
+        for (id, rows) in &kept {
+            assert_eq!(&row_of(&after, id), rows, "listing {listing}: {id} as before the delete");
+        }
+        assert_eq!(row_of(&after, "s-done"), Vec::<Value>::new(), "listing {listing}: the settled row is gone");
+        let tombstones = after.0["tombstones"].as_array().unwrap();
+        assert_eq!(tombstones.iter().filter(|t| t["tag"] == "done").count(), 1, "listing {listing}: its tombstone: {tombstones:?}");
+    }
+}
+
 /// Releasing a tag whose session was deleted: Node's `closeSession` counts a record that is
 /// already gone as closed (`session-close.mjs` `finishClose`, `outcome.absent`), so the close
 /// flow goes on to forget the row and the tag can start a fresh session.
