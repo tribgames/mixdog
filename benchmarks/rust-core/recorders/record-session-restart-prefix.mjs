@@ -12,12 +12,20 @@
 //
 //   node benchmarks/rust-core/recorders/record-session-restart-prefix.mjs --tree <dir>
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { cleanup, mask, runSessionRecorder } from './lib/session-rec.mjs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { buildPatchedTree } from './lib/patched-tree.mjs';
+import { cleanup, runSessionRecorder } from './lib/session-rec.mjs';
 
-const base = mkdtempSync(join(tmpdir(), 'restart-prefix-'));
+const PATCH = 'benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch';
+const PRELOAD = 'benchmarks/rust-core/recorders/lib/determinism-preload.mjs';
+// A fixed base dir (the scenarios' data and work dirs live under it), so the paths in the requests repeat; it is under this
+// machine's temp dir, so those paths are the recording machine's and are an explicit input (see environment).
+const base = join(tmpdir(), 'rec-restart-prefix');
+rmSync(base, { recursive: true, force: true });
+mkdirSync(base, { recursive: true });
 const PHASE_DEADLINE_MS = 120_000;
 const children = new Set();
 process.on('exit', () => { for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
@@ -25,21 +33,25 @@ process.on('exit', () => { for (const child of children) if (child.exitCode === 
 await runSessionRecorder(import.meta.url, {
   set: 'session-restart-prefix',
   testFile: 'src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs',
-  entry: 'Spawned the tree\'s src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs (the test\'s own scenario script) as real child processes: phases idle/killtool/killrequest then resume, each on a fresh MIXDOG_DATA_DIR, killing the kill phases on the READY line (SIGKILL). Inside: real session-lifecycle createSession, ask-session askSession, turn-checkpoint, cache-warm request rebuild, anthropic-oauth buildRequestBody and anthropic-prefix-trace with a scripted provider (the fixture\'s fake send). The fixture\'s own 300 ms checkpoint-settle delay before READY is the product scenario\'s, not the recorder\'s; the recorder waits on READY/exit with a 120 s deadline per phase.',
-  replay: 'mixdog-ai warmer chain rearm (warmer/chain_tests.rs op rearm) and the mixdog-agent request builder for anthropic-oauth + the thread restart recovery: replay each scenario\'s turns (scripted provider steps in `script`) over a core restart at the recorded point (idle, in a tool run, request on the wire) and compare every request body block for block (`bodies`), the prefix `changes`, the re-armed `warmBody` (null when killed mid-turn) and the recorded `comparisons`.',
+  dataFiles: [PATCH, PRELOAD],
+  patch: { file: PATCH, applied: 'to a temporary copy of the tree\'s src (restart-prefix-parity.fixture.mjs only)', fixes: 'the scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY; the sleep is dropped, the first settle (the journal write lane idle, true) is the event it waited for' },
+  entry: 'Spawned the patched copy of the tree\'s src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs (the test\'s own scenario script, minus its 300 ms sleep: see patch) with node --import lib/determinism-preload.mjs as real child processes: phases idle/killtool/killrequest then resume, each on a fresh MIXDOG_DATA_DIR, killing the kill phases on the READY line (SIGKILL). Inside: real session-lifecycle createSession, ask-session askSession, turn-checkpoint, cache-warm request rebuild, anthropic-oauth buildRequestBody and anthropic-prefix-trace with a scripted provider (the fixture\'s fake send). The recorder waits on the READY line / the child\'s exit with a 120 s deadline per phase.',
+  replay: 'The Rust core\'s restart path is the thread/resume + turn/start protocol (native/core/crates/mixdog-app-protocol methods.rs: thread/resume, turn/start, turn/interrupt) over mixdog-core-session recovery and the Anthropic request builder (mixdog-ai, the anthropic-oauth request body); the cache warmer is native/core/crates/mixdog-ai warmer (chain_tests.rs op rearm). Replay each scenario with the scripted provider steps (the script of the fixture: toolStep/textStep), restart the core at the recorded point (idle, in a tool run, request on the wire), and compare every request body block for block (odies), the prefix changes, the re-armed warmBody (null when killed mid-turn) and comparisons (derived by the test\'s own block walk). nvironment is an input: the system prompt\'s machine-derived environment text (cwd, shell tools, git state, cwd entries) as the recording machine produced it; the replay injects that text verbatim into the system prompt instead of computing its own.',
+  values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs) for the recorder\'s own values; the child\'s output file is JSON the product script wrote (request bodies are already JSON), recorded as parsed',
   exclusions: [
-    'the temp base dir -> <BASE>; the random session id of each scenario -> <session N>; both applied to every string of the recorded bodies/changes',
-    'the per-session scratch directory name in the system prompt (s.<16 hex>) -> s.<scratch>',
-    'the system prompt\'s environment block (shell tools present/absent on PATH, git state, cwd entries) is the recording machine\'s and is recorded as it was: a replay supplies the same environment text, it is not a Rust-side value',
+    'no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat',
+    'the system prompt\'s environment block (cwd under the fixed base dir in the OS temp dir, shell tools present/absent on PATH, git state, cwd entries) is the recording machine\'s: it is recorded as it was, and extracted whole into each case\'s input.environment for the replay to inject verbatim',
     'the kill phases are stopped with SIGKILL when READY is printed; their output file is the one the fixture wrote before READY (bodies and changes of the killed process)',
   ],
 }, async ({ tree }) => {
-  const fixture = join(tree, 'src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs');
+  const patched = buildPatchedTree(tree, join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', PATCH));
+  const fixture = join(patched, 'src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs');
+  const preload = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'lib', 'determinism-preload.mjs')).href;
   const runPhase = (name, phase, extra = [], { killWhenReady = false } = {}) => new Promise((resolve, reject) => {
     const dataDir = join(base, name, 'data');
     mkdirSync(dataDir, { recursive: true });
     const outFile = join(base, name, `${phase}.json`);
-    const child = spawn(process.execPath, [fixture, phase, dataDir, outFile, ...extra], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(process.execPath, ['--import', preload, fixture, phase, dataDir, outFile, ...extra], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     children.add(child);
     let stderr = '';
     let pending = '';
@@ -108,14 +120,14 @@ await runSessionRecorder(import.meta.url, {
     scenarios.push({ name, before: before.output, beforeKilledOnReady: before.killed, after: after.output, comparisons });
   }
 
-  const sessions = new Map();
-  const normalise = (value) => mask(value, [[base, '<BASE>'], [base.replaceAll('\\', '/'), '<BASE>'], [base.replaceAll('\\', '\\\\'), '<BASE>'], ...scenarios.map((s, i) => [s.before.sessionId, `<session ${i + 1}>`])]);
-  const out = scenarios.map((s) => JSON.parse(JSON.stringify(normalise(s)).replace(/s\.[0-9a-f]{16}\b/g, 's.<scratch>')));
+  rmSync(patched, { recursive: true, force: true });
+  // The environment block: the system block of the first request that holds the machine-derived startup facts.
+  const environmentOf = (body) => (body.system || []).map((block) => block.text).find((text) => typeof text === 'string' && text.includes('Shell tools at startup')) ?? null;
   const testLines = { idle: [192, 198, 214], killtool: [207, 219], killrequest: [207, 227] };
-  const cases = out.map((s) => ({
+  const cases = scenarios.map((s) => ({
     name: `restart-${s.name}`,
     testLines: testLines[s.name],
-    input: { phases: [s.name, 'resume'], language: 'ko', model: 'claude-opus-5-5', kill: s.beforeKilledOnReady ? 'SIGKILL when READY is printed' : 'none (exits after two turns)' },
+    input: { phases: [s.name, 'resume'], language: 'ko', model: 'claude-opus-5-5', kill: s.beforeKilledOnReady ? 'SIGKILL when READY is printed' : 'none (exits after two turns)', environment: environmentOf(s.before.bodies[0]) },
     result: { before: s.before, after: s.after, comparisons: s.comparisons },
   }));
   return { cases };
