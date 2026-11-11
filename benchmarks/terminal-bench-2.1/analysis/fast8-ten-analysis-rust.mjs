@@ -23,21 +23,27 @@ export function strip(x) {
 }
 
 /**
- * The non-description contract of every baseline tool the route's catalog holds: each must equal the
- * baseline's, and a tool of the catalog that the baseline does not know is a changed contract too.
- * (The baseline holds every built-in, code-graph and patch tool; the headless route exposes some of them.)
+ * The complete non-description contract array, as Node's snapshot compared it (`assert.deepEqual` of the whole
+ * `[...BUILTIN_TOOLS, ...CODE_GRAPH_TOOL_DEFS, ...PATCH_TOOL_DEFS]` against the baseline): every tool of the
+ * baseline must be in the route's catalog, in the same order, and the catalog may hold no other tool. Returns what
+ * differs: a changed tool by name, `+name` for a tool the baseline lacks, `-name` for one the catalog lacks,
+ * `(order)` when only the order differs. `baseline.contracts` is therefore recorded from this same catalog.
  */
 export function changedContracts(catalog, baselineContracts) {
-  const baseline = new Map(baselineContracts.map(tool => [tool.name, strip(tool)]));
+  const now = catalog.map(tool => sortKeys(strip(tool)));
+  const was = baselineContracts.map(tool => sortKeys(strip(tool)));
+  const text = tool => JSON.stringify(tool);
+  const wasByName = new Map(was.map(tool => [tool.name, text(tool)]));
+  const nowByName = new Map(now.map(tool => [tool.name, text(tool)]));
   const changed = [];
-  for (const tool of catalog) {
-    const known = baseline.get(tool.name);
-    if (!known) continue;
-    if (JSON.stringify(sortKeys(strip(tool))) !== JSON.stringify(sortKeys(known))) changed.push(tool.name);
+  for (const [name, contract] of nowByName) {
+    if (!wasByName.has(name)) changed.push(`+${name}`);
+    else if (wasByName.get(name) !== contract) changed.push(name);
   }
+  for (const name of wasByName.keys()) if (!nowByName.has(name)) changed.push(`-${name}`);
+  if (!changed.length && text(now) !== text(was)) changed.push('(order)');
   return changed;
 }
-
 function sortKeys(x) {
   if (Array.isArray(x)) return x.map(sortKeys);
   if (!x || typeof x !== 'object') return x;
@@ -116,6 +122,7 @@ async function main() {
     const routes = await collectRouteSnapshots({ bin: resolve(args[mixdogd + 1]), provider: 'openai-oauth', model: 'gpt-5.6-sol' });
     const digest = digestFromSnapshots(REPO_ROOT, 'headless', routes);
     const catalog = routes.find(r => r.id === 'lead').snapshot.catalog;
+    assert.ok(catalog.length > 0, 'the route catalog is empty');
     const changed = changedContracts(catalog, baseline.contracts);
     assert.deepEqual(changed, [], `non-description tool contracts changed: ${changed.join(', ')}`);
     const files = Object.fromEntries(Object.keys(baseline.files).map(p => [p, readFileSync(p, 'utf8')]));
