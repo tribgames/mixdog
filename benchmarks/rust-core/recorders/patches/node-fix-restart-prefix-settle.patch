@@ -1,79 +1,122 @@
 diff --git a/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs b/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
-index 4618631..dfd1392 100644
+index 4618631..5d3c811 100644
 --- a/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
 +++ b/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
-@@ -86,9 +86,8 @@ const provider = {
+@@ -34,7 +34,7 @@ for (const name of ['call_1', 'call_2', 'call_3']) writeFileSync(join(workDir, `
+ 
+ const { createSession } = await import('./manager/session-lifecycle.mjs');
+ const { askSession } = await import('./manager/ask-session.mjs');
+-const { settleTurnCheckpointWrites } = await import('./manager/turn-checkpoint.mjs');
++const { readTurnCheckpointHeader, replayTurnJournal } = await import('./manager/turn-checkpoint-journal.mjs');
+ const { sanitizeToolPairs } = await import('./context-utils.mjs');
+ const { _withRegisteredProviderForTestAsync } = await import('../providers/registry.mjs');
+ const { _buildRequestBodyForCacheSmoke } = await import('../providers/anthropic-oauth.mjs');
+@@ -85,10 +85,36 @@ const provider = {
+ 
  // Where the interrupted turn stops: the checkpoint made durable, the recorded
  // bodies handed over, and nothing ever finishes (the parent kills the process).
++// What the journal must hold, read back from the file, before READY: the record of the point the turn is stopped at.
++// killtool stops in the tool run of round 2 (its assistant message calling call_3 and the phase 'tools' are journaled
++// just before the hook runs); killrequest stops in the second request (the tool result of call_2 and phase 'streaming').
++const awaited = () => {
++  const replayed = replayTurnJournal(readTurnCheckpointHeader(sessionId));
++  const messages = replayed?.turnMessages ?? [];
++  if (phase === 'killtool') return messages.some((m) => m?.role === 'assistant' && m.toolCalls?.some((call) => call.id === 'call_3')) && replayed.interruption.phase === 'tools';
++  return messages.some((m) => m?.role === 'tool' && m.toolCallId === 'call_2') && replayed?.interruption.phase === 'streaming';
++};
++// The journal gives no completion for an append (appendJournalLines only queues it; turn-checkpoint-journal.mjs
++// _pumpJournal settles only the open op): the file is polled. A failed write is reported only as the one-time stderr
++// warning of _warnJournalOnce, so that line is watched and fails the wait with the write's own error text.
++let journalWriteError = null;
++const realStderrWrite = process.stderr.write.bind(process.stderr);
++process.stderr.write = (chunk, ...rest) => {
++  const text = String(chunk);
++  if (text.startsWith('[turn-checkpoint] journal write failed')) journalWriteError = text.trim();
++  return realStderrWrite(chunk, ...rest);
++};
++const waitForCheckpointRecord = async () => {
++  const deadline = Date.now() + 30_000;
++  for (;;) {
++    if (journalWriteError) throw new Error(journalWriteError);
++    if (awaited()) return;
++    if (Date.now() > deadline) throw new Error('the checkpoint record was not readable from the journal within 30 s');
++    await new Promise((resolve) => setTimeout(resolve, 5));
++  }
++};
  const hang = async () => {
 -  await settleTurnCheckpointWrites(sessionId);
 -  await new Promise((resolve) => setTimeout(resolve, 300));
 -  await settleTurnCheckpointWrites(sessionId);
-+  // The checkpoint is durable once the journal's write lane is idle (settleTurnJournalWrites resolves true): no fixed pause.
-+  if (!(await settleTurnCheckpointWrites(sessionId))) throw new Error('the turn checkpoint writes did not settle');
++  await waitForCheckpointRecord();
    writeFileSync(outFile, JSON.stringify({ sessionId, bodies, changes }));
    process.stdout.write('READY\n');
    return new Promise(() => {});
-diff --git a/src/runtime/agent/orchestrator/session/restart-prefix-settle.test.mjs b/src/runtime/agent/orchestrator/session/restart-prefix-settle.test.mjs
+diff --git a/src/runtime/agent/orchestrator/session/restart-prefix-ready.test.mjs b/src/runtime/agent/orchestrator/session/restart-prefix-ready.test.mjs
 new file mode 100644
-index 0000000..39ef796
+index 0000000..3e635c1
 --- /dev/null
-+++ b/src/runtime/agent/orchestrator/session/restart-prefix-settle.test.mjs
-@@ -0,0 +1,58 @@
-+// The restart-prefix fixture reports READY (the turn checkpoint is durable, then the parent kills the process) once the
-+// checkpoint writes have settled: the header and the journal are on disk when READY is printed, and the fixture waits on
-+// that event, not on a fixed pause. Fails when the fixture sleeps before READY.
++++ b/src/runtime/agent/orchestrator/session/restart-prefix-ready.test.mjs
+@@ -0,0 +1,64 @@
++// The restart-prefix fixture stops a turn mid-flight and prints READY only once the checkpoint record it stops at can be
++// read back from the journal file. Two behaviours: (1) at READY the record is readable (the assistant message calling
++// call_3 and the 'tools' phase); (2) when the journal's append fails, READY is never announced and the child fails with the
++// write's own error. Without the fix the fixture waits for an idle write lane, which a failed write also leaves, and
++// announces READY with no record on disk.
 +import assert from 'node:assert/strict';
 +import { spawn } from 'node:child_process';
-+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 +import { tmpdir } from 'node:os';
 +import { join } from 'node:path';
 +import test from 'node:test';
 +import { fileURLToPath, pathToFileURL } from 'node:url';
 +
-+const FIXTURE = fileURLToPath(new URL('./restart-prefix-parity.fixture.mjs', import.meta.url));
++const SESSION_DIR = fileURLToPath(new URL('.', import.meta.url));
++const FIXTURE = join(SESSION_DIR, 'restart-prefix-parity.fixture.mjs');
++const JOURNAL = pathToFileURL(join(SESSION_DIR, 'manager', 'turn-checkpoint-journal.mjs')).href;
++const DEADLINE_MS = 60_000;
 +
-+test('READY follows the settled checkpoint writes, with no fixed pause in the fixture', async () => {
-+  const root = mkdtempSync(join(tmpdir(), 'restart-prefix-settle-'));
++// Runs the killtool phase until READY or exit; the child is killed as the parent does in the recording.
++function runKillTool(root, preloads = []) {
++  const dataDir = join(root, 'data');
++  mkdirSync(dataDir, { recursive: true });
++  const args = [...preloads.flatMap((file) => ['--import', pathToFileURL(file).href]), FIXTURE, 'killtool', dataDir, join(root, 'out.json')];
++  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
++  let stdout = '';
++  let stderr = '';
++  child.stderr.on('data', (chunk) => { stderr += chunk; });
++  return new Promise((resolve, reject) => {
++    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`neither READY nor exit within ${DEADLINE_MS} ms: ${stderr.slice(-800)}`)); }, DEADLINE_MS);
++    const done = (outcome) => { clearTimeout(timer); child.kill('SIGKILL'); child.once('close', () => resolve({ outcome, stdout, stderr, dataDir })); };
++    child.stdout.on('data', (chunk) => { stdout += chunk; if (/^READY\r?$/m.test(stdout)) done('ready'); });
++    child.once('exit', (code) => done(`exit ${code}`));
++  });
++}
++
++test('READY follows the checkpoint record being readable from the journal', async () => {
++  const root = mkdtempSync(join(tmpdir(), 'restart-prefix-ready-'));
 +  try {
-+    const dataDir = join(root, 'data');
-+    mkdirSync(dataDir, { recursive: true });
-+    const sleeps = join(root, 'fixture-sleeps.txt');
-+    // Records every timer of 100 ms or more armed directly by the fixture file (its caller frame); product timers are not its own.
-+    const preload = join(root, 'preload.mjs');
-+    writeFileSync(
-+      preload,
-+      `import { appendFileSync } from 'node:fs';
-+const real = globalThis.setTimeout;
-+globalThis.setTimeout = function (fn, delay, ...rest) {
-+  if (Number(delay) >= 100 && new Error().stack.split('\\n')[2].includes('restart-prefix-parity.fixture.mjs')) appendFileSync(${JSON.stringify(sleeps)}, String(delay) + '\\n');
-+  return real.call(this, fn, delay, ...rest);
-+};
-+`
-+    );
-+    const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, FIXTURE, 'killtool', dataDir, join(root, 'out.json')], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-+    let stderr = '';
-+    child.stderr.on('data', (chunk) => { stderr += chunk; });
-+    const ready = await new Promise((resolve, reject) => {
-+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`no READY within 60 s: ${stderr.slice(-1000)}`)); }, 60_000);
-+      let seen = '';
-+      child.stdout.on('data', (chunk) => {
-+        seen += chunk;
-+        if (/^READY\r?$/m.test(seen)) { clearTimeout(timer); child.kill('SIGKILL'); resolve(true); }
-+      });
-+      child.once('exit', () => { clearTimeout(timer); resolve(false); });
-+    });
-+    assert.equal(ready, true, stderr.slice(-1000));
-+    await new Promise((resolve) => child.once('close', resolve));
-+    const dir = join(dataDir, 'turn-checkpoints');
-+    assert.ok(existsSync(dir), 'the checkpoint directory exists at READY');
-+    const files = readdirSync(dir);
-+    const header = files.find((name) => name.endsWith('.json'));
-+    const journal = files.find((name) => name.endsWith('.jsonl'));
-+    assert.ok(header && journal, `header and journal are on disk at READY: ${files.join(', ')}`);
-+    assert.ok(JSON.parse(readFileSync(join(dir, header), 'utf8')).turnToken, 'the header is whole');
-+    assert.ok(readFileSync(join(dir, journal), 'utf8').trim().split('\n').every((line) => JSON.parse(line)), 'every journal line is whole');
-+    assert.equal(existsSync(sleeps) ? readFileSync(sleeps, 'utf8') : '', '', 'the fixture arms no timer of 100 ms or more');
++    const run = await runKillTool(root);
++    assert.equal(run.outcome, 'ready', run.stderr.slice(-800));
++    process.env.MIXDOG_DATA_DIR = run.dataDir;
++    const { readTurnCheckpointHeader, replayTurnJournal } = await import(JOURNAL);
++    const { readdirSync } = await import('node:fs');
++    const sessionId = readdirSync(join(run.dataDir, 'turn-checkpoints')).find((name) => name.endsWith('.json')).replace(/\.json$/, '');
++    const replayed = replayTurnJournal(readTurnCheckpointHeader(sessionId));
++    assert.ok(replayed.turnMessages.some((m) => m.role === 'assistant' && m.toolCalls?.some((call) => call.id === 'call_3')), 'the record the turn stops at is readable at READY');
++    assert.equal(replayed.interruption.phase, 'tools');
++  } finally {
++    rmSync(root, { recursive: true, force: true });
++  }
++});
++
++test('a failed journal append never announces READY and fails with the write error', async () => {
++  const root = mkdtempSync(join(tmpdir(), 'restart-prefix-failed-append-'));
++  try {
++    const preload = join(root, 'fail-append.mjs');
++    writeFileSync(preload, `import { _setJournalOpGateForTest } from ${JSON.stringify(JOURNAL)};\n_setJournalOpGateForTest(async (op) => { if (op.kind === 'append') throw new Error('disk full (injected)'); });\n`);
++    const run = await runKillTool(root, [preload]);
++    assert.notEqual(run.outcome, 'ready', 'READY was announced while the checkpoint record is not on disk');
++    assert.match(run.stderr, /journal write failed[^\n]*disk full \(injected\)/);
 +  } finally {
 +    rmSync(root, { recursive: true, force: true });
 +  }
