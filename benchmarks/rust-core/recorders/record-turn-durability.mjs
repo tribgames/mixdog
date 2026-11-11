@@ -33,6 +33,7 @@ if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name a scratch folde
 
 const CASES = [
   { name: 'save-failure', crash: false, note: 'every save fails from the answer on; the same process asks the next turn while they fail, then once they land' },
+  { name: 'crash-before-write', crash: true, note: 'killed as the turn opens, before anything of it is written (its checkpoint journal not opened)' },
   { name: 'crash-before-output', crash: true, note: 'killed with the first request on the wire, before any output' },
   { name: 'crash-mid-stream', crash: true, note: 'killed after part of the answer streamed and was checkpointed' },
   { name: 'crash-tool-wire', crash: true, note: 'killed after a tool round, with the follow-up request on the wire' },
