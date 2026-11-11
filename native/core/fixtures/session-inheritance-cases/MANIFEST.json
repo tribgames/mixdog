@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7100,
+      "bytes": 7700,
       "path": "golden.json",
-      "sha256": "e68f175b92abbbecd82027091496745d29f40be686ea499ff8af0b525ac9768b"
+      "sha256": "ab5c57be0c48bf7fc529eb3fee74b4da236666e7829f284c6565496aef8dcabc"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,11 +63,21 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-inheritance-cases.mjs",
-  "recorderSha256": "68196c64f198d2774e34f2a6bcc5cd46c7dcad30f2bb7505193239fd7e8b3848",
+  "recorderSha256": "f6354466d1cf9bee14b4c31d92537e890f6891a029beef533fdcdb5bf76a365a",
   "replay": {
-    "entry": "mixdog-core-session lifecycle (inheritFrom) and the transcript restore: replay the two scenarios from the recorded source/target and compare the target messages, the persisted copy, the restored items and the rejection text",
-    "normalised": {}
+    "compare": "mixdog-core-session lifecycle (inheritFrom) and the transcript restore: replay the two scenarios from the recorded source/target and compare the target messages, the persisted copy, the restored items and the rejection text",
+    "entry": "Drive these public items on o1: thread/fork (mixdog-app-server/src/server.rs:114).",
+    "missingOnO1": [
+      "carry_into (mixdog-core-session/src/session/inheritance.rs:95) is pub(super): not callable from outside; the transcript restore has no counterpart found"
+    ],
+    "normalised": {},
+    "protocolMethods": [
+      "thread/fork (mixdog-app-server/src/server.rs:114)"
+    ],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-inheritance-cases",
-  "totalBytes": 7100
+  "totalBytes": 7700,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
