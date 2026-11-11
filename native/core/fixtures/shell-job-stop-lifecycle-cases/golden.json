@@ -222,18 +222,8 @@
         "timers": {
           "armed": [
             {
-              "api": "setTimeout",
-              "ms": 300,
-              "atMs": 0
-            },
-            {
-              "api": "setTimeout",
-              "ms": 90000,
-              "atMs": 0
-            },
-            {
-              "api": "setTimeout",
-              "ms": 90000,
+              "api": "setInterval",
+              "ms": 1000,
               "atMs": 0
             },
             {
@@ -242,13 +232,23 @@
               "atMs": 0
             },
             {
-              "api": "setInterval",
-              "ms": 1000,
+              "api": "setTimeout",
+              "ms": 300,
               "atMs": 0
             },
             {
               "api": "setTimeout",
               "ms": 300,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 0
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
               "atMs": 0
             },
             {
@@ -256,18 +256,11 @@
               "atMs": 300
             },
             {
-              "api": "setTimeout",
-              "ms": 300,
+              "api": "setImmediate",
               "atMs": 1200
             },
             {
-              "api": "setTimeout",
-              "ms": 90000,
-              "atMs": 1200
-            },
-            {
-              "api": "setTimeout",
-              "ms": 90000,
+              "api": "setImmediate",
               "atMs": 1200
             },
             {
@@ -277,40 +270,7 @@
             },
             {
               "api": "setTimeout",
-              "ms": 30000,
-              "atMs": 1200
-            },
-            {
-              "api": "setTimeout",
               "ms": 0,
-              "atMs": 1200
-            },
-            {
-              "api": "setTimeout",
-              "ms": 30000,
-              "atMs": 1200
-            },
-            {
-              "api": "setImmediate",
-              "atMs": 1200
-            },
-            {
-              "api": "setImmediate",
-              "atMs": 1200
-            },
-            {
-              "api": "setTimeout",
-              "ms": 5000,
-              "atMs": 1200
-            },
-            {
-              "api": "setTimeout",
-              "ms": 15000,
-              "atMs": 1200
-            },
-            {
-              "api": "setTimeout",
-              "ms": 300,
               "atMs": 1200
             },
             {
@@ -320,8 +280,43 @@
             },
             {
               "api": "setTimeout",
+              "ms": 300,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
               "ms": 5000,
-              "atMs": 1400
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 15000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 30000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 30000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 1200
+            },
+            {
+              "api": "setTimeout",
+              "ms": 90000,
+              "atMs": 1200
             },
             {
               "api": "setTimeout",
@@ -330,8 +325,8 @@
             },
             {
               "api": "setTimeout",
-              "ms": 1000,
-              "atMs": 6400
+              "ms": 5000,
+              "atMs": 1400
             },
             {
               "api": "setInterval",
@@ -340,18 +335,8 @@
             },
             {
               "api": "setTimeout",
-              "ms": 5000,
-              "atMs": 7600
-            },
-            {
-              "api": "setTimeout",
-              "ms": 5000,
-              "atMs": 7600
-            },
-            {
-              "api": "setTimeout",
-              "ms": 3000,
-              "atMs": 7600
+              "ms": 1000,
+              "atMs": 6400
             },
             {
               "api": "setInterval",
@@ -360,22 +345,37 @@
             },
             {
               "api": "setTimeout",
+              "ms": 300,
+              "atMs": 7600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 300,
+              "atMs": 7600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 3000,
+              "atMs": 7600
+            },
+            {
+              "api": "setTimeout",
               "ms": 5000,
               "atMs": 7600
             },
             {
               "api": "setTimeout",
-              "ms": 300,
+              "ms": 5000,
+              "atMs": 7600
+            },
+            {
+              "api": "setTimeout",
+              "ms": 5000,
               "atMs": 7600
             },
             {
               "api": "setTimeout",
               "ms": 15000,
-              "atMs": 7600
-            },
-            {
-              "api": "setTimeout",
-              "ms": 300,
               "atMs": 7600
             },
             {
