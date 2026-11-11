@@ -1993,7 +1993,7 @@
     },
     {
       "id": "close-before-terminal-keeps-partial-state",
-      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:133",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:187",
       "input": {
         "frames": [
           {

@@ -19,7 +19,7 @@
     {
       "bytes": 172938,
       "path": "cases.json",
-      "sha256": "ad6ec507a6acac884fa309c7863386e06bf12b9b01f6ead6ed5c77c529ab7883"
+      "sha256": "3e89158bbf4ef4b423486fcb6177d2b72cc76799dd5b924a37ad8f4f46b74a4e"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "b3e0bce8570f49da266669a49cfe27f94f55472c80ff6bcfa4b2623ae85549e0",
+  "recorderSha256": "41664a799afbeaecc55907b4aa5ad6694efaaaea3a4eeec341127b9afebf7a18",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "set": "provider-openai-ws-stream",
   "totalBytes": 172938,
