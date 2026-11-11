@@ -146,6 +146,7 @@ use mixdog_core_base::approvals::request_params;
 use mixdog_core_base::approvals::resolved_frame;
 
 mod compaction_reminder;
+mod offload_prune;
 mod turn_ops;
 
 /// The header key of the session's saved provider state (Node `session.providerState`).
@@ -354,6 +355,8 @@ pub(crate) enum JobDone {
     CompactionRows(Box<CommitRows>),
     /// The Goal the runtime shows, read for a pre-send compaction's reminder.
     CompactionReminder(Box<compaction_reminder::ReminderRead>),
+    /// A durable compaction's old tool-result sidecars, to prune on the actor (`pruneCompactedOffloads`); told when done.
+    PruneOffloads(Vec<std::path::PathBuf>, oneshot::Sender<()>),
 }
 
 /// A manual compaction's result and the context read to reconcile it with.
@@ -1043,7 +1046,10 @@ impl SessionActor {
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
                 go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
-                Some(done) = self.jobs_rx.recv() => self.on_job(done),
+                Some(done) = self.jobs_rx.recv() => match done {
+                    JobDone::PruneOffloads(candidates, told) => self.prune_offloads(candidates, told).await,
+                    done => self.on_job(done),
+                },
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
@@ -1562,6 +1568,7 @@ impl SessionActor {
             JobDone::Resumed(done) => self.resumed(*done),
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
             JobDone::CompactionReminder(read) => self.compaction_reminder_read(*read),
+            JobDone::PruneOffloads(..) => unreachable!("the run loop awaits it"),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);

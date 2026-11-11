@@ -157,13 +157,26 @@ fn sidecar_names(text: &str) -> Vec<String> {
 }
 
 impl ToolResultArtifacts {
-    /// `pruneOffloadSession`: deletes the session's sidecars at least ten minutes old (at `now_ms`)
-    /// that `transcripts` (the session's message lists, serialized as `JSON.stringify` writes them)
-    /// neither names by path or file name nor reaches through the archives it names. Best-effort: an
-    /// unreadable listing or archive deletes nothing.
-    pub async fn prune(&self, transcripts: String, now_ms: u64) {
+    /// `pruneOffloadSession`'s listing: the session's sidecars at least ten minutes old (at `now_ms`);
+    /// none when there are none or the directory cannot be listed.
+    pub async fn prune_candidates(&self, now_ms: u64) -> Vec<PathBuf> {
         let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, &transcripts, now_ms)) else {
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| old_sidecars(lane, &dir, now_ms)) else {
+            return Vec::new();
+        };
+        job.await.unwrap_or_default()
+    }
+
+    /// The rest of `pruneOffloadSession`: of `candidates`, deletes the sidecars `transcripts` (the
+    /// session's message lists, serialized as `JSON.stringify` writes them) neither names by path or
+    /// file name nor reaches through the archives it names, and still old at `now_ms`. Best-effort:
+    /// an unreadable archive deletes nothing.
+    pub async fn prune(&self, candidates: Vec<PathBuf>, transcripts: String, now_ms: u64) {
+        if candidates.is_empty() {
+            return;
+        }
+        let dir = self.dir.clone();
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, candidates, &transcripts, now_ms)) else {
             return;
         };
         let _ = job.await;
@@ -171,15 +184,25 @@ impl ToolResultArtifacts {
 }
 
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
-fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, transcripts: &str, now_ms: u64) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let candidates: Vec<(String, PathBuf)> = entries
+fn old_sidecars(_lane: &InLane<DurabilityIo>, dir: &Path, now_ms: u64) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    entries
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
             let age = age_ms(entry.metadata().ok()?.modified().ok()?, now_ms)?;
-            (name.ends_with(".txt") && age >= PRUNE_MIN_AGE_MS).then(|| (name, entry.path()))
+            (name.ends_with(".txt") && age >= PRUNE_MIN_AGE_MS).then(|| entry.path())
         })
+        .collect()
+}
+
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>, transcripts: &str, now_ms: u64) {
+    // Only this session's own directory is pruned.
+    let candidates: Vec<(String, PathBuf)> = candidates
+        .into_iter()
+        .filter(|path| path.parent() == Some(dir))
+        .filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)))
         .collect();
     if candidates.is_empty() {
         return;

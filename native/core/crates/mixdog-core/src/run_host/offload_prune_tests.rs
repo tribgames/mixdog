@@ -39,8 +39,11 @@ impl ManualCompaction for Pruning {
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.rig.post_compact(thread, trigger).await;
     }
-    async fn prune_offloads(&self, thread: &ThreadId, transcripts: String) {
-        super::manual_compaction::prune_offloads(&io(), &self.data, &SystemClock, thread, transcripts).await;
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        super::manual_compaction::offload_candidates(&io(), &self.data, &SystemClock, thread).await
+    }
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
+        super::manual_compaction::prune_offloads(&io(), &self.data, &SystemClock, thread, candidates, transcripts).await;
     }
     async fn rearm(&self, thread: &ThreadId) {
         self.rig.rearm(thread).await;
