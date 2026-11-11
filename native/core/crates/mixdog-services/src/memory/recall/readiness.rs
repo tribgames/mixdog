@@ -79,7 +79,7 @@ pub async fn embed_recall_query<E: ColdEmbed>(
         return Err(abort_reason());
     }
     if embedder.is_ready() {
-        return Ok(RecallEmbedding::Ready(embedder.embed(clean, QUERY).await?));
+        return Ok(RecallEmbedding::Ready(embed_owned(embedder, clean, cancel, &abort_reason).await?));
     }
     if !embedder.can_warmup() {
         return Ok(RecallEmbedding::Unavailable);
@@ -89,7 +89,7 @@ pub async fn embed_recall_query<E: ColdEmbed>(
     // `setTimeout(…, waitMs)` fires on a later turn than the warmup's continuation: a zero wait still lets an already-settled warmup win.
     let timer = async move {
         tokio::task::yield_now().await;
-        tokio::time::sleep_until(deadline).await;
+        mixdog_rt::ticker().wait_until(deadline.into_std()).await;
     };
     // `Promise.resolve().then(() => warmup())`: the warmup is called after the caller's turn and runs on when the recall stops waiting.
     let warm: BoxFuture<'static, Result<(), E::Error>> = {
@@ -140,7 +140,28 @@ pub async fn embed_recall_query<E: ColdEmbed>(
             Ok(RecallEmbedding::Failed(error))
         }
         Raced::Settled(Ok(())) if cancel.is_cancelled() => Err(abort_reason()),
-        Raced::Settled(Ok(())) => Ok(RecallEmbedding::Warmed(embedder.embed(clean, QUERY).await?)),
+        Raced::Settled(Ok(())) => Ok(RecallEmbedding::Warmed(embed_owned(embedder, clean, cancel, &abort_reason).await?)),
+    }
+}
+
+/// The embedding as work the service owns: a stopped request is released at once (`rpc.mjs:74-78`) and the embedding, with the
+/// model load it may wait on, runs on in its own task instead of being dropped with the caller's future.
+async fn embed_owned<E: ColdEmbed>(
+    embedder: &Arc<E>,
+    text: &str,
+    cancel: &CancellationToken,
+    abort_reason: &impl Fn() -> E::Error,
+) -> Result<Vec<f32>, E::Error> {
+    let (embedder, text) = (embedder.clone(), text.to_owned());
+    let work = tokio::spawn(async move { embedder.embed(&text, QUERY).await });
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Err(abort_reason()),
+        joined = work => match joined {
+            Ok(outcome) => outcome,
+            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            Err(_) => Err(abort_reason()),
+        },
     }
 }
 

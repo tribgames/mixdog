@@ -195,6 +195,8 @@ fn result_value(result: &RecallEmbedding<Error>) -> Exact {
 }
 
 async fn run(name: &str, mut s: Scenario<'_>) {
+    // The wait's deadline is the core ticker's, which runs on an installed backend.
+    mixdog_rt::testing::tokens();
     let timers: Rc<std::cell::RefCell<Vec<(u64, bool, bool)>>> = Rc::default();
     {
         let (timers, trace) = (timers.clone(), s.embedder.trace.clone());
