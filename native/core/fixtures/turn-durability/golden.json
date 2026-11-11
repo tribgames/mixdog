@@ -6200,7 +6200,7 @@
             "sealed": false,
             "turnMessages": 4
           },
-          "stage": "connecting"
+          "stage": "streaming"
         },
         {
           "step": "killed",
@@ -6283,10 +6283,6 @@
                 }
               },
               {
-                "role": "assistant",
-                "content": "answer"
-              },
-              {
                 "role": "user",
                 "content": "[Request interrupted by process restart]"
               }
@@ -6322,13 +6318,8 @@
                 "steered": true
               },
               {
-                "kind": "assistant",
-                "id": "hist_sess_1_1800000000000_1800000000000_736f4744bc2aa2779bfacd2e6c83601d_8_1",
-                "text": "answer"
-              },
-              {
                 "kind": "turndone",
-                "id": "hist_sess_1_1800000000000_1800000000000_736f4744bc2aa2779bfacd2e6c83601d_9_1",
+                "id": "hist_sess_1_1800000000000_1800000000000_736f4744bc2aa2779bfacd2e6c83601d_8_1",
                 "status": "cancelled",
                 "elapsedMs": 0
               }
@@ -6404,10 +6395,6 @@
                   },
                   "sentRequestTail": true
                 }
-              },
-              {
-                "role": "assistant",
-                "content": "answer"
               },
               {
                 "role": "user",
@@ -6514,10 +6501,6 @@
                 }
               },
               {
-                "role": "assistant",
-                "content": "answer"
-              },
-              {
                 "role": "user",
                 "content": "[Request interrupted by process restart]"
               }
@@ -6553,13 +6536,8 @@
                 "steered": true
               },
               {
-                "kind": "assistant",
-                "id": "hist_sess_1_1800000000000_1800000000000_736f4744bc2aa2779bfacd2e6c83601d_8_1",
-                "text": "answer"
-              },
-              {
                 "kind": "turndone",
-                "id": "hist_sess_1_1800000000000_1800000000000_736f4744bc2aa2779bfacd2e6c83601d_9_1",
+                "id": "hist_sess_1_1800000000000_1800000000000_736f4744bc2aa2779bfacd2e6c83601d_8_1",
                 "status": "cancelled",
                 "elapsedMs": 0
               }
@@ -6635,10 +6613,6 @@
                   },
                   "sentRequestTail": true
                 }
-              },
-              {
-                "role": "assistant",
-                "content": "answer"
               },
               {
                 "role": "user",

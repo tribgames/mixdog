@@ -15,7 +15,7 @@
 //
 // Output: native/core/fixtures/turn-durability/golden.json (+ MANIFEST.json).
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -25,6 +25,10 @@ const CHILD_DEADLINE_MS = 60_000;
 
 const { FIXTURES_ROOT, REPO_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { recorderProvenance } = await import('./lib/provenance.mjs');
+const { buildPatchedTree } = await import('./lib/patched-tree.mjs');
+const PATCH = 'benchmarks/rust-core/recorders/patches/node-fix-take-kill-duplicate-answer.patch';
+// The cases recorded from the patched copy of the tree (a Node bug fixed on both sides; see the manifest's `patch`).
+const PATCHED_CASES = ['crash-queued-while-take'];
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, NODE_COMMIT);
@@ -89,12 +93,18 @@ async function record(spec) {
   writeFileSync(join(work, 'y.txt'), 'FILE-SENTINEL\n');
   const out = join(sandbox, 'steps.jsonl');
   writeFileSync(out, '');
-  const run = await runChild(env, [tree, spec.name, 'run', out, work]);
-  const killed = run.code !== 0;
-  if (killed !== spec.crash) throw new Error(`${spec.name}: run exited ${run.code}/${run.signal}\n${run.stderr}`);
-  if (spec.crash) {
-    const reopen = await runChild(env, [tree, spec.name, 'reopen', out, work]);
-    if (reopen.code !== 0) throw new Error(`${spec.name}: reopen exited ${reopen.code}/${reopen.signal}\n${reopen.stderr}`);
+  const caseTree = PATCHED_CASES.includes(spec.name) ? buildPatchedTree(tree, join(REPO_ROOT, PATCH)) : tree;
+  let run;
+  try {
+    run = await runChild(env, [caseTree, spec.name, 'run', out, work]);
+    const killed = run.code !== 0;
+    if (killed !== spec.crash) throw new Error(`${spec.name}: run exited ${run.code}/${run.signal}\n${run.stderr}`);
+    if (spec.crash) {
+      const reopen = await runChild(env, [caseTree, spec.name, 'reopen', out, work]);
+      if (reopen.code !== 0) throw new Error(`${spec.name}: reopen exited ${reopen.code}/${reopen.signal}\n${reopen.stderr}`);
+    }
+  } finally {
+    if (caseTree !== tree) rmSync(caseTree, { recursive: true, force: true });
   }
   // The session id is the child's counter-made id: the same in every run.
   const steps = readFileSync(out, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
@@ -120,29 +130,37 @@ writeSetManifest(stage, {
     exact: true,
     cases: cases.length,
     // The child is spawned by path, not imported: it is listed as an input.
-    ...recorderProvenance(import.meta.url, [child]),
-    // What the replay (`mixdog-core` `run_host::turn_durability_replay`) leaves out of each compared step, and why.
+    ...recorderProvenance(import.meta.url, [child, PATCH]),
+    patch: {
+      file: PATCH,
+      applied: "to a temporary copy of the tree's src, for the cases named in `cases` (the other cases are recorded from the tree as it is)",
+      cases: PATCHED_CASES,
+      fixes:
+        "A turn that went on past its answer to take queued input committed the answer, then reported its text to the host again (keepEndedAnswer: `onAssistantText(text, { committed: true })`). The checkpoint's interruption tracker took that text into its partial buffer, which the commit had just emptied, so the checkpoint held the answer twice (as a message and as streamed text), and the recovery of a process killed after the take appended the first answer a second time after the steered rows. The patch does not record a committed segment's own text in the tracker. New Node test ask-turn-loop-options.committed-text.test.mjs (in the patch): a committed answer reported again leaves the partial buffer empty; an uncommitted buffered segment is still recorded.",
+    },
+    // What the replay (`mixdog-core` `run_host::turn_durability_replay`) leaves out of each compared step, and why. Each line is
+    // `<key>: <reason>`; the replay reads this list from the manifest and drops a thing only while its key is listed.
     exclusions: [
-      'minted ids (message, attempt, session ids, also inside texts) are compared as <id:N> by first appearance: each side mints its own',
-      'object member order: not part of a JSON object',
-      "view.items: each row's own `id` (finalAssistantId is compared as the position of the row it names) and `expanded`, the client's open/closed state of a tool card",
-      'view.messages: the same transcript as view.items, which is compared',
-      'disk.messages: the `system` message, the assembled system prompt Node stores and Rust assembles per request',
-      "disk on the Rust side: the input row's meta.transcript checkpointId, device and completionVerb and its completion's checkpointId (stamps of Rust's turn/start, outside this change), and the cancel line's meta.turnEnd (the typed fact Node reads from the line's text)",
-      'save-failure rows: the end row\'s messageId: in the process that ran the turn Node shows its live end row (turnDoneItem), which names no message; this view is the stored-transcript projection',
-      "checkpoint: compared as present (null or not) and `sealed`, against the session's draft files beside its log; `turnMessages`, the count of the turn's messages the 1.4.5 checkpoint copies: Rust's draft keeps only what the log does not hold yet (the streamed text, the seal), the turn's messages being compared as view and disk",
-      "crash-queued-*, the stamps: Node's `checkpointId` is Rust's `clientSubmissionId`; Rust's rows and stored transcript meta also carry model, modelId and provider, which Node's TUI queue flow stamps on none (rows and disk compared without them)",
-      "crash-queued-*, steps `queued` and `taken` (the owning process's live view): `busy` and `checkpoint` (Node's turn is busy with a checkpoint from its start; Rust's `runtime.busy` and draft file begin with the first streamed chunk: open, blocker-d.md) and `disk` at `taken` (Node's stored record lags the running turn, its checkpoint holding it; Rust's log holds it as it goes)",
-      "crash-queued-while-take, steps `reopened` and `drained`: the second `assistant` row and message equal to an earlier one: Node's recovery of the request that took the queue appends the first answer again after the steered rows, its checkpoint re-played over a log that already held it; Rust shows it once",
-      "killed step, `checkpoint` (crash-mid-stream) and `checkpointPresent` (crash-saved-uncleared): the draft file the dead process left, read by the parent from disk before the next open; at crash-saved-uncleared only its presence, as its seal and message count follow Node's async journal flush (two recordings differed)",
-      "killed step of crash-sensitive, `secretFilesBeforeMark`: whether a file of the data held the value before it was marked sensitive, compared as non-empty or empty, the two layouts naming different files",
-      'secretFiles: compared as whether any file of the data holds the value, as the two layouts name different files',
+      'minted-ids: minted ids (message, attempt, session ids, also inside texts) are compared as <id:N> by first appearance, objects walked in key order: each side mints its own',
+      "row-id: view.items: each row's own `id` (finalAssistantId is compared as the position of the row it names) and `expanded`, the client's open/closed state of a tool card",
+      'view-messages: view.messages: the same transcript as view.items, which is compared',
+      'system-message: disk.messages: the `system` message, the assembled system prompt Node stores and Rust assembles per request',
+      "rust-disk-stamps: disk on the Rust side: the input row's meta.transcript checkpointId, device and completionVerb and its completion's checkpointId (stamps of Rust's turn/start, outside this change), and the cancel line's meta.turnEnd (the typed fact Node reads from the line's text)",
+      "end-row-message-id: the end row's messageId in the process that ran the turn: Node shows its live end row (turnDoneItem), which names no message; this view is the stored-transcript projection",
+      "checkpoint-seal: checkpoint: compared as present (null or not) and `sealed`, against the session's draft files beside its log; `turnMessages`, the count of the turn's messages the 1.4.5 checkpoint copies: Rust's draft keeps only what the log does not hold yet (the streamed text, the seal), the turn's messages being compared as view and disk",
+      "queued-stamps: crash-queued-*: Node's `checkpointId` is Rust's `clientSubmissionId`; Rust's rows and stored transcript meta also carry model, modelId and provider, which Node's TUI queue flow stamps on none (rows and disk compared without them)",
+      "taken-disk: crash-queued-while-take, step `taken` (the owning process's live view): `disk`: Node's stored record lags the running turn, its checkpoint holding it; Rust's log holds it as it goes",
+      "saved-uncleared-presence: killed step of crash-saved-uncleared: only that the draft file is left is compared, not its seal or message count, which follow how far Node's async journal had flushed; two recordings of the same tree at the kill differed: {sealed:false, turnMessages:1} and {sealed:true, turnMessages:2}",
+      "secret-before-mark: killed step of crash-sensitive, `secretFilesBeforeMark`: whether a file of the data held the value before it was marked sensitive, compared as non-empty or empty, the two layouts naming different files",
+      'secret-files: secretFiles: compared as whether any file of the data holds the value, as the two layouts name different files',
+      "busy: Node's recording carries the stage of the runtime entry, not a flag: Rust's `runtime.busy` is compared with whether that entry exists (a non-null stage); the stage itself is compared whole",
       "result: askSession's return to its caller; a Rust client is given the answer as the item the turn's end row names (finalAssistantId), whose text is compared",
-      'stage: compared only as busy (non-null) or idle; the refusal name (the JS error class): the refusal is compared through its code and message',
-      "live with view (resume-held, fork-held heir): `live` is what the owning process shows (Rust's resumed snapshot and the heir's read are compared against it); `view` is the stored projection a second process would read, which Rust's reopen is compared against in the crash steps",
-      "queued: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
+      'refusal-class: the refusal name (the JS error class): the refusal is compared through its code and message',
+      "live-view: live with view (resume-held, fork-held heir): `live` is what the owning process shows (Rust's resumed snapshot and the heir's read are compared against it); `view` is the stored projection a second process would read, which Rust's reopen is compared against in the crash steps",
+      "queued-rows: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
       'spool: the 1.4.5 steering mirror file; Rust keeps queued entries in the session log, compared through the queue a reopened session shows and drains',
       'requests: the user messages of each request, whole, per process',
+      "usage-save-timer: crash-queued-while-take, steps `taken`, `reopened` and `drained`: `usage`, the books of the durable record: whether the first request's usage is in it at the kill follows Node's 150 ms debounced session save (SAVE_DEBOUNCE_MS, a real timer): recordings of this case from the unpatched tree gave 10 input tokens in one and 0 in two, the patched tree's gave 10 in five of five",
     ],
   },
 });

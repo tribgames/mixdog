@@ -309,6 +309,9 @@ const provider = {
   },
 };
 const answer = (opts, text) => {
+  // As a provider adapter does when the response starts (`anthropic-oauth.mjs`: `onStageChange('streaming')`): the runtime entry's
+  // stage is the adapters' to move, a scripted `send` moves none.
+  scoped(() => opts.onStageChange?.('streaming'));
   scoped(() => opts.onTextDelta?.(text));
   return { content: text, stopReason: 'end_turn', usage: USAGE };
 };
