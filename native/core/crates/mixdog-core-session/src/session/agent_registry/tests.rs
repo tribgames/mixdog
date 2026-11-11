@@ -35,8 +35,6 @@ struct Store {
     dirs: Mutex<HashSet<String>>,
     /// The stored session records asked for.
     header_reads: std::sync::atomic::AtomicUsize,
-    /// The process stops before its queued writes reach the store: they are lost.
-    lose_writes: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -74,9 +72,6 @@ impl WorkerStore for Store {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        if self.lose_writes.load(Ordering::SeqCst) {
-            return;
-        }
         if WorkerStore::kept(self, session) {
             return self.keep(session, worker);
         }
@@ -858,62 +853,123 @@ async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
     assert!(!listed(&rig.registry()).await);
 }
 
-/// `restart-notify.mjs:115-131`: the notice is stored under its stable id before the row is stamped, so a crash at any point
-/// tells the owner exactly once. Each boundary is a process that stops there, then a restart (a new registry over what was
-/// stored): before the notice is stored (nothing stored, the row still owed), after it is stored but before the stamp is
-/// (the stamp's write lost: the restart queues the same id again, one entry), and after the stamp (nothing owed).
-#[tokio::test]
-async fn a_restart_failure_is_told_exactly_once_wherever_a_crash_stops_the_notice() {
-    struct Frozen;
-    impl mixdog_agent::env::Clock for Frozen {
-        fn now_ms(&self) -> i64 {
-            NOW
-        }
+/// The composed sessions over a data folder, as the daemon builds them: the real thread store and index, the session
+/// directory, the worker rows' store and the kept-row table; a new one over the same folder is the next process.
+struct Core {
+    directory: Arc<crate::session::SessionDirectory>,
+    threads: Arc<crate::session::thread_state::SessionThreads>,
+    workers: Arc<StoreWorkers>,
+    registry: AgentRegistry,
+    _rig: crate::session::testing::Rig,
+}
+
+impl Core {
+    async fn up(data: &std::path::Path) -> Self {
+        let t = mixdog_rt::testing::tokens();
+        let root = data.to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(t.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            mixdog_store::sqlite::SqliteStore::open(lane, t.sqlite_writer_thread, t.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let ownership = Arc::new(mixdog_core_api::domain::mock::MockOwnership::default());
+        let store = Arc::new(crate::session::StoreThreads::over_data_dir(data, index.clone(), ownership, t.maintenance_io).await.expect("the thread store"));
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(rig.deps_parts(store))));
+        let threads = Arc::new(crate::session::thread_state::SessionThreads::new(directory.clone()));
+        let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &data.join("core.sqlite")).expect("core state");
+        let workers = Arc::new(StoreWorkers::new(index, threads.clone(), t.interactive_io, Arc::new(KeptRows::new(state))));
+        let registry = AgentRegistry::new(workers.clone(), directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
+        Self { directory, threads, workers, registry, _rig: rig }
     }
-    /// The owner's queue: one entry per execution id, as the session's queue keeps one (`pendingIdStillQueued`).
-    #[derive(Default)]
-    struct Queue {
-        stored: Mutex<Vec<(String, String)>>,
-        crash_before_stored: std::sync::atomic::AtomicBool,
+
+    async fn start(&self, op: &str, session: Value) -> ThreadId {
+        use mixdog_core_api::ThreadDirectory;
+        let start = mixdog_core_api::call::CoreRequest {
+            method: mixdog_core_api::ids::Method("thread/start"),
+            params: json!({ "opId": op, "kind": "task", "projectPath": "/ws", "session": session }),
+            op: Some(mixdog_core_api::ids::OpId::from(op)),
+            ctx: mixdog_core_api::call::CallContext::internal("test"),
+        };
+        let mixdog_core_api::Reply::Subscribe(started) = self.directory.request(start).await.expect("thread/start") else { panic!("thread/start subscribes") };
+        ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"))
     }
-    #[async_trait]
-    impl restart::RestartNotices for Queue {
-        async fn queue_durably(&self, owner: &ThreadId, execution: &str, _: String) -> Result<(), String> {
-            if self.crash_before_stored.swap(false, Ordering::SeqCst) {
-                return Err("the process stopped before the notice was stored".into());
+
+    /// The owner's queue as its log holds it: the entries a restart hands its next turn.
+    async fn queued(&self, owner: &ThreadId) -> usize {
+        let handle = self.directory.open_handle(owner, &mixdog_core_api::call::CallContext::internal("test")).await.expect("the owner opens");
+        handle.cell.queue.load().len()
+    }
+
+    async fn notify(&self) -> usize {
+        struct Frozen;
+        impl mixdog_agent::env::Clock for Frozen {
+            fn now_ms(&self) -> i64 {
+                NOW
             }
-            let mut stored = self.stored.lock().unwrap();
-            if !stored.iter().any(|(_, id)| id == execution) {
-                stored.push((owner.as_str().to_owned(), execution.to_owned()));
-            }
-            Ok(())
         }
-        async fn show(&self, _: &ThreadId, _: &str, _: String) {}
+        let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
+        let told = restart::notify_restart_failures(&self.registry, &*self.directory, &board, &at(NOW)).await.expect("the pass ran");
+        self.workers.settled().await;
+        told
     }
+}
 
-    let rig = Rig::new();
-    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
-    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
-    let (queue, board) = (Queue::default(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None));
-    let stamped = || rig.store.map("s-owed").unwrap().contains_key("restartNotified");
-    let one = [("lead-a".to_owned(), "restart:t-1".to_owned())];
+/// `restart-notify.mjs:104-109`: the notice is stored under its stable id before the row is stamped. A real process (this test
+/// binary again) is ended by the crate's crash gate on either side of the store, then the core starts again on the same data
+/// folder. Ended before the store: nothing was queued and the row is still owed, so the restart tells it. Ended after it: the
+/// stored notice survived and the row is still owed, so the restart queues it again under the same id, which Node's queue
+/// takes as the entry it already holds (`pending-messages.mjs:476`, `pendingIdStillQueued` over the hydrated queue): the owner
+/// is told once either way, and nothing is owed after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after_the_restart() {
+    const DATA: &str = "MIXDOG_RESTART_NOTICE_DATA";
+    const NAME: &str = "a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after_the_restart";
+    #[allow(clippy::disallowed_methods, reason = "the child process of this test reads the folder its parent named")]
+    let child_data = std::env::var_os(DATA);
+    if let Some(data) = child_data {
+        // The child: one pass, which the crash gate ends.
+        Core::up(std::path::Path::new(&data)).await.notify().await;
+        return;
+    }
+    for (point, survived) in [("restart-notice-unstored", 0), ("restart-notice-stored", 1)] {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = {
+            let core = Core::up(dir.path()).await;
+            let owner = core.start("op-owner", json!({ "autoWakeCompletions": false })).await;
+            let worker = core.start("op-worker", json!({})).await;
+            let row = json!({
+                "tag": "owed", "sessionId": worker.as_str(), "parentSessionId": owner.as_str(), "ownerSessionId": owner.as_str(),
+                "agent": "worker", "clientHostPid": PID, "status": "failed", "failureReason": "process-restart", "task_id": "t-1",
+                "finishedAt": at(NOW), "updatedAt": at(NOW),
+            });
+            let mut set = serde_json::Map::new();
+            set.insert("worker".into(), row);
+            mixdog_core_ports::ports::threads::ThreadState::patch_header(&*core.threads, &worker, set, Vec::new()).await.expect("the worker row");
+            core.directory.shutdown().await;
+            owner
+        };
+        let test = format!("{}::{NAME}", module_path!().trim_start_matches("mixdog_core_session::"));
+        let child = std::process::Command::new(std::env::current_exe().expect("the test binary"))
+            .args(["--exact", &test, "--nocapture", "--test-threads=1"])
+            .env(DATA, dir.path())
+            .env("MIXDOG_NEW_TASK_CRASH_AT", point)
+            .output()
+            .expect("the child ran");
+        let stderr = String::from_utf8_lossy(&child.stderr);
+        assert!(!child.status.success() && !stderr.contains("panicked"), "{point}: the gate ended the child: {stderr}");
 
-    queue.crash_before_stored.store(true, Ordering::SeqCst);
-    assert_eq!(restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap(), 0);
-    assert!(queue.stored.lock().unwrap().is_empty() && !stamped(), "stopped before the notice: nothing stored, still owed");
-
-    rig.store.lose_writes.store(true, Ordering::SeqCst);
-    restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap();
-    rig.store.lose_writes.store(false, Ordering::SeqCst);
-    assert_eq!(*queue.stored.lock().unwrap(), one, "the notice is stored");
-    assert!(!stamped(), "stopped before the stamp was stored");
-
-    assert_eq!(restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap(), 1, "the restart retries the row");
-    assert_eq!(*queue.stored.lock().unwrap(), one, "under the same id: still one notice");
-    assert!(stamped());
-
-    assert_eq!(restart::notify_restart_failures(&rig.registry(), &queue, &board, &at(NOW)).await.unwrap(), 0, "after the stamp nothing is owed");
-    assert_eq!(*queue.stored.lock().unwrap(), one);
+        let core = Core::up(dir.path()).await;
+        assert_eq!(core.queued(&owner).await, survived, "{point}: what the cut-off pass stored");
+        assert_eq!(core.registry.pending_restart_failures().await.unwrap().len(), 1, "{point}: the row is still owed");
+        assert_eq!(core.notify().await, 1, "{point}: the restart tells the owner");
+        assert_eq!(core.queued(&owner).await, 1, "{point}: one notice");
+        assert_eq!(core.notify().await, 0, "{point}: nothing is owed after");
+        assert_eq!(core.queued(&owner).await, 1, "{point}: still one notice");
+        core.directory.shutdown().await;
+    }
 }
 
 /// Kept rows live in memory once loaded, and the table loses a kept map once it holds only a tombstone past the TTL, or one
@@ -951,6 +1007,28 @@ async fn kept_rows_are_read_from_the_table_once_and_kept_current_in_memory() {
     assert_eq!(kept.load().await.unwrap(), [("s-1".to_owned(), row.clone())]);
     kept.put("s-1", None).await.unwrap();
     assert_eq!(kept.load().await.unwrap(), Vec::new());
+}
+
+/// A write the table refused changes nothing a listing reads: the kept rows in memory stay what the table holds, for an add,
+/// a replace and a removal alike.
+#[tokio::test]
+async fn a_kept_row_the_table_refused_leaves_the_listing_as_the_table_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("core.sqlite");
+    let t = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+    let kept = KeptRows::new(state.clone());
+    let row = obj(json!({ "sessionId": "s-1", "tag": "one" }));
+    kept.put("s-1", Some(row.clone())).await.unwrap();
+    // The table fails every write from here on.
+    state.close();
+    assert!(kept.put("s-2", Some(obj(json!({ "sessionId": "s-2" })))).await.is_err());
+    assert!(kept.put("s-1", Some(obj(json!({ "sessionId": "s-1", "tag": "two" })))).await.is_err());
+    assert!(kept.put("s-1", None).await.is_err());
+    let listed = kept.load().await.unwrap();
+    let (stored, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+    let table = KeptRows::new(stored).load().await.unwrap();
+    assert_eq!((listed, kept.holds("s-1")), (table, true), "memory is the table");
 }
 
 /// The production keeper of those rows: what it kept is read back by a new keeper over the core's state database opened
