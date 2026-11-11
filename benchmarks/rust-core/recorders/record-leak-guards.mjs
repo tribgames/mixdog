@@ -4,29 +4,23 @@
 // (`consumeCompatChatCompletionStream`) and the compat Responses stream (`consumeCompatResponsesStream`). Each row records the visible
 // text deltas, the dispatched calls and the folded result.
 //   node benchmarks/rust-core/recorders/record-leak-guards.mjs --tree <exact export of b6f10295a>
-import { startRecording, stream } from './lib/provider-case-recorder.mjs';
+import { sseBody, startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-leak-guards',
-  net: false,
-  entry: 'gemini-stream.mjs createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolCall }) (feedText / finalize / scrubAssistantText / getLeakedToolCalls); anthropic-oauth.mjs parseSSEStream(response, null, abort, onStreamDelta, onToolCall, {}, onTextDelta, knownToolNames); openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream (with openai-compat.mjs parseToolCalls / parseResponsesToolCalls) over scripted events. Not run: a network send.',
-  compare: 'mixdog-ai providers::leak.rs (:60-163) and leak_tests.rs / anthropic/leak_tests.rs over fixtures/agent/leaked-toolcall (K1 row 3: 19 of 25 cases already replayed there): feed `input.deltas` per route and compare `result.texts` (visible text deltas), `result.captured` (dispatched calls) and `result.folded` whole.',
+  entry: 'the real provider send of each route over a scripted loopback endpoint: gemini.mjs GeminiProvider.send, anthropic.mjs AnthropicProvider.send, openai-compat.mjs OpenAICompatProvider.send (Chat: provider deepseek; Responses: compatWireApi "responses" on a custom gateway); the guards run inside them (gemini-stream.mjs createGeminiTextLeakGuard, anthropic-oauth.mjs parseSSEStream, openai-compat-stream.mjs consumeCompat*Stream). Each case sends two turns: the scripted leaked stream, then the transcript the agent keeps. Not run: a live endpoint.',
+  compare: 'mixdog-ai providers::leak.rs (:60-163) and leak_tests.rs / anthropic/leak_tests.rs over fixtures/agent/leaked-toolcall: replay the case through the route\'s adapter against a scripted endpoint serving turn 1\'s `requests[0].reply`-equivalent stream (`input.deltas`/`input.events`) and compare `result.events` (visible text deltas and dispatched calls interleaved in order), `result.first` whole, and BOTH recorded requests (`requests`: method, origin, path, every header, body bytes): the second request\'s transcript must not contain the guarded markup.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::leak::LeakGuard (leak.rs:359) and scan (leak.rs:310), exercised through each route's adapter driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
-const { createGeminiTextLeakGuard } = await rec.P(`${P}gemini-stream.mjs`);
-const { parseSSEStream } = await rec.P(`${P}anthropic-oauth.mjs`);
-const { consumeCompatChatCompletionStream, consumeCompatResponsesStream } = await rec.P(`${P}openai-compat-stream.mjs`);
-const { parseToolCalls, parseResponsesToolCalls } = await rec.P(`${P}openai-compat.mjs`);
+const { OpenAICompatProvider } = await rec.P(`${P}openai-compat.mjs`);
+const { AnthropicProvider } = await rec.P(`${P}anthropic.mjs`);
+const { GeminiProvider } = await rec.P(`${P}gemini.mjs`);
 const SRC = 'scripts/provider-toolcall/leak-guards.test.mjs';
 const TOOLS = ['shell', 'read'];
+const toolDefs = TOOLS.map((name) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} } }));
 
-const anthropicResponse = (events) => {
-  const chunks = events.map((e) => new TextEncoder().encode(`event: ${e.type || 'message'}\ndata: ${JSON.stringify(e)}\n\n`));
-  let i = 0;
-  return { body: { getReader: () => ({ read: () => Promise.resolve(i < chunks.length ? { done: false, value: chunks[i++] } : { done: true, value: undefined }), cancel: () => Promise.resolve(), releaseLock() {} }) } };
-};
 const textDeltaEvents = (chunks, stopReason = 'end_turn') => [
   { type: 'message_start', message: { model: 'claude', usage: { input_tokens: 1 } } }, { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
   ...chunks.map((text) => ({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })),
@@ -34,39 +28,33 @@ const textDeltaEvents = (chunks, stopReason = 'end_turn') => [
 ];
 const chatEvents = (chunks) => [...chunks.map((text) => ({ choices: [{ delta: { content: text } }] })), { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { total_tokens: 1 } }];
 const responsesEvents = (chunks) => [...chunks.map((delta) => ({ type: 'response.output_text.delta', delta })), { type: 'response.completed', response: { id: 'r1', model: 'gpt', status: 'completed', output: [] } }];
+const geminiFrames = (chunks) => chunks.map((text, i) => ({ candidates: [{ content: { role: 'model', parts: [{ text }] }, ...(i === chunks.length - 1 ? { finishReason: 'STOP' } : {}) }] }));
+const anthropicBody = (events) => events.map((e) => `event: ${e.type || 'message'}\ndata: ${JSON.stringify(e)}\n\n`).join('');
 
-const consumers = {
-  gemini: async (chunks) => {
-    const texts = [];
-    const captured = [];
-    const guard = createGeminiTextLeakGuard({ knownToolNames: new Set(TOOLS), onTextDelta: (t) => texts.push(t), onToolCall: (c) => captured.push(c) });
-    const joined = chunks.join('');
-    guard.feedText(joined);
-    guard.finalize();
-    return { texts, captured, folded: { scrubbed: guard.scrubAssistantText(joined), leakedToolCalls: guard.getLeakedToolCalls() } };
-  },
-  anthropic: async (chunks, events) => {
-    const texts = [];
-    const captured = [];
-    const folded = await parseSSEStream(anthropicResponse(events ?? textDeltaEvents(chunks)), null, () => {}, () => {}, (c) => captured.push(c), {}, (t) => texts.push(t), new Set(TOOLS));
-    return { texts, captured, folded };
-  },
-  chat: async (chunks, events) => {
-    const texts = [];
-    const captured = [];
-    const folded = await consumeCompatChatCompletionStream(stream(events ?? chatEvents(chunks)), { label: 'test', parseToolCalls, onToolCall: (c) => captured.push(c), onTextDelta: (t) => texts.push(t), knownToolNames: new Set(TOOLS) });
-    return { texts, captured, folded };
-  },
-  responses: async (chunks) => {
-    const texts = [];
-    const captured = [];
-    const folded = await consumeCompatResponsesStream(stream(responsesEvents(chunks)), { label: 'test', parseResponsesToolCalls, responseOutputText: () => '', onToolCall: (c) => captured.push(c), onTextDelta: (t) => texts.push(t), knownToolNames: new Set(TOOLS) });
-    return { texts, captured, folded };
-  },
+// Each route is the provider's REAL send over a scripted endpoint: turn 1 answers with the case's stream; turn 2 sends the transcript the agent
+// would keep (the assistant message of turn 1 and its tool results) plus a follow-up, so the recorded request bytes of BOTH turns show what
+// reached the socket. The proof that nothing leaked is those requests (and `events`, the visible deltas and dispatched calls in order).
+const routes = {
+  gemini: { model: 'gemini-3-pro', make: () => new GeminiProvider({ apiKey: 'fixture-key', preconnect: false }), body: (chunks) => sseBody(geminiFrames(chunks)), ok: () => sseBody(geminiFrames(['ok'])), type: 'text/event-stream' },
+  anthropic: { model: 'claude-opus-4-8', make: () => new AnthropicProvider({ apiKey: 'fixture-key' }), body: (chunks, events) => anthropicBody(events ?? textDeltaEvents(chunks)), ok: () => anthropicBody(textDeltaEvents(['ok'])), type: 'text/event-stream' },
+  chat: { model: 'deepseek-v4-pro', make: () => new OpenAICompatProvider('deepseek', { apiKey: 'fixture-key', preconnect: false }), body: (chunks, events) => `${sseBody(events ?? chatEvents(chunks))}data: [DONE]\n\n`, ok: () => `${sseBody(chatEvents(['ok']))}data: [DONE]\n\n`, type: 'text/event-stream' },
+  responses: { model: 'gpt-x', opts: { compatWireApi: 'responses' }, make: () => new OpenAICompatProvider('custom-x', { apiKey: 'fixture-key', preconnect: false, baseURL: 'https://gw.example/v1' }), body: (chunks) => sseBody(responsesEvents(chunks), true), ok: () => sseBody(responsesEvents(['ok']), true), type: 'text/event-stream' },
 };
-const row = (id, line, route, chunks, events) => rec.run(id, `${SRC}:${line}`, { route, knownToolNames: TOOLS, deltas: chunks, ...(events ? { events } : {}) }, async () => {
+const viaProvider = async (route, chunks, events, net) => {
+  const r = routes[route];
+  net.reply = (_req, n) => ({ status: 200, contentType: r.type, body: n === 1 ? r.body(chunks, events) : r.ok() });
+  const provider = r.make();
+  const seen = [];
+  const history = [{ role: 'user', content: 'hi' }];
+  const sendOpts = { ...(r.opts ?? {}), onTextDelta: (text) => seen.push({ text }), onToolCall: (call) => seen.push({ tool: call }) };
+  const first = await provider.send(history, r.model, toolDefs, sendOpts);
+  const transcript = [...history, { role: 'assistant', content: first.content, ...(first.toolCalls?.length ? { toolCalls: first.toolCalls } : {}), ...(first.providerState ? { providerState: first.providerState } : {}), ...(first.providerReplay ? { providerReplay: first.providerReplay } : {}) }, ...(first.toolCalls ?? []).map((c) => ({ role: 'tool', toolCallId: c.id, content: 'done' })), { role: 'user', content: 'continue' }];
+  const second = await provider.send(transcript, r.model, toolDefs, { ...(r.opts ?? {}) });
+  return { events: seen, first, transcript, second };
+};
+const row = (id, line, route, chunks, events) => rec.run(id, `${SRC}:${line}`, { route, knownToolNames: TOOLS, deltas: chunks, ...(events ? { events } : {}) }, async ({ net }) => {
   try {
-    return await consumers[route](chunks, events);
+    return await viaProvider(route, chunks, events, net);
   } catch (error) {
     return { error };
   }
