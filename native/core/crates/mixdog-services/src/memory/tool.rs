@@ -72,7 +72,7 @@ struct RecallToolService(Arc<Host>);
 #[async_trait]
 impl ToolService for RecallToolService {
     async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError> {
-        let outcome = self.0.memory.recall_outcome(&self.0.args(&call).await).await;
+        let outcome = self.0.memory.recall_outcome_cancellable(&self.0.args(&call).await, call.cancel).await;
         reply_parts(outcome.text, outcome.is_error, "recall")
     }
 }

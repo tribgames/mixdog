@@ -99,3 +99,48 @@ async fn a_recall_while_the_model_loads_answers_as_node_and_the_load_goes_on() {
     let text = awaiting("the recall after the load ended", memory.recall(steps[1]["args"].clone())).await;
     assert_eq!(text, steps[1]["result"]["text"].as_str().expect("text"), "{}", steps[1]["label"]);
 }
+
+/// A recall tool call whose turn is stopped during the cold wait ends at that instant, refused as Node's request signal refuses it
+/// (`embedRecallQuery` throws `abortReason(signal)`, `query-hybrid-search.mjs:40`; the tool answers `recall failed: …` with the error flag),
+/// and the model's load goes on. The clock is paused: the wait's 3 s would have to be advanced for the recall to end by the timer.
+#[tokio::test]
+async fn a_recall_stopped_during_the_cold_wait_ends_at_once_and_the_load_goes_on() {
+    let pg = TestPg::start().await;
+    let db = pg.db(Schema::Memory).await;
+    ensure_memory_schema(&db, 384, &json!({ "model": DEFAULT_MODEL_ID })).await.expect("schema");
+    let started = Arc::new(tokio::sync::Notify::new());
+    let (release, held) = tokio::sync::watch::channel(false);
+    let cache = tempfile::tempdir().expect("cache");
+    let on_start = started.clone();
+    let provider = Arc::new(EmbeddingProvider::installed_with_load(cache.path(), move || {
+        on_start.notify_one();
+        let mut held = held.clone();
+        Box::pin(async move {
+            let _ = held.wait_for(|released| *released).await;
+            Err("model load failed".to_owned())
+        })
+    }));
+    let recall = Recall::new(RecallDeps {
+        db: db.clone(),
+        clock: Arc::new(|| Clock { now_ms: 1_700_000_000_000, zone: chrono_tz::UTC }),
+        embedder: Some(Arc::new(Provider(provider.clone()))),
+        session_cwd: None,
+        lane: mixdog_rt::testing::tokens().durability_io,
+        estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
+        trace: None,
+    });
+    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| 1_700_000_000_000), mixdog_rt::testing::tokens().durability_io);
+    let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, mixdog_rt::testing::tokens().durability_io));
+
+    tokio::time::pause();
+    let begun = tokio::time::Instant::now();
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let (asking, token) = (memory.clone(), cancel.clone());
+    let answering = tokio::spawn(async move { asking.recall_outcome_cancellable(&json!({ "query": "staging cluster restart" }), &token).await });
+    awaiting("the recall to start the model's load", started.notified()).await;
+    cancel.cancel();
+    let outcome = awaiting("the stopped recall", answering).await.expect("answers");
+    assert_eq!(tokio::time::Instant::now(), begun, "the stopped recall ended without the wait's time passing");
+    assert!(outcome.is_error && outcome.text.starts_with("recall failed: "), "the stopped recall is refused: {}", outcome.text);
+    assert_eq!(release.receiver_count(), 2, "the load goes on after the recall stopped waiting for it");
+}
