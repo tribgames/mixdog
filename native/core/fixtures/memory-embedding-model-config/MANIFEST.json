@@ -1,10 +1,11 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-embedding-model-config.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "the model load and the worker that uses these answers",
     "runs": "every export of embedding-model-config.mjs, with MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE set per probe (restored after)"
   },
-  "exclusions": "the final case holds probes the test file does not run",
+  "exclusions": "the final case holds probes the test file does not run; no environment-driven answer is left out of the recording (list for the Rust side: see replay)",
   "fileCount": 1,
   "files": [
     {
@@ -20,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,8 +50,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-config.mjs",
-  "recorderSha256": "336e3c12bc9aecf240099db579703b0de3e406816692e876d4d9be1a23ba108d",
-  "replay": "mixdog-services memory: mem/embed/config.rs (DEFAULT_MODEL_ID, profiles, graph_file, prepare_input, pooling); compares every answer exactly. Rust has no environment-selected model override unless the daemon keeps MIXDOG_EMBED_MODEL: the replay compares the env-driven rows only where it supports them",
+  "recorderSha256": "cd383812d09d922c9fd82acefa73a58ca9a8102dc4b5832cec0f8d0098859028",
+  "replay": "mixdog-services memory: mem/embed/config.rs (DEFAULT_MODEL_ID, known_dims, normalize_dtype, graph_file, pooling, prepare_input, profile, identity; the daemon takes the model from compose.rs:241 / tool_modules/host.rs); every answer is compared exactly, none is skipped. The `defaults` list (case 1, the six env settings of MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE: configured model id, dims, default dtype, default device, graph file, pooling) has NO Rust counterpart: Rust reads neither variable (grep of native/core/crates finds only DEFAULT_MODEL_ID). Those five of six env settings are work for the Rust side (an env override, or a decision that the core ignores it); only the unset row (default model) maps today",
   "set": "memory-embedding-model-config",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 62999,
