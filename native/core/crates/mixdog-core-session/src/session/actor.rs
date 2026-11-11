@@ -5138,6 +5138,16 @@ impl SessionActor {
         }
         let input_body = body.clone();
         let hidden = std::mem::take(&mut self.retry_hidden);
+        // A hidden input (a kickoff, a retained retry's `suppressDisplay`) pushes no user row in Node (drain.mjs `renderBatchItems`):
+        // nothing adds it to the prompt history (transcript-store.mjs `pushItem`, transcript-intake.mjs `appendPromptHistory`), and
+        // no immediate flush publishes the turn's start before the submit is answered (frame-batched-store.mjs `flushImmediate`;
+        // recorded: `running-runtime-turn`'s answer shows the session idle). Its answer goes with the input row, ahead of the start.
+        let prompt = if hidden { None } else { prompt };
+        let answer = match reply {
+            Some(Effect::Reply { op, tx, .. }) => Some(Effect::Reply { op, tx, value }),
+            _ => None,
+        };
+        let (row_effects, answer): (Vec<Effect>, _) = if hidden { (answer.into_iter().collect(), None) } else { (Vec::new(), answer) };
         let input_display = if hidden { Display::None } else { self.row_display(Some("user"), &input_body) };
         // A user's prompt of blank text and a display text shows as that display text (`promptDisplayText` is the row's text,
         // drain.mjs `renderBatchItems`), though the model's content reads blank.
@@ -5152,12 +5162,12 @@ impl SessionActor {
             visible: (facts.visible || shown_blank) && !hidden,
             archive: None,
             op: op_ref,
-            prompt: facts.prompt.or_else(|| shown_blank.then_some(shown)).map(Slot::Inline),
+            prompt: facts.prompt.or_else(|| shown_blank.then_some(shown)).filter(|_| !hidden).map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         };
         let last_model = Some(input_row.clone());
-        self.accept_record(Record::Item(input_row), Class::Normal, input_display, Vec::new(), Vec::new());
+        self.accept_record(Record::Item(input_row), Class::Normal, input_display, Vec::new(), row_effects);
         self.deps.turn_starts.turn_started(&self.id);
         let started = Record::Run(RunRecord {
             rid: id(turn.as_str()),
@@ -5169,9 +5179,7 @@ impl SessionActor {
             detail: None,
         });
         let mut effects = vec![Effect::InputDurable];
-        if let Some(Effect::Reply { op, tx, .. }) = reply {
-            effects.push(Effect::Reply { op, tx, value });
-        }
+        effects.extend(answer);
         let token = CancellationToken::new();
         let cancel = mixdog_agent::cancel::Cancel::from_token(&token);
         let (input_tx, input_rx) = watch::channel(InputState::Pending);

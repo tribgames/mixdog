@@ -310,6 +310,37 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     );
 }
 
+/// A kickoff pushes no user row in Node (drain.mjs `renderBatchItems` skips `suppressDisplay`), so it never reaches the prompt
+/// history, neither the session's list nor the cwd's file (recorded: `running-runtime-turn`'s states keep `promptHistoryList` empty).
+#[tokio::test(start_paused = true)]
+async fn a_kickoff_stays_out_of_the_prompt_history() {
+    let rig = Rig::new();
+    let file = rig.prompts.file("/ws").expect("history file");
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle
+        .request(request(
+            "turn/start",
+            json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "greet the user", "options": { "clientSubmissionId": "sub-k", "kickoff": true } } }),
+            "op-1",
+        ))
+        .await
+        .expect("started");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    turn(&handle, "typed", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && prompt_list(&handle) == ["typed"]).then_some(())).await;
+    tokio::time::advance(Duration::from_millis(super::prompt_history::WRITE_BEHIND_MS)).await;
+    let want = json!({ "version": 1, "entries": ["typed"] });
+    let saved = eventually_on!(&[&*rig.prompts_wrote], || {
+        let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
+        serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
+    })
+    .await;
+    assert_eq!(saved, want);
+    let added: Vec<Value> = rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptHistory/updated").map(|(_, _, params)| params["value"].clone()).collect();
+    assert_eq!(added, vec![json!({ "kind": "added", "prompt": "typed" })]);
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_implicit_approval_session_asks_nobody() {
     let rig = Rig::new();
