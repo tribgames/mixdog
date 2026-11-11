@@ -6,7 +6,8 @@
 // stand-in: an in-memory SQLite (node:sqlite) with `core_entries` and `meta` behind `db.query` (it drops the PG casts,
 // maps $n to named parameters and answers pg_advisory_xact_lock with no rows). Every statement is recorded (text and
 // params, in order) with the meta and core_entries tables after each step. The TUI row parser the test also exercises
-// (`parseMemoryCoreRows`, src/tui) is not recorded: the TUI is deleted; the formatted list text it parsed is recorded.
+// (`parseMemoryCoreRows`, src/tui/app/input-parsers.mjs) is recorded as a round trip (format -> parse -> the parsed rows and their
+// comparison with the listed entries): the TUI is deleted, the property it proved is not.
 // Edit/delete implementations are the test file's stand-ins (they write to the same SQLite) and are recorded by call.
 //
 //   node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-index.mjs --tree <dir>
@@ -20,6 +21,13 @@ const dir = 'src/runtime/memory/lib/';
 const { indexedCoreRecord, resolveCoreMemoryIndex, syncCoreMemoryIndexes } = await importFrom(ctx.tree, `${dir}core-memory-index.mjs`);
 const { listManagedMemories, formatManagedMemories } = await importFrom(ctx.tree, `${dir}core-memory-management.mjs`);
 const { createMemoryActionHandlers } = await importFrom(ctx.tree, `${dir}memory-action-handlers.mjs`);
+const { parseMemoryCoreRows } = await importFrom(ctx.tree, 'src/tui/app/input-parsers.mjs');
+// The property the deleted TUI parser proved: the ids, scope, summary and index revision of every entry come back out of the
+// formatted text. Recorded as format -> parse -> the whole parsed rows, plus the comparison with the listed entries.
+const roundTrip = (formatted, entries) => {
+  const parsed = parseMemoryCoreRows(formatted);
+  return { formatted, parsed: exact(parsed), perEntry: entries.map((entry, i) => ({ id: parsed[i]?._id === entry.id, projectId: parsed[i]?._projectId === (entry.project_id ?? null), summary: parsed[i]?._summary === entry.summary, indexRevision: parsed[i]?._indexRevision === (entry.index_revision === undefined ? undefined : String(entry.index_revision)), listed: { id: entry.id, project_id: entry.project_id ?? null, summary: entry.summary, index_revision: entry.index_revision ?? null } })), rowCount: { parsed: parsed.length, listed: entries.length } };
+};
 
 function fixture() {
   const sql = new DatabaseSync(':memory:');
@@ -99,14 +107,14 @@ const cases = [];
   const { sql, db } = f;
   const steps = [];
   const page = await listManagedMemories(db, '*', { source: 'curated' });
-  steps.push({ label: "list '*' curated", result: exact(page), formatted: formatManagedMemories(page), statements: f.statements.splice(0) });
+  steps.push({ label: "list '*' curated", result: exact(page), formatted: formatManagedMemories(page), roundTrip: roundTrip(formatManagedMemories(page), page.entries), statements: f.statements.splice(0) });
   const resolves = [];
   for (const entry of page.entries) resolves.push({ projectId: entry.project_id ?? null, id: entry.id, ...(await capture(() => resolveCoreMemoryIndex(db, entry.project_id ?? null, entry.id, entry.index_revision))), expectRecordId: entry.record_id });
   steps.push({ label: "resolve every listed entry with its own revision (what a list consumer sends back)", resolves, statements: f.statements.splice(0) });
   const scoped = await listManagedMemories(db, 'alpha', { source: 'curated', scope_only: true, limit: 1 });
-  steps.push({ label: 'alpha scope_only limit 1', result: exact(scoped), formatted: formatManagedMemories(scoped), statements: f.statements.splice(0) });
+  steps.push({ label: 'alpha scope_only limit 1', result: exact(scoped), formatted: formatManagedMemories(scoped), roundTrip: roundTrip(formatManagedMemories(scoped), scoped.entries), statements: f.statements.splice(0) });
   const next = await listManagedMemories(db, 'alpha', { source: 'curated', scope_only: true, limit: 1, offset: scoped.nextOffset });
-  steps.push({ label: 'alpha scope_only limit 1 at nextOffset', result: exact(next), formatted: formatManagedMemories(next), statements: f.statements.splice(0) });
+  steps.push({ label: 'alpha scope_only limit 1 at nextOffset', result: exact(next), formatted: formatManagedMemories(next), roundTrip: roundTrip(formatManagedMemories(next), next.entries), statements: f.statements.splice(0) });
   cases.push({ name: 'lists and TUI requests carry per-scope indices and their matching revisions (test line 94; the TUI parser is not recorded, its formatted input is)', steps });
   sql.close();
 }
@@ -169,9 +177,9 @@ finish(ctx, {
   flags: '--disable-warning=ExperimentalWarning ',
   golden: { domain: 'memory-core-index', source: 'src/runtime/memory/lib/core-memory-index.test.mjs', clock: { dateNowMs: CLOCK_MS, reason: 'virtual clock, never advanced' }, cases },
   extra: {
-    entry: { runs: 'syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall("memory") (memory-action-handlers.mjs)', notRun: 'PostgreSQL (SQLite stand-in of the test file); the TUI row parser parseMemoryCoreRows; the real editCoreImpl/deleteCoreImpl (the test file\'s stand-ins write the SQLite table and are recorded by call)' },
+    entry: { runs: 'syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall("memory") (memory-action-handlers.mjs)', notRun: 'PostgreSQL (SQLite stand-in of the test file); the real editCoreImpl/deleteCoreImpl (the test file\'s stand-ins write the SQLite table and are recorded by call)' },
     replay: 'mixdog-services memory: mem/core/index.rs sync/resolve, mem/core/list.rs list/format, mem/core/action.rs + store.rs edit/delete via the memory tool; compares every result (index maps, revisions, entries, formatted text, tool content + isError), the ordered statements and the tables after each step',
-    exclusions: 'parseMemoryCoreRows (TUI, deleted) is not recorded; case 94 asserts it, the formatted text it parsed is recorded instead',
+    exclusions: 'none: case 94 asserts parseMemoryCoreRows (the TUI parser, deleted in Rust); it is recorded as a Node round trip, `roundTrip` in the list steps: formatted text, the whole parsed rows (ids, project, summary, index revision) and per entry whether they equal the listed entry. The Rust side proves the same property by parsing its own formatted text with whatever reads it there and comparing the same fields',
     normalised: { clock: 'Date.now() fixed at clock.dateNowMs' },
   },
 });

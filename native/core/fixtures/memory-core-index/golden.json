@@ -1481,6 +1481,125 @@
             "nextOffset": null
           },
           "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-10> Common — Common preference\nid=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nid=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory\nid=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-12> Beta — Beta memory",
+          "roundTrip": {
+            "formatted": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-10> Common — Common preference\nid=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nid=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory\nid=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-12> Beta — Beta memory",
+            "parsed": [
+              {
+                "value": "core-common-1",
+                "label": "#1",
+                "meta": "",
+                "description": "Common preference",
+                "_line": "id=1 source=curated project=COMMON status=active injection=enabled index_revision=<uuid-10> Common — Common preference",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-10>",
+                "_element": "Common",
+                "_summary": "Common preference",
+                "_projectId": null,
+                "_origElement": "Common",
+                "_origSummary": "Common preference"
+              },
+              {
+                "value": "core-alpha-1",
+                "label": "#1",
+                "meta": "alpha",
+                "description": "First alpha memory",
+                "_line": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-11>",
+                "_element": "First",
+                "_summary": "First alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "First",
+                "_origSummary": "First alpha memory"
+              },
+              {
+                "value": "core-alpha-2",
+                "label": "#2",
+                "meta": "alpha",
+                "description": "Second alpha memory",
+                "_line": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+                "_action": "core-entry",
+                "_id": 2,
+                "_indexRevision": "<uuid-11>",
+                "_element": "Second",
+                "_summary": "Second alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "Second",
+                "_origSummary": "Second alpha memory"
+              },
+              {
+                "value": "core-beta-1",
+                "label": "#1",
+                "meta": "beta",
+                "description": "Beta memory",
+                "_line": "id=1 source=curated project=beta status=active injection=enabled index_revision=<uuid-12> Beta — Beta memory",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-12>",
+                "_element": "Beta",
+                "_summary": "Beta memory",
+                "_projectId": "beta",
+                "_origElement": "Beta",
+                "_origSummary": "Beta memory"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": null,
+                  "summary": "Common preference",
+                  "index_revision": "<uuid-10>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "alpha",
+                  "summary": "First alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 2,
+                  "project_id": "alpha",
+                  "summary": "Second alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              },
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "beta",
+                  "summary": "Beta memory",
+                  "index_revision": "<uuid-12>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 4,
+              "listed": 4
+            }
+          },
           "statements": [
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
@@ -1647,6 +1766,50 @@
             "nextOffset": 1
           },
           "formatted": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+          "roundTrip": {
+            "formatted": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory\nMore memories: call list with offset=1 and the same project scope/include_inactive.",
+            "parsed": [
+              {
+                "value": "core-alpha-1",
+                "label": "#1",
+                "meta": "alpha",
+                "description": "First alpha memory",
+                "_line": "id=1 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> First — First alpha memory",
+                "_action": "core-entry",
+                "_id": 1,
+                "_indexRevision": "<uuid-11>",
+                "_element": "First",
+                "_summary": "First alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "First",
+                "_origSummary": "First alpha memory"
+              },
+              {
+                "value": "core-1",
+                "label": "More memories: call list with offset=1 and the same project scope/include_inactive.",
+                "description": "",
+                "_line": "More memories: call list with offset=1 and the same project scope/include_inactive."
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 1,
+                  "project_id": "alpha",
+                  "summary": "First alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 2,
+              "listed": 1
+            }
+          },
           "statements": [
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
@@ -1697,6 +1860,44 @@
             "nextOffset": null
           },
           "formatted": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+          "roundTrip": {
+            "formatted": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+            "parsed": [
+              {
+                "value": "core-alpha-2",
+                "label": "#2",
+                "meta": "alpha",
+                "description": "Second alpha memory",
+                "_line": "id=2 source=curated project=alpha status=active injection=enabled index_revision=<uuid-11> Second — Second alpha memory",
+                "_action": "core-entry",
+                "_id": 2,
+                "_indexRevision": "<uuid-11>",
+                "_element": "Second",
+                "_summary": "Second alpha memory",
+                "_projectId": "alpha",
+                "_origElement": "Second",
+                "_origSummary": "Second alpha memory"
+              }
+            ],
+            "perEntry": [
+              {
+                "id": true,
+                "projectId": true,
+                "summary": true,
+                "indexRevision": true,
+                "listed": {
+                  "id": 2,
+                  "project_id": "alpha",
+                  "summary": "Second alpha memory",
+                  "index_revision": "<uuid-11>"
+                }
+              }
+            ],
+            "rowCount": {
+              "parsed": 1,
+              "listed": 1
+            }
+          },
           "statements": [
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
