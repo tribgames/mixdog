@@ -83,7 +83,12 @@
   "recorderSha256": "ff47ae4720d5b9dc346121d09dd33589da476ef96ff5a4159300a91d361e4149",
   "replay": {
     "compare": "mixdog-services scheduler rename errors + the desktop wire: each refusal keeps its code and name param through the envelope and renders the Korean text",
-    "entry": "Drive these public items on o1: mixdog-services/src/scheduler/model.rs:129 SCHEDULE_NAME_TAKEN; mixdog-services/src/scheduler/model.rs:130 SCHEDULE_RENAME_RUNNING; mixdog-services/src/scheduler/model.rs:131 SCHEDULE_RENAME_RELOAD_FAILED; mixdog-services/src/scheduler/model.rs:132 SCHEDULE_RENAME_UNCERTAIN.",
+    "declared": {
+      "results[*].wire[0], wire[1].writeHead": "Node's `/call` HTTP request and head: the core's transport is its own protocol; the answer body (wire[1].text) is compared",
+      "results[*].engineError": "the error Node threw into its call route; its wire form (wire[1].text) is what is compared",
+      "results[*].sentToPage, sentToPageOwnPropertyNames, code, nameParam, translationKey, expectedText, text": "the desktop's hops after the wire (session client, IPC envelope, contextBridge clone, Korean page text): apps/desktop, not the core"
+    },
+    "entry": "The four rename refusals (mixdog-services/src/scheduler ScheduleError NameTaken / RenameRunning / RenameReloadFailed / RenameUncertain) answered through mixdog-services/src/channels/service.rs admin_error, the mapping channel/saveSchedule returns; replayed by mixdog-services/src/channels/schedule_error_wire_replay_tests.rs.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the desktop wire (IPC envelope, preload, Korean text): no Rust counterpart (the codes exist; the page text and the envelope the desktop builds from them do not)"
@@ -92,24 +97,12 @@
     "protocolMethods": [],
     "rustTargets": [
       {
-        "line": 129,
-        "name": "SCHEDULE_NAME_TAKEN",
-        "path": "native/core/crates/mixdog-services/src/scheduler/model.rs"
+        "name": "admin_error",
+        "path": "native/core/crates/mixdog-services/src/channels/service.rs"
       },
       {
-        "line": 130,
-        "name": "SCHEDULE_RENAME_RUNNING",
-        "path": "native/core/crates/mixdog-services/src/scheduler/model.rs"
-      },
-      {
-        "line": 131,
-        "name": "SCHEDULE_RENAME_RELOAD_FAILED",
-        "path": "native/core/crates/mixdog-services/src/scheduler/model.rs"
-      },
-      {
-        "line": 132,
-        "name": "SCHEDULE_RENAME_UNCERTAIN",
-        "path": "native/core/crates/mixdog-services/src/scheduler/model.rs"
+        "name": "ScheduleError",
+        "path": "native/core/crates/mixdog-services/src/scheduler"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
