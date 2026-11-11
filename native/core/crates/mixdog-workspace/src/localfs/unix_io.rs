@@ -258,15 +258,6 @@ fn mounts() -> Vec<(PathBuf, String)> {
     Vec::new()
 }
 
-/// The mount point a walk may enter at its next step, given the entry it gave last (`last`, a folder or not): of
-/// `under` (in path order), the first past `last` whose parent is a folder the walk is in (`last` itself when a folder,
-/// else its parent, and their ancestors). The walk lists each folder's entries in path order and reads a folder as it
-/// reaches it (walkdir `push`, before the folder is given), so its next step reads in no other mount point's folder.
-pub fn next_crossing<'a>(under: &'a [(PathBuf, String)], last: &Path, last_is_dir: bool) -> Option<&'a (PathBuf, String)> {
-    let here = if last_is_dir { last } else { last.parent()? };
-    under.iter().find(|(point, _)| point.as_path() > last && point.parent().is_some_and(|parent| here.starts_with(parent)))
-}
-
 /// A walk's volumes, from its canonical root: the volume of the folder it reads in and of the mount points below it.
 pub struct Crossings {
     root: PathBuf,
@@ -295,6 +286,11 @@ impl Crossings {
         self.table.volume_of(&self.canonical)
     }
 
+    /// Whether no link lies in the root's path, so its volume is the mount table's for its text ([`super::Known`]).
+    pub fn fixed(&self) -> bool {
+        self.canonical == self.root
+    }
+
     pub fn volume_of(&self, path: &Path) -> String {
         self.table.volume_of(&self.canonical(path))
     }
@@ -305,7 +301,7 @@ impl Crossings {
     pub fn step(&mut self, last: &Path, last_is_dir: bool) -> (Option<(PathBuf, String)>, String) {
         let last = self.canonical(last);
         let here = if last_is_dir { last.clone() } else { last.parent().map_or_else(|| last.clone(), Path::to_path_buf) };
-        let crossing = next_crossing(&self.under, &last, last_is_dir).filter(|(point, _)| !self.probed.contains(point)).cloned();
+        let crossing = super::next_crossing(&self.under, &last, last_is_dir).filter(|(point, _)| !self.probed.contains(point)).cloned();
         if let Some((point, _)) = &crossing {
             self.probed.insert(point.clone());
         }
@@ -428,20 +424,5 @@ mod tests {
         if cfg!(any(target_os = "linux", target_os = "macos")) {
             assert!(!volume.is_empty(), "the mount table names {}'s volume", dir.0.display());
         }
-    }
-
-    /// The mount point a walk enters next: the first past its last entry whose parent is a folder it is in; none in a
-    /// folder it has not reached, none it has passed.
-    #[test]
-    fn the_next_crossing_is_the_first_mount_point_past_the_walk_in_a_folder_it_is_in() {
-        let under: Vec<(PathBuf, String)> = ["/r/a/m", "/r/b/c/m", "/r/z"].iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
-        let next = |last: &str, dir: bool| next_crossing(&under, Path::new(last), dir).map(|(p, _)| p.to_str().unwrap());
-        assert_eq!(next("/r", true), Some("/r/z"), "/r/a/m's parent is not open yet");
-        assert_eq!(next("/r/a", true), Some("/r/a/m"));
-        assert_eq!(next("/r/a/l.txt", false), Some("/r/a/m"));
-        assert_eq!(next("/r/a/n.txt", false), Some("/r/z"), "past /r/a/m");
-        assert_eq!(next("/r/b/c", true), Some("/r/b/c/m"));
-        assert_eq!(next("/r/b/x.txt", false), Some("/r/z"));
-        assert_eq!(next("/r/z", true), None);
     }
 }

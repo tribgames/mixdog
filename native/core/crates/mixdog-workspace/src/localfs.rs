@@ -821,42 +821,61 @@ fn volume_of(path: &Path) -> String {
     }
 }
 
-/// The volume each searched root was found on by the filesystem's identity, and when ([`Volumes::start`]): a later
-/// search of the root is admitted by it before its producer reads ([`Producers::enqueue`], [`admit`]), and one within
-/// [`KNOWN_FRESH`] of the finding takes it as its own without asking the filesystem again (about a millisecond each, which
-/// a burst of thousands of searches of one root would spend over and over). At most [`KNOWN_ROOTS`] roots; past that it
-/// starts again.
-static KNOWN: LazyLock<Mutex<std::collections::HashMap<PathBuf, (String, Instant)>>> = LazyLock::new(Default::default);
+/// The volume each searched root was found on by the filesystem's identity, when, and whether that identity is fixed by
+/// the root's text ([`Volumes::start`]): a later search of the root is admitted by it before its producer reads
+/// ([`Stuck::admission`]), and one within [`KNOWN_FRESH`] of the finding takes it as its own without asking the
+/// filesystem again (about a millisecond each, which a burst of thousands of searches of one root would spend over and
+/// over). At most [`KNOWN_ROOTS`] roots; past that it starts again.
+static KNOWN: LazyLock<Mutex<std::collections::HashMap<PathBuf, Known>>> = LazyLock::new(Default::default);
 const KNOWN_ROOTS: usize = 4_096;
 const KNOWN_FRESH: Duration = Duration::from_secs(5);
 
+/// A root's volume as its last search found it ([`KNOWN`]). `fixed`: no junction, mounted folder, link, `subst` or
+/// mapped drive lies between the root's text and its volume, so the volume changes only with the text (or a drive
+/// letter's reassignment; on Unix a mount made or removed over the path, which the kernel's table tells without waiting,
+/// [`Stuck::admission`]).
+struct Known {
+    volume: String,
+    at: Instant,
+    fixed: bool,
+}
+
 /// The volume `root` is admitted by: the one its last search found it on, else the one its text tells ([`volume_of`]).
 fn known_volume(root: &Path) -> String {
-    locked(&KNOWN).get(root).map(|(volume, _)| volume.clone()).unwrap_or_else(|| volume_of(root))
+    locked(&KNOWN).get(root).map_or_else(|| volume_of(root), |known| known.volume.clone())
 }
 
 /// The volume a search of `root` found within [`KNOWN_FRESH`].
 #[cfg_attr(not(windows), allow(dead_code))]
 fn fresh_volume(root: &Path) -> Option<String> {
-    locked(&KNOWN).get(root).filter(|(_, at)| at.elapsed() < KNOWN_FRESH).map(|(volume, _)| volume.clone())
+    locked(&KNOWN).get(root).filter(|known| known.at.elapsed() < KNOWN_FRESH).map(|known| known.volume.clone())
 }
 
-fn remember_volume(root: &Path, volume: &str) {
+fn remember_volume(root: &Path, (volume, fixed): (&str, bool)) {
     let mut known = locked(&KNOWN);
     if known.len() >= KNOWN_ROOTS && !known.contains_key(root) {
         known.clear();
     }
-    known.insert(root.to_path_buf(), (volume.to_owned(), Instant::now()));
+    known.insert(root.to_path_buf(), Known { volume: volume.to_owned(), at: Instant::now(), fixed });
 }
 
-/// `root`'s volume by the filesystem's identity: [`volume_id`] on Windows; on Unix the device of the mount its canonical
-/// path lies under ([`unix_io::Crossings`]).
+/// The key a producer reads on while it tells its root's volume ([`Volumes::start`], [`Ticket::reading`]): that call
+/// reads on volumes not known until it returns (a dead one holds it), so a stall in it is charged to no volume but to
+/// the root's own telling, which only searches of that same root are admitted by: it can refuse no other root's
+/// search, so no healthy volume's. A root whose telling holds [`SchedulerConfig::stuck_per_volume`] given-up threads is
+/// refused at once until they return, as no search of it gets past that call.
+fn telling(root: &Path) -> String {
+    format!("telling {}", root.to_string_lossy())
+}
+
+/// `root`'s volume by the filesystem's identity and whether it is fixed by the text ([`Known`]): [`volume_id`] on
+/// Windows; on Unix the device of the mount its canonical path lies under ([`unix_io::Crossings`]).
 #[cfg_attr(not(feature = "replay-controls"), allow(dead_code))]
-fn root_volume_id(root: &Path) -> Option<String> {
+fn root_volume_id(root: &Path) -> Option<(String, bool)> {
     #[cfg(windows)]
     return volume_id(root);
     #[cfg(unix)]
-    return unix_io::Crossings::new(root).ok().map(|c| c.root_volume()).filter(|v| !v.is_empty());
+    return unix_io::Crossings::new(root).ok().map(|c| (c.root_volume(), c.fixed())).filter(|(v, _)| !v.is_empty());
     #[cfg(not(any(windows, unix)))]
     {
         let _ = root;
@@ -868,9 +887,11 @@ fn root_volume_id(root: &Path) -> Option<String> {
 /// `GetVolumePathNameW` finds for it, which follows junctions and mounted folders (`C:\x\j\a`, `j` a junction to a
 /// folder of D:, is on D:'s volume); a network share by its `\\server\share` (a mapped drive by the share it maps, a
 /// `subst` drive by the folder it stands for). `None` when it cannot be told (a path no volume answers for). It reads
-/// on the volumes the path passes through, so only a producer calls it, as its first call ([`Volumes::start`]).
+/// on the volumes the path passes through, so only a producer calls it, as its first call ([`Volumes::start`]). With
+/// it, whether the volume is fixed by the path's text ([`Known`]): its volume mount point is the root of the drive or
+/// share the text names, found without a `subst` or mapped drive's step.
 #[cfg(windows)]
-fn volume_id(path: &Path) -> Option<String> {
+fn volume_id(path: &Path) -> Option<(String, bool)> {
     use std::os::windows::ffi::OsStrExt as _;
     use windows_sys::Win32::Storage::FileSystem::GetVolumeNameForVolumeMountPointW;
     use windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW;
@@ -879,7 +900,7 @@ fn volume_id(path: &Path) -> Option<String> {
     let text = |buf: &[u16]| String::from_utf16_lossy(&buf[..buf.iter().position(|&c| c == 0).unwrap_or(buf.len())]);
     let mut resolved = path.to_path_buf();
     // A `subst` drive stands for a folder, which may be on another such drive: a few steps at most.
-    for _ in 0..4 {
+    for step in 0..4 {
         let name = wide(resolved.as_os_str());
         let mut point = vec![0u16; 32_768];
         // SAFETY: `name` is NUL-terminated and `point` holds the length given.
@@ -887,29 +908,38 @@ fn volume_id(path: &Path) -> Option<String> {
             return None;
         }
         let point = text(&point);
+        let fixed = step == 0 && own_root(path, &point);
         let mut guid = [0u16; 64];
         // SAFETY: the mount point is NUL-terminated and `guid` holds the length given.
         if unsafe { GetVolumeNameForVolumeMountPointW(wide(point.as_ref()).as_ptr(), guid.as_mut_ptr(), guid.len() as u32) } != 0 {
-            return Some(text(&guid).to_ascii_lowercase());
+            return Some((text(&guid).to_ascii_lowercase(), fixed));
         }
         let bare = point.strip_prefix(r"\\?\").unwrap_or(&point);
         let Some(drive) = bare.get(..2).filter(|d| d.ends_with(':') && d.as_bytes()[0].is_ascii_alphabetic()) else {
-            return Some(share_key(&point));
+            return Some((share_key(&point), fixed));
         };
         let mut target = vec![0u16; 32_768];
         // SAFETY: the drive name is NUL-terminated and `target` holds the length given.
         if unsafe { QueryDosDeviceW(wide(drive.as_ref()).as_ptr(), target.as_mut_ptr(), target.len() as u32) } == 0 {
-            return Some(drive.to_ascii_lowercase());
+            return Some((drive.to_ascii_lowercase(), false));
         }
         let target = text(&target);
         if let Some(share) = redirected_share(&target) {
-            return Some(share);
+            return Some((share, false));
         }
-        let Some(folder) = target.strip_prefix(r"\??\") else { return Some(target.to_ascii_lowercase()) };
+        let Some(folder) = target.strip_prefix(r"\??\") else { return Some((target.to_ascii_lowercase(), false)) };
         let rest: PathBuf = resolved.components().filter(|c| matches!(c, std::path::Component::Normal(_))).collect();
         resolved = PathBuf::from(folder).join(rest);
     }
     None
+}
+
+/// Whether `point`, the volume mount point `GetVolumePathNameW` found for `path`, is the root of the drive or share
+/// `path`'s text names ([`volume_of`]): `C:\` for `C:\x`, `\\server\share\` for `\\server\share\x`.
+#[cfg(windows)]
+fn own_root(path: &Path, point: &str) -> bool {
+    let point = point.strip_prefix(r"\\?\UNC\").map_or_else(|| point.strip_prefix(r"\\?\").unwrap_or(point).to_owned(), |rest| format!(r"\\{rest}"));
+    point.trim_end_matches('\\').eq_ignore_ascii_case(&volume_of(path))
 }
 
 /// A network volume mount point as a key: `\\?\UNC\server\share\` and `\\server\share\` as `\\server\share\`,
@@ -997,8 +1027,8 @@ fn search_with(
         Some(deadline_script::Script::Stuck) => {
             // Told now, so the held search is admitted, and given up, on its root's volume however soon its caller lets
             // go of it (a replay's timers pass at once).
-            if let Some(volume) = root_volume_id(request.root.as_path()) {
-                remember_volume(request.root.as_path(), &volume);
+            if let Some((volume, fixed)) = root_volume_id(request.root.as_path()) {
+                remember_volume(request.root.as_path(), (&volume, fixed));
             }
             let held = deadline_script::Held { root: request.root.as_path().to_path_buf() };
             return streamed(producers, Box::new(held), Deadline::default(), origin(), false);
@@ -1225,16 +1255,25 @@ pub struct SchedulerConfig {
     pub local: usize,
     /// [`MAX_STUCK_PER_VOLUME`].
     pub stuck_per_volume: usize,
+    /// [`MAX_STUCK_TOTAL`].
+    pub stuck_total: usize,
 }
 
 /// The given-up producer threads one volume may hold ([`Producers::give_up`]). Once a volume holds this many, a stream
 /// that would read on it is answered with Node's answer to a request whose server was ended for a cancel that did not
-/// take ([`FsErrorKind::CancelStalled`]): at once when made or admitted, starting no thread, or by its producer before
-/// a call that would read on it. Node gives that answer too, after its client ended the stuck server
+/// take ([`FsErrorKind::CancelStalled`]): at once when made or admitted, starting no thread, when its root's volume is
+/// fixed by its text, else by its producer once it told that volume afresh ([`Stuck::admission`]), or by its producer
+/// before a call that would read on it. Node gives that answer too, after its client ended the stuck server
 /// (native-search-client.mjs:501-520); here it comes sooner, without the wait. The count falls as the stuck reads
 /// return. The searches already reading on the volume when it reached this many may still be given up: the threads one
 /// volume holds never pass [`SchedulerConfig::max_stranded_per_volume`].
 pub const MAX_STUCK_PER_VOLUME: usize = 8;
+
+/// The given-up producer threads the process may hold over every volume: three volumes' worth. Once it holds this many,
+/// a stream is refused with the same answer whatever volume it would read on, one with fewer than
+/// [`MAX_STUCK_PER_VOLUME`] included (a volume at its own bound refuses it anyway), at the same points; the count falls
+/// as the stuck reads return. The threads the process holds never pass [`SchedulerConfig::max_stranded_total`].
+pub const MAX_STUCK_TOTAL: usize = 3 * MAX_STUCK_PER_VOLUME;
 
 impl SchedulerConfig {
     fn from_env() -> Self {
@@ -1254,7 +1293,15 @@ impl SchedulerConfig {
             grace: cancel_grace(),
             local: MAX_LOCAL_PRODUCERS,
             stuck_per_volume: MAX_STUCK_PER_VOLUME,
+            stuck_total: MAX_STUCK_TOTAL,
         }
+    }
+
+    /// The given-up threads the process can ever hold: `stuck_total - 1` plus the producers that can run at once, 24 - 1
+    /// + 8 + 1 + 64 = 96 with the defaults on 8 or more cores, as [`SchedulerConfig::max_stranded_per_volume`] counts
+    /// them: a producer names any volume only while the process holds fewer than `stuck_total`.
+    pub fn max_stranded_total(&self) -> usize {
+        self.stuck_total - 1 + self.total + self.interactive_reserve + self.local
     }
 
     /// The given-up threads one volume can ever hold: `stuck_per_volume - 1` plus the producers that can run at once
@@ -1347,6 +1394,9 @@ struct Ticket {
     reading: Mutex<Option<String>>,
     /// Its refusal at admission ([`admit`]): it never started.
     refused: OnceLock<FsErrorKind>,
+    /// Set at admission when its root's last-found volume would refuse it but may have changed: its producer tells it
+    /// afresh before anything else ([`Volumes::start`], [`Stuck::admission`]).
+    retell: AtomicBool,
     /// The scheduler the producer's end is reported to, taken by whichever comes first: the end of the producer's
     /// threads ([`Started`]), which reports it, or its give-up ([`Producers::give_up`]), which settles everything at
     /// once. A given-up thread so holds no reference to the scheduler, and its end touches nothing of it.
@@ -1376,6 +1426,7 @@ impl Ticket {
             search,
             reading: Mutex::new(None),
             refused: OnceLock::new(),
+            retell: AtomicBool::new(false),
             owner: Mutex::new(Some(owner.clone())),
             stuck: Mutex::new(None),
             admitted: Notify::new(),
@@ -1403,6 +1454,7 @@ impl Ticket {
             search: CONTENT,
             reading: Mutex::new(None),
             refused: OnceLock::new(),
+            retell: AtomicBool::new(false),
             owner: Mutex::new(None),
             stuck: Mutex::new(None),
             admitted: Notify::new(),
@@ -1459,8 +1511,10 @@ struct Sched {
     local_live: usize,
     bulk_window: usize,
     healthy_completions: usize,
-    /// The given-up threads of each volume a producer was given up on.
+    /// The given-up threads of each volume holding any.
     volumes: std::collections::HashMap<String, Volume>,
+    /// Node's name for the request of the latest producer given up, which a refusal for the process-wide bound names.
+    last: &'static str,
 }
 
 impl Sched {
@@ -1487,47 +1541,90 @@ fn class_index(class: SearchClass) -> usize {
     }
 }
 
-/// The refusal of a stream that would read on `volume`, once it holds [`SchedulerConfig::stuck_per_volume`] given-up
-/// threads: Node's answer naming the latest one's request and the cancel grace.
-fn stalled_on(config: &SchedulerConfig, volumes: &std::collections::HashMap<String, Volume>, volume: &str) -> Option<FsErrorKind> {
-    let volume = volumes.get(volume).filter(|v| v.stuck() >= config.stuck_per_volume)?;
-    let grace_ms = u64::try_from(config.grace.as_millis()).unwrap_or(u64::MAX);
-    Some(FsErrorKind::CancelStalled { search: volume.last.to_owned(), grace_ms })
+/// What a refusal reads of the given-up threads, under the scheduler's lock.
+#[derive(Clone, Copy)]
+struct Stuck<'a> {
+    config: &'a SchedulerConfig,
+    volumes: &'a std::collections::HashMap<String, Volume>,
+    last: &'static str,
 }
 
-/// The volume a stream is admitted by: the one its root was last found on, else the one it was made with.
-fn admission_volume(ticket: &Ticket) -> String {
-    locked(&KNOWN).get(&ticket.root).map_or_else(|| ticket.volume.clone(), |(volume, _)| volume.clone())
+impl Stuck<'_> {
+    /// Node's answer naming the request `last` and the cancel grace.
+    fn answer(&self, last: &'static str) -> FsErrorKind {
+        let grace_ms = u64::try_from(self.config.grace.as_millis()).unwrap_or(u64::MAX);
+        FsErrorKind::CancelStalled { search: last.to_owned(), grace_ms }
+    }
+
+    /// The refusal of a stream that would read on `volume`: once the process holds [`SchedulerConfig::stuck_total`]
+    /// given-up threads, whatever the volume, naming the latest one's request; else once `volume` holds
+    /// [`SchedulerConfig::stuck_per_volume`], naming its latest one's.
+    fn on(&self, volume: &str) -> Option<FsErrorKind> {
+        if self.volumes.values().map(Volume::stuck).sum::<usize>() >= self.config.stuck_total {
+            return Some(self.answer(self.last));
+        }
+        let volume = self.volumes.get(volume).filter(|v| v.stuck() >= self.config.stuck_per_volume)?;
+        Some(self.answer(volume.last))
+    }
+
+    /// `ticket`'s refusal when made or admitted, else whether its producer must tell its root's volume afresh first
+    /// (`Ok(true)`). It is admitted by its root's telling ([`telling`]), then by the volume its root was last found on,
+    /// else the one its text tells. Where that volume would refuse it, the refusal must be by its root's volume now: one
+    /// fixed by the root's text is ([`Known`]; on Unix the kernel's mount table, read now, which never waits on a
+    /// filesystem, tells a mount made or removed over the path since); any other may have changed (a junction or link
+    /// retargeted), so the stream is admitted and its producer tells it afresh, then is refused by it if it is still at
+    /// its bound ([`Volumes::start`]). That telling can wait on a dead volume, so it is never done here.
+    fn admission(&self, ticket: &Ticket) -> Result<bool, FsErrorKind> {
+        if let Some(refusal) = self.on(&telling(&ticket.root)) {
+            return Err(refusal);
+        }
+        let known = locked(&KNOWN).get(&ticket.root).map(|known| (known.volume.clone(), known.fixed));
+        let (volume, fixed) = known.unwrap_or_else(|| (ticket.volume.clone(), false));
+        let Some(refusal) = self.on(&volume) else { return Ok(false) };
+        if !fixed {
+            return Ok(true);
+        }
+        #[cfg(unix)]
+        {
+            let now = unix_io::volume_of(&ticket.root);
+            if now != volume {
+                return self.on(&now).map_or(Ok(false), Err);
+            }
+        }
+        Err(refusal)
+    }
 }
 
 /// Moves waiting streams of one queue to running while the queue's own count stays under `limit` and the total under
-/// `ceiling` (scheduler.rs `admit_class`, :360-377). One whose volume holds as many given-up threads as one may is
-/// answered instead, its refusal its one item, and takes no slot ([`stalled_on`]); one admitted reads on its volume
-/// ([`Ticket::reading`]).
+/// `ceiling` (scheduler.rs `admit_class`, :360-377). One refused ([`Stuck::admission`]) is answered instead, its refusal
+/// its one item, and takes no slot; one admitted reads on its root's telling ([`Ticket::reading`], [`telling`]).
 fn admit(
     queue: &mut VecDeque<Arc<Ticket>>,
     inflight: &mut usize,
     (limit, ceiling): (usize, usize),
     total: &mut usize,
     counts: &mut ProducerCounts,
-    (config, volumes): (&SchedulerConfig, &std::collections::HashMap<String, Volume>),
+    stuck: Stuck<'_>,
 ) {
     while *inflight < limit && *total < ceiling {
         let Some(ticket) = queue.pop_front() else { break };
         counts.waiting -= 1;
-        let volume = admission_volume(&ticket);
-        if let Some(refusal) = stalled_on(config, volumes, &volume) {
-            ticket.state.store(ENDED, Ordering::SeqCst);
-            let _ = ticket.refused.set(refusal);
-            #[cfg(feature = "count-jobs")]
-            probe::answered(ticket.seq);
-            ticket.admitted.notify_one();
-            continue;
-        }
+        let retell = match stuck.admission(&ticket) {
+            Ok(retell) => retell,
+            Err(refusal) => {
+                ticket.state.store(ENDED, Ordering::SeqCst);
+                let _ = ticket.refused.set(refusal);
+                #[cfg(feature = "count-jobs")]
+                probe::answered(ticket.seq);
+                ticket.admitted.notify_one();
+                continue;
+            }
+        };
         *inflight += 1;
         *total += 1;
         counts.live += 1;
-        *locked(&ticket.reading) = Some(volume);
+        ticket.retell.store(retell, Ordering::SeqCst);
+        *locked(&ticket.reading) = Some(telling(&ticket.root));
         ticket.state.store(RUNNING, Ordering::SeqCst);
         ticket.admitted.notify_one();
     }
@@ -1560,6 +1657,7 @@ impl Producers {
                 bulk_window: config.bulk.max(1),
                 healthy_completions: 0,
                 volumes: std::collections::HashMap::new(),
+                last: CONTENT,
             }),
             changed: Notify::new(),
         }
@@ -1576,14 +1674,14 @@ impl Producers {
 
     /// A new stream joins its queue and starts at once if [`Producers::dispatch`] gives it a slot (`Ok(true)`), or else
     /// waits (`Ok(false)`). Refused (its one item):
-    /// - one that would read on a volume holding [`SchedulerConfig::stuck_per_volume`] given-up threads
-    ///   ([`FsErrorKind::CancelStalled`], naming the latest one's request and the cancel grace);
+    /// - one [`Stuck::admission`] refuses ([`FsErrorKind::CancelStalled`], naming the latest given-up one's request and
+    ///   the cancel grace);
     /// - one that stands for a search-server request and finds as many searches waiting as its class may join
     ///   ([`FsErrorKind::Saturated`]), as `SearchScheduler::enqueue` refuses it (scheduler.rs:234-247; the answer,
     ///   server.rs:370-394). `full`: a replay's scripted full queue ([`deadline_script`]).
     fn enqueue(&self, ticket: &Arc<Ticket>, full: bool) -> Result<bool, FsErrorKind> {
         let mut s = self.lock();
-        if let Some(refusal) = stalled_on(&self.config, &s.volumes, &admission_volume(ticket)) {
+        if let Err(refusal) = (Stuck { config: &self.config, volumes: &s.volumes, last: s.last }).admission(ticket) {
             #[cfg(feature = "count-jobs")]
             probe::answered(ticket.seq);
             return Err(refusal);
@@ -1616,7 +1714,7 @@ impl Producers {
         let c = &self.config;
         let mut total = s.inflight.iter().sum::<usize>();
         let ceiling = c.total + if s.interactive.is_empty() { 0 } else { c.interactive_reserve };
-        let stuck = (c, &s.volumes);
+        let stuck = Stuck { config: c, volumes: &s.volumes, last: s.last };
         admit(&mut s.interactive, &mut s.inflight[0], (c.total + c.interactive_reserve, ceiling), &mut total, &mut s.counts, stuck);
         admit(&mut s.fuzzy, &mut s.inflight[1], (c.total, c.total), &mut total, &mut s.counts, stuck);
         let adaptive = c.bulk.min(s.bulk_window.max(1));
@@ -1640,7 +1738,7 @@ impl Producers {
         if volume.is_empty() || reading.as_deref() == Some(volume) {
             return Ok(());
         }
-        if let Some(refusal) = stalled_on(&self.config, &s.volumes, volume) {
+        if let Some(refusal) = (Stuck { config: &self.config, volumes: &s.volumes, last: s.last }).on(volume) {
             return Err(Some(refusal));
         }
         *reading = Some(volume.to_owned());
@@ -1700,6 +1798,8 @@ impl Producers {
             return;
         }
         let charged = locked(&ticket.reading).clone().unwrap_or_else(|| ticket.volume.clone());
+        // A volume whose given-up threads all ended is forgotten, so the volumes kept are the ones holding any.
+        s.volumes.retain(|_, volume| volume.stuck() > 0);
         let volume = s.volumes.entry(charged).or_insert_with(|| Volume { marks: Arc::new(()), last: ticket.search });
         // The mark is the ticket's before the scheduler is taken: an end that comes between takes it back ([`Started`]).
         *locked(&ticket.stuck) = Some(volume.marks.clone());
@@ -1708,6 +1808,7 @@ impl Producers {
             return;
         }
         volume.last = ticket.search;
+        s.last = ticket.search;
         ticket.state.store(STALLED, Ordering::SeqCst);
         s.counts.abandoned -= 1;
         Self::free(&mut s, ticket);
@@ -2110,6 +2211,23 @@ impl IoLink {
 /// The entry a walk gave last, and whether it is a folder: where the walk is ([`Volumes::step`]).
 type Place = Arc<Mutex<Option<(PathBuf, bool)>>>;
 
+/// The mount point a walk may enter at its next step, given the entry it gave last (`last`, a folder or not): of
+/// `under` (in path order), the first past `last` whose parent is a folder the walk is in (`last` itself when a folder,
+/// else its parent, and their ancestors). The walk lists each folder's entries in path order and reads a folder as it
+/// reaches it (walkdir `push`, before the folder is given), so its next step reads in no other mount point's folder.
+///
+/// The walk's exclusion rules (hidden entries, globs, ignore files, the pruned `.git`) apply first, through `last`: the
+/// walk gives nothing they exclude, so a folder they exclude, and every folder under it, is never one the walk is in,
+/// and a mount point under one is never chosen; the walk never opens it either (ignore's `Walk` skips the excluded
+/// folder before its entries are handled). A mount point the rules exclude itself is chosen: the walk opens it anyway,
+/// as walkdir reads a folder (`IntoIter::push`, walkdir-2.5.0 lib.rs:907) before ignore's rules skip it (`Walk::next`,
+/// ignore-0.4.34 walk.rs:1162), so its read happens, charged to its own volume.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn next_crossing<'a>(under: &'a [(PathBuf, String)], last: &Path, last_is_dir: bool) -> Option<&'a (PathBuf, String)> {
+    let here = if last_is_dir { last } else { last.parent()? };
+    under.iter().find(|(point, _)| point.as_path() > last && point.parent().is_some_and(|parent| here.starts_with(parent)))
+}
+
 /// The volumes a producer reads on, for [`SchedulerConfig::stuck_per_volume`]: a give-up charges the volume of the
 /// call it was in, told by the filesystem's identity ([`Producers::give_up`], [`Ticket::reading`]). Before a call
 /// that reads on another volume than the last one it named, the producer names that one ([`Ticket::read_on`]); one
@@ -2142,20 +2260,25 @@ impl Volumes {
     }
 
     /// The producer's first call: tells its root's volume by the filesystem's identity, remembered for the root's next
-    /// search ([`known_volume`]), and names it. This reads on the volumes the root's path passes through, named by the
-    /// volume the search was admitted by.
+    /// search ([`known_volume`]), and names it (refused if it is at its bound). This reads on the volumes the root's path
+    /// passes through, named as the root's telling ([`telling`]); one that cannot be told leaves the producer named so.
+    /// On Windows one told within [`KNOWN_FRESH`] is taken as it is, unless admission asked for it afresh
+    /// ([`Ticket::retell`]).
     fn start(&mut self) -> Result<(), Option<FsErrorKind>> {
         #[cfg(unix)]
-        let id = {
+        let told = {
             self.crossings = unix_io::Crossings::new(&self.root).ok();
-            self.crossings.as_ref().map(unix_io::Crossings::root_volume).filter(|v| !v.is_empty())
+            self.crossings.as_ref().map(|c| (c.root_volume(), c.fixed())).filter(|(v, _)| !v.is_empty())
         };
         #[cfg(windows)]
-        let id = fresh_volume(&self.root).or_else(|| volume_id(&self.root));
+        let told = match fresh_volume(&self.root).filter(|_| !self.ticket.retell.load(Ordering::SeqCst)) {
+            Some(volume) => return self.ticket.read_on(&volume),
+            None => volume_id(&self.root),
+        };
         #[cfg(not(any(unix, windows)))]
-        let id: Option<String> = None;
-        let Some(id) = id else { return Ok(()) };
-        remember_volume(&self.root, &id);
+        let told: Option<(String, bool)> = None;
+        let Some((id, fixed)) = told else { return Ok(()) };
+        remember_volume(&self.root, (&id, fixed));
         self.ticket.read_on(&id)
     }
 
@@ -3822,6 +3945,7 @@ mod tests {
             grace,
             local: MAX_LOCAL_PRODUCERS,
             stuck_per_volume: MAX_STUCK_PER_VOLUME,
+            stuck_total: MAX_STUCK_TOTAL,
         }
     }
 
@@ -4005,7 +4129,9 @@ mod tests {
             fn next(&mut self) -> Option<Self::Item> {
                 let hung = self.hung.get_mut().unwrap();
                 self.reads.in_read.fetch_add(1, Ordering::SeqCst);
-                hung.1.take();
+                if let Some(entered) = hung.1.take() {
+                    let _ = entered.send(());
+                }
                 let _ = hung.0.recv();
                 self.reads.in_read.fetch_sub(1, Ordering::SeqCst);
                 None
@@ -4030,9 +4156,13 @@ mod tests {
         let mut searches = tokio::task::JoinSet::new();
         for (mut stream, mut in_read) in streams {
             searches.spawn(async move {
+                // A producer refused before its read drops the listing, and with it the read's signal, unsent.
                 let first = tokio::select! {
                     item = stream.next() => Some(item),
-                    _ = &mut in_read => None,
+                    entered = &mut in_read => match entered {
+                        Ok(()) => None,
+                        Err(_) => Some(stream.next().await),
+                    },
                 };
                 stream.close().await;
                 match first {
@@ -4055,9 +4185,10 @@ mod tests {
     /// Ten thousand searches queued at once on one volume, each held, once it runs, in a read that never returns, and
     /// given up once its caller lets go of it. As each running one is given up the next queued one is admitted, until
     /// the volume holds MAX_STUCK_PER_VOLUME given-up threads; from then each queued one is answered at its admission with
-    /// Node's stalled answer and starts no thread. The threads left stranded, counted as the scheduler counts them and as
-    /// reads entered and not returned: those that were reading on the volume when it reached its bound, at most
-    /// MAX_STUCK_PER_VOLUME - 1 + the 2 that run at once, within `max_stranded_per_volume`; no other producer started.
+    /// Node's stalled answer and starts no thread (one admitted just before is answered so by its producer, before its
+    /// read). The threads left stranded, counted as the scheduler counts them and as reads entered and not returned:
+    /// those that were reading on the volume when it reached its bound, at most MAX_STUCK_PER_VOLUME - 1 + the 2 that run
+    /// at once, within `max_stranded_per_volume`; at most those 2 other producers started.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn ten_thousand_searches_queued_on_a_volume_whose_reads_never_return_strand_at_most_the_stated_bound() {
         const SEARCHES: usize = 10_000;
@@ -4085,13 +4216,15 @@ mod tests {
         drop(releases);
         settled(&producers, "every stranded thread ends once its read returns", ProducerCounts::default()).await;
         assert!(eventually(|| reads.started.load(Ordering::SeqCst) >= stranded).await);
-        assert_eq!(reads.started.load(Ordering::SeqCst), stranded, "no refused search started a thread");
+        let started = reads.started.load(Ordering::SeqCst);
+        assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
     }
 
     /// Nine searches running on one volume whose reads all stall at once (a volume that dies under them), a thousand
     /// queued behind them: the nine are all given up, past the 8 a volume may otherwise gain, as they were reading on it
     /// before it reached its bound; each queued one admitted before it reached the bound runs, stalls and is given up
-    /// too, and every later one is answered at its admission and starts no thread. The total stays within
+    /// too, and every later one is answered at its admission and starts no thread (or, admitted just before the bound,
+    /// by its producer before its read). The total stays within
     /// MAX_STUCK_PER_VOLUME - 1 + 9 (the searches that run at once), within `max_stranded_per_volume`, and a search made
     /// after is refused at once.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -4111,7 +4244,7 @@ mod tests {
         let mut running = Vec::new();
         for _ in 0..AT_ONCE {
             let (stream, in_read) = search();
-            within("a running search in its read", in_read).await.unwrap_err();
+            within("a running search in its read", in_read).await.unwrap();
             running.push(stream);
         }
         let queued: Vec<_> = (0..QUEUED).map(|_| search()).collect();
@@ -4132,7 +4265,85 @@ mod tests {
         drop((after, release, releases));
         settled(&producers, "every stranded thread ends once its read returns", ProducerCounts::default()).await;
         assert!(eventually(|| reads.started.load(Ordering::SeqCst) >= stranded).await);
-        assert_eq!(reads.started.load(Ordering::SeqCst), stranded, "no refused search started a thread");
+        let started = reads.started.load(Ordering::SeqCst);
+        assert!(started - stranded <= AT_ONCE, "{started} started: a refused search starts no thread unless admitted before the bound");
+    }
+
+    /// A producer that reads on the volume keyed `volume` ([`Ticket::read_on`]): refused, it answers the refusal; else,
+    /// with `held`, it tells it entered its read and holds it until the sender is dropped, or it ends with no item.
+    struct OnVolume {
+        volume: &'static str,
+        held: Option<(std::sync::mpsc::Receiver<()>, oneshot::Sender<()>)>,
+    }
+
+    impl Produce<SearchMatch> for OnVolume {
+        fn run(self: Box<Self>, out: Out<SearchMatch>, hold: Hold) {
+            if let Err(Some(refusal)) = hold.ticket.read_on(self.volume) {
+                out.send(Err(FsError::new(refusal, None)));
+                return;
+            }
+            if let Some((release, entered)) = self.held {
+                let _ = entered.send(());
+                let _ = release.recv();
+            }
+        }
+    }
+
+    /// Three volumes whose reads stall: two hold MAX_STUCK_PER_VOLUME given-up threads and the third one fewer, so the
+    /// process holds MAX_STUCK_TOTAL - 1: a search on a fourth volume and on the third are served, one on a volume at its
+    /// bound refused. The third's next stall reaches MAX_STUCK_TOTAL: then a search on any volume is refused, the fourth
+    /// (none given up) and the third (fewer than its bound) included, within `max_stranded_total`; once one stuck read
+    /// returns, both are served again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn three_stalled_volumes_reach_the_process_wide_bound_and_refuse_every_volume() {
+        let (_dir, root) = root();
+        let config = scheduler(16, NODE_QUEUE, Duration::ZERO);
+        let producers = Arc::new(Producers::new(config));
+        let make = |volume: &'static str, held| {
+            let origin = Origin::new(Some(SearchClass::Interactive), root.as_path(), CONTENT);
+            streamed(&producers, Box::new(OnVolume { volume, held }), Deadline::default(), origin, false)
+        };
+        let mut releases = Vec::new();
+        let mut stall = async |volume: &'static str| {
+            let (release, hung) = std::sync::mpsc::channel::<()>();
+            let (entered, in_read) = oneshot::channel::<()>();
+            let mut stream = make(volume, Some((hung, entered)));
+            within("a stalled read", in_read).await.unwrap();
+            stream.close().await;
+            releases.push((volume, release));
+        };
+        for (volume, stalls) in [("a", MAX_STUCK_PER_VOLUME), ("b", MAX_STUCK_PER_VOLUME), ("c", MAX_STUCK_PER_VOLUME - 1)] {
+            for _ in 0..stalls {
+                stall(volume).await;
+            }
+        }
+        assert_eq!(MAX_STUCK_TOTAL, 3 * MAX_STUCK_PER_VOLUME);
+        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_TOTAL - 1, ..Default::default() });
+        let refused = async |volume: &'static str| {
+            let mut stream = make(volume, None);
+            let first = within("the search's answer", stream.next()).await;
+            stream.close().await;
+            match first {
+                None => false,
+                Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. })) => true,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert!(!refused("d").await, "a fourth volume under the process-wide bound");
+        assert!(!refused("c").await, "the third, under its bound");
+        assert!(refused("a").await, "a volume at its bound");
+        stall("c").await;
+        assert_eq!(producers.counts().stalled, MAX_STUCK_TOTAL);
+        assert!(MAX_STUCK_TOTAL <= config.max_stranded_total());
+        assert!(refused("d").await, "a fourth volume at the process-wide bound");
+        assert!(refused("c").await, "the third at the process-wide bound");
+        let at = releases.iter().position(|(volume, _)| *volume == "b").unwrap();
+        drop(releases.remove(at));
+        settled(&producers, "one stuck read returns", ProducerCounts { stalled: MAX_STUCK_TOTAL - 1, ..Default::default() }).await;
+        assert!(!refused("d").await, "the fourth again");
+        assert!(!refused("b").await, "the volume whose read returned");
+        drop(releases);
+        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
     }
 
     /// A second fixed volume besides the temp folder's, where a folder can be made: its new folder, removed when dropped.
@@ -4140,19 +4351,21 @@ mod tests {
     fn folder_on_another_volume(than: &Path) -> Option<tempfile::TempDir> {
         use std::os::windows::ffi::OsStrExt as _;
         const DRIVE_FIXED: u32 = 3;
-        let ours = volume_id(than)?;
+        let (ours, _) = volume_id(than)?;
         (b'A'..=b'Z').map(|letter| PathBuf::from(format!("{}:\\", char::from(letter)))).find_map(|drive| {
             let wide: Vec<u16> = drive.as_os_str().encode_wide().chain(Some(0)).collect();
             // SAFETY: a NUL-terminated drive root.
             let fixed = unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(wide.as_ptr()) } == DRIVE_FIXED;
-            (fixed && volume_id(&drive).is_some_and(|id| id != ours)).then(|| tempfile::tempdir_in(&drive).ok()).flatten()
+            (fixed && volume_id(&drive).is_some_and(|(id, _)| id != ours)).then(|| tempfile::tempdir_in(&drive).ok()).flatten()
         })
     }
 
     /// Reads that stall under a junction to a folder of another volume are that volume's: once it holds
     /// MAX_STUCK_PER_VOLUME given-up threads, a search rooted at the junction's target folder (on that volume) and a search
     /// through the junction are refused with Node's stalled answer, while a search of the folder holding the junction,
-    /// on the temp folder's volume, answers. Skipped (it says so) on a machine with one fixed volume.
+    /// on the temp folder's volume, answers. Once the junction is retargeted to a folder of the temp folder's volume, the
+    /// next search through it is served: its refusal was by the volume it leads to now, told afresh. Skipped (it says so)
+    /// on a machine with one fixed volume.
     #[cfg(windows)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reads_stalled_under_a_junction_are_charged_to_the_volume_it_leads_to() {
@@ -4176,7 +4389,7 @@ mod tests {
             let (listing, release, in_read) = stuck_listing(&reads);
             releases.push(release);
             let mut stream = search_over(&producers, &needle_request(&junction, None), listing, no_files());
-            within("a search through the junction in its read", in_read).await.unwrap_err();
+            within("a search through the junction in its read", in_read).await.unwrap();
             stream.close().await;
         }
         assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
@@ -4194,9 +4407,49 @@ mod tests {
             assert!(matches!(&answer, Some(Err(FsError { kind: FsErrorKind::CancelStalled { .. }, path: None, .. }))), "{root:?}: {answer:?}");
             refused.close().await;
         }
+        let healthy = root.join("healthy");
+        std::fs::create_dir(healthy.as_path()).unwrap();
+        std::fs::write(healthy.join("b.txt").as_path(), "needle\n").unwrap();
+        std::fs::remove_dir(junction.as_path()).unwrap();
+        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(junction.as_path()).arg(healthy.as_path()).output().unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let through = junction.join("b.txt").as_path().to_path_buf();
+        let mut served = first(&junction, through.as_path());
+        let hit = within("the retargeted junction's match", served.next()).await;
+        assert!(matches!(&hit, Some(Ok(m)) if m.path.as_path() == through.as_path()), "{hit:?}");
+        served.close().await;
         drop(releases);
         settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
         std::fs::remove_dir(junction.as_path()).unwrap();
+    }
+
+    /// The mount point a walk enters next: the first past its last entry whose parent is a folder it is in; none in a
+    /// folder it has not reached, none it has passed.
+    #[test]
+    fn the_next_crossing_is_the_first_mount_point_past_the_walk_in_a_folder_it_is_in() {
+        let under: Vec<(PathBuf, String)> = ["/r/a/m", "/r/b/c/m", "/r/z"].iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
+        let next = |last: &str, dir: bool| next_crossing(&under, Path::new(last), dir).map(|(p, _)| p.to_str().unwrap());
+        assert_eq!(next("/r", true), Some("/r/z"), "/r/a/m's parent is not open yet");
+        assert_eq!(next("/r/a", true), Some("/r/a/m"));
+        assert_eq!(next("/r/a/l.txt", false), Some("/r/a/m"));
+        assert_eq!(next("/r/a/n.txt", false), Some("/r/z"), "past /r/a/m");
+        assert_eq!(next("/r/b/c", true), Some("/r/b/c/m"));
+        assert_eq!(next("/r/b/x.txt", false), Some("/r/z"));
+        assert_eq!(next("/r/z", true), None);
+    }
+
+    /// The mount points probed over a walk whose rules exclude the folders `/r/x` and `/r/q/z`: what it gives is its
+    /// entries without those and anything under them. `/r/x/m` and `/r/x/y/m`, under an excluded folder, are never
+    /// probed; `/r/q/z`, a mount point excluded itself, is, as the walk opens it before its rules skip it.
+    #[test]
+    fn a_walk_probes_only_the_mount_points_it_opens() {
+        let points = ["/r/a/m", "/r/q/z", "/r/x/m", "/r/x/y/m"];
+        let under: Vec<(PathBuf, String)> = points.iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
+        let given = [("/r", true), ("/r/a", true), ("/r/a/l.txt", false), ("/r/a/m", true), ("/r/b.txt", false), ("/r/q", true), ("/r/q/w.txt", false), ("/r/y.txt", false)];
+        let mut probed: Vec<&str> = given.iter().filter_map(|(last, dir)| next_crossing(&under, Path::new(last), *dir)).map(|(_, p)| p.as_str()).collect();
+        probed.sort_unstable();
+        probed.dedup();
+        assert_eq!(probed, ["/r/a/m", "/r/q/z"]);
     }
 
     /// A mapped drive's device target names its share; a network mount point is keyed as `\\server\share\`.
