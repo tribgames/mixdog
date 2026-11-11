@@ -7,8 +7,6 @@
 // takes is followed step by step: its backoff timer, the redial) and the closes with their codes. 1006 cannot be sent on the wire: a scripted 1006 is the server dropping
 // the TCP connection (the client sees 1006 with an empty reason).
 //   node benchmarks/rust-core/recorders/record-openai-ws-stream.mjs --tree <exact export of b6f10295a>
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
@@ -29,7 +27,6 @@ for (const name of Object.keys(process.env)) if (/^(MIXDOG_PROVIDER_|MIXDOG_STAL
 const P = 'agent/orchestrator/providers/';
 const world = await rec.wsWorld();
 const { sendViaWebSocket } = await rec.P(`${P}openai-oauth-ws.mjs`);
-const { _streamResponse } = await import(new URL(`file:///${join(rec.tree, 'src/runtime', P, 'openai-ws-stream.mjs').replaceAll('\\', '/')}`));
 const { markSessionStreamDelta, updateSessionStage } = await rec.P('agent/orchestrator/session/manager/runtime-liveness.mjs');
 const { runtimeState } = await rec.P('agent/orchestrator/session/manager/runtime-state.mjs');
 const { PROVIDER_FIRST_OUTPUT_TIMEOUT_MS, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS, PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS } = await rec.P('agent/orchestrator/stall-policy.mjs');
@@ -127,21 +124,10 @@ const step = async (ms, options) => {
   await rec.clock.advance(ms, options);
   world.note({ event: 'clock-step', advanceMs: ms, nowMs: Date.now() - rec.T0 });
 };
-// The stream reader the Node test drives (`_streamResponse`), over a REAL client socket: the product's WebSocket client (ws) connects to the loopback server, the request frame is
-// written, and the reader gets that socket as its entry - the Node test hands it a fake one. No sender, no retry layer: the first error of the reader is the outcome, as the test asserts.
-const { WebSocket: WsClient } = createRequire(join(rec.tree, 'package.json'))('ws');
-function streamOver(overrides = {}) {
-  const socket = new WsClient('wss://chatgpt.com/backend-api/codex/responses', { perMessageDeflate: false, headers: { Authorization: `Bearer ${AUTH.access_token}` } });
-  const state = { sessionId: 'ws-stream-test' };
-  const outcome = new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); })
-    .then(() => {
-      socket.send(JSON.stringify(BODY));
-      return _streamResponse({ entry: { socket, ephemeral: true }, externalSignal: null, onStreamDelta, onToolCall, onTextDelta, state, logSuppressedReasoningDeltas: false, ...overrides });
-    })
-    .then((result) => ({ result }), (error) => ({ error }));
-  outcome.then(() => world.note({ event: 'send-settled' }));
-  return { outcome, state };
-}
+// The send of the four stall cases: the provider's real sender with the stall retry window of the logical send already spent (`sendOpts._stallRetryBudget`, the product's own option: the same
+// object resolveStallRetryBudget reads), so the first stall surfaces as the send's error - what the Node test asserts - instead of being retried in place. The window is an input of the case.
+const SPENT_STALL_BUDGET = { allowStallRetry: () => false, firstStallAt: 0 };
+const stalled = (overrides = {}) => connect({ sendOpts: { _stallRetryBudget: SPENT_STALL_BUDGET }, ...overrides });
 const keepalivesFor = async (ms) => {
   for (let elapsed = 0; elapsed < ms; elapsed += 60_000) {
     await step(Math.min(60_000, ms - elapsed));
@@ -223,23 +209,23 @@ await watchdog('silent-thinking-past-semantic-idle-until-first-output', 275, { f
   await end();
   return { ...out, events: snapshot() };
 });
-await watchdog('no-output-aborted-at-first-output-deadline', 298, { frames: [created, { type: 'response.output_item.added', item: reasoningItem }], keepalivesForMs: PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1, advanceMsAfter: 1 }, async () => {
+await watchdog('no-output-aborted-at-first-output-deadline', 298, { frames: [created, { type: 'response.output_item.added', item: reasoningItem }], keepalivesForMs: PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1, advanceMsAfter: 1, stallRetryBudget: 'spent' }, async () => {
   serve([{ frames: [created, { type: 'response.output_item.added', item: reasoningItem }] }]);
-  const { outcome } = streamOver();
+  const { outcome } = stalled();
   await world.until((t) => t.some((e) => e.event === 'progress'), 'reasoning handled');
   await keepalivesFor(PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);
   await step(1);
-  const out = await outcome;
+  const out = await settle(outcome);
   await end();
   return { ...out, events: snapshot() };
 });
-await watchdog('semantic-idle-applies-after-first-output', 313, { frames: [created, { type: 'response.output_text.delta', delta: 'kept' }], keepalivesForMs: PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1, advanceMsAfter: 1 }, async () => {
+await watchdog('semantic-idle-applies-after-first-output', 313, { frames: [created, { type: 'response.output_text.delta', delta: 'kept' }], keepalivesForMs: PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1, advanceMsAfter: 1, stallRetryBudget: 'spent' }, async () => {
   serve([{ frames: [created, { type: 'response.output_text.delta', delta: 'kept' }] }]);
-  const { outcome } = streamOver();
+  const { outcome } = stalled();
   await world.until((t) => t.some((e) => e.event === 'text'), 'text handled');
   await keepalivesFor(PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
   await step(1);
-  const out = await outcome;
+  const out = await settle(outcome);
   await end();
   return { ...out, events: snapshot() };
 });
@@ -247,31 +233,29 @@ const sessionRequest = (sessionId) => {
   updateSessionStage(sessionId, 'requesting');
   return Date.now();
 };
-await watchdog('reopened-stream-aborts-at-original-request-deadline', 337, { sessionId: 'sess_ws_retry_deadline', firstFrames: [created, { type: 'response.output_item.added', item: reasoningItem }], firstKeepalivesForMs: 400_000, firstClose: [1006, 'gone'], retryFrames: [created] }, async () => {
+await watchdog('reopened-stream-aborts-at-original-request-deadline', 337, { sessionId: 'sess_ws_retry_deadline', firstFrames: [created, { type: 'response.output_item.added', item: reasoningItem }], firstKeepalivesForMs: 400_000, firstClose: [1006, 'gone'], retryFrames: [created], stallRetryBudget: 'spent' }, async () => {
   const sessionId = 'sess_ws_retry_deadline';
   const startedAt = sessionRequest(sessionId);
   serve([{ frames: [created, { type: 'response.output_item.added', item: reasoningItem }] }, { frames: [created] }]);
   try {
-    const first = streamOver({ state: { sessionId } });
+    const { outcome } = stalled({ poolKey: sessionId });
     await world.until((tr) => tr.some((e) => e.event === 'progress'), 'reasoning handled');
     await keepalivesFor(400_000);
     world.conns.at(-1).terminate();
-    const firstOutcome = await first.outcome;
-    updateSessionStage(sessionId, 'requesting');
+    await followReconnect(0);
     const progressBefore = world.count((e) => e.event === 'progress');
-    const retry = streamOver({ state: { sessionId } });
     await world.until((tr) => tr.filter((e) => e.event === 'progress').length > progressBefore, 'retry response.created handled');
     const retryKeepaliveMs = startedAt + PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1 - Date.now();
     await keepalivesFor(retryKeepaliveMs);
     await step(1);
-    const result = await retry.outcome;
+    const result = await settle(outcome);
     await end();
-    return { startedAtMs: startedAt - rec.T0, retryKeepaliveMs, first: firstOutcome, ...result, events: snapshot() };
+    return { startedAtMs: startedAt - rec.T0, retryKeepaliveMs, ...result, events: snapshot() };
   } finally {
     runtimeState.delete(sessionId);
   }
 });
-await watchdog('ws-retry-after-output-stays-under-semantic-idle', 360, { sessionId: 'sess_ws_retry_after_output', markDelta: 'reasoning', advanceMsBeforeRetry: 10_000, retryFrames: [created], keepalivesForMs: PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1, advanceMsAfter: 1 }, async () => {
+await watchdog('ws-retry-after-output-stays-under-semantic-idle', 360, { sessionId: 'sess_ws_retry_after_output', markDelta: 'reasoning', advanceMsBeforeRetry: 10_000, retryFrames: [created], keepalivesForMs: PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1, advanceMsAfter: 1, stallRetryBudget: 'spent' }, async () => {
   const sessionId = 'sess_ws_retry_after_output';
   sessionRequest(sessionId);
   serve([{ frames: [created] }]);
@@ -279,11 +263,11 @@ await watchdog('ws-retry-after-output-stays-under-semantic-idle', 360, { session
     await markSessionStreamDelta(sessionId, 'reasoning');
     await step(10_000);
     updateSessionStage(sessionId, 'requesting');
-    const retry = streamOver({ state: { sessionId } });
+    const retry = stalled({ poolKey: sessionId });
     await world.until((t) => t.some((e) => e.event === 'progress'), 'retry response.created handled');
     await keepalivesFor(PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
     await step(1);
-    const out = await retry.outcome;
+    const out = await settle(retry.outcome);
     await end();
     return { retry: out, events: snapshot() };
   } finally {

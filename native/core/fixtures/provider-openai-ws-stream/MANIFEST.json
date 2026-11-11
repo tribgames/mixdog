@@ -18,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 268961,
+      "bytes": 292021,
       "path": "cases.json",
-      "sha256": "5b61aa152bd5e6cd09b9d01fe1585271be9484d07162909b30c50225638d4fa2"
+      "sha256": "9dff6a4e6ca59c87f5f16018b936e32f0138412137070361deb1c823d469ae29"
     }
   ],
   "inputs": [
@@ -42,11 +42,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
+      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "636c8a2a61f1766d1a8700f7e40ce3f90c1e93d5e551e31aaa4b47044768509b"
+      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
     }
   ],
   "levels": [
@@ -142,12 +142,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
-  "recorderSha256": "aeaf9b6b9a146b859d752ca21b7c83f47172b2129e79b35382b7a01f334387d5",
+  "recorderSha256": "ab3ad24410537f88e1c436253015a2c70ae1b25961cc5d59dd9bbbc6118121b1",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-ws-stream",
-  "totalBytes": 268961,
+  "totalBytes": 292021,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
