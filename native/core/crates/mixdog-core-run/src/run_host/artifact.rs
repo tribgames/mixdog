@@ -95,98 +95,7 @@ fn existing_state(_lane: &InLane<DurabilityIo>, path: &Path, sha256: &str, bytes
     }
 }
 
-/// `OFFLOAD_PRUNE_MIN_AGE_MS`: a sidecar younger than this is never pruned (an in-flight turn's).
-const PRUNE_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
-
-/// Every `\b[a-f0-9]{64}\.txt\b` of `text`: the archive names a text refers to.
-fn archive_names(text: &str) -> Vec<String> {
-    let bytes = text.as_bytes();
-    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
-    let mut names = Vec::new();
-    let mut from = 0;
-    while let Some(found) = text[from..].find(".txt") {
-        let dot = from + found;
-        from = dot + 4;
-        if dot < 64 || bytes.get(dot + 4).is_some_and(|b| word(*b)) {
-            continue;
-        }
-        let start = dot - 64;
-        if bytes[start..dot].iter().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) && (start == 0 || !word(bytes[start - 1])) {
-            names.push(text[start..dot + 4].to_owned());
-        }
-    }
-    names
-}
-
-/// `pruneOffloadSession` over the session's folder, on a maintenance-lane job: the sidecars at least
-/// [`PRUNE_MIN_AGE`] old that `haystack` (the serialized live transcript) names neither by path nor
-/// by file name, and that no archive reachable from it names, are removed. Anything unreadable on the
-/// way keeps every file.
-#[allow(clippy::disallowed_methods, reason = "takes the maintenance lane's proof: it runs inside a lane job body")]
-fn prune_offloads(_lane: &InLane<mixdog_rt::MaintenanceIo>, dir: &Path, haystack: &str) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let now = std::time::SystemTime::now();
-    let candidates: Vec<(String, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.ends_with(".txt") {
-                return None;
-            }
-            let modified = entry.metadata().ok()?.modified().ok()?;
-            // `Date.now() - mtimeMs < OFFLOAD_PRUNE_MIN_AGE_MS`: too young (a future time is too).
-            (now.duration_since(modified).ok()? >= PRUNE_MIN_AGE).then(|| (name, entry.path()))
-        })
-        .collect();
-    if candidates.is_empty() {
-        return;
-    }
-    let fold = |text: &str| if cfg!(windows) { text.to_lowercase() } else { text.to_owned() };
-    let haystack = fold(haystack);
-    let mut unreferenced: Vec<(String, PathBuf)> =
-        candidates.into_iter().filter(|(name, path)| ![display(path), name.clone()].iter().any(|needle| haystack.contains(&fold(needle)))).collect();
-    let mut reachable: std::collections::HashSet<String> = archive_names(&haystack).into_iter().collect();
-    let mut retain_reachable = |reachable: &std::collections::HashSet<String>| {
-        unreferenced.retain(|(name, _)| !reachable.contains(name));
-        !unreferenced.is_empty()
-    };
-    if !retain_reachable(&reachable) {
-        return;
-    }
-    let mut pending: Vec<String> = reachable.iter().cloned().collect();
-    let mut at = 0;
-    while at < pending.len() {
-        let Ok(bytes) = std::fs::read(dir.join(&pending[at])) else { return };
-        at += 1;
-        let mut grew = false;
-        for name in archive_names(&String::from_utf8_lossy(&bytes)) {
-            if reachable.insert(name.clone()) {
-                pending.push(name);
-                grew = true;
-            }
-        }
-        if grew && !retain_reachable(&reachable) {
-            return;
-        }
-    }
-    for (_, path) in &unreferenced {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
 impl ToolResultArtifacts {
-    /// `pruneOffloadSession(sessionId, getMessages)`: after a compaction, the session's sidecars the live transcript
-    /// (`haystack`, its serialization) can no longer reach are removed. Best effort.
-    pub async fn prune(&self, haystack: String) {
-        if !self.session_ok {
-            return;
-        }
-        let dir = self.dir.clone();
-        if let Ok(job) = self.io.maintenance.submit(&CancellationToken::new(), move |lane| prune_offloads(lane, &dir, &haystack)) {
-            let _ = job.await;
-        }
-    }
-
     /// `data_dir` is the data root; `session_id` names the session whose results are stored.
     pub fn new(io: ToolIo, data_dir: &Path, session_id: &str) -> Self {
         Self { io, dir: data_dir.join("tool-results").join(safe_segment(session_id)), session_ok: !session_id.is_empty() }
@@ -266,30 +175,6 @@ mod tests {
     async fn no_session_means_no_artifact() {
         let data = tempfile::tempdir().unwrap();
         assert!(ToolResultArtifacts::new(io(), data.path(), "").persist("x").await.is_none());
-    }
-
-    /// `pruneOffloadSession`: an old sidecar the transcript names (by path or name), or that an archive it names names, stays;
-    /// an old unnamed one goes; a young one stays whatever names it.
-    #[tokio::test]
-    async fn a_compaction_prunes_the_old_sidecars_the_live_transcript_no_longer_reaches() {
-        let data = tempfile::tempdir().unwrap();
-        let store = ToolResultArtifacts::new(io(), data.path(), "sess_p");
-        let dir = data.path().join("tool-results/sess_p");
-        std::fs::create_dir_all(&dir).unwrap();
-        let name = |c: char| format!("{}.txt", c.to_string().repeat(64));
-        let (shown, chained, gone, young) = (name('a'), name('b'), name('c'), name('d'));
-        std::fs::write(dir.join(&shown), format!("see {chained}")).unwrap();
-        std::fs::write(dir.join(&chained), "end").unwrap();
-        std::fs::write(dir.join(&gone), "old").unwrap();
-        std::fs::write(dir.join(&young), "new").unwrap();
-        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60);
-        for file in [&shown, &chained, &gone] {
-            std::fs::File::options().write(true).open(dir.join(file)).unwrap().set_modified(old).unwrap();
-        }
-        let haystack = serde_json::json!([{"content": format!("[tool output offloaded: {}]", display(&dir.join(&shown)))}]).to_string();
-        store.prune(haystack).await;
-        let left: Vec<bool> = [&shown, &chained, &gone, &young].iter().map(|file| dir.join(file).exists()).collect();
-        assert_eq!(left, [true, true, false, true]);
     }
 
     #[test]
