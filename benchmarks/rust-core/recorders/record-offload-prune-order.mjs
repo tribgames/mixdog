@@ -745,7 +745,7 @@ writeSetManifest(stage, {
       forks:
         "clear-fork, heir-fork, older-fork, unreadable-fork, linkless-fork, deleted-middle and copy-in-progress record the cleared session's directory and transcript; the fork's and the heirs' transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
       linklessFork: "linkless-fork's seed holds the shipped fork's id and stored transcript as the replay's input (the core's migration derives the fork's reference set from it); the fork itself is not compared",
-      referenceSets: "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) are Node's format and not compared; the core holds the same sets in each session's header and its index: what they keep shows in the directories recorded",
+      referenceSets: "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) and its copy marks (offload-copies/ in the data dir) are Node's format and not compared; the core holds the same sets and marks in each session's header and its index: what they keep shows in the directories recorded",
       olderForkHeir:
         "older-fork's seed holds the heir's source link and the conversation it carries (its non-system messages) as the replay's input; the heir's system prompt (composed for its own minted id) is left out, and its minted id is <HEIR>",
       roomLog: "room-row's seed holds the room log's stored messages as the replay's input; the room log itself is not compared",

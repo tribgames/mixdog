@@ -26,7 +26,7 @@
     "forks": "clear-fork, heir-fork, older-fork, unreadable-fork, linkless-fork, deleted-middle and copy-in-progress record the cleared session's directory and transcript; the fork's and the heirs' transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
     "linklessFork": "linkless-fork's seed holds the shipped fork's id and stored transcript as the replay's input (the core's migration derives the fork's reference set from it); the fork itself is not compared",
     "olderForkHeir": "older-fork's seed holds the heir's source link and the conversation it carries (its non-system messages) as the replay's input; the heir's system prompt (composed for its own minted id) is left out, and its minted id is <HEIR>",
-    "referenceSets": "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) are Node's format and not compared; the core holds the same sets in each session's header and its index: what they keep shows in the directories recorded",
+    "referenceSets": "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) and its copy marks (offload-copies/ in the data dir) are Node's format and not compared; the core holds the same sets and marks in each session's header and its index: what they keep shows in the directories recorded",
     "roomLog": "room-row's seed holds the room log's stored messages as the replay's input; the room log itself is not compared",
     "sessionFiles": "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",
     "summary": "the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)",
@@ -86,7 +86,7 @@
         "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
         "src/session-runtime/lifecycle/inheritance.mjs"
       ],
-      "sha256": "d1037866be3a90775f44a9cdae5d9f4757712134ce50824df1cb6ca7673e88d6"
+      "sha256": "17585c040ba9d5d7d276fabcff9b9bb71c15bc83354012b4562ea846871890f7"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -94,13 +94,13 @@
       "exact": false,
       "filesDifferingFromCommit": 10
     },
-    "srcSha256": "ce5cb43206a27f5970506c6e5d1e8ecde7426a32653240ef733ca01d749f92bd",
+    "srcSha256": "41f87258b5d07ddcc250e04a1a3aa209db62c46f81f8e95d6efae0e70b71bb13",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-offload-prune-order.mjs",
-  "recorderSha256": "79084c83d17d264a6108c380b560af6e8f40ae90fdc5d728bb7be0b4b3e666f1",
+  "recorderSha256": "be540668ddc29bd63c493c4565879fa9d9dd0d98380fe741a329f68bc33c3d0b",
   "set": "offload-prune-order",
   "tests": [
     "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)",
