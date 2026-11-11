@@ -4,21 +4,30 @@
 // (the tombstone, `:209-256`) and the save fence `_dropsAgainst` (`store.mjs:149-153`), over the real
 // `createSession` / `saveSessionAsync` of the session store.
 //
-// `barriers`: a session's lifecycle header before and after a sequence of barriers. `fence`: for a record
-// at a recorded generation (open after a detach, or closed), a late copy that names an expected generation is
-// saved: the outcome.
+// `barriers`: a session's whole stored record before and after each barrier of a sequence. `fence`: for a record at a recorded
+// generation (open after a detach, or closed), a late copy that names an expected generation is saved: the whole stored record,
+// the whole late copy, the outcome and the whole record after.
+//
+// Time is a virtual wall clock: `Date.now()` is 1000 * (step + 1) for the session's creation (step 0) and for its nth barrier
+// (step n); every timestamp the barriers write is recorded as that number. The barriers of the fence land in a second process
+// (its own pid, Date.now() fixed at 1700000000000 by lib/determinism-preload-other-process.mjs), so what it writes is recorded
+// whole too.
 //
 //   node benchmarks/rust-core/recorders/record-session-lifecycle.mjs --tree <dir with node_modules>
-import { mkdirSync, mkdtempSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { exact } from './lib/exact.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
+import { markTmp } from './lib/tmp-mark.mjs';
+import { DETERMINISM, clock, installDeterminism } from './lib/session-wire-harness.mjs';
 
-export const FIXED_NOW = 1_700_000_000_000;
-// The store's locks and timers read the clock, so it is the real one; a timestamp the barriers wrote is recorded as the
-// step whose call window holds it (windows are kept apart by a pause), not as a number.
-const pause = () => new Promise((done) => setTimeout(done, 5));
+const HERE = dirname(fileURLToPath(import.meta.url));
+const OTHER_PRELOAD = pathToFileURL(join(HERE, 'lib', 'determinism-preload-other-process.mjs')).href;
+const CHILD_DEADLINE_MS = 120_000;
 
 const cli = parseArgs();
 const tree = resolveTree(cli);
@@ -27,12 +36,17 @@ const tree = resolveTree(cli);
 const child = cli.get('child');
 let stage;
 let outDir;
+let work = null;
+let determinism = null;
 if (child) {
   process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 } else {
+  determinism = installDeterminism();
   outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'session-lifecycle');
   stage = stageSet(outDir);
-  const work = mkdtempSync(join(tmpdir(), 'session-lifecycle-'));
+  // A fixed dir (under this machine's temp dir): the system prompt the session stores names its scratch path.
+  work = join(tmpdir(), 'rec-session-lifecycle');
+  rmSync(work, { recursive: true, force: true });
   const data = join(work, 'data');
   mkdirSync(data, { recursive: true });
   process.env.MIXDOG_DATA_DIR = data;
@@ -49,33 +63,20 @@ if (child) {
   else await store.markSessionClosedAttempt(id, reason, { outcome: {} });
   process.exit(0);
 }
-const OTHER_PROCESS = [process.argv[1], '--tree', tree];
+const OTHER_PROCESS = ['--import', OTHER_PRELOAD, process.argv[1], '--tree', tree];
 
 const providerName = 'session-lifecycle-twin';
 const provider = { name: providerName, contextWindow: 128000, async send() { throw new Error('no turn runs'); } };
-const options = { provider: providerName, model: 'fake-model', owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main', skipSkills: true };
+// The session's cwd is the fixed work dir: the stored system prompt lists the cwd's entries and its git state, so a fixed dir that is not a repository makes both the same on every run (the default is the checkout the recorder was started in).
+const options = { cwd: work, provider: providerName, model: 'fake-model', owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main', skipSkills: true };
 
-const KEYS = ['generation', 'updatedAt', 'detachedReason', 'ownerClosedAt', 'closed', 'closedReason', 'status', 'cancelStatus', 'cancelledAt'];
-const windows = [];
-const stamp = (value) => {
-  const at = windows.findIndex(([from, to]) => value >= from && value <= to);
-  return at < 0 ? value : { step: at };
-};
-const TIMES = new Set(['updatedAt', 'ownerClosedAt', 'cancelledAt']);
-const lifecycle = (id) => {
-  const session = store.loadSession(id);
-  const out = {};
-  for (const key of KEYS) if (session[key] !== undefined) out[key] = TIMES.has(key) ? stamp(session[key]) : session[key];
-  return out;
-};
+let step = 0;
+const tick = (n) => { step = n; clock.now = 1000 * (n + 1); };
 const fresh = async () => {
-  windows.length = 0;
-  await pause();
-  const from = Date.now();
+  determinism.reset();
+  tick(0);
   const session = createSession(options);
   await store.saveSessionAsync(session, {});
-  windows.push([from, Date.now()]);
-  await pause();
   return session.id;
 };
 
@@ -94,15 +95,15 @@ await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
   for (const c of BARRIER_CASES) {
     const id = await fresh();
     const record = [];
-    for (const step of c.steps) {
-      const before = lifecycle(id);
-      const from = Date.now();
-      const generation = step.op === 'detach'
-        ? await store.bumpSessionGenerationAttempt(id, step.reason, { outcome: {}, ownerClose: step.ownerClose === true })
-        : await store.markSessionClosedAttempt(id, step.reason, { outcome: {} });
-      windows.push([from, Date.now()]);
-      await pause();
-      record.push({ ...step, before, generation, after: lifecycle(id) });
+    let n = 0;
+    for (const s of c.steps) {
+      const before = exact(store.loadSession(id));
+      n += 1;
+      tick(n);
+      const generation = s.op === 'detach'
+        ? await store.bumpSessionGenerationAttempt(id, s.reason, { outcome: {}, ownerClose: s.ownerClose === true })
+        : await store.markSessionClosedAttempt(id, s.reason, { outcome: {} });
+      record.push({ ...s, clock: clock.now, before, generation: exact(generation), after: exact(store.loadSession(id)) });
     }
     barriers.push({ name: c.name, steps: record });
   }
@@ -121,30 +122,49 @@ await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
       store.drainSessionStore();
       // Each barrier lands in another process; this one then holds nothing of the session (its writer lock is free).
       for (const op of state.ops) {
-        execFileSync(process.execPath, [...OTHER_PROCESS, '--child', `${op.op}:${op.reason}`, '--id', id], { stdio: 'inherit' });
+        execFileSync(process.execPath, [...OTHER_PROCESS, '--child', `${op.op}:${op.reason}`, '--id', id], { stdio: 'inherit', timeout: CHILD_DEADLINE_MS, killSignal: 'SIGKILL' });
       }
-      const recorded = lifecycle(id);
+      const recorded = exact(store.loadSession(id));
       late.messages.push({ role: 'user', content: `late write ${state.name} ${expected}` });
+      const lateFull = exact(late);
       const outcome = await store.saveSessionAsync(late, expected === null ? {} : { expectedGeneration: expected });
       fence.push({
         state: state.name,
-        recorded: { generation: recorded.generation ?? 0, closed: recorded.closed === true },
+        recorded,
         expected,
-        outcome,
+        late: lateFull,
+        outcome: exact(outcome),
         dropped: outcome !== 'saved',
+        storedAfter: exact(store.loadSession(id)),
       });
     }
   }
 });
 
-writeJson(join(stage, 'twin.json'), { clock: FIXED_NOW, barriers, fence });
+const PRELOADS = ['benchmarks/rust-core/recorders/lib/determinism-preload.mjs', 'benchmarks/rust-core/recorders/lib/determinism-preload-other-process.mjs'];
+// Declared: the temp root in the stored system prompt (a message's content, bpNEnvironmentContext) -> <TMP>.
+const tmpPath = (path) => path.at(-1) === 'content' && path.at(-3) === 'messages' || /^bp\d+EnvironmentContext$/.test(path.at(-1)) || path.at(-1) === 'cwd';
+writeJson(join(stage, 'twin.json'), markTmp({ clock: { rule: 'Date.now() = 1000 * (step + 1): the session\'s creation is step 0, its nth barrier step n', fenceChildren: 1_700_000_000_000 }, barriers, fence }, tmpPath));
 writeSetManifest(stage, {
   set: 'session-lifecycle',
   recorder: 'benchmarks/rust-core/recorders/record-session-lifecycle.mjs',
   command: 'node benchmarks/rust-core/recorders/record-session-lifecycle.mjs --tree <tree>',
   identityTree: cli.get('identity-tree') ?? tree,
+  extra: {
+    ...recorderProvenance(import.meta.url, PRELOADS),
+    testFile: 'src/runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs (no test file: a golden twin of the barriers)',
+    entry: 'Ran the real session store (store.mjs loadSession, saveSessionAsync, drainSessionStore; store/lifecycle-barriers.mjs bumpSessionGenerationAttempt and markSessionClosedAttempt) and manager/session-lifecycle.mjs createSession on a temp MIXDOG_DATA_DIR. The fence barriers run in a second Node process (this recorder with --child, node --import lib/determinism-preload-other-process.mjs, 120 s deadline). Did not run a turn (the provider throws if asked).',
+    replay: 'A replay drives the Rust core through the public app-server protocol (native/core/crates/mixdog-app-protocol methods.rs) and compares WHOLE stored records (thread/read of the thread, before and after each step; every recorded before/after/recorded/late/storedAfter is a whole Node session record): detach (cli-exit, no live session clients) <- thread/unsubscribe of the last subscriber; close with tombstone (manual, desktop-session-delete) <- thread/delete; agent-task-cancel <- thread/agentControl; a late save carrying an expected generation <- turn/start and thread/name/set issued with a stale generation, whose refusal/acceptance is the recorded outcome. The daemon-internal reasons (idle-sweep, SIGTERM, cli-agent-close, owner close) have no protocol method: Rust-side work, to be driven through the thread directory\'s own close/detach calls. Node-only fields (updatedAt, ownerClosedAt, cancelledAt) are the virtual clock 1000 * (step + 1). The existing close.rs unit tests read the old nine-key before/after/recorded projections of this file: they must read the whole records now.',
+    values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
+    exclusions: [
+      'no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process',
+      'this machine\'s roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext (the stored system prompt) and every "cwd" field of a stored session. The sessions are created with cwd = the work dir <TMP>\\rec-session-lifecycle (an explicit input: createSession options.cwd), so the prompt\'s cwd entries and git state do not depend on the checkout. The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine\'s and stays as written',
+      ...DETERMINISM,
+    ],
+  },
 });
 commitStage(stage, outDir);
 console.log(`session-lifecycle: ${barriers.length} barrier cases, ${fence.length} fence cases -> ${outDir}`);
-// The session writers still hold their lock files; the sandbox is swept with the temp dir.
+// The session writers still hold their lock files; the sandbox is removed with its lock files released at exit.
+if (work) process.on('exit', () => { try { rmSync(work, { recursive: true, force: true }); } catch { /* a writer still holds a lock file: left for the OS temp cleanup */ } });
 process.exit(0);

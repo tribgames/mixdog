@@ -58,6 +58,16 @@ impl ExitWatch {
         }
         Ok(sys::ExitWatch::open(identity)?.map(Self))
     }
+
+    /// As [`ExitWatch::open`], for a process this watch may also end ([`ExitWatch::signal`]).
+    pub(crate) fn open_to_end(identity: ProcessIdentity) -> io::Result<Option<Self>> {
+        Ok(sys::ExitWatch::open_to_end(identity)?.map(Self))
+    }
+
+    /// SIGTERM, or SIGKILL when `kill`, to the watched process (on Windows both end it, as Node's `process.kill`).
+    pub(crate) fn signal(&self, kill: bool) -> io::Result<()> {
+        self.0.signal(kill)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -72,9 +72,12 @@ test('the thread a route is snapshotted on starts as mixdogd exec starts it', ()
 
 test('a changed non-description contract is named, a changed description is not', () => {
   const baseline = [read, grep];
-  assert.deepEqual(changedContracts([{ ...read, description: 'reworded' }], baseline), []);
-  assert.deepEqual(changedContracts([{ ...read, inputSchema: { type: 'object', properties: { file: { type: 'string' } } } }], baseline), ['read']);
-  assert.deepEqual(changedContracts([{ name: 'unknown', inputSchema: {} }], baseline), []);
+  assert.deepEqual(changedContracts([{ ...read, description: 'reworded' }, grep], baseline), []);
+  assert.deepEqual(changedContracts([{ ...read, inputSchema: { type: 'object', properties: { file: { type: 'string' } } } }, grep], baseline), ['read']);
+  assert.deepEqual(changedContracts([read, grep, { name: 'unknown', inputSchema: {} }], baseline), ['+unknown'], 'an added tool is a changed contract');
+  assert.deepEqual(changedContracts([read], baseline), ['-grep'], 'a removed tool is a changed contract');
+  assert.deepEqual(changedContracts([], baseline), ['-read', '-grep'], 'an empty catalog is not the baseline');
+  assert.deepEqual(changedContracts([grep, read], baseline), ['(order)'], 'the contract array is ordered');
   const reordered = { name: 'read', inputSchema: { properties: { path: { type: 'string' } }, type: 'object' }, description: 'x' };
-  assert.deepEqual(changedContracts([reordered], baseline), [], 'key order is not a contract');
+  assert.deepEqual(changedContracts([reordered, grep], baseline), [], 'key order is not a contract');
 });
