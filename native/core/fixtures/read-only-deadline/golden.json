@@ -1,0 +1,99 @@
+{
+  "note": "what a read-only I/O call held past its deadline gives back (real askSession turns over a scripted provider, the call held by a batch oplock), recorded twice at b6f10295a: per scenario the tool messages of each later request, the request count, the answer and the turn's history/tool-failures.jsonl rows (lib/tool-failure-rows.mjs)",
+  "workspaceLength": 44,
+  "scenarios": [
+    {
+      "name": "a read held past a 3000 ms deadline",
+      "env": {
+        "MIXDOG_IO_TOOL_TIMEOUT_MS": "3000"
+      },
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "r1",
+              "name": "read",
+              "args": {
+                "path": "slow.txt"
+              }
+            },
+            {
+              "id": "r2",
+              "name": "read",
+              "args": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a read held past the default deadline",
+      "env": {},
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "d1",
+              "name": "read",
+              "args": {
+                "path": "slow.txt"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    }
+  ],
+  "files": {
+    "a.txt": "hello\nsecond line\n",
+    "slow.txt": "held behind an oplock\n"
+  },
+  "model": "fake-model",
+  "rows": [
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:0>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":\"lead\",\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"slow.txt\"},\"error_first_line\":\"Error: read-only I/O tool \\\"read\\\" timed out after 3000ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.\",\"error_preview\":\"Error: read-only I/O tool \\\"read\\\" timed out after 3000ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.\",\"result_bytes_est\":158,\"result_lines_est\":1}"
+    ],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:1>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"timeout/abort\",\"agent\":\"lead\",\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"slow.txt\"},\"error_first_line\":\"Error: read-only I/O tool \\\"read\\\" timed out after 20000ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.\",\"error_preview\":\"Error: read-only I/O tool \\\"read\\\" timed out after 20000ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.\",\"result_bytes_est\":159,\"result_lines_est\":1}"
+    ]
+  ],
+  "results": [
+    {
+      "name": "a read held past a 3000 ms deadline",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: read-only I/O tool \"read\" timed out after 3000ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
+          "[lines 1-2]\nhello\nsecond line\n[lines 1-2 of 2]"
+        ]
+      ]
+    },
+    {
+      "name": "a read held past the default deadline",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "Error: read-only I/O tool \"read\" timed out after 20000ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry."
+        ]
+      ]
+    }
+  ]
+}

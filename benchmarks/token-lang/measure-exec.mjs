@@ -5,11 +5,11 @@
 // tokens of the run's first model request, read from the `model.request.completed` event. Subscription routes
 // ask at low effort, as before.
 // Usage: node benchmarks/token-lang/measure-exec.mjs --mixdogd <bin> [--n 200] [--models a,b] [--render]
-import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { endTree, spawnTree } from '../../scripts/rust-core/lib/process-tree.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA = join(HERE, 'data', 'flores200_dataset', 'devtest');
@@ -42,6 +42,9 @@ export const MODELS = [
   ['Grok 4.7', 'opencode-go', 'grok-4.7'],
 ];
 
+/** The model list as results.json records it: every model with the route and model id it is measured through. */
+export const recordedModels = () => MODELS.map(([name, provider, model, effort]) => ({ name, provider, model, ...(effort ? { effort } : {}) }));
+
 /** The prompt-side token total of the first model request in `mixdogd exec --json` output. */
 export function inputTokensOfFirstRequest(stdout, provider) {
   for (const line of String(stdout).split(/\r?\n/)) {
@@ -68,9 +71,13 @@ export function usageLogInput(document, provider) {
 }
 
 const WINDOWS_ARGUMENT_LIMIT = 30_000;
+// One exec is one model request; one that has not finished by now is a hung provider or core, not a slow answer.
+const EXEC_DEADLINE_MS = 300_000;
 
-/** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. */
-export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawn }) {
+/** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. At the deadline, and when
+ *  the child cannot start, the whole process tree is ended (a failed kill is reported beside the cause); the scratch
+ *  directory goes with it on every path. */
+export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawnTree, endImpl = endTree, deadlineMs = EXEC_DEADLINE_MS }) {
   if (process.platform === 'win32' && text.length > WINDOWS_ARGUMENT_LIMIT) {
     throw new Error(`a text of ${text.length} characters does not fit a Windows command line; use a smaller --n`);
   }
@@ -83,8 +90,29 @@ export function execInputTokens({ bin, provider, model, effort, text, cwd, spawn
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
     child.stderr.on('data', (chunk) => (stderr += chunk));
-    child.once('error', reject);
+    let ending = false; // once the tree is being ended, the child's own close is the kill working, not a result
+    const fail = async (message) => {
+      ending = true;
+      try {
+        await endImpl(child);
+      } catch (error) {
+        message = `${message}; ${error.message}`;
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+      reject(new Error(message));
+    };
+    const deadline = setTimeout(
+      () => fail(`mixdogd exec (${provider} ${model}) did not finish within ${deadlineMs}ms and was ended; stderr: ${stderr.trim().slice(0, 300)}`),
+      deadlineMs,
+    );
+    child.once('error', (error) => {
+      clearTimeout(deadline);
+      fail(`mixdogd exec (${provider} ${model}) could not run: ${error.message}`);
+    });
     child.once('close', (code) => {
+      if (ending) return;
+      clearTimeout(deadline);
       try {
         if (code !== 0) throw new Error(`mixdogd exec exited ${code}: ${stderr.trim().slice(0, 300)}`);
         resolveCount(inputTokensOfFirstRequest(stdout, provider));
@@ -142,6 +170,7 @@ async function main(args) {
   // A --models rerun merges into the previous results.json instead of replacing it.
   const byName = new Map((only || renderOnly) && existsSync(RESULTS_JSON) ? JSON.parse(readFileSync(RESULTS_JSON, 'utf8')).results.map(({ ratio, ...r }) => [r.name, r]) : []);
   const cwd = mkdtempSync(join(tmpdir(), 'token-lang-cwd-'));
+  const failed = [];
   try {
     const settled = await Promise.allSettled(
       selected.map(async ([name, provider, model, effort]) => {
@@ -152,17 +181,24 @@ async function main(args) {
     );
     settled.forEach((s, i) => {
       if (s.status === 'fulfilled') byName.set(s.value.name, s.value);
-      else console.error(`FAILED: ${selected[i][0]}: ${s.reason?.message || s.reason}`);
+      else {
+        failed.push(selected[i][0]);
+        console.error(`FAILED: ${selected[i][0]}: ${s.reason?.message || s.reason}`);
+      }
     });
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+  // A selected model that failed fails the command, whatever rows an earlier run left; nothing is written, so a
+  // failed run cannot replace the recorded results with a partial set.
+  if (failed.length) throw new Error(`measurement failed for: ${failed.join(', ')}`);
   const results = MODELS.map(([name]) => byName.get(name)).filter(Boolean);
   if (results.length === 0) process.exit(1);
   const table = renderTable(results);
   // Figures (cards + heatmap) are rendered from results.json by chart.mjs.
   mkdirSync(OUT, { recursive: true });
-  writeFileSync(RESULTS_JSON, JSON.stringify({ sentences: N, results }, null, 2));
+  const unmeasured = MODELS.filter(([name]) => !byName.has(name)).map(([name]) => ({ name, reason: 'the run produced no row for this model (see the FAILED line of that run)' }));
+  writeFileSync(RESULTS_JSON, JSON.stringify({ sentences: N, results, models: recordedModels(), unmeasured }, null, 2));
   writeFileSync(join(OUT, 'table.md'), `${table}\n`);
   console.log(table);
 }
