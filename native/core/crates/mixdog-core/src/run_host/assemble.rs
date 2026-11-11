@@ -250,7 +250,7 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 /// `snapshotProviderRequestTools` at a request boundary: `tools` as the provider is sent them, with the catalog tools the
 /// transcript's native tool searches (`native`, [`super::factory::native_searches`]) reference. The turn's boundary and
 /// the snapshot both take the request's tools here.
-fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+pub(crate) fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
     let provider = text(header, "provider").to_lowercase();
     let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
     super::context_world::snapshot_tools(header, tools, referenced, &provider)

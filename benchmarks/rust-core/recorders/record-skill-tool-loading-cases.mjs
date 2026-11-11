@@ -9,7 +9,7 @@
 //   node benchmarks/rust-core/recorders/record-skill-tool-loading-cases.mjs --tree <exact export of b6f10295a with node_modules>
 //
 // Writes native/core/fixtures/skill-tool-loading-cases/{golden.json,MANIFEST.json}.
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -166,12 +166,129 @@ cases.push(run('policy skills load their deferred tools while fetch stays indepe
   t.open('openrouter', tools, 'lead');
 }));
 
+// The second test's request half, as the test runs it: the Skill tool loading `deck-guide` from the data dir twice
+// (`executeTool`), the request tools before and after (`snapshotProviderRequestTools`), then an `agentLoop` whose fake
+// provider calls Skill twice and ends, and `createSkillsApi().skillToolContent`. Where the test checks a few fields of a
+// request, this keeps each request's whole tools as the provider's own converter puts them on the wire and, for the
+// two native providers, the whole transcript part of the body (`buildRequestBody` input, the OAuth body's `messages`).
+const { executeTool } = await U('agent/orchestrator/session/loop/tool-exec.mjs');
+const { agentLoop } = await U('agent/orchestrator/session/agent-loop.mjs');
+const { normalizeToolEnvelope } = await U('agent/orchestrator/session/tool-envelope.mjs');
+const { snapshotProviderRequestTools } = await U('agent/orchestrator/runtime-core/tool-catalog.mjs');
+const { setInternalToolsProvider } = await U('agent/orchestrator/internal-tools.mjs');
+const { buildRequestBody, toOpenAIResponsesTool } = await U('agent/orchestrator/providers/openai-responses-payload.mjs');
+const { requestAnthropicTools } = await U('agent/orchestrator/providers/lib/anthropic-request-utils.mjs');
+const { _buildRequestBodyForCacheSmoke: buildAnthropicOAuthBody } = await U('agent/orchestrator/providers/anthropic-oauth.mjs');
+const { toGeminiTools } = await U('agent/orchestrator/providers/gemini-schema.mjs');
+const { toOpenAITools } = await U('agent/orchestrator/providers/openai-compat-wire.mjs');
+const { createSkillsApi } = await importFrom(tree, 'src/session-runtime/skills-api.mjs');
+
+const wireRoot = mkdtempSync(join(tmpdir(), 'skill-load-'));
+const mask = (value) => JSON.parse(JSON.stringify(value).split(JSON.stringify(wireRoot).slice(1, -1)).join('<root>').split(wireRoot.replace(/\\/g, '/')).join('<root>'));
+process.env.MIXDOG_DATA_DIR = join(wireRoot, 'data');
+mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'skills', 'deck-guide'), { recursive: true });
+writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'skills', 'deck-guide', 'SKILL.md'), DECK_GUIDE);
+contextMod.invalidateSkillsCache(wireRoot);
+const officeCalls = [];
+setInternalToolsProvider({
+  tools: [office],
+  executor: async (name, args) => {
+    officeCalls.push({ name, args });
+    return JSON.stringify({ created: true });
+  },
+});
+// Each provider's request tools as its own converter sends them.
+const wireTools = (provider, tools, messages) => {
+  if (provider === 'openai-oauth') return tools.map((tool) => toOpenAIResponsesTool(tool));
+  // As the OAuth route calls it (anthropic-oauth.mjs:199): its provider name decides eager_input_streaming.
+  if (provider === 'anthropic-oauth') return requestAnthropicTools(tools, messages, {}, 'anthropic-oauth');
+  if (provider === 'gemini') return toGeminiTools(tools);
+  return toOpenAITools(tools);
+};
+const testSession = (provider) => {
+  const current = { provider, tools: [skill, office, read], messages: [], toolSpec: 'full' };
+  applyDeferredToolSurface(current, 'full');
+  return current;
+};
+const wire = { providers: [] };
+for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter']) {
+  const current = testSession(provider);
+  const opened = json(current);
+  const initial = snapshotProviderRequestTools({ provider, tools: current.tools, session: current, messages: [] });
+  const loads = [];
+  for (let n = 0; n < 2; n += 1) {
+    const loaded = normalizeToolEnvelope(await executeTool('Skill', { name: 'deck-guide' }, wireRoot, null, current));
+    loads.push(mask({ result: loaded.result, newMessages: loaded.newMessages ?? [], session: current }));
+  }
+  const after = snapshotProviderRequestTools({ provider, tools: current.tools, session: current, messages: [] });
+  const office_ = normalizeToolEnvelope(await executeTool('office', { action: 'create' }, wireRoot, null, current));
+  rebuildDeferredToolSurfaceForProvider(current, 'openai-oauth');
+  const rebuilt = json(current);
+
+  const loopSession = testSession(provider);
+  loopSession.id = `skill-wire-${provider}`;
+  loopSession.compaction = { auto: false };
+  const loopOpened = json(loopSession);
+  const requests = [];
+  const fakeProvider = {
+    name: provider,
+    async send(messages, _model, requestTools) {
+      const request = { tools: json(wireTools(provider, requestTools, messages)), input: null };
+      if (provider === 'openai-oauth') request.input = json(buildRequestBody(messages, 'gpt-6-astra', requestTools, { sessionId: loopSession.id }).input);
+      // The OAuth route's own body (anthropic-oauth.mjs:207-259): its messages after the cache markers, as sent.
+      else if (provider === 'anthropic-oauth') request.input = json(buildAnthropicOAuthBody(messages, 'claude-sonnet-4-5', requestTools, {}).messages);
+      requests.push(mask(request));
+      if (requests.length <= 2) return { content: '', toolCalls: [{ id: `skill-${requests.length}`, name: 'Skill', arguments: { name: 'deck-guide' } }] };
+      return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
+    },
+  };
+  // As a product turn runs the loop: the session's live transcript is the array the loop appends to
+  // (`precommitUserTurn`, ask-turn-execute.mjs:122-123), so a repeat Skill load sees the body the first one injected;
+  // the settle clears it (ask-turn-settle.mjs:116).
+  const outgoing = [{ role: 'user', content: 'Create a presentation.' }];
+  loopSession.liveTurnMessages = outgoing;
+  await agentLoop(fakeProvider, outgoing, 'fake-model', loopSession.tools, null, wireRoot, { session: loopSession, sessionId: loopSession.id });
+  delete loopSession.liveTurnMessages;
+  wire.providers.push({
+    provider,
+    opened,
+    initial: json(wireTools(provider, initial, [])),
+    loads,
+    after: json(wireTools(provider, after, [])),
+    office: mask(office_.result),
+    rebuilt,
+    loop: { opened: loopOpened, requests, session: mask(loopSession) },
+  });
+}
+{
+  const current = testSession('openai-oauth');
+  const opened = json(current);
+  const api = createSkillsApi({ contextMod, getCwd: () => wireRoot });
+  const loaded = api.skillToolContent('deck-guide', current);
+  wire.skillToolContent = mask({ opened, result: loaded.result, newMessages: loaded.newMessages ?? [], session: current });
+}
+wire.officeCalls = json(officeCalls);
+setInternalToolsProvider({ tools: [], executor: async () => '' });
+contextMod.invalidateSkillsCache(wireRoot);
+try {
+  rmSync(wireRoot, { recursive: true, force: true });
+} catch {}
+
 // Every case is replayed; these parts of a case are not.
 const excluded = {
-  'skill dependencies are callable on the next request without changing the eager tools: the request and the call':
-    "the test's own `executeTool('Skill')` from the data dir, `executeTool('office')` through its injected internal-tools provider, " +
-    '`snapshotProviderRequestTools` and the per-provider wire bodies of an `agentLoop` with a fake provider, and ' +
-    '`createSkillsApi().skillToolContent`: not replayed here (open)',
+  'skill dependencies are callable on the next request without changing the eager tools: the office call':
+    "`executeTool('office')` answers through the executor the test injects (`setInternalToolsProvider`, internal-tools.mjs:30), " +
+    'which no product path installs; that the armed dependency is callable is what the next request carries (replayed ' +
+    "here, whole) and the call-through's admission of it (native-request-bytes-cases, `callThrough`)",
+  'skill dependencies are callable on the next request without changing the eager tools: the loop session `messages`':
+    "the test's `agentLoop` appends to the array it is given and never writes `session.messages` (the turn commit does, " +
+    'ask-turn-execute.mjs:122); that transcript is compared whole as each request\'s input',
+  'skill dependencies are callable on the next request without changing the eager tools: the loop session `_providerPrefixGuardState`':
+    'in-memory only: Node drops it from every stored session (store/serialize.mjs:42,59-81), so no client or file sees it',
+  'skill dependencies are callable on the next request without changing the eager tools: the loop session `deferredMcpToolNames`, `deferredLateToolCatalog`, `todoCheck`':
+    "written by the loop's per-turn MCP reconcile (tool-catalog.mjs:679,731) and todo cycle (todo-check.mjs:37), not by " +
+    "skill loading; the replay's turn assembly stands in for those steps, which the mcp-fold and todo-list sets replay " +
+    'through the core (`mcp_fold`, `TodoGuards`)',
 };
 
 const finalDir = join(FIXTURES_ROOT, 'skill-tool-loading-cases');
@@ -181,6 +298,7 @@ writeJson(join(stage, 'golden.json'), {
   test: TEST,
   bridgeTools: json(TOOL_BRIDGE_TOOLS),
   cases,
+  wire,
 });
 writeSetManifest(stage, {
   set: 'skill-tool-loading-cases',
@@ -189,8 +307,16 @@ writeSetManifest(stage, {
   identity,
   extra: {
     ...recorderProvenance(import.meta.url),
-    compared: 'per step: the whole session afterwards; an arm also the whole Skill result; a parse the whole parsed document',
+    compared:
+      'per step: the whole session afterwards; an arm also the whole Skill result; a parse the whole parsed document; ' +
+      'wire: per provider the whole Skill results and new messages, the whole request tools on the wire before and ' +
+      'after, and per loop request the whole wire tools and (OpenAI, Anthropic) the whole transcript part of the body',
     excluded,
+    declared:
+      "a tool the test defines without `description` (its `Skill`) goes on Node's wire with the key absent; the core's " +
+      "tool definition always has a description string, so its codec sends `description: \"\"`. The replay drops that " +
+      'empty key from only those tools, named from the test input; every product tool has a description. ' +
+      "The loop session's `lastProviderSendAt` is each side's own send clock: compared as present and a number",
   },
 });
 commitStage(stage, finalDir);
