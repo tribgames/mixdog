@@ -11,6 +11,7 @@
 //!   `capabilities.modelProxy`, as the broker's [`ModelProxyTransport`].
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
@@ -85,16 +86,22 @@ pub struct ModelProxyService {
     runs: Mutex<HashMap<(ConnectionId, String), CancellationToken>>,
     /// Woken when a run leaves `runs`: `close` waits on it.
     settled: tokio::sync::Notify,
+    /// Set by `close`: a run it aborts answers that the app is closing.
+    closing: AtomicBool,
 }
+
+/// `appClosingError()` (model-proxy-host.ts `dispose`): what a run aborted by the closing app answers.
+const APP_CLOSING: &str = "The desktop app is closing.";
 
 impl ModelProxyService {
     pub fn new(runner: Arc<ProxyRunner>, host: Arc<dyn HostChannel>, notifier: Arc<dyn ConnectionNotifier>) -> Self {
-        Self { runner, host, notifier, runs: Mutex::new(HashMap::new()), settled: tokio::sync::Notify::new() }
+        Self { runner, host, notifier, runs: Mutex::new(HashMap::new()), settled: tokio::sync::Notify::new(), closing: AtomicBool::new(false) }
     }
 
     /// `modelProxyBridge.close` (daemon.mjs:302), the first step of Node's shutdown: every relayed model call is aborted, then this waits for the calls to settle, before
     /// anything they depend on goes away.
     pub async fn close(&self) {
+        self.closing.store(true, Ordering::SeqCst);
         for token in self.runs.lock().unwrap_or_else(PoisonError::into_inner).values() {
             token.cancel();
         }
@@ -134,7 +141,12 @@ impl DomainService for ModelProxyService {
         self.settled.notify_waiters();
         let result = match ran {
             Ok(answer) => answer,
-            Err(failure) => w::ProxyAnswer::Failed { failure },
+            Err(mut failure) => {
+                if cancel.is_cancelled() && self.closing.load(Ordering::SeqCst) {
+                    failure.message = APP_CLOSING.into();
+                }
+                w::ProxyAnswer::Failed { failure }
+            }
         };
         Ok(Reply::Value(serde_json::to_value(ModelProxyResult { result }).expect("a typed result serializes")))
     }

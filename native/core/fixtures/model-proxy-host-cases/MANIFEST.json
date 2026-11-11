@@ -84,35 +84,67 @@
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs",
   "recorderSha256": "80311284cdb889202d2c43acb7dcbf16a3171f8505b4617c371cda2f77638f30",
   "replay": {
-    "compare": "mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case's observed fields whole",
-    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references; mixdog-core/src/run_host/model_proxy_pc.rs:80 PcQuotaProbe; mixdog-core/src/run_host/model_proxy_pc.rs:250 PcProviderConfig.",
-    "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930"
-    ],
-    "normalised": {
-      "secretShapedInputs": "the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike",
-      "transportScope": "the PC scope is <session>#proxy:<uuid>; the uuid is a counter (scripted crypto.randomUUID), recorded as it came"
+    "compare": "each case's observed fields through the product's entry, compared whole through fieldMap; the envelope of the replaced protocol is declared under replaced",
+    "entry": "mixdog-core/src/run_host/model_proxy_host_run_replay_tests.rs drives `modelProxy/run` / `modelProxy/cancel` on ModelProxyService (mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs, registered by compose_flip.rs) over ProxyRunner, with this PC's PcQuotaProbe, PcWireRouter and PcProviderConfig; mixdog-core/src/run_host/model_proxy_host_config_replay_tests.rs replays the providerConfig cases through PcProviderConfig over the product registry and DefaultProviderBuilder; mixdog-core/src/run_host/model_proxy_host_server_replay_tests.rs replays the server's read (Node loadModelProxyProviderConfig) through HostProxyProviders (mixdog-core/src/run_host/proxy_providers.rs).",
+    "replaced": {
+      "protocol": "Node's claim/event/resolve host (modelProxyClaim/Event/Resolve, its heartbeat, lease and snapshot event) is replaced by the typed modelProxy/run request and its modelProxy/run/event notifications: mixdog-app-protocol/src/inventory.rs:848-858 marks the operations Deleted",
+      "keys": [
+        "wire",
+        "timers",
+        "operations",
+        "snapshot",
+        "heartbeatMs",
+        "leaseMs",
+        "failedHeartbeats",
+        "steps",
+        "runningInsideLease",
+        "requestId",
+        "claimed"
+      ],
+      "reason": "the envelope, timers and lease bookkeeping of the replaced protocol; the protections they carried are replayed on the typed path: a run ends with its connection's cancel token (case 7), the frame bound refuses an oversized call before any provider runs (case 19), a provider-config read is bounded by its one-second budget (cases 21/22)"
     },
-    "protocolMethods": [],
-    "rustTargets": [
-      {
-        "line": 76,
-        "name": "without_attachment_references",
-        "path": "native/core/crates/mixdog-ai/src/service/model_proxy.rs"
+    "fieldMap": {
+      "failure (one helper: node_failure / typed_failure)": {
+        "name": "AbortError -> failure.delivery ambiguous and kind transient (cancelled); any other name -> not cancelled",
+        "message": "failure.message",
+        "code": "failure.code (unset when Node set none)",
+        "props.status": "failure.status",
+        "props.retryAfter (s)": "failure.retryAfterMs (ms)",
+        "props.liveTextEmitted": "failure.textEmitted",
+        "props.partialContent": "the run's textDelta events before the failure",
+        "props.name": "equal to name"
       },
-      {
-        "line": 80,
-        "name": "PcQuotaProbe",
-        "path": "native/core/crates/mixdog-core/src/run_host/model_proxy_pc.rs"
+      "callbacks (one helper: typed_of_callbacks)": {
+        "[stage, streaming]": "ProxyEvent::OutputStarted",
+        "[text, t]": "ProxyEvent::TextDelta { text: t }",
+        "[reset, chars]": "ProxyEvent::AttemptDiscarded; chars equals the text of the discarded attempt"
       },
-      {
-        "line": 250,
-        "name": "PcProviderConfig",
-        "path": "native/core/crates/mixdog-core/src/run_host/model_proxy_pc.rs"
+      "result": {
+        "usage.inputTokens / outputTokens": "ProxyEvent::Usage",
+        "content": "the textDelta events after the last AttemptDiscarded",
+        "wireReroute": "ProxyEvent::WireRerouted { route }",
+        "settledCalls / hostRunning* / running*": "the run's answer (sent or failed) and the run leaving ModelProxyService.runs (close returns)"
+      },
+      "provider calls": {
+        "messages / model / tools / options.sessionId / options.temperature": "the ModelRequest the provider's attempt receives",
+        "options.signal": "the run's cancel token",
+        "options.toolExecutionSessionId: ''": "no typed field: no tool executes on the PC"
       }
-    ],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    },
+    "declared": {
+      "2 result.content": "\"Hello again\" is the stand-in's literal return (model-proxy-host.test.mjs:172), not what its callbacks streamed after the reset; a typed provider's content is its stream, compared as the text after the discard",
+      "4 forget": "forgetCredentials is no ProxyCall variant (mixdog-app-protocol/src/v2/model_proxy.rs ProxyCall): refused as invalid params before anything runs",
+      "5 cachedFlash.firstResponseBudget": "a budget that is not a number has no typed form (ProxyBudget is two u64)",
+      "13 options": "baseURL, requestHeaders, extraBody, codexInstallationId, _providerSeam are not ProxyOptions fields and are dropped as the call is read",
+      "19 maxRequestBytes": "Node's 200-byte cap was the test host's option; the typed bound is Limits::max_inbound_frame_bytes, checked by decode_inbound_text",
+      "21/22 waitMs": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller",
+      "23 long + short wait": "no per-read budget exists, so two unforced reads join one request (1, not Node's 2 more)",
+      "24/28 mixdog-local": "the Rust registry never builds mixdog-local; its rows are ignored in the replay"
+    },
+    "open": {
+      "12": "only the requested provider's credential is read on demand: not yet replayed through a send on the real registry",
+      "14": "a proxied side request's own transport scope: the typed ProxyOptions carries no scope flag (model_proxy.rs options_in sets transport_scope None), so the PC cannot fork and dispose one per side request"
+    }
   },
   "set": "model-proxy-host-cases",
   "totalBytes": 429141,

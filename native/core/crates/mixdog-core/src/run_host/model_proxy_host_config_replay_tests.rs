@@ -41,7 +41,7 @@ fn observed(case: &str) -> Value {
 }
 
 /// Node's scripted `probeAuth`: one answer for every provider, changed between steps.
-struct Auth(Mutex<&'static str>);
+pub(super) struct Auth(Mutex<&'static str>);
 
 #[async_trait]
 impl CredentialProbe for Auth {
@@ -51,14 +51,14 @@ impl CredentialProbe for Auth {
 }
 
 /// This PC: the config's providers section (changed between steps), the product's registry over the real builder.
-struct Pc {
+pub(super) struct Pc {
     available: Arc<Mutex<Map<String, Value>>>,
     registry: Arc<ProviderRegistry>,
-    config: PcProviderConfig,
+    pub(super) config: PcProviderConfig,
     _world: World,
 }
 
-async fn pc(available: Value, credentials: Arc<dyn CredentialProbe>) -> Pc {
+pub(super) async fn pc(available: Value, credentials: Arc<dyn CredentialProbe>) -> Pc {
     let world = world(&[], json!({}), Vec::new()).await;
     let builder: Arc<dyn ProviderBuilder> = Arc::new(DefaultProviderBuilder::new(builder_env(&world.services)));
     let registry = Arc::new(ProviderRegistry::new(builder));
@@ -68,7 +68,7 @@ async fn pc(available: Value, credentials: Arc<dyn CredentialProbe>) -> Pc {
     Pc { available, registry, config, _world: world }
 }
 
-fn scripted(state: &'static str) -> Arc<Auth> {
+pub(super) fn scripted(state: &'static str) -> Arc<Auth> {
     Arc::new(Auth(Mutex::new(state)))
 }
 
