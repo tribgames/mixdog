@@ -17,7 +17,7 @@ use super::google::tool_accept::claude_bridge_tool_exclusion;
 use super::google::tool_accept::function_declarations;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/providers/action-input-union/cases.json")).expect("recorded cases")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/providers/action-input-union/cases.json")).expect("recorded cases")
 }
 
 fn section(name: &str) -> Vec<Value> {

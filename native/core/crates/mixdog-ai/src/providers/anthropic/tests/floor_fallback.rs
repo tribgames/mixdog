@@ -128,7 +128,7 @@ async fn send_as_node(send: &Value) -> Value {
 
 #[tokio::test]
 async fn a_refused_floor_feature_is_switched_off_and_replayed_once_as_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../fixtures/claude-floors/golden.json")).expect("fixture");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture");
     let scenarios = golden["fallback"].as_array().expect("fallback");
     assert!(scenarios.len() >= 16, "both routes of every scenario");
     // Whatever ran before in this process may have switched these models off: the replay starts from the state of the

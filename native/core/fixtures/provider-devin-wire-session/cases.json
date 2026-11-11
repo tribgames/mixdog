@@ -1,0 +1,1576 @@
+{
+  "set": "provider-devin-wire-session",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "token-prefix-exactly-once",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:28",
+      "input": {},
+      "result": {
+        "plain": "devin-session-token$abc",
+        "prefixed": "devin-session-token$abc",
+        "empty": ""
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.normalizeDevinSessionToken",
+          "args": [
+            "abc"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.normalizeDevinSessionToken",
+          "args": [
+            "devin-session-token$abc"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.normalizeDevinSessionToken",
+          "args": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "id": "request-metadata-identities",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:34",
+      "input": {},
+      "result": {
+        "cli": {
+          "apiKey": "k",
+          "userJwt": "j",
+          "ideName": "devin-cli",
+          "ideType": "chisel",
+          "ideVersion": "3000.11.3",
+          "extensionName": "chisel",
+          "extensionVersion": "3000.11.3",
+          "locale": "en",
+          "os": "windows"
+        },
+        "legacy": {
+          "apiKey": "raw",
+          "ideName": "windsurf",
+          "ideVersion": "3.2.23",
+          "extensionName": "windsurf",
+          "extensionVersion": "1.48.2",
+          "locale": "en"
+        },
+        "discovery": {
+          "apiKey": "k",
+          "ideName": "chisel",
+          "ideVersion": "0.0.0-dev",
+          "extensionName": "chisel",
+          "extensionVersion": "0.0.0-dev",
+          "locale": "en",
+          "os": "windows",
+          "supportedModelDisplays": [
+            3,
+            4,
+            6,
+            7,
+            8
+          ]
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.devinRequestMetadata",
+          "args": [
+            {
+              "apiKey": "k",
+              "userJwt": "j"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.devinRequestMetadata",
+          "args": [
+            {
+              "apiKey": "raw",
+              "client": "legacy"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.devinRequestMetadata",
+          "args": [
+            {
+              "apiKey": "k",
+              "client": "discovery"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "get-user-jwt-prefixed-token-validated-host",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:67",
+      "input": {
+        "sessionToken": "tok"
+      },
+      "result": {
+        "result": {
+          "jwt": "the-jwt",
+          "apiKey": "devin-session-token$tok",
+          "apiHost": "https://acme.windsurf.example/api"
+        },
+        "calls": [
+          {
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$tok",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            }
+          }
+        ],
+        "defaultBaseUrl": "https://server.codeium.com"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "tok"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClgKCWRldmluLWNsaRIJMzAwMC4xMS4zGhdkZXZpbi1zZXNzaW9uLXRva2VuJHRvayICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.encodeDevinMessage",
+          "args": [
+            "GetUserJwtResponse",
+            {
+              "userJwt": "the-jwt",
+              "customApiServerUrl": "https://acme.windsurf.example/api/"
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "90"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClgKCWRldmluLWNsaRIJMzAwMC4xMS4zGhdkZXZpbi1zZXNzaW9uLXRva2VuJHRvayICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "Cgd0aGUtand0EiJodHRwczovL2FjbWUud2luZHN1cmYuZXhhbXBsZS9hcGkv"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "rejected-prefixed-token-retried-raw-once",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:87",
+      "input": {
+        "sessionToken": "raw-key"
+      },
+      "result": {
+        "retried": {
+          "result": {
+            "jwt": "legacy-jwt",
+            "apiKey": "raw-key"
+          }
+        },
+        "retryCalls": [
+          {
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$raw-key",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            }
+          },
+          {
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "raw-key",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            }
+          }
+        ],
+        "forbidden": {
+          "error": {
+            "$exact": "error",
+            "name": "DevinWireError",
+            "message": "Devin GetUserJwt unauthenticated (HTTP 403)",
+            "code": "unauthenticated",
+            "props": {
+              "name": "DevinWireError",
+              "status": 403,
+              "retryable": false,
+              "connectCode": "unauthenticated"
+            }
+          }
+        },
+        "forbiddenCalls": [
+          {
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$raw-key",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            }
+          }
+        ],
+        "prefixed": {
+          "error": {
+            "$exact": "error",
+            "name": "DevinWireError",
+            "message": "Devin GetUserJwt unauthenticated (HTTP 401)",
+            "code": "unauthenticated",
+            "props": {
+              "name": "DevinWireError",
+              "status": 401,
+              "retryable": false,
+              "connectCode": "unauthenticated"
+            }
+          }
+        },
+        "prefixedCalls": [
+          {
+            "metadata": {
+              "ideName": "devin-cli",
+              "extensionVersion": "3000.11.3",
+              "apiKey": "devin-session-token$x",
+              "locale": "en",
+              "os": "windows",
+              "ideVersion": "3000.11.3",
+              "extensionName": "chisel",
+              "ideType": "chisel"
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "raw-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "CkgKCWRldmluLWNsaRIJMzAwMC4xMS4zGgdyYXcta2V5IgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.encodeDevinMessage",
+          "args": [
+            "GetUserJwtResponse",
+            {
+              "userJwt": "legacy-jwt"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "raw-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "devin-session-token$x"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHgiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "94"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\",\"message\":\"no\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "74"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "CkgKCWRldmluLWNsaRIJMzAwMC4xMS4zGgdyYXcta2V5IgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "CgpsZWdhY3ktand0"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "94"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 403,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "88"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHgiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "failure-never-echoes-session-token",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:107",
+      "input": {
+        "secret": "S3ssionSecretValue42"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "DevinWireError",
+          "message": "Devin GetUserJwt unauthenticated (HTTP 401): token [redacted] rejected (raw [redacted])",
+          "code": "unauthenticated",
+          "props": {
+            "name": "DevinWireError",
+            "status": 401,
+            "retryable": false,
+            "connectCode": "unauthenticated",
+            "detail": "token [redacted] rejected (raw [redacted])"
+          }
+        },
+        "detail": "token [redacted] rejected (raw [redacted])",
+        "secretInAnyOf": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "S3ssionSecretValue42"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJFMzc3Npb25TZWNyZXRWYWx1ZTQyIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClUKCWRldmluLWNsaRIJMzAwMC4xMS4zGhRTM3NzaW9uU2VjcmV0VmFsdWU0MiICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "107"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJFMzc3Npb25TZWNyZXRWYWx1ZTQyIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\",\"message\":\"token devin-session-token$S3ssionSecretValue42 rejected (raw S3ssionSecretValue42)\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "87"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClUKCWRldmluLWNsaRIJMzAwMC4xMS4zGhRTM3NzaW9uU2VjcmV0VmFsdWU0MiICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\",\"message\":\"token S3ssionSecretValue42 rejected (raw S3ssionSecretValue42)\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "empty-jwt-missing-token-unsafe-host",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:126",
+      "input": {
+        "answers": [
+          {},
+          "(never called)",
+          {
+            "userJwt": "j",
+            "customApiServerUrl": "http://evil.example"
+          }
+        ]
+      },
+      "result": {
+        "emptyJwt": {
+          "error": {
+            "$exact": "error",
+            "name": "DevinWireError",
+            "message": "Devin GetUserJwt returned no user JWT",
+            "code": "protocol",
+            "props": {
+              "name": "DevinWireError",
+              "status": 0,
+              "retryable": false
+            }
+          }
+        },
+        "missingToken": {
+          "error": {
+            "$exact": "error",
+            "name": "DevinWireError",
+            "message": "Devin session token is missing",
+            "code": "unauthenticated",
+            "props": {
+              "name": "DevinWireError",
+              "status": 401,
+              "retryable": false
+            }
+          }
+        },
+        "unsafeHost": {
+          "error": {
+            "$exact": "error",
+            "name": "DevinWireError",
+            "message": "Devin returned an unsafe API host: https is required",
+            "code": "protocol",
+            "props": {
+              "name": "DevinWireError",
+              "status": 0,
+              "retryable": false
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "t"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.encodeDevinMessage",
+          "args": [
+            "GetUserJwtResponse",
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
+          "args": [
+            {
+              "sessionToken": "t"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.encodeDevinMessage",
+          "args": [
+            "GetUserJwtResponse",
+            {
+              "userJwt": "j",
+              "customApiServerUrl": "http://evil.example"
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "88"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": ""
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "88"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "CgFqEhNodHRwOi8vZXZpbC5leGFtcGxl"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "api-host-validation",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:142",
+      "input": {
+        "accepted": [
+          "https://server.codeium.com/",
+          "https://eu.windsurf.example:8443/x/",
+          "https://8.8.8.8"
+        ],
+        "unsafe": [
+          "http://server.codeium.com",
+          "ftp://server.codeium.com",
+          "https://user:pw@server.codeium.com",
+          "https://server.codeium.com/?a=1",
+          "https://server.codeium.com/#x",
+          "https://localhost",
+          "https://api.localhost",
+          "https://printer.local",
+          "https://intranet",
+          "https://127.0.0.1",
+          "https://10.1.2.3",
+          "https://172.20.0.1",
+          "https://192.168.1.1",
+          "https://169.254.169.254",
+          "https://100.64.0.1",
+          "https://0.0.0.0",
+          "https://[::1]",
+          "https://[fd00::1]",
+          "https://[fe80::1]",
+          "https://[::ffff:127.0.0.1]",
+          "https://2130706433",
+          "not a url"
+        ]
+      },
+      "result": {
+        "accepted": [
+          {
+            "host": "https://server.codeium.com/",
+            "validated": "https://server.codeium.com"
+          },
+          {
+            "host": "https://eu.windsurf.example:8443/x/",
+            "validated": "https://eu.windsurf.example:8443/x"
+          },
+          {
+            "host": "https://8.8.8.8",
+            "validated": "https://8.8.8.8"
+          }
+        ],
+        "unsafe": [
+          {
+            "host": "http://server.codeium.com",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: https is required",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "ftp://server.codeium.com",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: https is required",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://user:pw@server.codeium.com",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: embedded credentials",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://server.codeium.com/?a=1",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: query or fragment",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://server.codeium.com/#x",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: query or fragment",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://localhost",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: single-label host",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://api.localhost",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: local host name",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://printer.local",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: local host name",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://intranet",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: single-label host",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://127.0.0.1",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://10.1.2.3",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://172.20.0.1",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://192.168.1.1",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://169.254.169.254",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://100.64.0.1",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://0.0.0.0",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://[::1]",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://[fd00::1]",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://[fe80::1]",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://[::ffff:127.0.0.1]",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "https://2130706433",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: private address",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          },
+          {
+            "host": "not a url",
+            "error": {
+              "$exact": "error",
+              "name": "DevinWireError",
+              "message": "Devin returned an unsafe API host: not a URL",
+              "code": "protocol",
+              "props": {
+                "name": "DevinWireError",
+                "status": 0,
+                "retryable": false
+              }
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://server.codeium.com/"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://eu.windsurf.example:8443/x/"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://8.8.8.8"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "http://server.codeium.com"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "ftp://server.codeium.com"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://user:pw@server.codeium.com"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://server.codeium.com/?a=1"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://server.codeium.com/#x"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://localhost"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://api.localhost"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://printer.local"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://intranet"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://127.0.0.1"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://10.1.2.3"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://172.20.0.1"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://192.168.1.1"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://169.254.169.254"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://100.64.0.1"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://0.0.0.0"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://[::1]"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://[fd00::1]"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://[fe80::1]"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://[::ffff:127.0.0.1]"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "https://2130706433"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.validateDevinApiHost",
+          "args": [
+            "not a url"
+          ]
+        }
+      ]
+    }
+  ]
+}

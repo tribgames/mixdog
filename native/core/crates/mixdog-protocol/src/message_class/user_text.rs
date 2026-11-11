@@ -518,7 +518,7 @@ mod attachment_text_tests {
     /// The wrapped and plain texts Node's `attachmentTextForPart` produced for stored text parts.
     #[test]
     fn matches_node() {
-        let twin: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
+        let twin: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
         for case in twin["textCases"].as_array().unwrap() {
             let got = attachment_text(case["text"].as_str().unwrap(), case["textKind"].as_str(), case["filename"].as_str());
             assert_eq!(got, case["value"].as_str().unwrap(), "{case}");

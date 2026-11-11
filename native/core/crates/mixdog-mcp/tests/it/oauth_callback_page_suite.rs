@@ -83,7 +83,7 @@ async fn closed_after(before: usize) {
     tokio::time::timeout(std::time::Duration::from_secs(30), released).await.expect("no listener was released");
 }
 
-const GOLDEN: &str = include_str!("../../../../fixtures/oauth-callback-mcp/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-callback-mcp/golden.json");
 
 /// The MCP server that is also its authorization server, as the recorder's: the token endpoint answers by `token`.
 struct Auth {
@@ -210,7 +210,7 @@ impl Callback {
 async fn the_mcp_callback_answers_as_nodes() {
     let _seams = crate::oauth_seams().await;
     mixdog_mcp::oauth::callback::seam::take_control();
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let title = case["title"].as_str().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

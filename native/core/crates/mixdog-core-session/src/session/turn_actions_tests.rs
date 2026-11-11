@@ -39,7 +39,7 @@ fn golden(name: &str) -> Value {
     let text = match name {
         "secret-slots.json" => include_str!("../../../../fixtures/turn-ops/secret-slots.json"),
         "staged-originals.json" => include_str!("../../../../fixtures/turn-ops/staged-originals.json"),
-        "composer-image.json" => include_str!("../../../../fixtures/turn-ops/composer-image.json"),
+        "composer-image.json" => mixdog_testkit::fixture!("../../fixtures/turn-ops/composer-image.json"),
         other => panic!("{other}"),
     };
     serde_json::from_str(text).unwrap()
