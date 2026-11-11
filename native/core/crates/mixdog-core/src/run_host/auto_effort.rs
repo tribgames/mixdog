@@ -4,7 +4,7 @@
 //! `step_judge` does). The base is clamped to the model's ladder by `ladder::clamp_base`
 //! (`clampAutoEffortBase`), the ladder itself is `ladder_facts`' options.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_js::{js_trim, utf16_len, value_to_string};
-use mixdog_rt::{CancellationToken, DurabilityIo, LaneToken};
+use mixdog_rt::{CancellationToken, DurabilityIo, LaneToken, MaintenanceIo};
 use mixdog_services::effort_judge::ladder::{clamp_base, ladder_of, resolve_auto_effort};
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
@@ -133,57 +133,108 @@ pub trait EffortDiagnostics: Send + Sync {
     fn warn(&self, line: &str);
 }
 
-/// [`EffortDiagnostics`] appending to `decisions.jsonl` as a durability-lane job, and warning on stderr.
+/// The jobs a test awaits: appends, and the rotations they start.
+#[cfg(test)]
+type Pending = Arc<Mutex<Vec<futures::future::BoxFuture<'static, ()>>>>;
+
+/// [`EffortDiagnostics`] writing the decision log (`recordEffortDecision`), and warning on stderr. A log
+/// redirected by `MIXDOG_EFFORT_DECISIONS_LOG` is one plain file with every line; the data directory's
+/// own log keeps its newest segments and counts older lines (`decision_log`). Appends are
+/// durability-lane jobs, rotations maintenance-lane jobs.
 pub struct EffortDecisionLog {
     env: EnvReader,
     plugin_data: PathBuf,
     lane: DurabilityIo,
-    /// The appends still running, for the tests to await.
+    maintenance: MaintenanceIo,
+    segment_bytes: u64,
+    /// One entry per data-directory log file, as Node's `decisionLog(file)`.
+    logs: Mutex<HashMap<PathBuf, Arc<decision_log::Segments>>>,
     #[cfg(test)]
-    appends: Mutex<Vec<futures::future::BoxFuture<'static, ()>>>,
+    pending: Pending,
 }
 
 impl EffortDecisionLog {
     /// `plugin_data` is `resolvePluginData()` when `MIXDOG_DATA_DIR` is not set.
-    pub fn new(env: EnvReader, plugin_data: PathBuf, lane: DurabilityIo) -> Self {
+    pub fn new(env: EnvReader, plugin_data: PathBuf, lane: DurabilityIo, maintenance: MaintenanceIo) -> Self {
         Self {
             env,
             plugin_data,
             lane,
+            maintenance,
+            segment_bytes: decision_log::DECISION_SEGMENT_BYTES,
+            logs: Mutex::default(),
             #[cfg(test)]
-            appends: Mutex::default(),
+            pending: Pending::default(),
         }
     }
 
-    /// Returns once every append recorded so far has landed.
+    /// With a smaller segment than Node's 4 MiB.
     #[cfg(test)]
-    async fn appended(&self) {
-        let appends = std::mem::take(&mut *self.appends.lock().unwrap());
-        mixdog_core_session::session::testing::awaiting(|| "every effort-decision append to land".to_owned(), futures::future::join_all(appends)).await;
+    fn with_segment_bytes(mut self, segment_bytes: u64) -> Self {
+        self.segment_bytes = segment_bytes;
+        self
     }
 
-    /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge',
-    /// 'decisions.jsonl')`, read at each append.
-    fn destination(&self) -> PathBuf {
+    /// Returns once every append recorded so far, and every rotation one started, has finished.
+    #[cfg(test)]
+    async fn appended(&self) {
+        loop {
+            let pending = std::mem::take(&mut *self.pending.lock().unwrap());
+            if pending.is_empty() {
+                return;
+            }
+            mixdog_core_session::session::testing::awaiting(|| "every effort-decision append and rotation to finish".to_owned(), futures::future::join_all(pending)).await;
+        }
+    }
+
+    /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG`, else the data directory's own log
+    /// (`join(resolvePluginData(), 'effort-judge', 'decisions.jsonl')`), read at each append.
+    fn destination(&self) -> Result<PathBuf, PathBuf> {
         let set = |name: &str| (self.env)(name).filter(|value| !value.is_empty());
-        set("MIXDOG_EFFORT_DECISIONS_LOG").map_or_else(
-            || set("MIXDOG_DATA_DIR").map_or_else(|| self.plugin_data.clone(), PathBuf::from).join("effort-judge").join("decisions.jsonl"),
-            PathBuf::from,
-        )
+        match set("MIXDOG_EFFORT_DECISIONS_LOG") {
+            Some(redirected) => Ok(PathBuf::from(redirected)),
+            None => Err(set("MIXDOG_DATA_DIR").map_or_else(|| self.plugin_data.clone(), PathBuf::from).join("effort-judge").join("decisions.jsonl")),
+        }
+    }
+
+    fn segments(&self, file: PathBuf) -> Arc<decision_log::Segments> {
+        let mut logs = self.logs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        logs.entry(file.clone()).or_insert_with(|| Arc::new(decision_log::Segments::new(file, self.segment_bytes))).clone()
     }
 }
 
 impl EffortDiagnostics for EffortDecisionLog {
     fn record(&self, entry: Map<String, Value>) {
-        let (path, line) = (self.destination(), format!("{}\n", Value::Object(entry)));
-        // The log is diagnostic only: a failed append is dropped.
-        let job = move |lane: &mixdog_rt::InLane<DurabilityIo>| {
-            let _ = mixdog_statefile::append_file(lane, &path, line.as_bytes());
+        let line = format!("{}\n", Value::Object(entry));
+        // The log is diagnostic only: a failed append, or a rotation the lane refuses, is dropped.
+        let submitted = match self.destination() {
+            Ok(redirected) => self.lane.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<DurabilityIo>| {
+                let _ = mixdog_statefile::append_file(lane, &redirected, line.as_bytes());
+            }),
+            Err(own) => {
+                let (segments, maintenance) = (self.segments(own), self.maintenance);
+                #[cfg(test)]
+                let pending = self.pending.clone();
+                self.lane.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<DurabilityIo>| {
+                    if !segments.append(lane, &line) {
+                        return;
+                    }
+                    let rotating = segments.clone();
+                    match maintenance.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<MaintenanceIo>| rotating.rotate(lane)) {
+                        #[cfg(test)]
+                        Ok(rotation) => pending.lock().unwrap().push(Box::pin(async move {
+                            let _ = rotation.await;
+                        })),
+                        #[cfg(not(test))]
+                        Ok(_) => {}
+                        Err(_) => segments.rotation_refused(),
+                    }
+                })
+            }
         };
-        let submitted = self.lane.submit(&CancellationToken::new(), job);
         #[cfg(test)]
         if let Ok(append) = submitted {
-            self.appends.lock().unwrap().push(Box::pin(async move {
+            self.pending.lock().unwrap().push(Box::pin(async move {
                 let _ = append.await;
             }));
         }
@@ -371,6 +422,8 @@ impl TurnAutoEffort {
         })
     }
 }
+
+mod decision_log;
 
 #[cfg(test)]
 mod tests;
