@@ -1884,7 +1884,7 @@
             "traceId": "read-host-failure",
             "stage": "host-failed",
             "atMs": 1800000000000,
-            "elapsedMs": 0.1
+            "elapsedMs": 0
           }
         ]
       }
