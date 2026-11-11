@@ -504,6 +504,13 @@ async fn read_decodes_a_wrapped_notebook_image_as_node_does() {
     replay_fs_search("read-ipynb-image").await;
 }
 
+/// Characters outside the base64 alphabet in a notebook image are read through their UTF-16 code units' low byte, as
+/// Node's `Buffer.from(b64, 'base64')` reads them: some are skipped, some count as letters or as `=`.
+#[tokio::test]
+async fn read_decodes_non_ascii_in_notebook_base64_as_node_does() {
+    replay_fs_search("read-ipynb-base64-junk").await;
+}
+
 /// A missing `list` / `grep` path carries Node's recovery hints.
 #[tokio::test]
 async fn list_and_grep_answer_a_missing_path_as_node_does() {
