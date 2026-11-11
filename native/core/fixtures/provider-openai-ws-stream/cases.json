@@ -1,0 +1,1041 @@
+{
+  "set": "provider-openai-ws-stream",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "text-call-and-usage-in-one-result",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:58",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "Hello "
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "world"
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "function_call",
+              "id": "fc_1",
+              "call_id": "call_1",
+              "name": "read"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_1",
+            "delta": "{\"path\""
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_1",
+            "arguments": "{\"path\":\"a.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "item": {
+              "type": "function_call",
+              "id": "fc_1",
+              "call_id": "call_1",
+              "name": "read",
+              "arguments": "{\"path\":\"a.txt\"}"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture",
+              "end_turn": false,
+              "usage": {
+                "input_tokens": 12,
+                "output_tokens": 3,
+                "input_tokens_details": {
+                  "cached_tokens": 4
+                }
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "Hello world"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "Hello world",
+          "model": "gpt-fixture",
+          "responseItems": [
+            {
+              "type": "function_call",
+              "id": "fc_1",
+              "call_id": "call_1",
+              "name": "read",
+              "arguments": "{\"path\":\"a.txt\"}"
+            },
+            {
+              "type": "message",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Hello world"
+                }
+              ]
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "openai-responses",
+            "items": [
+              {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}"
+              },
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Hello world"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 12,
+            "outputTokens": 3,
+            "cachedTokens": 4,
+            "cacheWriteTokens": 0,
+            "promptTokens": 12,
+            "raw": {
+              "input_tokens": 12,
+              "output_tokens": 3,
+              "input_tokens_details": {
+                "cached_tokens": 4
+              }
+            }
+          },
+          "endTurn": false,
+          "responseId": "resp_1",
+          "generationMs": 0
+        },
+        "text": [
+          "Hello ",
+          "world"
+        ],
+        "tools": [
+          {
+            "id": "call_1",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "progress": [
+          "transport",
+          "text",
+          "text",
+          "tool",
+          "tool",
+          "tool",
+          "tool",
+          "semantic"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": true,
+          "wsCloseCode": null,
+          "responseFailedPayload": null,
+          "emittedText": true,
+          "startedToolCall": true,
+          "emittedToolCall": true
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "call-id-only-in-completed-bundle-is-salvaged",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:112",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_late",
+            "arguments": "{\"q\":1}"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_late",
+                  "call_id": "call_late",
+                  "name": "search"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "",
+          "model": "gpt-fixture",
+          "responseItems": [
+            {
+              "type": "function_call",
+              "id": "fc_late",
+              "call_id": "call_late",
+              "name": "search"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "openai-responses",
+            "items": [
+              {
+                "type": "function_call",
+                "id": "fc_late",
+                "call_id": "call_late",
+                "name": "search"
+              }
+            ]
+          },
+          "toolCalls": [
+            {
+              "id": "call_late",
+              "name": "search",
+              "arguments": {
+                "q": 1
+              }
+            }
+          ],
+          "responseId": "resp_1"
+        },
+        "text": [],
+        "tools": [
+          {
+            "id": "call_late",
+            "name": "search",
+            "arguments": {
+              "q": 1
+            }
+          }
+        ],
+        "progress": [
+          "transport",
+          "tool",
+          "tool"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": true,
+          "wsCloseCode": null,
+          "responseFailedPayload": null,
+          "emittedToolCall": true
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "unsalvageable-call-fails",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:112",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_lost",
+            "arguments": "{}"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "output": []
+            }
+          }
+        ]
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "OpenAI OAuth WS function_call salvage failed: missing call_id/name for item_id=fc_lost",
+          "partialContent": "",
+          "partialToolCalls": [
+            {
+              "id": "",
+              "name": "",
+              "arguments": {},
+              "_pendingItemId": "fc_lost",
+              "_deferred": true
+            }
+          ],
+          "pendingToolUse": false,
+          "partialModel": "gpt-fixture",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": true,
+            "toolCallsComplete": 1,
+            "toolCallsDispatched": 1,
+            "dispatchAmbiguous": true,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": true,
+            "sideEffectDispatched": true,
+            "replayUnsafe": true,
+            "replaySafe": false,
+            "successEligible": false
+          },
+          "partialToolCall": true,
+          "emittedToolCall": true,
+          "toolCallEmitted": true,
+          "unsafeToRetry": true
+        },
+        "text": [],
+        "tools": [],
+        "progress": [
+          "transport",
+          "tool",
+          "semantic"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": null,
+          "responseFailedPayload": null
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "leaked-tool-call-recovered-once",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:140",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "Sure. "
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "<function_calls><invoke name=\"read\"><parameter name=\"path\">a.txt</parameter></invoke></function_calls>"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "output": []
+            }
+          }
+        ],
+        "knownToolNames": [
+          "read"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "Sure. ",
+          "model": "gpt-fixture",
+          "toolCalls": [
+            {
+              "id": "call_leaked_ff49be67d5edff28",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ],
+          "responseId": "resp_1"
+        },
+        "text": [
+          "Sure. "
+        ],
+        "tools": [
+          {
+            "id": "call_leaked_ff49be67d5edff28",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "progress": [
+          "transport",
+          "text",
+          "tool",
+          "semantic"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": true,
+          "wsCloseCode": null,
+          "responseFailedPayload": null,
+          "emittedText": true,
+          "emittedToolCall": true
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "max-output-tokens-truncated-success",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:155",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "partial"
+          },
+          {
+            "type": "response.incomplete",
+            "response": {
+              "incomplete_details": {
+                "reason": "max_output_tokens"
+              }
+            }
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "partial",
+          "model": "gpt-fixture",
+          "stopReason": "length",
+          "truncated": true,
+          "incompleteReason": "max_output_tokens",
+          "responseId": "resp_1"
+        },
+        "text": [
+          "partial"
+        ],
+        "tools": [],
+        "progress": [
+          "transport",
+          "text"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": true,
+          "wsCloseCode": null,
+          "responseFailedPayload": null,
+          "emittedText": true
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "response-failed-rejects-with-frame",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:155",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.failed",
+            "response": {
+              "error": {
+                "message": "boom",
+                "code": "server_error",
+                "status": 503
+              }
+            }
+          }
+        ]
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "OpenAI OAuth WS response.failed: boom",
+          "responseFailed": {
+            "type": "response.failed",
+            "response": {
+              "error": {
+                "message": "boom",
+                "code": "server_error",
+                "status": 503
+              }
+            }
+          },
+          "providerErrorCode": "server_error",
+          "status": 503,
+          "httpStatus": 503,
+          "code": "server_error",
+          "partialContent": "",
+          "pendingToolUse": false,
+          "partialModel": "gpt-fixture",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": false,
+            "sideEffectDispatched": false,
+            "replayUnsafe": false,
+            "replaySafe": true,
+            "successEligible": false
+          }
+        },
+        "text": [],
+        "tools": [],
+        "progress": [
+          "transport"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": null,
+          "responseFailedPayload": {
+            "type": "response.failed",
+            "response": {
+              "error": {
+                "message": "boom",
+                "code": "server_error",
+                "status": 503
+              }
+            }
+          }
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "response-done-cancelled-rejects",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:155",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.done",
+            "response": {
+              "status": "cancelled"
+            }
+          }
+        ]
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "OpenAI OAuth WS response.done unexpected status: cancelled",
+          "responseDoneStatus": "cancelled",
+          "partialContent": "",
+          "pendingToolUse": false,
+          "partialModel": "gpt-fixture",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": false,
+            "sideEffectDispatched": false,
+            "replayUnsafe": false,
+            "replaySafe": true,
+            "successEligible": false
+          }
+        },
+        "text": [],
+        "tools": [],
+        "progress": [
+          "transport"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": null,
+          "responseFailedPayload": null
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "close-before-terminal-keeps-partial-state",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:133",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "half"
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "function_call",
+              "id": "fc_open",
+              "call_id": "c",
+              "name": "n"
+            }
+          }
+        ],
+        "close": [
+          1006,
+          "gone"
+        ]
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
+          "wsCloseCode": 1006,
+          "wsCloseReason": "gone",
+          "partialContent": "half",
+          "pendingToolUse": true,
+          "partialModel": "gpt-fixture",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": true,
+            "textObservedChars": 4,
+            "reasoningEmitted": false,
+            "toolCallsStarted": true,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": true,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": true,
+            "observedOutput": true,
+            "sideEffectDispatched": false,
+            "replayUnsafe": true,
+            "replaySafe": false,
+            "successEligible": false
+          },
+          "liveTextEmitted": true,
+          "emittedText": true,
+          "partialToolCall": true,
+          "unsafeToRetry": true
+        },
+        "text": [
+          "half"
+        ],
+        "tools": [],
+        "progress": [
+          "transport",
+          "text",
+          "tool"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": 1006,
+          "responseFailedPayload": null,
+          "emittedText": true,
+          "startedToolCall": true
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "close-after-finished-call-carries-it",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:203",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "function_call",
+              "id": "fc_done",
+              "call_id": "call_done",
+              "name": "read"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_done",
+            "arguments": "{\"path\":\"a.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "item": {
+              "type": "function_call",
+              "id": "fc_done",
+              "call_id": "call_done",
+              "name": "read",
+              "arguments": "{\"path\":\"a.txt\"}"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "function_call",
+              "id": "fc_open",
+              "call_id": "call_open",
+              "name": "edit"
+            }
+          },
+          {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_open",
+            "delta": "{\"pa"
+          }
+        ],
+        "close": [
+          1006,
+          "gone"
+        ]
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
+          "wsCloseCode": 1006,
+          "wsCloseReason": "gone",
+          "partialContent": "",
+          "partialToolCalls": [
+            {
+              "id": "call_done",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ],
+          "partialProviderReplay": {
+            "version": 1,
+            "provider": "openai-responses",
+            "items": [
+              {
+                "type": "function_call",
+                "id": "fc_done",
+                "call_id": "call_done",
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}"
+              }
+            ]
+          },
+          "pendingToolUse": true,
+          "partialModel": "gpt-fixture",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": true,
+            "toolCallsComplete": 1,
+            "toolCallsDispatched": 1,
+            "dispatchAmbiguous": true,
+            "pendingToolInput": true,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": true,
+            "sideEffectDispatched": true,
+            "replayUnsafe": true,
+            "replaySafe": false,
+            "successEligible": false
+          },
+          "partialToolCall": true,
+          "emittedToolCall": true,
+          "toolCallEmitted": true,
+          "unsafeToRetry": true
+        },
+        "text": [],
+        "tools": [
+          {
+            "id": "call_done",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "progress": [
+          "transport",
+          "tool",
+          "tool",
+          "tool",
+          "tool",
+          "tool"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": 1006,
+          "responseFailedPayload": null,
+          "startedToolCall": true,
+          "emittedToolCall": true
+        },
+        "closes": []
+      }
+    },
+    {
+      "id": "external-abort-tags-user-abort",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:361",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          }
+        ],
+        "abort": {
+          "name": "Error",
+          "message": "stop"
+        }
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "stop",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": true,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": false,
+            "sideEffectDispatched": false,
+            "replayUnsafe": false,
+            "replaySafe": false,
+            "successEligible": false
+          }
+        },
+        "text": [],
+        "tools": [],
+        "progress": [
+          "transport"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": null,
+          "responseFailedPayload": null,
+          "userAbort": true
+        },
+        "closes": [
+          [
+            4002,
+            "aborted"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "external-abort-tags-watchdog-abort",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:361",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          }
+        ],
+        "abort": {
+          "name": "AgentStallAbortError",
+          "message": "stalled"
+        }
+      },
+      "result": {
+        "error": {
+          "name": "AgentStallAbortError",
+          "message": "stalled",
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-responses",
+            "transport": "ws",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": true,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": false,
+            "sideEffectDispatched": false,
+            "replayUnsafe": false,
+            "replaySafe": true,
+            "successEligible": false
+          }
+        },
+        "text": [],
+        "tools": [],
+        "progress": [
+          "transport"
+        ],
+        "state": {
+          "sessionId": "ws-stream-test",
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "wsCloseCode": null,
+          "responseFailedPayload": null,
+          "watchdogAbort": "AgentStallAbortError"
+        },
+        "closes": [
+          [
+            4002,
+            "aborted"
+          ]
+        ]
+      }
+    }
+  ]
+}
