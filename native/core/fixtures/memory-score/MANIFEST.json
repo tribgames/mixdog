@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5822,
+      "bytes": 6134,
       "path": "golden.json",
-      "sha256": "a5e66876d0cf2acceedaa56228a6cf2aa7127a3a1970a2b7134cabf627c81a49"
+      "sha256": "f3447931fefd9550c0a24817bc5ea8bdf711d49d81c1731c2bbadd16b3715469"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-score.mjs",
-  "recorderSha256": "5424c918b2318de4c09c3b9f636ee48753d17da9190cd679d61a284c7b27e549",
-  "replay": "mixdog-services memory: mem/schema.rs category_score_params + compute_entry_score (PG function or its Rust twin); compares every score and the null answers exactly (f64 equal)",
+  "recorderSha256": "68b3e17f8fc75936c8dee6ff2d8c67dc4c67edcad7062a079b865570e9c7c643",
+  "replay": "No pub Rust fn: the score is the SQL function compute_entry_score (native/core/crates/mixdog-services/src/memory/schema.rs:41) with the category table category_score_params (:31) and the trigger trg_entry_score_recalc (:115). A replay runs the same (category, last_seen_at, now) through that SQL function on a PG with the installed schema (or writes entries through SessionIngest::ingest_session, memory/ingest/mod.rs:133, and reads entries.score) and compares every score and the null answers exactly (f64 equal). Needs MIXDOG_PG_RUNTIME",
   "set": "memory-score",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 5822,
-  "uuidsNormalised": "none"
+  "totalBytes": 6134,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
