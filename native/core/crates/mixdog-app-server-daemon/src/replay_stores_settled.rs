@@ -1,12 +1,15 @@
 //! Replay-only (`replay-controls`, refused in a release build by build.rs): `replay/storesSettled`, the barrier the lone-surrogate
-//! wire replay (`benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs`) takes before it reads the core's files. In
-//! order, it waits for every write-behind writer under the core's folders to have written what it took before the call:
-//! the agent index's queued row writes (`StoreWorkers::settled`, which hands header changes to the threads), then each thread
-//! loaded at the call (every record accepted before it committed and every prompt-history append pushed before it written:
-//! `SessionDirectory::durability_settled`), the read-state snapshots (`ReadState::flush_all`), the gateway usage events
-//! (`GatewayUsage::settle`) and the usage ledger, when open (`UsageWriter::settle_writes`). It answers how many threads were
-//! asked. A thread that ends with something unwritten, a ledger that fails to settle, or a wait past [`DEADLINE`] answers an
-//! error that says which; no path leaves the call unanswered.
+//! wire replay (`benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs`) takes before it reads the core's files. It
+//! waits for every write-behind writer under the core's folders to have written what it accepted before the call, and nothing
+//! accepted after: each writer numbers its writes ([`mixdog_rt::WriteMarks`]), the call takes every writer's accepted count
+//! as it arrives and waits for that writer's committed count to reach it. In order: the agent index's row writes
+//! (`StoreWorkers::marks`, which hand header changes to the threads), then each thread loaded at the call (every record
+//! accepted before it committed and every prompt-history append pushed before it written, counted at the moment the thread
+//! is asked: `SessionDirectory::durability_settled`), the read-state snapshots (`ReadState::marks`, their debounce cut
+//! short), the gateway usage events (`GatewayUsage::marks`, then the compaction their appends scheduled, run now) and the
+//! usage ledger, when open (`UsageWriter::marks`). It answers how many threads were asked. A write from before the call that
+//! failed answers an error naming its store, as does a thread that ended with something unwritten or a wait past
+//! [`DEADLINE`]; no path leaves the call unanswered.
 //!
 //! The other stores a call writes need no control of their own: the config file and the MCP server list in it are written through
 //! the config's one writer, which the replay's `config/setTheme` waits for; a secret is written on the durability lane inside the
@@ -55,12 +58,23 @@ impl StoresSettled {
     }
 
     async fn settle(&self) -> Result<usize, String> {
-        self.writers.workers.settled().await;
+        // Every writer's accepted count as the call arrives; each is then awaited to that count only.
+        let workers = self.writers.workers.marks().accepted();
+        let read_state = self.writers.read_state.marks().accepted();
+        let gateway = self.gateway_usage.marks().accepted();
+        let ledger = self.ledgers.if_open().map(|ledger| {
+            let mark = ledger.writer.marks().accepted();
+            (ledger, mark)
+        });
+        self.writers.workers.marks().reached(workers).await?;
         let threads = self.directory.durability_settled().await?;
-        self.writers.read_state.flush_all().await;
-        self.gateway_usage.settle().await;
-        if let Some(ledger) = self.ledgers.if_open() {
-            ledger.writer.settle_writes().await.map_err(|error| format!("the usage ledger's queued writes did not settle: {error}"))?;
+        self.writers.read_state.flush_pending();
+        self.writers.read_state.marks().reached(read_state).await?;
+        self.gateway_usage.flush();
+        self.gateway_usage.marks().reached(gateway).await?;
+        self.gateway_usage.compact_scheduled_now().await;
+        if let Some((ledger, mark)) = ledger {
+            ledger.writer.marks().reached(mark).await?;
         }
         Ok(threads)
     }

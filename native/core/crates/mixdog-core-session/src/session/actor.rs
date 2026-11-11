@@ -257,9 +257,10 @@ pub(crate) enum Inbox {
     Unwind(UnwindAt),
     /// Replay-only ([`super::SessionDirectory::durability_settled`]): answered once every record accepted before it is
     /// committed (or failed) and every prompt-history append pushed before it is written; what is accepted after it
-    /// neither holds nor hastens the answer. At once when nothing from before it is pending.
+    /// neither holds nor hastens the answer. At once when nothing from before it is pending; an error naming the store when
+    /// one of them failed.
     #[cfg(any(test, feature = "test-support"))]
-    Settled { tx: oneshot::Sender<()> },
+    Settled { tx: oneshot::Sender<Result<(), String>> },
 }
 
 /// Where a test's injected unwind of the actor happens.
@@ -653,7 +654,7 @@ pub(crate) struct SessionActor {
     /// [`Inbox::Settled`] callers, each with the positions taken when it arrived: the outbox's last accepted entry and the
     /// prompt-history appends pushed ([`SessionActor::answer_settled`]).
     #[cfg(any(test, feature = "test-support"))]
-    settled: Vec<((u64, u64), oneshot::Sender<()>)>,
+    settled: Vec<((u64, u64), oneshot::Sender<Result<(), String>>)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -1085,7 +1086,7 @@ impl SessionActor {
                 // The close flushed: every accepted record is committed, and, when the prompt-history appends all landed,
                 // a barrier that finds this thread gone counts it settled.
                 #[cfg(any(test, feature = "test-support"))]
-                self.cell.flushed.store(self.prompt_appends.landed() == self.prompt_appends.accepted(), SeqCst);
+                self.cell.flushed.store(self.prompt_appends.marks().check(self.prompt_appends.marks().accepted()) == Some(Ok(())), SeqCst);
                 break;
             }
         }
@@ -2133,6 +2134,10 @@ impl SessionActor {
     }
 
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        #[cfg(any(test, feature = "test-support"))]
+        if entry.durable.is_some() {
+            self.outbox.note_failed(entry.id, format!("{error:?}"));
+        }
         // A queued prompt whose record was not stored is removed and its id forgotten, and the sender hears a refusal
         // (`drain-enqueue.mjs:64`, a failed durable mirror), so a retry is a new submission.
         let mut refused = None;
@@ -3962,7 +3967,7 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
             // The accept watermarks now; answered at the end of an iteration of the run loop once both are reached.
             #[cfg(any(test, feature = "test-support"))]
-            Inbox::Settled { tx } => self.settled.push(((self.outbox.last_accepted(), self.prompt_appends.accepted()), tx)),
+            Inbox::Settled { tx } => self.settled.push(((self.outbox.last_accepted(), self.prompt_appends.marks().accepted()), tx)),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -5371,10 +5376,17 @@ impl SessionActor {
     #[cfg(any(test, feature = "test-support"))]
     fn answer_settled(&mut self) {
         for ((records, prompts), tx) in std::mem::take(&mut self.settled) {
-            if self.outbox.committed_through(records) && self.prompt_appends.landed() >= prompts {
-                let _ = tx.send(());
-            } else {
-                self.settled.push(((records, prompts), tx));
+            let answer = match (self.outbox.committed_through(records), self.prompt_appends.marks().check(prompts)) {
+                (Some(Err(error)), _) => Some(Err(format!("thread {}: {error}", self.id.as_str()))),
+                (_, Some(Err(error))) => Some(Err(format!("thread {}: {error}", self.id.as_str()))),
+                (Some(Ok(())), Some(Ok(()))) => Some(Ok(())),
+                _ => None,
+            };
+            match answer {
+                Some(answer) => {
+                    let _ = tx.send(answer);
+                }
+                None => self.settled.push(((records, prompts), tx)),
             }
         }
     }

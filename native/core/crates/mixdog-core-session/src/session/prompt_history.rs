@@ -76,15 +76,34 @@ pub struct AppendQueue {
     /// A flush came due while one was running: it goes when that one ends.
     flush_after: bool,
     epoch: u64,
-    /// How many appends were pushed, and how many of them landed: the replay barrier's positions
-    /// ([`super::SessionDirectory::durability_settled`]). The appends land in push order, so the first `landed` did.
+    /// Each append numbered as it is pushed and reported once its flush landed or failed: the replay barrier's positions
+    /// ([`super::SessionDirectory::durability_settled`]).
     #[cfg(any(test, feature = "test-support"))]
-    accepted: u64,
+    marks: Marks,
+    /// The numbers of `pending`, in its order.
     #[cfg(any(test, feature = "test-support"))]
-    landed: u64,
-    /// How many appends the running flush took.
+    queued: Vec<u64>,
+    /// The numbers of the appends the running flush took.
     #[cfg(any(test, feature = "test-support"))]
-    flushing: usize,
+    flushing: Vec<u64>,
+}
+
+/// [`mixdog_rt::WriteMarks`] of the prompt history.
+#[cfg(any(test, feature = "test-support"))]
+pub struct Marks(mixdog_rt::WriteMarks);
+
+#[cfg(any(test, feature = "test-support"))]
+impl Default for Marks {
+    fn default() -> Self {
+        Self(mixdog_rt::WriteMarks::new("the prompt history"))
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl std::fmt::Debug for Marks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Marks(accepted {}, committed {})", self.0.accepted(), self.0.committed())
+    }
 }
 
 impl AppendQueue {
@@ -94,21 +113,15 @@ impl AppendQueue {
         self.flush_after = false;
         #[cfg(any(test, feature = "test-support"))]
         {
-            self.flushing = self.pending.len();
+            self.flushing = std::mem::take(&mut self.queued);
         }
         std::mem::take(&mut self.pending)
     }
 
-    /// How many appends were pushed so far.
+    /// The appends' numbers: a barrier takes `accepted()` when it arrives and waits for `check` of it.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn accepted(&self) -> u64 {
-        self.accepted
-    }
-
-    /// How many of the pushed appends are written.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn landed(&self) -> u64 {
-        self.landed
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.marks.0
     }
 
     fn arm(&mut self, delay: Duration) -> Next {
@@ -121,9 +134,7 @@ impl AppendQueue {
     pub fn push(&mut self, text: String) -> Next {
         self.pending.push(text);
         #[cfg(any(test, feature = "test-support"))]
-        {
-            self.accepted += 1;
-        }
+        self.queued.push(self.marks.0.accept());
         if self.pending.len() >= FLUSH_CAP {
             if self.in_flight {
                 self.timer = None;
@@ -140,7 +151,14 @@ impl AppendQueue {
         self.in_flight = false;
         #[cfg(any(test, feature = "test-support"))]
         {
-            self.landed += (self.flushing - unwritten.len()) as u64;
+            // The first appends of the flush landed; the rest, `unwritten`, go back ahead of the newer ones.
+            let mut flushing = std::mem::take(&mut self.flushing);
+            let unlanded = flushing.split_off(flushing.len() - unwritten.len());
+            flushing.into_iter().for_each(|mark| self.marks.0.written(mark));
+            if let Some(&first) = unlanded.first() {
+                self.marks.0.failed(first, "the append was not written");
+            }
+            self.queued.splice(0..0, unlanded);
         }
         if unwritten.is_empty() {
             self.failures = 0;
@@ -639,6 +657,27 @@ mod tests {
                 (ms, other) => panic!("{count} appends flushed at {ms} ms in Node, got {other:?}"),
             }
         }
+    }
+
+    /// The replay barrier's positions: an append pushed before the barrier holds it until its flush landed, one pushed after
+    /// it does not, and an append before it whose flush failed is its error.
+    #[test]
+    fn the_barrier_waits_for_the_appends_before_it_and_a_failed_one_is_its_error() {
+        let mut queue = AppendQueue::default();
+        let Next::Wait { epoch, .. } = queue.push("before".into()) else { panic!("the first append waits the window") };
+        let mark = queue.marks().accepted();
+        assert_eq!(queue.due(epoch), Some(s(&["before"])));
+        let Next::Wait { epoch, .. } = queue.push("after".into()) else { panic!("an append during a flush waits the window") };
+        assert_eq!(queue.marks().check(mark), None, "the append from before the barrier is still being written");
+        assert_eq!(queue.flushed(Vec::new()), Next::Idle);
+        assert_eq!(queue.marks().check(mark), Some(Ok(())), "the later append, still queued, does not hold it");
+        assert_eq!((queue.marks().committed(), queue.marks().accepted()), (mark, mark + 1));
+
+        let later = queue.marks().accepted();
+        assert_eq!(queue.due(epoch), Some(s(&["after"])));
+        assert!(matches!(queue.flushed(s(&["after"])), Next::Wait { .. }), "the failed append is retried");
+        assert_eq!(queue.marks().check(later), Some(Err("the prompt history: write 2, accepted before the barrier, failed: the append was not written".to_owned())));
+        assert_eq!(queue.marks().check(mark), Some(Ok(())), "a failure after a barrier is not its error");
     }
 
     struct Flaky {

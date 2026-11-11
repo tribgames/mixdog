@@ -96,6 +96,10 @@ pub(crate) struct Outbox {
     limits: SessionLimits,
     normal: Usage,
     reserve: Usage,
+    /// The lowest-id durable record that left uncommitted (its encode or its barrier failed), and why: the replay barrier's
+    /// error when it was accepted before the barrier.
+    #[cfg(any(test, feature = "test-support"))]
+    failed: Option<(u64, String)>,
 }
 
 impl Outbox {
@@ -106,6 +110,16 @@ impl Outbox {
             limits,
             normal: Usage::default(),
             reserve: Usage::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            failed: None,
+        }
+    }
+
+    /// The durable record `id` failed and left the outbox uncommitted.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn note_failed(&mut self, id: u64, error: String) {
+        if self.failed.as_ref().is_none_or(|(at, _)| id < *at) {
+            self.failed = Some((id, error));
         }
     }
 
@@ -136,14 +150,21 @@ impl Outbox {
         self.next_id - 1
     }
 
-    /// Every record accepted up to `mark` is committed — the store wrote and synced it and acked it ([`Self::acked`]) — or
-    /// failed and left the outbox. Entries after `mark` do not count.
+    /// `Some(Ok)` once every record accepted up to `mark` is committed — the store wrote and synced it and acked it
+    /// ([`Self::acked`]); `Some(Err)` once one of them failed ([`Self::note_failed`]); `None` while one is still on its way.
+    /// Entries after `mark` do not count.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn committed_through(&self, mark: u64) -> bool {
+    pub fn committed_through(&self, mark: u64) -> Option<Result<(), String>> {
+        if let Some((at, error)) = &self.failed
+            && *at <= mark
+        {
+            return Some(Err(format!("record {at}, accepted before the barrier, failed: {error}")));
+        }
         self.entries
             .iter()
             .take_while(|entry| entry.id <= mark)
             .all(|entry| entry.durable.as_ref().is_none_or(|durable| matches!(durable.stage, Stage::Acked(_))))
+            .then_some(Ok(()))
     }
 
     pub fn producer_room(&self) -> bool {
