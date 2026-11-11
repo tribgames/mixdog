@@ -269,8 +269,15 @@ pub(crate) enum UnwindAt {
 /// What waits on a scheduled compaction: the requests asked meanwhile, in arrival order, and
 /// whether the settled turn's Goal continues.
 pub(super) struct AfterCompaction {
-    waiting: Vec<(CoreRequest, Waiter)>,
+    waiting: Vec<Waiting>,
     goal_active: bool,
+}
+
+/// One thing the scheduled compaction holds: a request, or an admitted retry turn (Node's
+/// `retryFailedTurn` enqueues it and its `runtime.ask` waits on the gate like any ask).
+pub(super) enum Waiting {
+    Request(CoreRequest, Waiter),
+    Retry(super::quota_lane::RetryTurn),
 }
 
 /// Results of lane jobs the actor submitted.
@@ -693,6 +700,9 @@ pub(crate) struct SessionActor {
     compact_scheduled: bool,
     /// The scheduled compaction runs (`createCompactionGate`'s tail).
     after_compaction: Option<AfterCompaction>,
+    /// A retry the compaction held, released while another turn it held ran: it is the next turn
+    /// (Node's retry ask waits on the ask lock behind that turn).
+    pending_retry: Option<super::quota_lane::RetryTurn>,
     /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
     retry_hidden: bool,
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
@@ -989,6 +999,7 @@ impl SessionActor {
             compactions: 0,
             compact_scheduled: false,
             after_compaction: None,
+            pending_retry: None,
             retry_hidden: false,
             transcript_rewritten: false,
             retry_provenance: None,
@@ -2923,6 +2934,9 @@ impl SessionActor {
             }
             return;
         }
+        if let Some(retry) = self.pending_retry.take() {
+            return self.begin_retry(retry);
+        }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
         while !self.wake_tail.is_empty() {
             let qid = self.wake_tail.remove(0);
@@ -4112,7 +4126,7 @@ impl SessionActor {
         if let Some(after) = &mut self.after_compaction
             && matches!(req.method.as_str(), "turn/start" | "thread/clear" | "thread/rewind" | "thread/compact/start")
         {
-            after.waiting.push((req, tx));
+            after.waiting.push(Waiting::Request(req, tx));
             #[cfg(any(test, feature = "test-support"))]
             self.cell.gate_holds.fetch_add(1, SeqCst);
             return Ok(());

@@ -140,9 +140,17 @@ impl SessionActor {
         let Some(after) = self.after_compaction.take() else {
             return;
         };
-        for (req, tx) in after.waiting {
-            if let Err((error, tx)) = self.mutation(req, tx) {
-                let _ = tx.send(Err(error));
+        for waiting in after.waiting {
+            match waiting {
+                super::Waiting::Request(req, tx) => {
+                    if let Err((error, tx)) = self.mutation(req, tx) {
+                        let _ = tx.send(Err(error));
+                    }
+                }
+                super::Waiting::Retry(retry) if self.deleting => drop(retry),
+                // A turn released ahead of it runs: the retry is the next turn.
+                super::Waiting::Retry(retry) if self.turn_busy() => self.pending_retry = Some(retry),
+                super::Waiting::Retry(retry) => self.begin_retry(retry),
             }
         }
         if self.deleting {
@@ -160,13 +168,17 @@ impl SessionActor {
     /// `settlement` to the quota settlement, `busy` to any turn state, `commandBusy` and
     /// `autoClearRunning` to a running compaction, `draining` to the completions still waiting
     /// for their own turns, `quotaResumePending` to a Goal resume in flight, `pending` to the
-    /// queue (`decisions.md`, "turn/retryFailed").
+    /// queue (`decisions.md`, "turn/retryFailed"). The model-scheduled compaction sets neither
+    /// flag (`compaction-gate.mjs` runs it in the runtime): a retry asked while it runs is admitted
+    /// and waits on its gate ([`Self::begin_retry`]); a retry it already holds is the queue.
     fn retry_blocked(&self) -> bool {
         self.deleting
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()
             || self.turn_busy()
-            || self.compactions > 0
+            || (self.compactions > 0 && !self.starts_gated())
+            || self.pending_retry.is_some()
+            || self.after_compaction.as_ref().is_some_and(|after| after.waiting.iter().any(|w| matches!(w, super::Waiting::Retry(_))))
             || !self.wake_tail.is_empty()
             || !self.projected.queue.is_empty()
     }
@@ -219,7 +231,15 @@ impl SessionActor {
         }))
     }
 
-    fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
+    /// The retry turn starts, unless the scheduled compaction holds the session: then it waits on
+    /// the gate (`ask: afterCompaction(runner.ask)`), in arrival order with the requests it holds.
+    pub(super) fn begin_retry(&mut self, retry: super::super::quota_lane::RetryTurn) {
+        if let Some(after) = &mut self.after_compaction {
+            after.waiting.push(super::Waiting::Retry(retry));
+            #[cfg(any(test, feature = "test-support"))]
+            self.cell.gate_holds.fetch_add(1, SeqCst);
+            return;
+        }
         self.retry_hidden = retry.hidden;
         self.retry_provenance = Some(retry.provenance);
         self.retry_prior = retry.prior;
