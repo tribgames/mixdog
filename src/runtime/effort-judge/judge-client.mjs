@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { onnxRuntimeSupported } from '../shared/onnx-runtime-support.mjs';
 import { fileHasData } from '../shared/file-has-data.mjs';
+import { decisionLog } from './decision-log.mjs';
 import {
   effortJudgeInstallCurrent,
   effortJudgeInstallStamped,
@@ -378,13 +379,18 @@ export async function judgeTurn(input) {
 }
 
 // MIXDOG_EFFORT_DECISIONS_LOG redirects the log, e.g. for benchmark runs whose
-// data directory is discarded when the run ends.
+// data directory is discarded when the run ends; a redirected log is one file
+// with every line (a run's report reads it whole). The data directory's own
+// log keeps its newest lines and counts the older ones (decision-log.mjs).
 export function recordEffortDecision(entry) {
   try {
-    const file =
-      process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge', 'decisions.jsonl');
-    mkdirSync(dirname(file), { recursive: true });
-    appendFileSync(file, `${JSON.stringify(entry)}\n`);
+    const redirected = process.env.MIXDOG_EFFORT_DECISIONS_LOG;
+    if (redirected) {
+      mkdirSync(dirname(redirected), { recursive: true });
+      appendFileSync(redirected, `${JSON.stringify(entry)}\n`);
+      return;
+    }
+    decisionLog(join(resolvePluginData(), 'effort-judge', 'decisions.jsonl')).record(entry);
   } catch {
     /* the log is diagnostic only */
   }
