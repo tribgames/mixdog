@@ -52,8 +52,7 @@ for (const [name, list, k] of [
   ['null list', null],
   ['empty list', []],
 ]) {
-  rankProbes.push({ name, rows: exact(list), k: k ?? 'default', ...(await capture(() => rankRecallCandidates(list, k)
-    .map(({ id, rrf, retrievalScore, evidence, row }) => ({ id, rrf, retrievalScore, evidence, rowId: row.id })))) });
+  rankProbes.push({ name, rows: exact(list), k: k ?? 'default', explicitK: k !== undefined, ...(await capture(() => rankRecallCandidates(list, k))) });
 }
 const semanticProbes = [];
 for (const list of [
@@ -78,8 +77,8 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'recallLaneRanks, recallRrfScore, recallEvidenceKind, isSemanticOnlyRecall, rankRecallCandidates (recall-fusion.mjs)', notRun: 'nothing beyond the module' },
-    replay: 'mixdog-services memory: mem/recall/ranking.rs rrf_score, evidence_kind, is_semantic_only, rank_candidates (RRF_K = 60); compares scores exactly (f64) and the order. Rows with string ids/ranks, negative or fractional ranks are JS-coercion shapes: a replay with typed rows replays the numeric ones',
-    exclusions: 'the last case holds extra probes the test file does not run',
+    replay: 'the public call is the `memory/recall` request (mixdog-services memory/service.rs:273 -> Recall::recall, recall/mod.rs:240 -> search_relevant_hybrid, recall/hybrid.rs:743), whose ranking step is rank_candidates / rrf_score / evidence_kind (recall/ranking.rs:27,59); Node reaches the same step from memory-recall-store.mjs:76 (rankRecallCandidates(rows), default k only). The recording holds the whole ranked candidates (every field, in returned order); a replay feeds the same lane ranks through a recall over a database holding rows with those ranks, or through the ranking functions in a crate test, and compares scores exactly (f64) and the order. EXPLICIT-k PROBES (rrfK10, the `explicit k` ranking): Rust rrf_score has no k parameter (ranking.rs:27) and no Node production call passes one (only memory-recall-store.mjs:76 with the default 60), so no public call reaches them: they are listed as needing a Rust change (add k) only if the Rust side wants parity with the test file; a replay without the parameter skips them by the `explicitK`/`rrfK10` marker. Rows with string ids/ranks, negative or fractional ranks are JS-coercion shapes: a replay with typed rows replays the numeric ones',
+    exclusions: 'the last case holds extra probes the test file does not run; explicit-k probes need a Rust change (see replay)',
     normalised: { 'non-finite numbers': 'NaN is written as {"$number":"NaN"}; undefined as {"$undefined":true}' },
   },
 });
