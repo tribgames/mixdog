@@ -40,7 +40,7 @@ use super::transcript_rows::normalize_reactions;
 use super::transcript_rows::text_field;
 
 /// What a row's conversion needs beyond the row.
-pub(super) struct Ctx<'a> {
+pub(in crate::session) struct Ctx<'a> {
     pub turn: Option<&'a str>,
     /// The stored message, for the facts its row does not carry (sender chain, held request).
     pub message: Option<&'a Value>,
@@ -339,7 +339,7 @@ fn status_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
 }
 
 /// The item of one row.
-pub(super) fn item_of(row: Row, ctx: &Ctx<'_>) -> ThreadItem {
+pub(in crate::session) fn item_of(row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     match text_field_of(&row, "kind") {
         "user" => user_item(row, ctx),
         "notice" if ctx.source.is_some() && ctx.message.is_some() => user_item(row, ctx),

@@ -1765,6 +1765,10 @@ impl ThreadDirectory for SessionDirectory {
             }),
         }
     }
+
+    async fn read_vanished(&self, id: &ThreadId, _req: CoreRequest) -> Result<Reply, CoreError> {
+        self.inner.read_archived(id).await
+    }
 }
 
 impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for SessionDirectory {

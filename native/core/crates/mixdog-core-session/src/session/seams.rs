@@ -336,6 +336,9 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// One index read of a session's metadata; `None` when the catalog does not list it.
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
+    /// The sessions, not deleted, whose header carries `child`'s archived agent result (one index range).
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>>;
+
     /// After a delete mark is acked: the index takes every projection acked so far, then the
     /// fork-aware purge removes each deleted session no live lineage reads (files and index
     /// rows). The ids it removed.

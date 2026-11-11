@@ -707,8 +707,13 @@ impl Shared {
                 Box::pin(async move {
                     match thread {
                         Some(id) if !STORED_READS.contains(&request.method.0) && !DIRECTORY_SERVED.contains(&request.method.0) => {
-                            let handle = core.threads().open(&id, &request.ctx).await?;
-                            handle.request(request).await
+                            match core.threads().open(&id, &request.ctx).await {
+                                Ok(handle) => handle.request(request).await,
+                                Err(CoreError::ThreadNotFound { .. }) if request.method.0 == "thread/read" => {
+                                    core.threads().read_vanished(&id, request).await
+                                }
+                                Err(error) => Err(error),
+                            }
                         }
                         _ => core.threads().request(request).await,
                     }
