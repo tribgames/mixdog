@@ -21,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -37,15 +37,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
-    },
-    {
-      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "99cc7ebf0dff68ce4087ef3cadf8540d04f69c975720081066421c7b1de08420"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -86,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "aa7f9f031fa9e052620732e6934284c60a11d4c1522855b4521b4637b620fe42",
+  "recorderSha256": "6e941057e28a692e815cdb5bf5dd70f8fd19cde3ea9abebad1d650fe71f7d5c0",
   "replay": {
     "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
     "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates; github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`).",

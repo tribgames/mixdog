@@ -26,7 +26,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -34,7 +34,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.cs",
-      "sha256": "2a952504d319dd9a8a9fa67fa00292a9677f8d9eba252029c1a0aa398f8e0455"
+      "sha256": "7a13b92f6255f5a8734efe47a7d3231dfa2568f0994df8e92f625c9438415317"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.mjs",
@@ -50,7 +50,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
@@ -155,7 +155,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-git-launch-cases.mjs",
-  "recorderSha256": "a4f185f8cf55907720d51cb9e6f60d0c07a1a39b61c5d0bb24467bd7d648e524",
+  "recorderSha256": "f566e918b53555f8700358449a6ee6c2866eb2e7b0c288a62086e5723e64be24",
   "replay": {
     "compare": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole",
     "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:267 launch_for; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git_launch.rs:295 forget_missing; mixdog-scm/src/git.rs:90 start_git.",

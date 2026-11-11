@@ -16,10 +16,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { RecorderError } from './lib/recorder-error.mjs';
+import { RecorderError, within } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
-import { realDeadline, realTimers, virtualTimers } from './lib/virtual-timers.mjs';
+import { realTimers, virtualTimers } from './lib/virtual-timers.mjs';
 
 const flag = process.argv.indexOf('--spawn-binary');
 const binaryAt = flag >= 0 ? process.argv[flag + 1] : 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\k1\\mixdog-spawn-o1-debug.exe';
@@ -44,8 +44,6 @@ _setNativeSpawnBinaryForTest(binaryAt);
 
 const SESSION = 'sess_lifecycle_owner';
 const IDLE_EVICT_MS = 300;
-const DEADLINE_MS = 60_000;
-const within = (label, promise) => realDeadline(label, promise, DEADLINE_MS);
 const sha256 = createHash('sha256').update(readFileSync(binaryAt)).digest('hex');
 
 await set.run('a job started after reclaim and reload reaches the pane as stopped; a running job keeps its session loaded', async () => {

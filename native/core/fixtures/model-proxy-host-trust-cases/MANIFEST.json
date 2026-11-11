@@ -26,7 +26,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -42,7 +42,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
@@ -54,7 +54,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "99cc7ebf0dff68ce4087ef3cadf8540d04f69c975720081066421c7b1de08420"
+      "sha256": "3e1301689dcce08b5ceaf1a0a7c0d0e6b29e6cf26b0c2eba10b58cfcd38ccb52"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -80,7 +80,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "7cea7b07a2286a0640104b744b1b80f51d0f301af02b4329b75055820b5dd0f1",
+  "recorderSha256": "2b7239402d0437935722e1a6114934fba6e6e0f0f93a72d85770532d8eb88761",
   "replay": {
     "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
     "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",

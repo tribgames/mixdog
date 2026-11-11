@@ -11,7 +11,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openSet } from './lib/case-set.mjs';
-import { realDeadline } from './lib/virtual-timers.mjs';
+import { within } from './lib/recorder-error.mjs';
 
 const set = openSet('github-cases', import.meta.url);
 const { GITHUB_ACTIONS, githubRequestMutates, validateGithubRequest } = await set.load('src/runtime/github/contract.mjs');
@@ -114,7 +114,7 @@ await set.run('writes serialize; a failed write is never replayed and does not p
   const run = async (command) => { const title = JSON.parse(command.input).title; order.push(title); if (title === 'first') { started.resolve(); await first.promise; throw new Error('connection lost'); } return '{"number":8}'; };
   const a = executeGithubRequest({ action: 'issue.create', repo, title: 'first' }, CWD, { run });
   const aOutcome = a.then((r) => ({ resolved: r }), (e) => ({ rejected: e }));
-  await realDeadline('the first write to start', started.promise, 10_000);
+  await within('the first write to start', started.promise, 10_000);
   const b = executeGithubRequest({ action: 'issue.create', repo, title: 'second' }, CWD, { run });
   const orderWhileFirstHeld = [...order];
   first.resolve();
@@ -226,7 +226,7 @@ await set.run('two clones cannot claim the same new destination, even for differ
   const held = new Promise((resolve) => { proceed = resolve; });
   const clone = (source, hold) => executeGithubRequest({ action: 'repo.clone', repo: source, destination }, CWD, { run: async () => { executions++; if (hold) { claimed(); await held; } return 'cloned'; } });
   const first = clone('owner/one', true);
-  await realDeadline('the first clone to claim its destination', claimedFirst, 10_000);
+  await within('the first clone to claim its destination', claimedFirst, 10_000);
   const second = await Promise.allSettled([clone('owner/two', false)]);
   proceed();
   const results = [(await Promise.allSettled([first]))[0], second[0]];

@@ -5,7 +5,16 @@
 export class RecorderError extends Error {
   constructor(message) { super(message); this.name = 'RecorderError'; this.recorderError = true; }
 }
-export const isRecorderError = (value) => value instanceof RecorderError || (value !== null && typeof value === 'object' && value.recorderError === true);
+// The real timers, taken when this module loads: before a recorder replaces the globals with a virtual clock or node:test's mock timers, so a
+// deadline always runs on the real clock and is never a timer armed under the code under test's clock.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+/** The one deadline of these recorders: `promise`, or a RecorderError naming `label` when it has not settled within `ms` real milliseconds. */
+export const within = (label, promise, ms = 120_000) => new Promise((resolve, reject) => {
+  const timer = realSetTimeout(() => reject(new RecorderError(`${label}: no answer within ${ms} ms`)), ms);
+  Promise.resolve(promise).then((v) => { realClearTimeout(timer); resolve(v); }, (e) => { realClearTimeout(timer); reject(e); });
+});
+export const isRecorderError =(value) => value instanceof RecorderError || (value !== null && typeof value === 'object' && value.recorderError === true);
 /** Throws a RecorderError if `value` is one or holds one at any depth (own enumerable properties, arrays, maps, sets, causes). */
 export function refuseRecorderErrors(value, where) {
   const seen = new Set();

@@ -11,7 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock } from 'node:test';
-import { RecorderError } from './lib/recorder-error.mjs';
+import { within } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('session-reentry-cases', import.meta.url, { clock: false });
@@ -19,9 +19,6 @@ const { createSessionService } = await set.load('src/standalone/session-service.
 const { SessionHost } = await set.load('apps/desktop/src/main/session-host.ts');
 const { setTranscriptReadDiagnosticSink } = await set.load('apps/desktop/src/shared/transcript-read-diagnostics.ts');
 const NOW = 1_800_000_000_000;
-const realSetTimeout = globalThis.setTimeout; const realClearTimeout = globalThis.clearTimeout; // the mock timers replace the globals
-/** Waits for the event that ends a step; a step that never happens fails the recording, naming the step (the deadline is a real timer, outside the mocked clock). */
-const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = realSetTimeout(() => reject(new RecorderError(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { realClearTimeout(timer); resolve(v); }, (e) => { realClearTimeout(timer); reject(e); }); });
 async function sessionFixture() {
   mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now: NOW });
   const directory = await mkdtemp(join(tmpdir(), 'session-reentry-'));
@@ -101,7 +98,7 @@ for (const reopenBeforeSubmit of [true, false]) {
     await f.host.setVisibleSessions([]);
     const evicted = f.nextDispose();
     mock.timers.tick(10_000);
-    await within(evicted, 5000, 'the idle sweep to dispose the hidden session runtime');
+    await within('the idle sweep to dispose the hidden session runtime', evicted, 5000);
     f.mark('hidden, 10 s tick, evict sweep drained');
     f.persist('persisted after leaving');
     if (reopenBeforeSubmit) {
@@ -110,7 +107,7 @@ for (const reopenBeforeSubmit of [true, false]) {
       f.persist('cold refresh');
       const refreshed = f.nextUpdate();
       mock.timers.tick(1_000);
-      await within(refreshed, 10_000, 'the cold refresh update');
+      await within('the cold refresh update', refreshed, 10_000);
       f.mark('cold refresh tick', { lastText: f.texts().at(-1) });
     }
     const accepted = await f.host.submitToSession(f.id, 'next', { id: 'next' });
@@ -128,7 +125,7 @@ await run('a delayed stored reply cannot overwrite a newly materialized turn', a
   f.mark('opened with a stored answer');
   const held = f.holdRead();
   const reading = f.host.prefetchSession(f.id);
-  await within(held.captured.promise, 10_000, 'the held read to be captured');
+  await within('the held read to be captured', held.captured.promise, 10_000);
   f.mark('prefetch read held');
   await f.host.submitToSession(f.id, 'new turn', { id: 'new-turn' });
   f.mark('new turn submitted while the read is held');
@@ -143,12 +140,12 @@ await run('cold refresh ticks do not stack reads while that session is still loa
   const held = f.holdRead();
   const reads = f.reads;
   mock.timers.tick(1_000);
-  await within(held.captured.promise, 10_000, 'the held read to be captured');
+  await within('the held read to be captured', held.captured.promise, 10_000);
   mock.timers.tick(5_000);
   f.mark('1 s tick, read held, 5 s more ticks', { readsSinceOpen: f.reads - reads });
   const refreshing = f.lastColdRefresh;
   held.release.resolve();
-  await within(refreshing, 5000, 'the held cold-view refresh to settle');
+  await within('the held cold-view refresh to settle', refreshing, 5000);
   mock.timers.tick(1_000);
   f.mark('read settled, 1 s tick', { readsSinceOpen: f.reads - reads });
   return { steps: f.steps };
@@ -163,7 +160,7 @@ await run('read tracing measures a held host read and propagates its correlation
   try {
     const held = f.holdRead();
     const reading = f.host.prefetchSession(f.id, undefined, 'read-host-1');
-    await within(held.captured.promise, 10_000, 'the held read to be captured');
+    await within('the held read to be captured', held.captured.promise, 10_000);
     const recordsWhileHeld = structuredClone(records);
     now = 321;
     held.release.resolve();

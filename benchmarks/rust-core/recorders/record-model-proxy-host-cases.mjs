@@ -8,10 +8,10 @@
 //
 //   node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a with node_modules>
-import { RecorderError } from './lib/recorder-error.mjs';
+import { RecorderError, within } from './lib/recorder-error.mjs';
 import { FIXED_NOW, openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
-import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
+import { virtualTimers } from './lib/virtual-timers.mjs';
 
 const scriptedUuids = scriptUuids();
 // An AbortSignal has no whole form: it is stored as { aborted, reason } (reason through exact), the one stand-in, declared in the manifest.
@@ -34,7 +34,7 @@ let wireLog = [];
 const deliveries = [];
 const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
 /** The event that ends a step, with a deadline on the real clock (the clock the code under test sees is virtual). */
-const settled = (label, promise, limitMs = DEADLINE_MS) => realDeadline(label, promise, limitMs);
+const settled = (label, promise, limitMs = DEADLINE_MS) => within(label, promise, limitMs);
 function connect(runtime, { intercept = null, channel = new ModelProxyChannel(), ...hostOptions } = {}) {
   const operations = [];
   const settledCalls = []; const settledWaiters = [];
