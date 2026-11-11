@@ -35,7 +35,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
+      "sha256": "7af794122bfbb318bc6e920e13f654f5596962f285d5e574e233a7a6163ee979"
     }
   ],
   "nodeVersion": "v22.20.0",
