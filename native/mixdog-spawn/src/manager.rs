@@ -238,7 +238,7 @@ impl InputQueue {
 
     fn push(&self, bytes: Vec<u8>) -> Result<(), ProcessError> {
         let mut state = self.lock();
-        if state.closing || state.dead || state.refused {
+        if state.closing || state.dead || state.refused || state.failed.is_some() {
             return Err(ProcessError::StdinClosed);
         }
         if state.bytes + bytes.len() > self.cap {
@@ -308,7 +308,11 @@ impl InputQueue {
         }
     }
 
-    fn run(&self, mut sink: Box<dyn Write + Send>) {
+    /// Writes what is queued until the input is closed or the process is gone. When a write fails and `end_tree` is given
+    /// (a piped input), the process's tree is ended first and the input is let go (`sink` dropped, which the reader sees as
+    /// the end of its input) only once the process is gone: a reader that took the end of a part of its input for the end
+    /// of all of it would run that part.
+    fn run(&self, mut sink: Box<dyn Write + Send>, end_tree: Option<Box<dyn FnOnce() + Send>>) {
         loop {
             let chunk = {
                 let mut state = self.lock();
@@ -328,8 +332,27 @@ impl InputQueue {
                 }
             };
             if let Err(error) = sink.write_all(&chunk).and_then(|()| sink.flush()) {
-                self.lock().failed = Some(error.raw_os_error());
-                self.shutdown();
+                let Some(end_tree) = end_tree else {
+                    self.lock().failed = Some(error.raw_os_error());
+                    self.shutdown();
+                    return;
+                };
+                {
+                    let mut state = self.lock();
+                    state.failed = Some(error.raw_os_error());
+                    state.chunks.clear();
+                    state.bytes = 0;
+                }
+                self.room.notify_waiters();
+                self.written.notify_waiters();
+                end_tree();
+                // The process's exit shuts the queue (`dead`); the input stays open until then.
+                let mut state = self.lock();
+                while !state.dead {
+                    state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                drop(state);
+                drop(sink);
                 return;
             }
             self.lock().written += chunk.len() as u64;
@@ -1012,9 +1035,19 @@ fn launch_process(
         }
     }
     if let (Some(input), Some(writer)) = (input, writer) {
+        // A piped input whose write fails ends the tree before it is let go; a terminal's input stops as before.
+        let end_tree: Option<Box<dyn FnOnce() + Send>> = proc.pty.is_none().then(|| {
+            let proc = Arc::downgrade(&proc);
+            Box::new(move || {
+                if let Some(proc) = proc.upgrade() {
+                    // A kill of a process whose exit is final is not an error: it is gone already.
+                    let _ = proc.kill(KillReason::Requested);
+                }
+            }) as Box<dyn FnOnce() + Send>
+        });
         let started = thread::Builder::new()
             .name("io-pty-write".to_owned())
-            .spawn(move || input.run(writer));
+            .spawn(move || input.run(writer, end_tree));
         if let Err(error) = started {
             let _ = proc.kill(KillReason::Requested);
             return Err(io_error(&error));
@@ -1363,7 +1396,63 @@ impl ProcessManager for LocalProcessManager {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::mpsc;
+
+    use super::InputQueue;
     use super::pieces;
+
+    /// A write to a piped input that fails part way ends the process's tree before the input is let go, and the input is let
+    /// go only once the process is gone: the reader never sees an end of input after a part of what was written.
+    #[test]
+    fn a_write_that_fails_part_way_ends_the_tree_before_the_input_is_let_go() {
+        /// Takes the first 4 bytes, then fails as a broken pipe does; records when it is dropped (the input closed).
+        struct Breaks(Arc<Mutex<Vec<&'static str>>>, usize);
+        impl Write for Breaks {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                if self.1 >= 4 {
+                    return Err(std::io::Error::from_raw_os_error(232));
+                }
+                let n = buf.len().min(4 - self.1);
+                self.1 += n;
+                Ok(n)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl Drop for Breaks {
+            fn drop(&mut self) {
+                self.0.lock().unwrap().push("input let go");
+            }
+        }
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let input = InputQueue::new(1 << 20);
+        input.push(b"0123456789".to_vec()).unwrap();
+        input.close().unwrap();
+        let (ended_tx, ended) = mpsc::channel();
+        let end_log = Arc::clone(&log);
+        let writer = {
+            let input = Arc::clone(&input);
+            let sink = Box::new(Breaks(Arc::clone(&log), 0));
+            std::thread::spawn(move || {
+                input.run(
+                    sink,
+                    Some(Box::new(move || {
+                        end_log.lock().unwrap().push("tree ended");
+                        ended_tx.send(()).unwrap();
+                    })),
+                );
+            })
+        };
+        ended.recv_timeout(std::time::Duration::from_secs(60)).expect("the failed write ended the tree");
+        // The process's exit, after which the input is let go.
+        input.shutdown();
+        writer.join().unwrap();
+        assert_eq!(*log.lock().unwrap(), ["tree ended", "input let go"]);
+    }
 
     /// Pieces end between characters: a two-byte and a four-byte character on a piece's edge go whole into the next piece; a character
     /// longer than the cap alone is the only cut inside one.

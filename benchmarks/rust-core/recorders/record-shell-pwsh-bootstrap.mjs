@@ -7,8 +7,14 @@
 // (`MIXDOG_SHELL_WARM_STANDBY=0`: a parked standby runs the same bootstrap). The Rust replay calls its shell tool with
 // the same input and the same shell.
 //
-//   node benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs --tree <git archive export of b6f10295a> \
-//        --spawn-bin <mixdog-spawn.exe built from b6f10295a:native/mixdog-spawn> [--only <case name>]
+//   node benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs --tree <git archive export of b6f10295a with the patch> \
+//        --patch benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch \
+//        --spawn-bin <mixdog-spawn.exe built from that tree's native/mixdog-spawn> [--only <case name>]
+//
+// The patch fixes a Node bug: b6f10295a's bootstrap ran whatever part of a script had arrived when its input closed (the
+// helper ignored a failed write and closed the input after it); the patched bootstrap runs a script only when the length
+// its first line declares arrived. The fix's other half, in the helper (it ends the process before it closes the input
+// after a failed write), is in the Node patch with the spawn binary built from it; no recorded call fails a write.
 //
 // Output: native/core/fixtures/shell-pwsh-bootstrap/golden.json (+ MANIFEST.json). With --only, that case is printed
 // and nothing is written.
@@ -24,7 +30,7 @@ for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APP
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.MIXDOG_SHELL_WARM_STANDBY = '0';
 process.env.MIXDOG_TOOL_FAILURE_LOG_PATH = join(sandbox, 'failures.jsonl');
-const { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, orderedStringify, parseArgs, recordingProvenance, resolveTree, stageSet, within, writeJson, writeSetManifest } =
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, orderedStringify, parseArgs, recordingProvenance, resolveTree, stageSet, within, writeJson, writeSetManifest } =
   await import('./lib/common.mjs');
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -32,10 +38,11 @@ const recorder = 'benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs
 const SHELL = 'pwsh';
 const args = parseArgs();
 const tree = resolveTree(args);
-const identity = exactProductIdentity(tree, NODE_COMMIT);
+if (!args.get('patch')) throw new Error('pass --patch benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch, the fix the tree carries');
+const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
 const only = args.get('only') ?? null;
 const spawnBin = args.get('spawn-bin');
-if (!spawnBin) throw new Error('--spawn-bin <mixdog-spawn.exe of b6f10295a> is required');
+if (!spawnBin) throw new Error('--spawn-bin <mixdog-spawn.exe of the patched tree> is required');
 const { _setNativeSpawnBinaryForTest } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
 _setNativeSpawnBinaryForTest(spawnBin);
 const { setConfiguredShell } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs');
@@ -73,7 +80,7 @@ try {
     writeSetManifest(stage, {
       set: 'shell-pwsh-bootstrap',
       recorder,
-      command: `node ${recorder} --tree <tree> --spawn-bin <mixdog-spawn.exe of b6f10295a>`,
+      command: `node ${recorder} --tree <b6f10295a with the patch> --patch ${identity.patch.file} --spawn-bin <mixdog-spawn.exe of that tree>`,
       identity,
       extra: {
         ...recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']),

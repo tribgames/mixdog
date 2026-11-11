@@ -73,6 +73,7 @@ use super::invocation::EVAL_SCRIPT;
 use super::invocation::POWERSHELL_BOOTSTRAP;
 use super::invocation::build_powershell_filter_tee_plan;
 use super::invocation::filter_rescue_note;
+use super::invocation::frame_powershell_script;
 use super::invocation::prefix_powershell_skill_function;
 use super::invocation::prefix_powershell_utf8;
 use super::invocation::skill_launcher_dir;
@@ -328,8 +329,14 @@ fn spawn_failure(error: ProcessError) -> ToolError {
     failed(code, format!("Error: [shell-tool-failed] [spawn failed]\n\n{detail}"))
 }
 
-/// The command could not be handed to the shell whole, so it was ended unrun. Node discards the helper's write result
-/// (`stdinWrite`, `let _ = write_all`) and a pipe that broke part way would run what arrived; here the call fails instead.
+/// The shell was ended by its run limit (the answer is the timeout's, as in Node, whose limit runs from the hand-off).
+fn ended_by_run_limit(job: &Job) -> bool {
+    matches!(job.exit(), Some(ProcessExit { killed: Some(KillReason::TimeLimit), .. }))
+}
+
+/// The command could not be handed to the shell whole, so it was ended unrun. Node b6f10295a discards the helper's write
+/// result (`stdinWrite`, `let _ = write_all`) and closed the input after a part, which its bootstrap ran
+/// (`node-fix-partial-script.patch` fixes both); here the call fails instead.
 fn input_failure(error: ProcessError) -> ToolError {
     let code = match error {
         ProcessError::Io { os_code } => ToolErrorCode::Io { os_code },
@@ -853,36 +860,45 @@ impl ShellTool {
                 return Err(spawn_failure(error));
             }
         };
+        // The whole script, of any size, then end of input, written while the call holds: Node hands the helper the
+        // whole string in one `stdinWrite` and starts its hold and run limit at once (`shell-run-spawn.mjs`), so they cover
+        // a shell that does not read its input. The bootstrap runs the script only when the length its first line declares
+        // arrived (`frame_powershell_script`), and the input is closed only once all of it was written; a write that failed
+        // ends the tree (the process manager ends it before it lets go of the input) and the call fails, unless the run
+        // limit had ended the shell already.
+        let mut input_failed = None;
         if let Some(mut script) = fed_script {
             if job.handle != fresh {
                 script.insert_str(0, &hand_off);
             }
-            // The whole script, of any size, then end of input: the bootstrap reads to the end before it compiles
-            // (Node hands the helper the whole string in one `stdinWrite`). The input is closed only once all of it was
-            // written: a write that failed or stopped short ends the tree with its input still open, so the bootstrap
-            // never reaches the end of a part of the script and runs nothing. A cancel during the write leaves the input
-            // open too; the cancel below ends the tree.
-            let written = tokio::select! {
-                written = ctx.processes.write_stdin_whole(&job.handle, script.into_bytes()) => Some(written),
-                () = ctx.cancel.cancelled() => None,
-            };
-            match written {
-                Some(Ok(())) => {
-                    let _ = ctx.processes.close_stdin(&job.handle);
-                }
-                Some(Err(error)) => {
-                    // A kill of a process that already exited is not an error.
-                    let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
-                    runtime.release(&job.id);
-                    if let Some(path) = &hoist_path {
-                        spill::remove_file(runtime.config.lanes.maintenance, &ctx.cancel, path).await;
+            let framed = frame_powershell_script(&script);
+            drop(script);
+            let (failed, failure) = tokio::sync::oneshot::channel();
+            let (processes, handle) = (Arc::clone(&ctx.processes), job.handle.clone());
+            drop(mixdog_rt::spawn("shell-stdin", mixdog_rt::TaskClass::Work, async move {
+                match processes.write_stdin_whole(&handle, framed.into_bytes()).await {
+                    Ok(()) => {
+                        let _ = processes.close_stdin(&handle);
                     }
-                    return Err(input_failure(error));
+                    Err(error) => {
+                        // A kill of a process that already exited is not an error.
+                        let _ = processes.kill(&handle);
+                        let _ = failed.send(error);
+                    }
                 }
-                None => {}
-            }
+            }));
+            input_failed = Some(failure);
         }
+        let write_failed = async {
+            match input_failed {
+                Some(failure) => match failure.await {
+                    Ok(error) => error,
+                    Err(_) => std::future::pending().await,
+                },
+                None => std::future::pending().await,
+            }
+        };
+        let mut write_failed = std::pin::pin!(write_failed);
         ctx.progress.progress(ToolProgress::ProcessStarted(job.handle.clone()));
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).
@@ -931,6 +947,14 @@ impl ShellTool {
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
+                error = &mut write_failed => {
+                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    runtime.release(&job.id);
+                    if ended_by_run_limit(&job) {
+                        return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
+                    }
+                    return Err(input_failure(error));
+                }
             }
         } else {
             tokio::select! {
@@ -938,6 +962,13 @@ impl ShellTool {
                 () = ctx.cancel.cancelled() => {
                     let _ = ctx.processes.kill(&job.handle);
                     let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                }
+                error = &mut write_failed => {
+                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    if !ended_by_run_limit(&job) {
+                        runtime.release(&job.id);
+                        return Err(input_failure(error));
+                    }
                 }
             }
             runtime.release(&job.id);

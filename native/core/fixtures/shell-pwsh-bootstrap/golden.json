@@ -7,7 +7,7 @@
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); try { $__mixdogScript = [scriptblock]::Create([Console]::In.ReadToEnd() + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; . $__mixdogScript"
+    "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $__mixdogIn = [Console]::In.ReadToEnd(); $__mixdogAt = $__mixdogIn.IndexOf(\"`n\"); if ($__mixdogAt -lt 1 -or \"$($__mixdogIn.Length - $__mixdogAt - 1)\" -cne $__mixdogIn.Substring(0, $__mixdogAt)) { [Console]::Error.WriteLine('the command arrived incomplete and was not run'); exit 1 }; try { $__mixdogScript = [scriptblock]::Create($__mixdogIn.Substring($__mixdogAt + 1) + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; $__mixdogIn = $null; . $__mixdogScript"
   ],
   "cases": [
     {
