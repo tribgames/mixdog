@@ -6,6 +6,7 @@ mod light_ko_morph;
 mod project_id;
 mod recall_fusion;
 mod scope_filter;
+mod tokenizer;
 
 use mixdog_testkit::Exact;
 use std::path::PathBuf;
