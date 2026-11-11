@@ -165,7 +165,7 @@ async fn only_the_settled_startup_refresh_tells_the_registered_waker() {
     service.refresh().await;
     service.refresh_matching("anything").await;
     service.refresh_due().await;
-    service.refresh_providers().await;
+    service.refresh_providers(&service.sources()).await;
     assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 0);
     service.mark_startup_refresh_pending(1);
     assert!(service.refresh_in_flight());

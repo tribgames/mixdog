@@ -14,12 +14,14 @@ use mixdog_core_api::domain::provider::ProviderError;
 pub mod adapter;
 pub mod auth;
 pub mod cache;
+pub mod claude;
 pub mod codec;
 pub mod decode;
 pub mod error;
 pub mod json;
 pub mod models;
 pub mod policy;
+pub mod maas;
 pub mod redirect;
 pub mod request;
 pub mod schema;
@@ -28,11 +30,21 @@ pub mod tool_accept;
 pub mod traits;
 
 #[cfg(test)]
+mod claude_replay_wire_tests;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
-mod wire_tests;
+pub(crate) mod wire_tests;
 #[cfg(test)]
 mod tool_accept_tests;
+#[cfg(test)]
+mod maas_wire_tests;
+#[cfg(test)]
+mod usage_wire_tests;
+#[cfg(test)]
+mod vertex_claude_cancel_wire_tests;
+#[cfg(test)]
+mod vertex_claude_wire_tests;
 
 use adapter::GoogleAdapter;
 use auth::ApiKeyAuth;
@@ -40,6 +52,7 @@ use auth::RequestAuth;
 use auth::antigravity::AntigravityAuth;
 use auth::antigravity::TokenStore;
 use codec::GoogleCodec;
+use crate::providers::anthropic::CapsLookup;
 use crate::providers::key_source::ApiKeySource;
 use crate::transport::HttpSend;
 use traits::ModelTraits;
@@ -102,15 +115,17 @@ pub fn gemini_with(
 
 /// `vertex-ai` on a project, with minted tokens or a key. `place` decides each
 /// request's location ([`serving::VertexPlace::choose`]); `identity` is the
-/// credential's ([`auth::vertex::VertexAuth::identity`]).
+/// credential's ([`auth::vertex::VertexAuth::identity`]); `claude_caps` the
+/// Anthropic catalog a Claude request is built from.
 pub fn vertex(
     place: serving::VertexPlace,
     auth: Arc<dyn RequestAuth>,
     identity: String,
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
+    claude_caps: CapsLookup,
 ) -> GoogleAdapter {
-    GoogleAdapter::new(GoogleCodec::vertex(place, traits), policy::gemini(), http, auth, identity)
+    GoogleAdapter::new(GoogleCodec::vertex(place, traits).with_claude_caps(claude_caps), policy::gemini(), http, auth, identity)
 }
 
 /// `vertex-ai` in express mode: an API key on the global endpoint.
@@ -119,12 +134,14 @@ pub fn vertex_express(
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
 ) -> GoogleAdapter {
+    // An express key serves Gemini models only: no Claude request is built.
     vertex(
         serving::VertexPlace::express(),
         Arc::new(ApiKeyAuth::new(api_key)),
         String::new(),
         http,
         traits,
+        Arc::new(|_| None),
     )
 }
 

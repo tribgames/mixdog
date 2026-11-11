@@ -772,16 +772,16 @@
       "list": "operations",
       "name": "notifyProviderModelsChanged",
       "target": {
-        "kind": "deleted",
-        "target": "publishers own their changes (DS §3)"
+        "kind": "method",
+        "target": "ui/providerModels/announce"
       }
     },
     {
       "list": "operations",
       "name": "notifySettingsChanged",
       "target": {
-        "kind": "deleted",
-        "target": "publishers own their changes (DS §3)"
+        "kind": "method",
+        "target": "ui/settings/announce"
       }
     },
     {
@@ -1095,8 +1095,8 @@
       "list": "operations",
       "name": "browserRemoteFrame",
       "target": {
-        "kind": "mediaFrame",
-        "target": "browserView"
+        "kind": "clientNotification",
+        "target": "host/browser/frame"
       }
     },
     {
@@ -1776,8 +1776,8 @@
       "list": "services",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
@@ -1864,8 +1864,8 @@
       "list": "remote",
       "name": "notifyProviderModelsChanged",
       "target": {
-        "kind": "deleted",
-        "target": "publishers own their changes (DS §3)"
+        "kind": "method",
+        "target": "ui/providerModels/announce"
       }
     },
     {
@@ -2242,16 +2242,16 @@
       "list": "remote",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
       "list": "remote",
       "name": "answerApprovalNotification",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answerNotification"
       }
     },
     {
@@ -2913,8 +2913,12 @@
       "list": "remote",
       "name": "readLocalFile",
       "target": {
-        "kind": "method",
-        "target": "projectFs/readLocal"
+        "kind": "methods",
+        "target": [
+          "projectFs/readLocal",
+          "transfer/readRange",
+          "transfer/endRead"
+        ]
       }
     },
     {

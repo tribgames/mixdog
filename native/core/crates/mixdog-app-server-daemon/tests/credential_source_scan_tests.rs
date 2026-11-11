@@ -59,6 +59,8 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     // Not credentials: a path, a mode, an identifier, a version, a tuning knob.
     ("mixdog-ai/src/registry/builder.rs", "GOOGLE_APPLICATION_CREDENTIALS", "the path of the login file; reading the file is counted (read_credential_text)"),
     ("mixdog-ai/src/registry/builder.rs", "MIXDOG_OAI_TRANSPORT", "a transport mode"),
+    ("mixdog-ai/src/registry/builder.rs", "MIXDOG_XAI_API_MODE", "xAI's API mode (Responses or Chat)"),
+    ("mixdog-ai/src/registry/builder.rs", "MIXDOG_XAI_RESPONSES", "xAI's API mode under its earlier name"),
     ("mixdog-ai/src/registry/builder.rs", "let var = |name: &str| self.env.env.var(name)", "gcloud directory variables (CLOUDSDK_CONFIG, APPDATA): paths"),
     ("mixdog-ai/src/registry/builder.rs", "CLOUDSDK_ACTIVE_CONFIG_NAME", "the name of a gcloud configuration"),
     ("mixdog-ai/src/registry/builder.rs", "let get = |name: &str| env.var(name)", "the Vertex project and location variables: identifiers"),
@@ -78,7 +80,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_REFERENCE_TREE", "test harness: the reference Node tree, not a credential"),
     ("mixdog-ai/src/providers/grok/refresh_lease/processes.rs", "MIXDOG_LEASE_CHILD", "test harness: marks the child process of the replay, not a credential"),
     ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_OPENAI_REQ_ZSTD", "the request-compression switch"),
-    ("mixdog-ai/src/providers/openai/body.rs", "&|name| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
+    ("mixdog-ai/src/providers/openai/body.rs", "|name: &str| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
     ("mixdog-ai/src/providers/openai/cache_key.rs", "std::env::var(name).ok()", "process_var: the cache-key switches for a caller with no injected environment"),
     // The Anthropic wire's process settings (Node's `process.env` reads of the Anthropic transport): switches, none a credential.
     ("mixdog-ai/src/providers/anthropic/adapter.rs", "settings: Arc::new(|name| std::env::var(name).ok())", "the adapter's settings reader over the process environment (the request-gzip switch MIXDOG_ANTHROPIC_REQ_GZIP, the keep-alive time)"),

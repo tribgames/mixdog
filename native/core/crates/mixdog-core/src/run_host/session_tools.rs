@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::tool::{Freeform, Tool, ToolContext, ToolOutcome, ToolSpec};
 use mixdog_js::{js_trim, JsRegex};
-use mixdog_mcp::scopes::{ExtensionScopes, ScopeKind};
+use mixdog_mcp::scopes::ExtensionScopes;
 use mixdog_mcp::McpHub;
 use mixdog_mcp::hub::normalize_scope;
 use mixdog_store::schema::record::Header;
@@ -299,16 +299,7 @@ pub struct HubMcp {
 
 impl SessionMcp for HubMcp {
     fn tools(&self, scope: Option<&str>, cwd: &Path) -> Tools {
-        let scopes = (self.scopes)();
-        let hub_scope = normalize_scope(scope);
-        self.hub
-            .tools_in(&hub_scope)
-            .into_iter()
-            .filter(|tool| {
-                let server = self.hub.tool_target_in(&hub_scope, name(tool)).map(|target| target.server.name().to_owned());
-                server.is_none_or(|server| scopes.allowed_for_cwd(ScopeKind::Mcp, &server, cwd))
-            })
-            .collect()
+        self.hub.tools_for_cwd(&normalize_scope(scope), &(self.scopes)(), cwd)
     }
 }
 

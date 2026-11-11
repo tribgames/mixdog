@@ -408,9 +408,14 @@ pub struct HostUpdateCommandParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UpdateDesktopCommandParams {
     pub op_id: mixdog_protocol::OpId,
     pub action: UpdaterAction,
+    /// `install` only: the user confirmed installing past running agent tasks (Node's relay `showDesktopUpdate`
+    /// argument, remote-methods.ts:1062-1063), passed on to the host as `host/update/command`'s `confirmed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<bool>,
 }
 
 impl crate::common::HasOpId for UpdateDesktopCommandParams {
@@ -517,7 +522,8 @@ pub struct HostNotificationShowParams {
     pub volume: Option<f64>,
 }
 
-/// First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
+/// A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off`
+/// (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -526,7 +532,8 @@ pub struct HostBrowserViewFramesParams {
     /// The X17 `streamId` the host stamps on this tab's frames.
     pub stream_id: u32,
     pub on: bool,
-    /// Phone stream request (fit, quality) as today's take-over request.
+    /// The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`);
+    /// `null` with `on: false`.
     pub request: JsonValue,
 }
 
@@ -559,11 +566,12 @@ pub struct HostBrowserPageParams {
     pub geometry: Option<JsonValue>,
 }
 
-/// Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or
-/// stops this connection's stream of the browser session. The first stream of a session makes the
-/// core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's
-/// live-view signals name only a session it streams. `request` is the stream request (fit, quality)
-/// the core hands on to the host unchanged.
+/// Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this
+/// connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions`
+/// `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null`
+/// options). A subscription lapses 4 s after its last renewal. On every change the core sends the host
+/// `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last
+/// one ends; the phone's live-view signals name only a session it streams.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -573,6 +581,38 @@ pub struct BrowserStreamParams {
     pub on: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request: Option<JsonValue>,
+}
+
+/// `browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the
+/// `browser/frame` of `seq`, so its next (newest) frame of the session may go out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserStreamAckParams {
+    pub session_id: String,
+    pub seq: f64,
+}
+
+/// The `browser/frame` push (Node's `browserRemoteFrame` event): its params are Node's payload itself, one frame of a session the
+/// phone streams (`DesktopRemoteBrowserStreamFrame`: `frameId`, `sessionId`, `seq`, `documentId`, the page facts and, unless
+/// withheld, `image` `{mimeType, data}` as base64), field for field and in the order Node's relay built it. At most one is
+/// unacknowledged per subscription; the newest frame goes next, after the phone's `browser/streamAck` or 1.5 s.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(transparent)]
+pub struct BrowserFrameParams(pub JsonValue);
+
+/// `host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed
+/// session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType:
+/// "image/jpeg"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the
+/// core sends the frame once it has the picture; a frame without `image` carries facts only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostBrowserFrameParams {
+    /// The session, as in `host/browser/viewFrames`.
+    pub tab_id: String,
+    pub frame: JsonValue,
 }
 
 /// Params of `browser/screenDisplays` (a granted phone's request, Node's
@@ -848,13 +888,27 @@ pub struct UiTerminalRunClaimedParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiScreenSessionsChangedParams {
-    pub session_ids: Vec<String>,
+    /// Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`):
+    /// its last set stays. A UI's notification without it changes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visualize_session_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreground: Option<bool>,
+}
+
+/// Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase,
+/// state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did
+/// (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as
+/// `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an
+/// attached relay connection is heard. No response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct RemoteConnectionTimelineParams {
+    pub text: String,
 }
 
 /// Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to

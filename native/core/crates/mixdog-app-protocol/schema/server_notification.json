@@ -585,13 +585,13 @@
       "type": "string"
     },
     "HostBrowserViewFramesParams": {
-      "description": "First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).",
+      "description": "A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off` (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).",
       "properties": {
         "on": {
           "type": "boolean"
         },
         "request": {
-          "description": "Phone stream request (fit, quality) as today's take-over request."
+          "description": "The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`); `null` with `on: false`."
         },
         "streamId": {
           "description": "The X17 `streamId` the host stamps on this tab's frames.",
@@ -1770,6 +1770,150 @@
           "type": "object"
         },
         {
+          "description": "Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).",
+          "properties": {
+            "type": {
+              "enum": [
+                "providerMetadata"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "responseId"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "session_account_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "accountRouting"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountSwitching"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountChanged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "at",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole (`StreamEvent::WireRerouted`, Node `wireReroute`).",
+          "properties": {
+            "route": true,
+            "type": {
+              "enum": [
+                "wireRerouted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "route",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`, Node `firstOutputAt`).",
+          "properties": {
+            "type": {
+              "enum": [
+                "outputStarted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {
@@ -2770,6 +2914,17 @@
         "threadId"
       ],
       "type": "object"
+    },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
+      ],
+      "type": "string"
     },
     "SetupUiRequest": {
       "description": "The setup tool's desktop request waiting for a window to claim it (Node's session store `setupUiRequest`): its id, and when the thread took it.",
@@ -4028,6 +4183,23 @@
       ],
       "type": "object"
     },
+    "ThreadStageUpdatedParams": {
+      "description": "`thread/stage/updated`: a run stage a client shows as its status, not a transcript row (Node's `onStageChange` relayed to the turn's `applyStageChange`: the spinner's mode and verb), with the stage's detail.",
+      "properties": {
+        "detail": true,
+        "stage": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadStartedParams": {
       "properties": {
         "thread": {
@@ -5221,6 +5393,30 @@
         }
       ]
     },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
     "UiTerminalTab": {
       "description": "`DesktopTerminalRunTab`.",
       "properties": {
@@ -5526,6 +5722,24 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadStatusChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/stage/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadStageUpdatedParams"
         }
       },
       "required": [
@@ -6204,6 +6418,23 @@
       "type": "object"
     },
     {
+      "description": "A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "properties": {
         "method": {
           "enum": [
@@ -6393,6 +6624,44 @@
         },
         "params": {
           "$ref": "#/definitions/UiOpenRequestedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `settings-changed` event: settings pages re-read (a writer's announcement, a notification store write, or a change of the config outside `desktop`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/settings/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiSettingsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/providerModels/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiProviderModelsChangedParams"
         }
       },
       "required": [

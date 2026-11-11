@@ -632,6 +632,27 @@ pub enum ProxyEvent {
     Notice { message: String, warn: bool },
     /// The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).
     ServedModel { model: String },
+    /// Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).
+    ProviderMetadata { value: JsonValue },
+    /// The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).
+    ResponseId { id: String },
+    /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
+    AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
+    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).
+    AccountSwitching { message: String },
+    /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
+    AccountChanged {
+        provider: String,
+        account_id: String,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        at: i64,
+    },
+    /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
+    /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
+    WireRerouted { route: JsonValue },
+    /// The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`,
+    /// Node `firstOutputAt`).
+    OutputStarted,
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {
