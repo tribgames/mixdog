@@ -46,6 +46,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_protocol::TurnError;
 use mixdog_rt::CancellationToken;
+use mixdog_store::schema::record::Record;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Notify;
@@ -364,16 +365,18 @@ async fn a_compaction_the_store_refused_prunes_nothing() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![point]), world.case);
 }
 
-/// Node's `superseded` (a save another writer's record overtook): the session is in a turn when the commit comes;
-/// nothing is written.
+/// Node's `superseded`: another writer appends a record (a header patch setting `status`) after the session's last one
+/// before the compaction's save; the save's first barrier fails its ownership check and nothing of it is applied.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_compaction_refused_for_a_turn_prunes_nothing() {
+async fn a_compaction_another_writer_overtook_prunes_nothing() {
     let world = world("superseded").await;
-    world.handle.cell.ask_marked.store(true, std::sync::atomic::Ordering::SeqCst);
-    assert_eq!(world.commit().await.expect("answered"), CompactionCommit::Moved);
-    let point = world.point("after-commit", false).await;
-    within("the actor takes the turn's end", world.handle.inbox.send(Inbox::AskEnded)).await.expect("the actor runs");
+    let foreign: Record = serde_json::from_value(json!({ "k": "meta", "change": { "inline": { "set": { "status": "error" }, "unset": [] } } })).expect("meta record");
+    world.rig.store.seed(&world.handle.id, vec![foreign]);
+    world.rig.store.ownership_lost.store(true, std::sync::atomic::Ordering::SeqCst);
+    let answer = world.commit().await;
+    assert!(answer.is_err(), "{answer:?}");
     assert!(lock(&world.rig.compaction.pruned).is_empty());
+    let point = world.point("after-commit", false).await;
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![point]), world.case);
 }
 
