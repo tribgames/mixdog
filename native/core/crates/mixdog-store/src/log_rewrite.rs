@@ -23,6 +23,16 @@
 //! An older build knows none of this: it sees the old log whole, the new log whole, or (a kill
 //! between steps 4 and 5) no folder for the session, never a mix; this build's next start puts
 //! the session back before anything reads it.
+//!
+//! The memory database's part (`mixdog-services` `session_search/db.rs` `SessionSearchDb::replace`
+//! and `scrub`), run by the session's search queue after the same mark:
+//!
+//! | Step | Kill before it completes leaves | The next start (`SessionSearchDb::open`, before the schema is used) | A reader of the search rows |
+//! |---|---|---|---|
+//! | M1 the rows holding the value replaced and the owed scrub recorded (`session_search.scrub`), one transaction | the old rows (the marks died with the process, as Node's) | nothing | the old rows |
+//! | M2 `VACUUM FULL session_search.messages` (table, TOAST and indexes written anew from the live rows) | the new rows; the old row versions in the table files and the WAL; the scrub row | M2-M4 | the new rows (waits on the table lock while M2 runs) |
+//! | M3 `pg_switch_wal()`, `CHECKPOINT`: the segments before the new redo point are removed (`wal_recycle = off`) | the old row versions in the WAL only; the scrub row | M2-M4 (M2 again is cheap) | the new rows |
+//! | M4 the scrub row deleted | nothing of the value | nothing | the new rows |
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "log file I/O runs only in lane jobs (lane proof arguments)")]
 
 use std::collections::BTreeSet;

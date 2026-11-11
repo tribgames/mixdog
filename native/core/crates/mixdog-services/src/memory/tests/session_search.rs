@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::memory::pg::db::Schema;
-use crate::memory::session_search::db::{SessionSearchDb, search_rows};
+use crate::memory::session_search::db::{ScrubStep, SessionSearchDb, search_rows};
 use crate::memory::session_search::ingest::{IngestSession, SensitiveValues, SessionSearchIngest, StoredSessions};
 use crate::memory::tests::support::TestPg;
 
@@ -257,4 +257,56 @@ async fn ingest_search_redact_and_delete() {
     ingest.forget_session("s1").await;
     assert!(db.search("staging", 10).await.expect("after delete").is_empty());
     assert!(!db.session_ids().await.expect("ids").contains("s1"));
+}
+
+/// Every `file@offset` under `root` that holds the bytes of `value`.
+fn holders(root: &std::path::Path, value: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("list") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            // A file the server removes between the listing and the read holds nothing.
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            for (offset, window) in bytes.windows(value.len()).enumerate() {
+                if window == value.as_bytes() {
+                    found.push(format!("{}@{offset}", path.display()));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// A value marked sensitive after its search rows were stored: once the replacement has run, no
+/// file of the cluster holds it (table, TOAST, indexes, WAL), whichever step a kill ends the
+/// scrub before; the next open finishes it (log_rewrite.rs, M1-M4).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops() {
+    let secret = vec![
+        json!({ "role": "user", "content": "Finish the sign-up." }),
+        json!({ "role": "assistant", "content": "The code is 682419." }),
+    ];
+    let redacted = Mask.redact_messages("masked", &secret);
+    for kill_after in [ScrubStep::Owed, ScrubStep::Rewritten, ScrubStep::WalRemoved] {
+        let mut pg = TestPg::start().await;
+        let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+        db.append("masked", &secret).await.expect("plain rows");
+        db.replace_rows("masked", &secret, &redacted, &|text| Mask.redact_text("masked", text)).await.expect("M1");
+        db.scrub_through(kill_after).await.expect("the steps before the kill");
+        pg.kill_and_restart().await;
+        let before = holders(pg.dir.path(), "682419");
+        if kill_after == ScrubStep::Owed {
+            assert!(!before.is_empty(), "the old row versions are on disk after the kill (the scan sees them)");
+        }
+        let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("the next open");
+        assert_eq!(holders(pg.dir.path(), "682419"), Vec::<String>::new(), "killed after {kill_after:?}");
+        assert!(db.search("682419", 10).await.expect("search").is_empty());
+        assert_eq!(db.search("redacted", 10).await.expect("marker").len(), 1, "the replacement survived the kill");
+    }
 }
