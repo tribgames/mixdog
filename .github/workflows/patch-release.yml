@@ -119,6 +119,9 @@ jobs:
 
       # K1 replacement of the wire step above: the same edit and patch bytes through the Rust core's own patch tool
       # (mixdog-tools fs goldens recorded from the Node tool), once the Node wire step is removed.
+      # The lane starts cargo through this helper (it ends the child's whole tree); a clean runner has not built it.
+      - name: Build the process-tree helper
+        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
       - name: Rust core patch bytes
         run: node scripts/rust-core/k1-lanes.mjs patch-bytes
 

@@ -149,6 +149,8 @@ impl DirWatch {
 
 pub(super) struct ExitWatch {
     fd: OwnedFd,
+    #[cfg(target_os = "macos")]
+    pid: u32,
 }
 
 impl ExitWatch {
@@ -157,7 +159,40 @@ impl ExitWatch {
             return Ok(None);
         };
         // Registered first, then the identity: a reused pid is never watched.
-        Ok((start_ms(identity.pid)? == Some(identity.start_ms)).then_some(Self { fd }))
+        Ok((start_ms(identity.pid)? == Some(identity.start_ms)).then_some(Self {
+            fd,
+            #[cfg(target_os = "macos")]
+            pid: identity.pid,
+        }))
+    }
+
+    pub(super) fn open_to_end(identity: ProcessIdentity) -> io::Result<Option<Self>> {
+        Self::open(identity)
+    }
+
+    /// SIGTERM, or SIGKILL when `kill`. On Linux through the pidfd, so a reused pid is never signalled.
+    #[cfg(target_os = "linux")]
+    pub(super) fn signal(&self, kill: bool) -> io::Result<()> {
+        let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
+        // SAFETY: plain syscall on a valid pidfd; no siginfo, no flags.
+        cvt(unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.fd.as_raw_fd(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        } as libc::c_int)
+        .map(drop)
+    }
+
+    /// SIGTERM, or SIGKILL when `kill`. The pid was proven the identity's after its exit was registered.
+    #[cfg(target_os = "macos")]
+    pub(super) fn signal(&self, kill: bool) -> io::Result<()> {
+        let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
+        // SAFETY: plain FFI call.
+        cvt(unsafe { libc::kill(self.pid as libc::pid_t, signal) }).map(drop)
     }
 
     #[cfg(target_os = "linux")]

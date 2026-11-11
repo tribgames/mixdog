@@ -8,8 +8,18 @@
 // This does NOT merge the process into the app's Task Manager row: that
 // grouping keys off AppUserModelID, which a version resource cannot carry.
 // main.rs claims the desktop AUMID at startup to do that.
+//
+// Every build also refuses the development-only features in a release-profile build
+// (native/core/build-support/dev_only.rs).
+#[path = "../core/build-support/dev_only.rs"]
+mod dev_only;
+
 #[cfg(windows)]
 fn main() {
+    dev_only::refuse_in_release(&["core-test", "lease-clock"]);
+    // The script's only other input; without a rerun-if line Cargo reran it (and the resource compiler) on every
+    // change in the package.
+    println!("cargo::rerun-if-changed=../../apps/desktop/build/mixdog.ico");
     let mut resource = winresource::WindowsResource::new();
     resource
         .set("ProductName", "Mixdog")
@@ -28,4 +38,6 @@ fn main() {
 }
 
 #[cfg(not(windows))]
-fn main() {}
+fn main() {
+    dev_only::refuse_in_release(&["core-test", "lease-clock"]);
+}
