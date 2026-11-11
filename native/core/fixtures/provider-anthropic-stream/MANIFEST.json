@@ -8,18 +8,18 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "anthropic-oauth.mjs parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta) over a scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a network send.",
+  "entry": "anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, { onStreamDelta, onToolCall }) against the loopback endpoint serving the scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 38959,
+      "bytes": 73039,
       "path": "cases.json",
-      "sha256": "70516a1b5f5088748e2ad6861b8575aa7891ee00eff757283e14edca65c376fa"
+      "sha256": "43f666e8bd3258225614df85431eae41ce6a138a081a7b3d769a99afda738cdf"
     }
   ],
   "inputs": [
@@ -41,11 +41,57 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "final-usage-revises-every-slot-before-early-tool-use-return",
+      "level": "wire"
+    },
+    {
+      "id": "partial-usage-update-0",
+      "level": "wire"
+    },
+    {
+      "id": "partial-usage-update-1",
+      "level": "wire"
+    },
+    {
+      "id": "partial-usage-update-2",
+      "level": "wire"
+    },
+    {
+      "id": "refusal-stop-details-and-category",
+      "level": "wire"
+    },
+    {
+      "id": "streamed-tool-use-canonical-tool-calls",
+      "level": "wire"
+    },
+    {
+      "id": "malformed-tool-args-invalid-marker",
+      "level": "wire"
+    },
+    {
+      "id": "text-only-no-tool-calls",
+      "level": "wire"
+    },
+    {
+      "id": "thinking-signature-ordered-before-tool-use",
+      "level": "wire"
+    },
+    {
+      "id": "signature-only-block-keeps-empty-thinking",
+      "level": "wire"
+    },
+    {
+      "id": "redacted-thinking-roundtrips-exactly",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +113,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-stream.mjs",
-  "recorderSha256": "52ac5719dd774ea57bf7aff0d387e0387fb8f9169e741b56c334d51427277c99",
+  "recorderSha256": "6e7a3de7b35a5dd5dd161820cc46fcd0bb76e19f5acb18fbd0449a5d47f74665",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-anthropic-stream",
-  "totalBytes": 38959,
+  "totalBytes": 73039,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
