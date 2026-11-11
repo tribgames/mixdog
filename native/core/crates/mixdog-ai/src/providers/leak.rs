@@ -185,10 +185,6 @@ impl Fence {
     }
 }
 
-fn utf16_len(s: &str) -> usize {
-    s.encode_utf16().count()
-}
-
 fn first_sentinel(s: &str, harmony: bool) -> Option<usize> {
     let mut at = SENTINEL.find(s).map(|m| m.start());
     let harmonic = if harmony { HARMONY_SENTINEL.find(s).map(|m| m.start()) } else { None };
@@ -210,12 +206,18 @@ fn is_opener_prefix(tail: &str, harmony: bool) -> bool {
 
 /// `partialTailIndex`: where the tail of `s` could be the start of a sentinel still arriving.
 fn partial_tail(s: &str, harmony: bool) -> usize {
-    for (i, _) in s.char_indices() {
-        if utf16_len(&s[i..]) <= LONGEST_OPENER && is_opener_prefix(&s[i..], harmony) {
-            return i;
+    // Only suffixes of at most LONGEST_OPENER UTF-16 units can match; measuring every suffix of
+    // the buffer made one long delta quadratic (300 000 characters took 86 s).
+    let mut start = s.len();
+    let mut units = 0;
+    for (i, c) in s.char_indices().rev() {
+        units += c.len_utf16();
+        if units > LONGEST_OPENER {
+            break;
         }
+        start = i;
     }
-    s.len()
+    s[start..].char_indices().map(|(i, _)| start + i).find(|&i| is_opener_prefix(&s[i..], harmony)).unwrap_or(s.len())
 }
 
 /// `coerceValue`: JSON-looking scalars and objects parse; anything else is the raw string.

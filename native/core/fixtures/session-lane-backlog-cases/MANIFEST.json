@@ -71,12 +71,21 @@
   "recorderSha256": "7a65d6fad9e92595fc16b7e24d968c9b889163077a3db1ec9faafcf632b42370",
   "replay": {
     "compare": "mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order, whole, and that each data event decodes to the recorded snapshot",
-    "entry": "NO RUST ENTRY ON o1: the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found.",
+    "entry": "A built mixdogd over its real WebSocket listener, two desktop protocol clients (packages/protocol-client connect, sessionReducer, sessionStateOf) on one thread: benchmarks/rust-core/recorders/replay-session-lane-backlog.mjs --mixdogd <exe>. Client A stops reading its socket while the opening turn (the 300 000-character row) and the live turn complete; client B, reading, must show both meanwhile; then A reads and must show each recorded publication in order. The core's slow-consumer lane is mixdog-core-base feed/mod.rs CoreFeed::publish (a full connection budget lags that connection's lane, no wait; resumed with one snapshot), covered by feed/tests.rs a_slow_consumer_lags_only_its_own_lanes.",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found"
-    ],
-    "normalised": {},
+    "missingOnO1": [],
+    "normalised": {
+      "writes": "Node's SSE wire text (writeHead, ': attached', data events) is the desktop's own HTTP stream; K1's desktop takes the thread over the core's WebSocket JSON-RPC, so the user-visible content is compared through `decoded` (what the desktop decoder applied) instead",
+      "writesAfterOpen": "the count of Node's SSE writes, see writes",
+      "writesAfterLive": "the count of Node's SSE writes, see writes",
+      "writesTotal": "the count of Node's SSE writes, see writes",
+      "maxPendingBytes": "Node's SSE pending cap (8 MiB); the core bounds a connection by its event budget (CoreFeed lanes lag past it), asserted by the feed seam test",
+      "decoded[].snapshot.items[].id": "the core mints its own item ids; rows are compared by text in order",
+      "promptRows": "the core writes rows only through turns, so each recorded row is the answer of a turn with prompt `open`/`live`; the prompt rows and turn markers are not compared"
+    },
+    "replayedBy": {
+      "a backed-up session stream still delivers a lane the desktop decoder can apply": "node benchmarks/rust-core/recorders/replay-session-lane-backlog.mjs --mixdogd <exe>"
+    },
     "protocolMethods": [],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
