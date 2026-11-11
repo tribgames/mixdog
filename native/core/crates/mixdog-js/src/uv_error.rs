@@ -194,13 +194,15 @@ pub fn errno_name(code: i32) -> &'static str {
     }
 }
 
+/// `uv_err_name` of a raw OS error of this platform (a Win32 error on Windows, an errno elsewhere).
 #[cfg(windows)]
-fn os_name(raw: i32) -> &'static str {
+pub fn os_name(raw: i32) -> &'static str {
     win32_error_name(raw as u32)
 }
 
+/// `uv_err_name` of a raw OS error of this platform (a Win32 error on Windows, an errno elsewhere).
 #[cfg(unix)]
-fn os_name(raw: i32) -> &'static str {
+pub fn os_name(raw: i32) -> &'static str {
     errno_name(raw)
 }
 

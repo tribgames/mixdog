@@ -1856,7 +1856,7 @@ async fn a_detached_eager_run_ends_with_the_turns_cancellation() {
     assert!(!released.load(Ordering::SeqCst), "not cancelled: it is left to finish, as in Node");
     h.cancel.cancel();
     while !released.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 }
 
@@ -2496,12 +2496,12 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
     run.set_step_judge(judge.clone());
     let task = tokio::spawn(run.run());
-    tokio::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    mixdog_rt::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
     // The judge is held and the grace has not passed: the second request must not have been sent.
     assert_eq!(h.provider.requests().len(), 1);
     // The judgment resolves inside the grace, whose time never passes.
     judge.gate.notify_one();
-    let output = tokio::time::timeout(Duration::from_secs(30), task).await.expect("the run ends once judged").unwrap().expect("run");
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), task).await.expect("the run ends once judged").unwrap().expect("run");
     assert_eq!(h.provider.requests().len(), 2);
     let seen = adapter.seen.lock().unwrap().clone();
     assert!(seen[0].as_ref().is_some_and(|p| p.updates.is_empty()), "the first request has nothing to update");
@@ -2555,12 +2555,12 @@ async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_on
     let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("do it")]);
     run.set_step_judge(Arc::new(SilentJudge));
     let task = tokio::spawn(run.run());
-    tokio::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
+    mixdog_rt::time::timeout(Duration::from_secs(30), timer.waiting.notified()).await.expect("the next request waits out the step grace");
     assert_eq!(*h.waiter.0.lock().unwrap(), [mixdog_agent::step_effort::STEP_EFFORT_GRACE]);
     assert_eq!(h.provider.requests().len(), 1, "held while the grace has not passed");
     // The grace passes; the judge still has not answered.
     timer.elapse.notify_one();
-    let output = tokio::time::timeout(Duration::from_secs(30), task).await.expect("the request goes out once the grace has passed").unwrap().expect("run");
+    let output = mixdog_rt::time::timeout(Duration::from_secs(30), task).await.expect("the request goes out once the grace has passed").unwrap().expect("run");
     assert_eq!(h.provider.requests().len(), 2);
     assert!(output.transcript[2].effort.is_none(), "an unanswered step stays at the effort in force");
 }

@@ -119,7 +119,7 @@ async fn feed_stdin(processes: Arc<dyn ProcessManager>, handle: ProcessHandle, i
     for chunk in input.chunks(STDIN_CHUNK) {
         loop {
             match processes.write_stdin(&handle, chunk.to_vec()).await {
-                Err(ProcessError::Overloaded { .. }) => tokio::time::sleep(Duration::from_millis(2)).await,
+                Err(ProcessError::Overloaded { .. }) => mixdog_rt::time::sleep(Duration::from_millis(2)).await,
                 Err(_) => return,
                 Ok(()) => break,
             }
@@ -488,7 +488,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn map_limit_keeps_input_order() {
         let out = map_limit(vec![3u64, 1, 2], 2, |n| async move {
-            tokio::time::sleep(Duration::from_millis(n * 10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(n * 10)).await;
             n * 2
         })
         .await;

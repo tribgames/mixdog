@@ -47,10 +47,9 @@ pub trait BodyStream: Send {
     /// transport fact that ended the body.
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>>;
 
-    /// Keeps the connection of a body read to its end out of the pool until the next request to its origin has its
-    /// connection, or this body is dropped: Node's response returns its socket a turn of the event loop after the
-    /// code that drained it ran on (`resendIfEncodingRejected` resends before the socket is free, so the resend takes
-    /// another; a request after the resend finds it free). The default does nothing.
+    /// Keeps the connection of a body read to its end out of the pool until this body is dropped: Node's response
+    /// returns its socket a check phase after the code that read it ran on, so a request that code sends at once finds
+    /// that socket busy. The default does nothing.
     fn hold_connection(&mut self) {}
 }
 
@@ -76,9 +75,8 @@ impl HttpResponse {
         })
     }
 
-    /// [`Self::read_all`] with the connection kept out of the pool until the next request to the origin has its
-    /// connection, or the returned body is dropped ([`BodyStream::hold_connection`]): a Node caller that reads an
-    /// answer and sends its next request on the same turn of the event loop finds the answer's socket still busy.
+    /// [`Self::read_all`] with the connection kept out of the pool until the returned body is dropped
+    /// ([`BodyStream::hold_connection`]).
     pub async fn read_all_held(mut self) -> Result<(ErrorResponse, Box<dyn BodyStream>), ProviderError> {
         self.body.hold_connection();
         let body = drain(&mut self.body).await?;
@@ -323,6 +321,13 @@ impl ReqwestLink {
         client.tap(tap);
     }
 
+    /// [`NodeClient::settled`] of the Node-equal client.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn settled(&self) {
+        let Clients::Node(client) = &self.clients else { panic!("only the Node-equal client is followed") };
+        client.settled().await;
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     /// The link with its client built from `tweak(link_builder)`: a test pins hosts to a loopback server and trusts its
     /// certificate there, and everything else about the client is the production one.
@@ -443,7 +448,7 @@ impl BodyStream for DeadlineBody {
     }
 
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        match tokio::time::timeout_at(self.until, self.inner.next()).await {
+        match mixdog_rt::time::timeout_at(self.until, self.inner.next()).await {
             Ok(item) => item,
             Err(_) => Some(Err(TransportFault::Io { os_code: None })),
         }

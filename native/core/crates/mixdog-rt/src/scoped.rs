@@ -74,7 +74,7 @@ impl<'a> Scope<'a> {
         };
         let expired = async {
             match self.deadline {
-                Some(at) => tokio::time::sleep_until(at).await,
+                Some(at) => crate::time::sleep_until(at).await,
                 None => std::future::pending().await,
             }
         };

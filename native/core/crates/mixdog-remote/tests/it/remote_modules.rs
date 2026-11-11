@@ -355,7 +355,7 @@ fn rig(fail: bool) -> (Bridge, Arc<MockDialer>, mpsc::UnboundedReceiver<ToPhone>
 }
 
 async fn settle() {
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -439,6 +439,6 @@ async fn a_stalled_phone_does_not_delay_another() {
         slow_tx.send(UpEvent::Frame(Frame::Text("x".into()))).unwrap();
     }
     fast_tx.send(UpEvent::Frame(Frame::Text("y".into()))).unwrap();
-    let got = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+    let got = mixdog_rt::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
     assert_eq!(got, ToPhone::Frame { peer_id: "fast".into(), frame: Frame::Text("y".into()) });
 }

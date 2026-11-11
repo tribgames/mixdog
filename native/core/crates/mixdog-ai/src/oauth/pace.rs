@@ -31,7 +31,7 @@ impl Pace for SystemPace {
     }
 
     async fn wait(&self, duration: Duration) {
-        tokio::time::sleep(duration).await;
+        mixdog_rt::time::sleep(duration).await;
     }
 }
 

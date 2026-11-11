@@ -115,6 +115,8 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
+#[cfg(test)]
+mod k1_grants_replay;
 pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
@@ -304,6 +306,8 @@ pub struct SessionDeps {
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.
     pub attachments: user_facts::AttachmentStore,
+    /// The process's "Allow for this session" grants (`processSessionGrants`): one bound over every session.
+    pub session_grants: Arc<mixdog_tools::policy::SessionGrantRegistry>,
     /// The originals a composer staged ahead of a message: a turn submission claims the ones it
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,
@@ -411,7 +415,8 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
-        let since = std::time::SystemTime::now()
+        // On a replay's clock, the replay's wall clock (mixdog_rt::virtual_clock).
+        let since = mixdog_rt::wall_clock!()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
@@ -480,7 +485,7 @@ fn new_session_id(now_ms: i64) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: std::sync::OnceLock<AtomicU64> = std::sync::OnceLock::new();
     let counter = NEXT
-        .get_or_init(|| AtomicU64::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
+        .get_or_init(|| AtomicU64::new(mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
         .fetch_add(1, Ordering::Relaxed);
     format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
 }

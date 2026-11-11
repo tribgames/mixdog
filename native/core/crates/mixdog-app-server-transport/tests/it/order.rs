@@ -66,7 +66,7 @@ fn answer(peer: &Peer, text: &str) {
 async fn next_items(peer: &mut Peer, n: usize, what: &str) -> Vec<Wire> {
     let mut items = Vec::new();
     while items.len() < n {
-        let item = tokio::time::timeout(DEADLINE, peer.wire.recv())
+        let item = mixdog_rt::time::timeout(DEADLINE, peer.wire.recv())
             .await
             .unwrap_or_else(|_| panic!("{what}: wire item {} of {n} not written within {DEADLINE:?}", items.len() + 1))
             .expect("socket still open");
@@ -174,7 +174,7 @@ async fn replay_recorded_windows(scenario: &str, ordered: bool) {
                 while peer.held.try_recv().is_ok() {}
                 let (frame, kind) = window.next().expect("a first frame");
                 queue(&peer, frame, kind);
-                tokio::time::timeout(DEADLINE, peer.held.recv())
+                mixdog_rt::time::timeout(DEADLINE, peer.held.recv())
                     .await
                     .unwrap_or_else(|_| panic!("{scenario} {mode}: the writer did not reach the withheld socket with the window's first frame within {DEADLINE:?}"))
                     .expect("the socket");
@@ -234,7 +234,7 @@ async fn an_answer_does_not_wait_for_a_lagged_lanes_recovery_snapshot() {
     let _ = recovery.lane.set(lagged.clone());
     let other = live_lane(&mut peer, "other", false, Arc::new(NoRecovery)).await;
     lagged.lag();
-    tokio::time::timeout(DEADLINE, asked_rx.recv())
+    mixdog_rt::time::timeout(DEADLINE, asked_rx.recv())
         .await
         .expect("the writer asks the lagged lane to recover within the deadline")
         .expect("recovery channel open");
