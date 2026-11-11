@@ -1,0 +1,217 @@
+{
+  "set": "provider-local-context-settings",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "persist-validate-reset",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:9",
+      "input": {
+        "entry": {
+          "id": "qwen3.8-27b-q4-k-m",
+          "contextWindow": 32768,
+          "maxContextWindow": 262144
+        }
+      },
+      "result": {
+        "initial": null,
+        "saved": [
+          {
+            "tokens": 16384,
+            "contextWindow": 16384,
+            "runtimeContextWindow": 16384,
+            "maxContextWindow": 262144
+          },
+          {
+            "tokens": 32768,
+            "contextWindow": 32768,
+            "runtimeContextWindow": 32768,
+            "maxContextWindow": 262144
+          },
+          {
+            "tokens": 262144,
+            "contextWindow": 262144,
+            "runtimeContextWindow": 262144,
+            "maxContextWindow": 262144
+          }
+        ],
+        "invalid": [
+          {
+            "value": 0,
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": 511,
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": 8192,
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": 16383,
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": 1.5,
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": "16384",
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": "<undefined>",
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": "NaN",
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": "Infinity",
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          },
+          {
+            "value": 262145,
+            "error": {
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens."
+            }
+          }
+        ],
+        "otherModel": null,
+        "filesAfterSaves": [
+          {
+            "path": "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json",
+            "text": "{\n  \"tokens\": 262144\n}\n"
+          }
+        ],
+        "afterReset": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768
+        },
+        "filesAfterReset": [
+          {
+            "path": "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json",
+            "text": "{\n  \"tokens\": null\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "corrupt-or-out-of-range-file-falls-back",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:33",
+      "input": {},
+      "result": {
+        "rows": [
+          {
+            "contents": "{not json",
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768
+          },
+          {
+            "contents": "null",
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768
+          },
+          {
+            "contents": "{\"tokens\":262145}",
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768
+          },
+          {
+            "contents": "{\"tokens\":8192}",
+            "configuredContextWindow": null,
+            "contextWindow": 32768,
+            "defaultContextWindow": 32768
+          }
+        ]
+      }
+    },
+    {
+      "id": "apply-waits-for-inference-then-exposes-capacity",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:55",
+      "input": {},
+      "result": {
+        "steps": [
+          {
+            "afterOneTurnConfigured": null
+          },
+          {
+            "inferenceSignalAborted": false
+          },
+          {
+            "afterApplyRuntimeContextWindow": 16384
+          }
+        ],
+        "unknownModel": {
+          "name": "TypeError",
+          "message": "Unknown local model."
+        },
+        "files": [
+          {
+            "path": "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json",
+            "text": "{\n  \"tokens\": 16384\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "below-agent-minimum-runs-at-gguf-minimum",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:80",
+      "input": {},
+      "result": {
+        "legacy": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 16384,
+          "minContextWindow": 16384,
+          "maxContextWindow": 131072,
+          "contextWindow": 16384,
+          "runtimeContextWindow": 16384
+        },
+        "small": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 4096,
+          "minContextWindow": 16384,
+          "maxContextWindow": 4096,
+          "contextWindow": 4096,
+          "runtimeContextWindow": 4096
+        }
+      }
+    }
+  ]
+}

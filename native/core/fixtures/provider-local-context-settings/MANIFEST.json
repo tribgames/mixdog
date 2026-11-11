@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-local-context-settings.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "entry": "src/runtime/local-provider/context-settings.mjs localContextSettings / saveLocalContext, catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir }), server.mjs runLocalProviderRequest / setLocalProviderContext(modelId, tokens, { dataDir }). The queue gate is a promise the recorder resolves (no timer); one event-loop turn (setImmediate) shows the apply has not run, as the test does.",
+  "exclusions": [
+    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
+    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6383,
+      "path": "cases.json",
+      "sha256": "935876476f913b815f4c6009924827ab0be8af4d129a7b19257997d8dc5ae501"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-local-context-settings.mjs",
+  "recorderSha256": "f9f6be3cec5af26ad5ea8bd1e3b8a7339b1e4471e9f5c1be00bcf8677f87d746",
+  "replay": "mixdog-services local_provider context.rs:94-106, request_queue.rs:124-144 and gguf.rs (agent minimum): compare the settings rows and thrown errors whole, the context files written (`files`: path relative to the case data dir, bytes) and, for the gate case, the ordered `steps`.",
+  "set": "provider-local-context-settings",
+  "totalBytes": 6383
+}
