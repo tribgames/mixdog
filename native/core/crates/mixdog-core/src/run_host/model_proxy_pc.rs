@@ -315,10 +315,14 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
+    // Read at run time: an `include_str!` put the 1 MB recording into every test build of the crate.
+    #[allow(clippy::disallowed_methods)] // test fixture loading
+    static TWIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/model-proxy-pc/model-proxy-pc-twin.json")).unwrap()
+    });
 
     fn twin() -> Value {
-        serde_json::from_str(TWIN).unwrap()
+        serde_json::from_str(&TWIN).unwrap()
     }
 
     /// A provider that is the mock but for what the case sets.

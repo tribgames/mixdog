@@ -1,30 +1,80 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-lifecycle.mjs --tree <tree>",
+  "entry": "Ran the real session store (store.mjs loadSession, saveSessionAsync, drainSessionStore; store/lifecycle-barriers.mjs bumpSessionGenerationAttempt and markSessionClosedAttempt) and manager/session-lifecycle.mjs createSession on a temp MIXDOG_DATA_DIR. The fence barriers run in a second Node process (this recorder with --child, node --import lib/determinism-preload-other-process.mjs, 120 s deadline). Did not run a turn (the provider throws if asked).",
+  "exclusions": [
+    "no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process",
+    "this machine's roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext (the stored system prompt) and every \"cwd\" field of a stored session. The sessions are created with cwd = the work dir <TMP>\\rec-session-lifecycle (an explicit input: createSession options.cwd), so the prompt's cwd entries and git state do not depend on the checkout. The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine's and stays as written",
+    "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
+    "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
+    "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
+    "process.pid is 4242 (process.kill(pid, 0) of it answers alive, as it is this process) and process.ppid is 4241; the recorded cwd is the constant \"C:\\\\recorded\\\\cwd\"",
+    "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
+    "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
+    "BRANCH process.pid equality (own-lock re-entrancy, ~33 sites such as memory-process-lock, scheduler): a recorded flow with two processes gives them different pids (4242, 4243) so they are different owners, as in production",
+    "BRANCH id collision: session ids are sess_<pid>_<n>_<Date.now()>_<randomBytes(16)>; with a fixed pid, a fixed or stepped clock and a counter for the bytes, uniqueness rests on the store's own sequence number n (nextId) and on the counters not being reset between live sessions: determinism.reset() is called only where the previous session is finished (lifecycle fresh()), and a collision would fail the save, not pass unnoticed",
+    "BRANCH ordering by time (~23 sort sites on updatedAt/createdAt): with a fixed clock timestamps tie, so a listing sorted by time falls back to insertion order; no recorded case reads a time-ordered listing of several sessions (directory listings are recorded in the OS order)",
+    "BRANCH deadlines on Date.now / performance.now (~74 performance.now sites, Date.now deadline loops such as settleTurnJournalWrites and lock timeouts): with the clock fixed they never expire inside the code under test; every wait of a recorder carries its own real-timer deadline instead, and the cases that need elapsed time move the virtual clock by a recorded step"
+  ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8920,
+      "bytes": 4436999,
       "path": "twin.json",
-      "sha256": "75bb5f63999fe14b3562b9eef114c3ec87e95f5faeb4a96c67b470671b2b3884"
+      "sha256": "b2ce8686d46e8b120d68b3e8a96470ebe0c0cb88a7489ed6565859eafb49d42e"
     }
   ],
-  "product": {
-    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9252,
-    "refComparison": {
-      "closestCommit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
-    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    {
+      "path": "benchmarks/rust-core/recorders/lib/determinism-preload-other-process.mjs",
+      "sha256": "3a58d75ca20a99e03ff11e57c433856b09d7cc6b3cc4f2e05d7838d112ac5409"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/determinism-preload.mjs",
+      "sha256": "12e3142bbf83bcc0ed8aa38b05749aa24fb79154fbb2594606e362d52405b9be"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "3bbd21f382d6762424a1305dc976f5babc2a6836cd631d6fce898125c61240cb"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-lifecycle.mjs",
+  "recorderSha256": "6b5727e2495a03fde49ee4ccc5d4b55b6146ec16ba7e4c25243c6cbd7578c29c",
+  "replay": "A replay drives the Rust core through the public app-server protocol (native/core/crates/mixdog-app-protocol methods.rs) and compares WHOLE stored records (thread/read of the thread, before and after each step; every recorded before/after/recorded/late/storedAfter is a whole Node session record): detach (cli-exit, no live session clients) <- thread/unsubscribe of the last subscriber; close with tombstone (manual, desktop-session-delete) <- thread/delete; agent-task-cancel <- thread/agentControl; a late save carrying an expected generation <- turn/start and thread/name/set issued with a stale generation, whose refusal/acceptance is the recorded outcome. The daemon-internal reasons (idle-sweep, SIGTERM, cli-agent-close, owner close) have no protocol method: Rust-side work, to be driven through the thread directory's own close/detach calls. Node-only fields (updatedAt, ownerClosedAt, cancelledAt) are the virtual clock 1000 * (step + 1). The existing close.rs unit tests read the old nine-key before/after/recorded projections of this file: they must read the whole records now.",
   "set": "session-lifecycle",
-  "totalBytes": 8920
+  "testFile": "src/runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs (no test file: a golden twin of the barriers)",
+  "totalBytes": 4436999,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

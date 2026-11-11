@@ -14,6 +14,7 @@ mod args;
 mod error;
 mod flow;
 mod host;
+mod idle;
 mod install;
 mod layout;
 mod lock;
