@@ -1,0 +1,89 @@
+{
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://oauth2.googleapis.com",
+      "method": "POST",
+      "path": "/token",
+      "headers": {
+        "host": "oauth2.googleapis.com",
+        "connection": "keep-alive",
+        "content-type": "application/x-www-form-urlencoded",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "114"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "grant_type=refresh_token&client_id=fixture-client&client_secret=fixture-secret&refresh_token=fixture-refresh-token",
+      "served": "{\"access_token\":\"fixture-token-1\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+    },
+    {
+      "transport": "http",
+      "origin": "https://aiplatform.googleapis.com",
+      "method": "POST",
+      "path": "/v1/projects/fixture-project/locations/global/publishers/anthropic/models/claude-sonnet-4-6:streamRawPredict",
+      "headers": {
+        "host": "aiplatform.googleapis.com",
+        "connection": "keep-alive",
+        "content-type": "application/json",
+        "authorization": "Bearer <redacted>",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "327"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "content-type",
+        "authorization",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Hello\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true,\"anthropic_version\":\"vertex-2023-10-16\"}",
+      "served": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_x\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-6\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The answer\"}}\n\n",
+      "hold": "part",
+      "closedByClient": true
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "vertex-claude-cancel/mid-stream",
+      "seed": 1836723819,
+      "samples": []
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": []
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/anthropic-sse-watchdogs.mjs#Object.armFirstMessageTimer",
+      "src/runtime/agent/orchestrator/providers/anthropic-sse-watchdogs.mjs#Object.resetIdleTimer"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
+}

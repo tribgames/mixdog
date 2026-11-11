@@ -42,6 +42,8 @@ mod maas_wire_tests;
 #[cfg(test)]
 mod usage_wire_tests;
 #[cfg(test)]
+mod vertex_claude_cancel_wire_tests;
+#[cfg(test)]
 mod vertex_claude_wire_tests;
 
 use adapter::GoogleAdapter;
