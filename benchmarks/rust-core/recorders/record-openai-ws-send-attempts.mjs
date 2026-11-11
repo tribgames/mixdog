@@ -26,7 +26,7 @@ const rec = await startRecording({
     };
     if (row.id?.startsWith('ws-')) walk(row.result);
   },
-  entry: 'src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. Every failure is a scripted Error (own properties are the inputs); `attempts.state` and the error objects are read after each call.',
+  entry: 'src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. The state-machine cases feed a scripted Error (own properties are the inputs) and read `attempts.state` and the error objects after each call; the `ws-*` cases run sendViaWebSocket over a real loopback WebSocket.',
   compare: 'mixdog-agent send.rs:541-664 (retry loop, advised wait, reasons), mixdog-ai retry decider.rs:55-57,172-185 and retry advice.rs, openai adapter.rs: feed each case\'s scripted errors / midState and compare `results`, `progress`, `sleeps`, `details`, `traces`, `stages` and the error fields. K1 gap G10 (exhaustion surfaces the first error, not the last) and G1 (xAI WS carry-forward) are OPEN in the core, so those cases are expected to differ.',
   replay: "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
 });
@@ -119,7 +119,7 @@ await rec.run('stream-long-advised-wait-announced-before-it-starts', `${SRC}:165
   const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: midState({ sawResponseCreated: false }) }));
   return { out, error: err, ...logs(h), detailErrorIsTheError: h.details[0]?.error === err };
 });
-await rec.run('reconnect-stage-names-failure-and-counts-down-advised-wait', `${SRC}:180`, { create: { auth: { type: 'xai' }, useModel: 'gpt-6.1-sol', traceProvider: 'xai' }, progress: [{ attempt: 1, max: 5, classifier: 'http_429', error: errorOf('Rate limit reached. Please try again in 210s.', { code: 'rate_limit_exceeded' }), waitMs: 210000 }, { attempt: 2, max: 5, classifier: 'ws_1006' }] }, () => {
+await rec.run('reconnect-stage-names-failure-and-counts-down-advised-wait', `${SRC}:181`, { create: { auth: { type: 'xai' }, useModel: 'gpt-6.1-sol', traceProvider: 'xai' }, progress: [{ attempt: 1, max: 5, classifier: 'http_429', error: errorOf('Rate limit reached. Please try again in 210s.', { code: 'rate_limit_exceeded' }), waitMs: 210000 }, { attempt: 2, max: 5, classifier: 'ws_1006' }] }, () => {
   const stages = [];
   const ctx = createWsSendContext({ auth: { type: 'xai' }, body: {}, sendOpts: {}, onStageChange: (stage, detail) => stages.push([stage, detail]), externalSignal: null, poolKey: 'send-context-test', cacheKey: null, iteration: 0, useModel: 'gpt-6.1-sol', traceProvider: 'xai', _sendSpanTraceFn: () => {} });
   const before = Date.now();
@@ -143,7 +143,7 @@ await rec.run('server-error-text-never-reaches-retry-trace-or-status', `${SRC}:2
   const visible = JSON.stringify({ traces, stages });
   return { results, traces, stages, leaked: [...markers, 'acct_private-123', 'Rate limit reached for'].map((text) => [text, visible.includes(text)]) };
 });
-await rec.run('safe-retry-error-code-keeps-only-known-codes', `${SRC}:284`, { known: ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found'], unknown: ['acct_private-123', 'user_12345', 'sk-abc', 'prompt words'] }, () => {
+await rec.run('safe-retry-error-code-keeps-only-known-codes', `${SRC}:272`, { known: ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found'], unknown: ['acct_private-123', 'user_12345', 'sk-abc', 'prompt words'] }, () => {
   const coded = (code) => Object.assign(new Error('x'), { responseFailed: { error: { code } } });
   return Object.fromEntries(['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found', 'acct_private-123', 'user_12345', 'sk-abc', 'prompt words'].map((code) => [code, safeRetryErrorCode(coded(code))]));
 });
@@ -164,7 +164,7 @@ await rec.run('typed-timeouts-keep-their-own-wording', `${SRC}:325`, {}, () => (
   ws: stageFor(Object.assign(new Error('WS stream: no first server event within 10000ms'), { firstByteTimeout: true })),
   stall: stageFor(Object.assign(new Error('Responses WS timed out after 60000ms of inactivity'), { name: 'StreamStalledError' })),
 }));
-await rec.run('token-refresh-timeout-classifies-as-auth', `${SRC}:354`, {}, () => {
+await rec.run('token-refresh-timeout-classifies-as-auth', `${SRC}:345`, {}, () => {
   const refresh = Object.assign(new Error('OpenAI OAuth token refresh timed out after 30000ms'), { timeoutPhase: 'auth' });
   return { reasonClass: retryReasonClass(refresh), stage: stageFor(refresh) };
 });
