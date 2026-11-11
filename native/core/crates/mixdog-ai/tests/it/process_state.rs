@@ -29,8 +29,10 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/grok/auth.rs", "DISCOVERED", Reset("providers::grok::reset_process_state()")),
     ("random.rs", "NEXT", Reset("random::script(Vec::new())")),
     ("random.rs", "JITTER", Reset("random::script_jitter(Vec::new())")),
-    ("wall.rs", "FIXED", Reset("wall::set(None)")),
-    ("wall.rs", "FOLLOWED", Reset("wall::follow(None)")),
+    ("random.rs", "BYTES_INSTALLED", NotState("the count of threads holding a NEXT script, which follows NEXT's reset")),
+    ("random.rs", "JITTER_INSTALLED", NotState("the count of threads holding a JITTER script, which follows JITTER's reset")),
+    ("wall.rs", "CLOCK", Reset("wall::set(None)")),
+    ("wall.rs", "INSTALLED", NotState("the count of threads holding a CLOCK script, which follows CLOCK's reset")),
     ("providers/google/request.rs", "GEMINI_OWNER", NotState("a constant provider id")),
     ("providers/google/request.rs", "ANTIGRAVITY_OWNER", NotState("a constant provider id")),
     (
