@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 238621,
+      "bytes": 245515,
       "path": "golden.json",
-      "sha256": "ce8495a476c94325bbe587f0afaddb30792990a9b14e0e5aa06814d8eb8ee3ce"
+      "sha256": "32b4cc92c948f40ea8e11a032446efcde24c857fae1d27898cfca6b834b5b244"
     }
   ],
   "inputs": [
@@ -38,6 +38,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "f01774e9437804ec261de5fe208d19c472fd1193c4df8b9f202030aaae558676"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -49,8 +53,8 @@
       "$.cases[10].observed.projected.text",
       "$.cases[10].observed.bodies.text",
       "$.cases[10].observed.issueListSixty.text",
-      "$.cases[11].observed.calls[0].text",
-      "$.cases[11].observed.calls[2].text",
+      "$.cases[11].observed.calls[0].out.text",
+      "$.cases[11].observed.calls[2].out.text",
       "$.cases[12].observed.prView.text",
       "$.cases[12].observed.issueView.text",
       "$.cases[12].observed.generic.text",
@@ -80,7 +84,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "b6db02145ba1323aaf05f2e04418026a6f0c9856e49d28f5ddf2eccca0e39d88",
+  "recorderSha256": "1d87ced1616c8db5825d4c3f747064ab5faeb1d9fa33166ecd3d176d343c0611",
   "replay": {
     "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
     "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates.",
@@ -122,6 +126,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "github-cases",
-  "totalBytes": 238621,
+  "totalBytes": 245515,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

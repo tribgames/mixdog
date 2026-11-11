@@ -2841,33 +2841,63 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"issue.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":1,\"title\":\"Bug\",\"state\":\"open\",\"author\":\"alice\",\"updated\":\"2026-10-01\",\"labels\":[\"bug\"],\"comments\":2,\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"}],\"page\":1,\"hasMore\":false,\"raw\":\"<tmp>/github-list-XXXXXX/tool-results/sess_github_list/5ef13f4bc196ee13e716350daf3e56a48f730eaab564ee51d19b9db92ef05b33.txt\"}",
-            "rawFile": [
-              {
-                "user": {
-                  "login": "alice",
-                  "id": 1,
-                  "type": "User",
-                  "avatar_url": "a"
-                },
-                "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                "updated_at": "2026-10-01T12:00:00Z",
-                "url": "https://api.github.com/x",
-                "reactions": {
-                  "total_count": 3
-                },
-                "number": 1,
-                "title": "Bug",
-                "state": "open",
-                "labels": [
-                  {
-                    "name": "bug",
-                    "id": 9
-                  }
-                ],
-                "comments": 2
-              }
-            ]
+            "out": {
+              "input": {
+                "action": "issue.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "repos/owner/project/issues?per_page=30&page=1&state=open",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": {
+                    "$exact": "undefined"
+                  },
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 528,
+              "text": "{\"action\":\"issue.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":1,\"title\":\"Bug\",\"state\":\"open\",\"author\":\"alice\",\"updated\":\"2026-10-01\",\"labels\":[\"bug\"],\"comments\":2,\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"}],\"page\":1,\"hasMore\":false,\"raw\":\"<tmp>/github-list-XXXXXX/tool-results/sess_github_list/5ef13f4bc196ee13e716350daf3e56a48f730eaab564ee51d19b9db92ef05b33.txt\"}",
+              "rawFile": [
+                {
+                  "user": {
+                    "login": "alice",
+                    "id": 1,
+                    "type": "User",
+                    "avatar_url": "a"
+                  },
+                  "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "updated_at": "2026-10-01T12:00:00Z",
+                  "url": "https://api.github.com/x",
+                  "reactions": {
+                    "total_count": 3
+                  },
+                  "number": 1,
+                  "title": "Bug",
+                  "state": "open",
+                  "labels": [
+                    {
+                      "name": "bug",
+                      "id": 9
+                    }
+                  ],
+                  "comments": 2
+                }
+              ]
+            }
           },
           {
             "action": "issue.list",
@@ -2891,9 +2921,36 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"issue.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":2,\"title\":\"T\",\"state\":\"closed\",\"author\":\"alice\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": {
-              "$exact": "undefined"
+            "out": {
+              "input": {
+                "action": "issue.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "repos/owner/project/issues?per_page=30&page=1&state=open",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": {
+                    "$exact": "undefined"
+                  },
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 139,
+              "text": "{\"action\":\"issue.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":2,\"title\":\"T\",\"state\":\"closed\",\"author\":\"alice\"}],\"page\":1,\"hasMore\":false}"
             }
           },
           {
@@ -3007,112 +3064,142 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"pr.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":3,\"title\":\"A\",\"state\":\"merged\",\"author\":\"alice\",\"updated\":\"2026-10-01\",\"head\":\"feature\",\"base\":\"main\",\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"},{\"number\":4,\"title\":\"B\",\"state\":\"closed\",\"author\":\"alice\",\"updated\":\"2026-10-01\",\"head\":\"feature\",\"base\":\"main\",\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"},{\"number\":5,\"title\":\"C\",\"state\":\"open\",\"draft\":true,\"author\":\"alice\",\"updated\":\"2026-10-01\",\"head\":\"feature\",\"base\":\"main\",\"labels\":[\"x\"],\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"}],\"page\":1,\"hasMore\":false,\"raw\":\"<tmp>/github-list-XXXXXX/tool-results/sess_github_list/0046d424fc19899be6bd75bea23e29a61d2a73761ffb9922ff31468622f71edb.txt\"}",
-            "rawFile": [
-              {
-                "user": {
-                  "login": "alice",
-                  "id": 1,
-                  "type": "User",
-                  "avatar_url": "a"
-                },
-                "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                "updated_at": "2026-10-01T12:00:00Z",
-                "url": "https://api.github.com/x",
-                "reactions": {
-                  "total_count": 3
-                },
-                "number": 3,
-                "title": "A",
-                "state": "closed",
-                "merged_at": "2026-10-02T00:00:00Z",
-                "head": {
-                  "ref": "feature",
-                  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "repo": {
-                    "full_name": "fork/project"
-                  }
-                },
-                "base": {
-                  "ref": "main",
-                  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "repo": {
-                    "full_name": "owner/project"
-                  }
-                },
-                "draft": false,
-                "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "out": {
+              "input": {
+                "action": "pr.list",
+                "repo": "owner/project"
               },
-              {
-                "user": {
-                  "login": "alice",
-                  "id": 1,
-                  "type": "User",
-                  "avatar_url": "a"
-                },
-                "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                "updated_at": "2026-10-01T12:00:00Z",
-                "url": "https://api.github.com/x",
-                "reactions": {
-                  "total_count": 3
-                },
-                "number": 4,
-                "title": "B",
-                "state": "closed",
-                "merged_at": null,
-                "head": {
-                  "ref": "feature",
-                  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "repo": {
-                    "full_name": "fork/project"
-                  }
-                },
-                "base": {
-                  "ref": "main",
-                  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "repo": {
-                    "full_name": "owner/project"
-                  }
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "repos/owner/project/pulls?per_page=30&page=1&state=open",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": {
+                    "$exact": "undefined"
+                  },
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
                 }
-              },
-              {
-                "user": {
-                  "login": "alice",
-                  "id": 1,
-                  "type": "User",
-                  "avatar_url": "a"
+              ],
+              "textBytes": 1088,
+              "text": "{\"action\":\"pr.list\",\"repo\":\"owner/project\",\"data\":[{\"number\":3,\"title\":\"A\",\"state\":\"merged\",\"author\":\"alice\",\"updated\":\"2026-10-01\",\"head\":\"feature\",\"base\":\"main\",\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"},{\"number\":4,\"title\":\"B\",\"state\":\"closed\",\"author\":\"alice\",\"updated\":\"2026-10-01\",\"head\":\"feature\",\"base\":\"main\",\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"},{\"number\":5,\"title\":\"C\",\"state\":\"open\",\"draft\":true,\"author\":\"alice\",\"updated\":\"2026-10-01\",\"head\":\"feature\",\"base\":\"main\",\"labels\":[\"x\"],\"excerpt\":\"line one line two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\"}],\"page\":1,\"hasMore\":false,\"raw\":\"<tmp>/github-list-XXXXXX/tool-results/sess_github_list/0046d424fc19899be6bd75bea23e29a61d2a73761ffb9922ff31468622f71edb.txt\"}",
+              "rawFile": [
+                {
+                  "user": {
+                    "login": "alice",
+                    "id": 1,
+                    "type": "User",
+                    "avatar_url": "a"
+                  },
+                  "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "updated_at": "2026-10-01T12:00:00Z",
+                  "url": "https://api.github.com/x",
+                  "reactions": {
+                    "total_count": 3
+                  },
+                  "number": 3,
+                  "title": "A",
+                  "state": "closed",
+                  "merged_at": "2026-10-02T00:00:00Z",
+                  "head": {
+                    "ref": "feature",
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "repo": {
+                      "full_name": "fork/project"
+                    }
+                  },
+                  "base": {
+                    "ref": "main",
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "repo": {
+                      "full_name": "owner/project"
+                    }
+                  },
+                  "draft": false,
+                  "merge_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 },
-                "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                "updated_at": "2026-10-01T12:00:00Z",
-                "url": "https://api.github.com/x",
-                "reactions": {
-                  "total_count": 3
-                },
-                "number": 5,
-                "title": "C",
-                "state": "open",
-                "draft": true,
-                "head": {
-                  "ref": "feature",
-                  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "repo": {
-                    "full_name": "fork/project"
+                {
+                  "user": {
+                    "login": "alice",
+                    "id": 1,
+                    "type": "User",
+                    "avatar_url": "a"
+                  },
+                  "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "updated_at": "2026-10-01T12:00:00Z",
+                  "url": "https://api.github.com/x",
+                  "reactions": {
+                    "total_count": 3
+                  },
+                  "number": 4,
+                  "title": "B",
+                  "state": "closed",
+                  "merged_at": null,
+                  "head": {
+                    "ref": "feature",
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "repo": {
+                      "full_name": "fork/project"
+                    }
+                  },
+                  "base": {
+                    "ref": "main",
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "repo": {
+                      "full_name": "owner/project"
+                    }
                   }
                 },
-                "base": {
-                  "ref": "main",
-                  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                  "repo": {
-                    "full_name": "owner/project"
-                  }
-                },
-                "labels": [
-                  {
-                    "name": "x"
-                  }
-                ]
-              }
-            ]
+                {
+                  "user": {
+                    "login": "alice",
+                    "id": 1,
+                    "type": "User",
+                    "avatar_url": "a"
+                  },
+                  "body": "line one\n\n  line   two xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                  "updated_at": "2026-10-01T12:00:00Z",
+                  "url": "https://api.github.com/x",
+                  "reactions": {
+                    "total_count": 3
+                  },
+                  "number": 5,
+                  "title": "C",
+                  "state": "open",
+                  "draft": true,
+                  "head": {
+                    "ref": "feature",
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "repo": {
+                      "full_name": "fork/project"
+                    }
+                  },
+                  "base": {
+                    "ref": "main",
+                    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "repo": {
+                      "full_name": "owner/project"
+                    }
+                  },
+                  "labels": [
+                    {
+                      "name": "x"
+                    }
+                  ]
+                }
+              ]
+            }
           },
           {
             "action": "repo.list",
@@ -3130,9 +3217,36 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"repo.list\",\"repo\":\"owner/project\",\"data\":[{\"name\":\"o/r\",\"description\":\"d\",\"visibility\":\"private\",\"language\":\"JS\",\"updated\":\"2026-09-01\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": {
-              "$exact": "undefined"
+            "out": {
+              "input": {
+                "action": "repo.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "user/repos?per_page=30&page=1&sort=updated",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": {
+                    "$exact": "undefined"
+                  },
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 174,
+              "text": "{\"action\":\"repo.list\",\"repo\":\"owner/project\",\"data\":[{\"name\":\"o/r\",\"description\":\"d\",\"visibility\":\"private\",\"language\":\"JS\",\"updated\":\"2026-09-01\"}],\"page\":1,\"hasMore\":false}"
             }
           },
           {
@@ -3158,9 +3272,34 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"run.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":8,\"name\":\"Fix\",\"workflow\":\"CI\",\"status\":\"completed\",\"conclusion\":\"failure\",\"branch\":\"main\",\"event\":\"push\",\"actor\":\"alice\",\"updated\":\"2026-10-03\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": {
-              "$exact": "undefined"
+            "out": {
+              "input": {
+                "action": "run.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "repos/owner/project/actions/runs?per_page=30&page=1",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": "workflow_runs",
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 230,
+              "text": "{\"action\":\"run.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":8,\"name\":\"Fix\",\"workflow\":\"CI\",\"status\":\"completed\",\"conclusion\":\"failure\",\"branch\":\"main\",\"event\":\"push\",\"actor\":\"alice\",\"updated\":\"2026-10-03\"}],\"page\":1,\"hasMore\":false}"
             }
           },
           {
@@ -3186,9 +3325,36 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"release.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":5,\"tag\":\"v1\",\"name\":\"One\",\"prerelease\":true,\"author\":\"alice\",\"published\":\"2026-10-04\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": {
-              "$exact": "undefined"
+            "out": {
+              "input": {
+                "action": "release.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "repos/owner/project/releases?per_page=30&page=1",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": {
+                    "$exact": "undefined"
+                  },
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 175,
+              "text": "{\"action\":\"release.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":5,\"tag\":\"v1\",\"name\":\"One\",\"prerelease\":true,\"author\":\"alice\",\"published\":\"2026-10-04\"}],\"page\":1,\"hasMore\":false}"
             }
           },
           {
@@ -3214,9 +3380,36 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"notification.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":\"9\",\"unread\":true,\"reason\":\"mention\",\"type\":\"PullRequest\",\"title\":\"P\",\"number\":12,\"repo\":\"o/r\",\"updated\":\"2026-10-05\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": {
-              "$exact": "undefined"
+            "out": {
+              "input": {
+                "action": "notification.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "notifications?per_page=30&page=1&all=false",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": {
+                    "$exact": "undefined"
+                  },
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 212,
+              "text": "{\"action\":\"notification.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":\"9\",\"unread\":true,\"reason\":\"mention\",\"type\":\"PullRequest\",\"title\":\"P\",\"number\":12,\"repo\":\"o/r\",\"updated\":\"2026-10-05\"}],\"page\":1,\"hasMore\":false}"
             }
           },
           {
@@ -3232,9 +3425,34 @@
               }
             ],
             "extra": {},
-            "text": "{\"action\":\"workflow.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":3,\"name\":\"CI\",\"path\":\".github/workflows/ci.yml\",\"state\":\"active\"}],\"page\":1,\"hasMore\":false}",
-            "rawFile": {
-              "$exact": "undefined"
+            "out": {
+              "input": {
+                "action": "workflow.list",
+                "repo": "owner/project"
+              },
+              "commands": [
+                {
+                  "args": [
+                    "api",
+                    "repos/owner/project/actions/workflows?per_page=30&page=1",
+                    "--hostname",
+                    "github.com",
+                    "--method",
+                    "GET"
+                  ],
+                  "input": {
+                    "$exact": "undefined"
+                  },
+                  "json": true,
+                  "list": true,
+                  "collection": "workflows",
+                  "page": 1,
+                  "limit": 30,
+                  "mutation": false
+                }
+              ],
+              "textBytes": 155,
+              "text": "{\"action\":\"workflow.list\",\"repo\":\"owner/project\",\"data\":[{\"id\":3,\"name\":\"CI\",\"path\":\".github/workflows/ci.yml\",\"state\":\"active\"}],\"page\":1,\"hasMore\":false}"
             }
           }
         ],
