@@ -71,7 +71,18 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
             }
             meta.ext.insert("streaming".into(), json!(false));
         }
-        ThreadItem::ToolCall { run, .. } => run.live = Some(true),
+        ThreadItem::ToolCall { run, output, meta, .. } => {
+            run.live = Some(true);
+            // A live call's card opens unfinished (`openToolCalls` -> turn-tool-cards.mjs:60-78: `completedCount: 0`, `result: null`,
+            // no `completedAt`) and its result completes it (`live_result`); the restore rule that reads a stored call as finished
+            // (`restoredToolCallItems`) is not the live card's.
+            if run.result.is_none() {
+                run.completed_count = Some(0);
+                run.completed_at = None;
+                meta.status = None;
+                *output = None;
+            }
+        }
         _ => {}
     }
     item
