@@ -82,7 +82,12 @@ const list = createAgentList({
   agentSessionEntries: () => [{ tag: 'w', session: liveSession, indexRow: null, loaded: true }],
   progress: createSessionProgress({ mgr }),
 });
-const live = { tag: 'w', session: liveSession, now: NOW, rows: JSON.parse(JSON.stringify(list().map(liveAgentStatusRow))) };
+// The core lists live rows on the status pulse (`statusFor`: memoryOnly), whose role policy is held: the first read
+// finds none and resolves it after the read, so both reads are recorded.
+const pulse = () => JSON.parse(JSON.stringify(list({ memoryOnly: true }).map(liveAgentStatusRow)));
+const firstPulse = pulse();
+await new Promise((resolve) => setImmediate(resolve));
+const live = { tag: 'w', session: liveSession, now: NOW, rows: JSON.parse(JSON.stringify(list().map(liveAgentStatusRow))), pulses: [firstPulse, pulse()] };
 
 const sessions = [
   { totalInputTokens: 120, totalOutputTokens: 30, totalToolCalls: 7 },
@@ -110,7 +115,7 @@ writeSetManifest(stage, {
     exclusions: {
       undefinedSession: 'the test also passes undefined; JSON has no undefined, and `session?.` reads it exactly as null, which is recorded',
       storedRows: ':46 calls listStoredAgentWorkers; the core lists through the async reader and the daemon chain (record-agent-pool.mjs), recorded with nothing live; the recorder records both and the replay checks the sync rows equal the async listing',
-      liveProgress: ':83 stubs progress with {}; the recorder runs the real session progress over a manager holding no runtime, and the rows pass liveAgentStatusRow as the core publishes them',
+      liveProgress: ':83 stubs progress with {}; the recorder runs the real session progress over a manager holding no runtime, and the rows pass liveAgentStatusRow as the core publishes them; `pulses` are two status-pulse reads (memoryOnly) around the role policy resolving, the path the core lists live rows on',
       deltaSendTools: ':32 passes no sendTools; the loop always reports the request tools (the core event always carries the list), so the recorder passes an empty list',
       clock: 'Date.now is fixed at `now` so the stamps and the pane window are reproducible',
     },

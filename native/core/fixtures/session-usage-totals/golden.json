@@ -419,6 +419,67 @@
         "messages": 0,
         "tools": 0
       }
+    ],
+    "pulses": [
+      [
+        {
+          "tag": "w",
+          "sessionId": "live-1",
+          "agent": "worker",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "status": "running",
+          "stage": "streaming",
+          "worker_stage": "running",
+          "createdAt": null,
+          "updatedAt": null,
+          "lastUsedAt": null,
+          "clientHostPid": null,
+          "usage": {
+            "inputTokens": 40,
+            "outputTokens": 2,
+            "totalTokens": 42
+          },
+          "toolCalls": 5,
+          "windowTokens": 0,
+          "windowCap": null,
+          "permission": null,
+          "toolPermission": null,
+          "messages": 0,
+          "tools": 0
+        }
+      ],
+      [
+        {
+          "tag": "w",
+          "sessionId": "live-1",
+          "agent": "worker",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "status": "running",
+          "stage": "streaming",
+          "worker_stage": "running",
+          "watchdog": "not armed (no registered progress watchdog)",
+          "createdAt": null,
+          "updatedAt": null,
+          "lastUsedAt": null,
+          "clientHostPid": null,
+          "usage": {
+            "inputTokens": 40,
+            "outputTokens": 2,
+            "totalTokens": 42
+          },
+          "toolCalls": 5,
+          "windowTokens": 0,
+          "windowCap": null,
+          "permission": null,
+          "toolPermission": null,
+          "messages": 0,
+          "tools": 0
+        }
+      ]
     ]
   }
 }
