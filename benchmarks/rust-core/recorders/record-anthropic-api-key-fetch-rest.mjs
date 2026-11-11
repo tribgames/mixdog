@@ -34,25 +34,25 @@ const fresh = async (net, fn) => {
 };
 
 await rec.run('official-origin-large-body-gzipped-asynchronously', `${SRC}:28`, { url: OFFICIAL, body: 'the 16 KiB JSON body' }, ({ net }) => fresh(net, async () => {
-  const fetchFn = createAnthropicApiKeyFetch({});
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
   return { response: (await statuses([await fetchFn(OFFICIAL, post(big()))]))[0] };
 }));
 await rec.run('custom-base-urls-and-look-alike-origins-never-compressed', `${SRC}:58`, { urls: ['https://proxy.example.com/v1/messages', 'http://api.anthropic.com/v1/messages', 'https://api.anthropic.com.evil.test/v1/messages', 'https://api.anthropic.com:8443/v1/messages', 'http://localhost:8080/v1/messages'] }, ({ net }) => fresh(net, async () => {
-  const fetchFn = createAnthropicApiKeyFetch({});
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
   const out = [];
   for (const url of ['https://proxy.example.com/v1/messages', 'http://api.anthropic.com/v1/messages', 'https://api.anthropic.com.evil.test/v1/messages', 'https://api.anthropic.com:8443/v1/messages', 'http://localhost:8080/v1/messages']) out.push(await fetchFn(url, post(big())));
   return { responses: await statuses(out) };
 }));
 await rec.run('request-with-content-encoding-is-not-double-encoded', `${SRC}:146`, { headers: { 'content-encoding': 'br', 'content-type': 'application/json' } }, ({ net }) => fresh(net, async () => {
-  const fetchFn = createAnthropicApiKeyFetch({});
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
   return { response: (await statuses([await fetchFn(OFFICIAL, post(big(), { 'content-encoding': 'br', 'content-type': 'application/json' }))]))[0] };
 }));
 await rec.run('headers-instance-headers-supported-and-content-length-dropped', `${SRC}:38`, { url: `${OFFICIAL}?beta=true`, headers: new Headers({ 'content-length': '99', a: 'b' }) }, ({ net }) => fresh(net, async () => {
-  const fetchFn = createAnthropicApiKeyFetch({});
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
   return { response: (await statuses([await fetchFn(`${OFFICIAL}?beta=true`, post(big(), new Headers({ 'content-length': '99', a: 'b' })))]))[0] };
 }));
 await rec.run('small-body-count-tokens-and-kill-switch-not-compressed', `${SRC}:48`, { requests: ['small body to /v1/messages', 'big body to /v1/messages/count_tokens', 'big body to /v1/messages with MIXDOG_ANTHROPIC_REQ_GZIP=0'] }, ({ net }) => fresh(net, async () => {
-  const fetchFn = createAnthropicApiKeyFetch({});
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
   const out = [];
   out.push(await fetchFn(OFFICIAL, post('{"a":1}')));
   out.push(await fetchFn('https://api.anthropic.com/v1/messages/count_tokens', post(big())));
@@ -63,30 +63,33 @@ await rec.run('small-body-count-tokens-and-kill-switch-not-compressed', `${SRC}:
 await rec.run('provider-wiring-official-compresses-custom-and-gateway-do-not', `${SRC}:74`, { clients: ['AnthropicProvider({ apiKey })', 'AnthropicProvider({ apiKey, baseURL: https://proxy.example.com })', 'GatewayMessagesEngine({ apiKey, name: deepseek, baseURL: https://api.deepseek.com/anthropic })', 'AnthropicProvider({ apiKey, name: custom-x, baseURL: https://api.anthropic.com })'] }, ({ net }) => fresh(net, async () => {
   const out = [];
   const official = new AnthropicProvider({ apiKey: 'fixture-key' });
-  out.push(await official.client.fetch(OFFICIAL, post(big())));
+  out.push(await rec.wrapFn('official.client.fetch', official.client.fetch.bind(official.client))(OFFICIAL, post(big())));
   const custom = new AnthropicProvider({ apiKey: 'fixture-key', baseURL: 'https://proxy.example.com' });
-  out.push(await custom.client.fetch('https://proxy.example.com/v1/messages', post(big())));
+  out.push(await rec.wrapFn('custom.client.fetch', custom.client.fetch.bind(custom.client))('https://proxy.example.com/v1/messages', post(big())));
   const gateway = new GatewayMessagesEngine({ apiKey: 'fixture-key', name: 'deepseek', baseURL: 'https://api.deepseek.com/anthropic' });
-  out.push(await gateway.client.fetch('https://api.deepseek.com/anthropic/v1/messages', post(big())));
+  out.push(await rec.wrapFn('gateway.client.fetch', gateway.client.fetch.bind(gateway.client))('https://api.deepseek.com/anthropic/v1/messages', post(big())));
   const custom2 = new AnthropicProvider({ apiKey: 'fixture-key', name: 'custom-x', baseURL: 'https://api.anthropic.com' });
-  out.push(await custom2.client.fetch(OFFICIAL, post(big())));
+  out.push(await rec.wrapFn('custom2.client.fetch', custom2.client.fetch.bind(custom2.client))(OFFICIAL, post(big())));
   return { responses: await statuses(out) };
 }));
 function compress() { return Promise.reject(new Error('boom')); }
 await rec.run('compression-that-throws-fails-open-to-the-plain-body', `${SRC}:130`, { compress: 'an async function that rejects with Error("boom")', url: OFFICIAL }, ({ net }) => fresh(net, async () => {
-  const fetchFn = createAnthropicApiKeyFetch({ compress });
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({ compress }));
   return { response: (await statuses([await fetchFn(OFFICIAL, post(big()))]))[0] };
 }));
-await rec.run('async-compress-is-awaited-request-waits-for-it', `${SRC}:156`, { compress: 'an async function that waits for a gate, then returns gzipSync(raw)', steps: ['call fetch', 'one event-loop turn: no request has arrived', 'release the gate'] }, ({ net }) => fresh(net, async () => {
+await rec.run('async-compress-is-awaited-request-waits-for-it', `${SRC}:156`, { compress: 'an async function that signals it was entered, waits for a gate, then returns gzipSync(raw)', steps: ['call fetch', 'wait for the compressor to be entered', 'release the gate'], observation: 'the endpoint records whether the gate was released when the request arrived' }, ({ net }) => fresh(net, async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
-  const fetchFn = createAnthropicApiKeyFetch({ compress: async (raw) => { await gate; return gzipSync(raw); } });
+  const entered = Promise.withResolvers();
+  let released = false;
+  net.reply = () => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ gateReleasedWhenTheRequestArrived: released }) });
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({ compress: async (raw) => { entered.resolve(); await gate; return gzipSync(raw); } }));
   const pending = fetchFn(OFFICIAL, post(big()));
-  await new Promise((resolve) => setImmediate(resolve));
-  const requestsBeforeRelease = net.records.length;
+  await entered.promise;
+  released = true;
   release();
   const response = (await statuses([await pending]))[0];
-  return { requestsBeforeRelease, response };
+  return { response };
 }));
 const answered = (statuses) => (net) => { net.reply = (_record, n) => ({ status: statuses[n - 1] ?? 200, contentType: 'application/json', body: '{}' }); };
 for (const status of [400, 415]) {
@@ -94,7 +97,7 @@ for (const status of [400, 415]) {
     anthropicGzipLatch.reset();
     delete process.env.MIXDOG_ANTHROPIC_REQ_GZIP;
     answered([status, 200, 200])(net);
-    const fetchFn = createAnthropicApiKeyFetch({});
+    const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
     const first = await fetchFn(OFFICIAL, post(big()));
     const afterFirst = net.records.length;
     const second = await fetchFn(OFFICIAL, post(big()));
@@ -105,7 +108,7 @@ await rec.run('no-latch-when-the-plain-resend-also-fails', `${SRC}:118`, { answe
   anthropicGzipLatch.reset();
   delete process.env.MIXDOG_ANTHROPIC_REQ_GZIP;
   answered([400, 401, 200])(net);
-  const fetchFn = createAnthropicApiKeyFetch({});
+  const fetchFn = rec.wrapFn('fetchFn', createAnthropicApiKeyFetch({}));
   const first = await fetchFn(OFFICIAL, post(big()));
   const afterFirst = net.records.length;
   const latchAfterFirst = anthropicGzipLatch.disabled();

@@ -11,15 +11,15 @@
   "entry": "src/runtime/agent/orchestrator/providers/anthropic-api-key-fetch.mjs createAnthropicApiKeyFetch({ compress }) with the global fetch, anthropic.mjs AnthropicProvider({ apiKey, baseURL, name }).client.fetch, wire-gateway.mjs GatewayMessagesEngine({ apiKey, name, baseURL }).client.fetch. The compress callback of :130/:156 is a scripted function (recorded as its behaviour). Not run: a live Anthropic endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 337206,
+      "bytes": 391897,
       "path": "cases.json",
-      "sha256": "6cf56edff1b67c1618f9f7f599b5966fcc0df9410d08d647c406226959c81f64"
+      "sha256": "6648195c05f58f6cf231628b0b4402b4b896597d74f4ceb459d18628a01d7999"
     }
   ],
   "inputs": [
@@ -41,11 +41,57 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "official-origin-large-body-gzipped-asynchronously",
+      "level": "wire"
+    },
+    {
+      "id": "custom-base-urls-and-look-alike-origins-never-compressed",
+      "level": "wire"
+    },
+    {
+      "id": "request-with-content-encoding-is-not-double-encoded",
+      "level": "wire"
+    },
+    {
+      "id": "headers-instance-headers-supported-and-content-length-dropped",
+      "level": "wire"
+    },
+    {
+      "id": "small-body-count-tokens-and-kill-switch-not-compressed",
+      "level": "wire"
+    },
+    {
+      "id": "provider-wiring-official-compresses-custom-and-gateway-do-not",
+      "level": "wire"
+    },
+    {
+      "id": "compression-that-throws-fails-open-to-the-plain-body",
+      "level": "wire"
+    },
+    {
+      "id": "async-compress-is-awaited-request-waits-for-it",
+      "level": "wire"
+    },
+    {
+      "id": "400-on-gzipped-request-one-plain-resend-latch-after-success",
+      "level": "wire"
+    },
+    {
+      "id": "415-on-gzipped-request-one-plain-resend-latch-after-success",
+      "level": "wire"
+    },
+    {
+      "id": "no-latch-when-the-plain-resend-also-fails",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,12 +113,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-api-key-fetch-rest.mjs",
-  "recorderSha256": "d6fda3dd93ea6dbb6962e8b2ed916106e31f9e3e0ebad19afd3311e3f9c6fdd8",
+  "recorderSha256": "f0d22d93facd8bc3017501a1aa989bf5dd09b1dcee320b46b53907bbf4e466d9",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) with AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the custom and gateway clients are built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). Not callable in Rust (work for the Rust side): a request that arrives as a Headers instance (:38) and an injected compressor (:130, :156): Rust has one compressor on a CPU lane (searched mixdog-ai/src/providers/anthropic and transport).",
   "replayExclusions": {
-    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-anthropic-api-key-fetch-rest",
-  "totalBytes": 337206,
+  "totalBytes": 391897,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
