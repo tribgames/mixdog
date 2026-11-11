@@ -45,6 +45,12 @@ impl ManualCompaction for Pruning {
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
         super::manual_compaction::prune_offloads(&io(), &self.data, &SystemClock, thread, candidates, transcripts).await;
     }
+    async fn defer_prune(&self, thread: &ThreadId) {
+        ToolResultArtifacts::new(io(), &self.data, thread.as_str()).mark_prune_pending().await;
+    }
+    async fn prune_pending(&self, thread: &ThreadId) -> bool {
+        ToolResultArtifacts::new(io(), &self.data, thread.as_str()).prune_pending().await
+    }
     async fn rearm(&self, thread: &ThreadId) {
         self.rig.rearm(thread).await;
     }

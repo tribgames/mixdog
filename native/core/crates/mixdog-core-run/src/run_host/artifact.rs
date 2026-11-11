@@ -170,17 +170,63 @@ impl ToolResultArtifacts {
     /// The rest of `pruneOffloadSession`: of `candidates`, deletes the sidecars `transcripts` (the
     /// session's message lists, serialized as `JSON.stringify` writes them) neither names by path or
     /// file name nor reaches through the archives it names, and still old at `now_ms`. Best-effort:
-    /// an unreadable archive deletes nothing.
+    /// an unreadable archive deletes nothing. The prune has run: none is pending any more
+    /// (`clearOffloadPrunePending`).
     pub async fn prune(&self, candidates: Vec<PathBuf>, transcripts: String, now_ms: u64) {
-        if candidates.is_empty() {
-            return;
-        }
         let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, candidates, &transcripts, now_ms)) else {
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| {
+            if !candidates.is_empty() {
+                prune_dir(lane, &dir, candidates, &transcripts, now_ms);
+            }
+            clear_pending(lane, &dir);
+        }) else {
             return;
         };
         let _ = job.await;
     }
+
+    /// `markOffloadPrunePending`: the prune a running turn stopped is pending on disk (`{"retain":[]}` in the
+    /// session's tool-result directory, never a sidecar), so it runs after a close or a process stop too. A session
+    /// with no directory has nothing to prune; a pending one stays as it is (Node writes the same retained ids back).
+    pub async fn mark_prune_pending(&self) {
+        let dir = self.dir.clone();
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| mark_pending(lane, &dir)) else {
+            return;
+        };
+        let _ = job.await;
+    }
+
+    /// `readOffloadPrunePending`: whether a prune is pending on disk.
+    pub async fn prune_pending(&self) -> bool {
+        let path = self.dir.join(PRUNE_PENDING);
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| pending_exists(lane, &path)) else {
+            return false;
+        };
+        job.await.unwrap_or(false)
+    }
+}
+
+/// The pending prune's marker in the session's tool-result directory.
+const PRUNE_PENDING: &str = ".prune-pending";
+
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn mark_pending(_lane: &InLane<DurabilityIo>, dir: &Path) {
+    let path = dir.join(PRUNE_PENDING);
+    if dir.is_dir() && !path.exists() {
+        // Best-effort, as the prune itself.
+        let _ = publish_file_with(&path, br#"{"retain":[]}"#, Access::OwnerOnly);
+    }
+}
+
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn pending_exists(_lane: &InLane<DurabilityIo>, path: &Path) -> bool {
+    path.exists()
+}
+
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn clear_pending(_lane: &InLane<DurabilityIo>, dir: &Path) {
+    // None was pending, or it cannot be removed: as Node's `unlinkSync` in a `try`.
+    let _ = std::fs::remove_file(dir.join(PRUNE_PENDING));
 }
 
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]

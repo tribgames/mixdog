@@ -445,6 +445,14 @@ impl ManualCompaction for HostManualCompaction {
         prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, candidates, transcripts).await;
     }
 
+    async fn defer_prune(&self, thread: &ThreadId) {
+        ToolResultArtifacts::new(self.parts.io.clone(), &self.parts.data_dir, thread.as_str()).mark_prune_pending().await;
+    }
+
+    async fn prune_pending(&self, thread: &ThreadId) -> bool {
+        ToolResultArtifacts::new(self.parts.io.clone(), &self.parts.data_dir, thread.as_str()).prune_pending().await
+    }
+
     /// `rearmLateDeferredTools(session)` and `rearmPromptSettingsNotice(session)` of the session ops,
     /// best-effort: a tool reminder never breaks a compaction.
     async fn rearm(&self, thread: &ThreadId) {

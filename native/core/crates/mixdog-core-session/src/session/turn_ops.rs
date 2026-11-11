@@ -201,8 +201,13 @@ pub trait ManualCompaction: Send + Sync {
     /// enough to be pruned; none when there are none.
     async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf>;
     /// The rest of `pruneOffloadSession`, run on the idle session's actor: of `candidates`, the sidecars that
-    /// `transcripts` (what the session holds, as `JSON.stringify` writes it) no longer reach are deleted, best-effort.
+    /// `transcripts` (what the session holds, as `JSON.stringify` writes it) no longer reach are deleted, best-effort;
+    /// then no prune is pending on disk any more (`clearOffloadPrunePending`).
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String);
+    /// `markOffloadPrunePending`: the prune a running turn stopped is pending on disk, for the next open.
+    async fn defer_prune(&self, thread: &ThreadId);
+    /// `readOffloadPrunePending`: whether a prune is pending on disk.
+    async fn prune_pending(&self, thread: &ThreadId) -> bool;
     /// `rearmLateDeferredTools` and `rearmPromptSettingsNotice`: the compaction dropped what the
     /// model was told, so the session tells it again.
     async fn rearm(&self, thread: &ThreadId);
