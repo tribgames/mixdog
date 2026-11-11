@@ -529,8 +529,7 @@ impl OpenAiAdapter {
                 return Err(error);
             }
         }
-        let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
-        let framed = delta::compute(&chain, &body);
+        let framed = delta::compute(self.mode.delta(), &checkout.chain, &body);
         // `_withCodexWsClientMetadata`: the frame activates its turn under the session's pool key, with this socket as
         // the turn state's owner.
         let scope_turn = request_scope(request).zip(self.codec.ws_turn(request));
