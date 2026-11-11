@@ -26,7 +26,11 @@ fn a_request_body_holding_lone_surrogates_is_measured_as_node_measures_it() {
         assert_eq!(verdict.as_deref(), case["node"]["error"].as_str(), "{name}");
         seen += 1;
     }
-    assert_eq!(seen, 8);
+    // Among them the boundary: 2729 lone units and two characters are 16384 of Node's characters, three are one too many.
+    let verdict_of = |name: &str| golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == name).map(|case| case["node"]["ok"].clone());
+    assert_eq!(verdict_of("custom-discover-body-at-limit-lone"), Some(Value::Bool(true)));
+    assert_eq!(verdict_of("custom-discover-body-past-limit-lone"), Some(Value::Bool(false)));
+    assert_eq!(seen, 10);
 }
 
 #[test]
