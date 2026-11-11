@@ -6,7 +6,10 @@
 // openai-compat-chat-send.mjs:222) raise it and write their retry line; Vertex AI's Gemini models run the Gemini ladder by connection
 // (runGeminiStreamAttempts, vertex-ai.mjs:382) with no `onRetry`, so their stream retry raises none. The Gemini API's own ladder is
 // recorded in provider-gemini-send-retry.
-//   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <exact export of b6f10295a>
+// The product is b6f10295a with two fixes of Node bugs applied (each also built into Rust): node-patches/node-fix-scrub-carried-credential.patch
+// (the refusal text is scrubbed of the credential the request carried, not only of token shapes) and node-patches/node-fix-cursor-end-frame-error.patch
+// (a Connect end frame carrying an error reaches the bridge as that error, not as the `aborted` its own cancel raises).
+//   node benchmarks/rust-core/recorders/record-provider-retry-stages.mjs --tree <export of b6f10295a with the patches applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch,benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch [--only <case>]
 import crypto from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
@@ -177,9 +180,12 @@ const { CursorOAuthProvider } = await rec.P(`${P}cursor.mjs`);
 const cursorPb = await rec.raw(`${P}cursor-wire-protobuf.mjs`);
 const CURSOR_MODELS = Buffer.from(cursorPb.encodeMessage('AvailableModelsResponse', { useModelParameters: true, models: [{ name: 'fixture-model', clientDisplayName: 'Fixture Model', supportsAgent: true, contextTokenLimit: 200000 }] }));
 // A refusal at the HTTP level, with no body: the run's failure then ends the stream (`finish`, cursor-wire-transport.mjs:181) with the status
-// error. (A Connect end frame carrying an error is closed through `close()`, whose own CANCEL raises the request's `aborted` first, so the
-// bridge sees `stream_aborted` instead of the server's error: not what this set records.)
+// error. (A Connect end frame carrying an error is the `cursor-end-frame-error` case below, recorded from the patched tree.)
 const cursorRefusal = (status, headers) => ({ status, contentType: 'application/proto', ...(headers ? { headers } : {}), body: '' });
+// A Connect end frame carrying the server's error, the whole answer of a run (cursor-wire-stream-bridge.mjs:157). Node closes such a stream
+// through `close(error)`; the node-fix-cursor-end-frame-error.patch keeps its own cancel from replacing that error.
+const cursorTransport = await rec.raw(`${P}cursor-wire-transport.mjs`);
+const cursorEndFrameError = (code, message) => ({ status: 200, contentType: 'application/connect+proto', body: cursorTransport.connectFrame(Buffer.from(JSON.stringify({ error: { code, message } })), cursorTransport.END_STREAM_FLAG) });
 const cursorAux = (() => {
   let exchanges = 0;
   return (record) => {
@@ -199,6 +205,20 @@ const cursorRoute = [
     cursorAux,
     { sessionId: 'fixture-session' },
 ];
+const cursorEndFrameRoute = [
+    'cursor-end-frame-error-surfaces-the-server-error',
+    'src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs:157',
+    cursorRoute[2],
+    () => new CursorOAuthProvider({}),
+    'fixture-model',
+    // The first run ends with a retryable error in its Connect end frame, the second with one that is not: the send waits once and fails with the server's error.
+    [cursorEndFrameError('unavailable', 'the run is busy'), cursorEndFrameError('invalid_argument', 'the model is not available')],
+    cursorAux,
+    { sessionId: 'fixture-session' },
+];
+const anthropicOauthInput = { provider: 'anthropic-oauth', credentials: { 'anthropic-oauth-credentials.json': { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } } } };
+// The subscription's token endpoint (a forced refresh after a revoked-token 403).
+const anthropicTokenGrant = (record) => (record.path === '/v1/oauth/token' ? json(200, { access_token: 'fixture-refreshed-token', refresh_token: 'fixture-refresh-token-2', expires_in: 3600, token_type: 'Bearer' }) : undefined);
 const routes = [
   [
     'anthropic-oauth-raises-the-stage',
@@ -258,6 +278,43 @@ const routes = [
     [json(429, anthropicError('rate_limit_error', 'limit for Bearer fixture-access-token and sk-ant-echo-1 {"refresh_token":"fixture-refresh-token"}'), { 'retry-after': '30', 'anthropic-ratelimit-unified-representative-claim': 'five_hour' })],
   ],
   [
+    'anthropic-oauth-redacts-an-opaque-credential-in-a-400',
+    'src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:860',
+    anthropicOauthInput,
+    () => new AnthropicOAuthProvider({}),
+    'claude-sonnet-4-6',
+    // A refusal that echoes the access token it was sent inside ordinary message text (no bearer prefix, no token shape, no secret field): only the credential the request carried names it. The error text and the stderr line carry it redacted.
+    [json(400, anthropicError('invalid_request_error', 'the credential fixture-access-token was refused for this model'))],
+  ],
+  [
+    'anthropic-oauth-redacts-an-opaque-credential-in-a-429',
+    'src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs:90',
+    anthropicOauthInput,
+    () => new AnthropicOAuthProvider({}),
+    'claude-sonnet-4-6',
+    [json(429, anthropicError('rate_limit_error', 'the credential fixture-access-token is over its limit'), { 'retry-after': '30', 'anthropic-ratelimit-unified-representative-claim': 'five_hour' })],
+  ],
+  [
+    'anthropic-oauth-refreshes-a-revoked-token-403',
+    'src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:800',
+    anthropicOauthInput,
+    () => new AnthropicOAuthProvider({}),
+    'claude-sonnet-4-6',
+    // Anthropic's exact revoked-token 403 body: one forced refresh and one replay with the new token, which is refused as not retryable.
+    [json(403, anthropicError('permission_error', 'OAuth token has been revoked. Please obtain a new token or refresh your existing token.')), json(400, anthropicError('invalid_request_error', 'bad field'))],
+    anthropicTokenGrant,
+  ],
+  [
+    'anthropic-oauth-a-policy-403-is-terminal',
+    'src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:800',
+    anthropicOauthInput,
+    () => new AnthropicOAuthProvider({}),
+    'claude-sonnet-4-6',
+    // Any other 403 is a permission/policy refusal: no refresh, no replay. The token grant is scripted, and must not be asked.
+    [json(403, anthropicError('permission_error', 'This organization is not allowed to use this model'))],
+    anthropicTokenGrant,
+  ],
+  [
     'opencode-go-gemini-raises-the-ladder-stage',
     'src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141',
     { provider: 'opencode-go-oauth', credentials: { 'opencode-go-oauth.json': { ...OAUTH, access_token: 'fixture-key' } }, modelsDev: MODELS_DEV },
@@ -296,6 +353,7 @@ const routes = [
   ],
   // Last: its h2c streams and token exchanges leave the shared keep-alive sockets of the `fetch` endpoint as the cases before it left them.
   cursorRoute,
+  cursorEndFrameRoute,
 ];
 for (const [id, source, input, make, model, replies, aux, options] of routes) {
   await rec.run(id, source, input, async (ctx) => {
@@ -303,6 +361,8 @@ for (const [id, source, input, make, model, replies, aux, options] of routes) {
     uuidStart = uuidDrawn;
     for (const [file, doc] of Object.entries(input.credentials)) rec.write(file, JSON.stringify(doc));
     for (const [name, value] of Object.entries(input.env ?? {})) process.env[name] = value;
+    // The model listing is process state of the Cursor runtime: each Cursor case starts with none, as a replay's fresh process does.
+    if (input.provider === 'cursor-oauth') (await rec.raw(`${P}cursor-wire-models.mjs`)).clearModelCache();
     if (input.adcFile) process.env.GOOGLE_APPLICATION_CREDENTIALS = join(rec.dataDir, input.adcFile);
     if (input.modelsDev) {
       rec.write('modelsdev-catalog.json', JSON.stringify({ fetchedAt: 1, data: input.modelsDev }));

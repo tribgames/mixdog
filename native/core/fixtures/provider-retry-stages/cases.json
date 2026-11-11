@@ -2823,6 +2823,868 @@
       ]
     },
     {
+      "id": "anthropic-oauth-redacts-an-opaque-credential-in-a-400",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:860",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential [REDACTED] was refused for this model\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential [REDACTED] was refused for this model\"}}\n"
+        ],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"the credential fixture-access-token was refused for this model\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-redacts-an-opaque-credential-in-a-429",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs:90",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "ProviderQuotaError",
+          "message": "Anthropic OAuth API 429 quota/rate limit retryAfter=30s: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"the credential [REDACTED] is over its limit\"}}",
+          "code": "rate_limit_error",
+          "props": {
+            "name": "ProviderQuotaError",
+            "headers": {
+              "headers": [
+                [
+                  "anthropic-ratelimit-unified-representative-claim",
+                  "five_hour"
+                ],
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "retry-after",
+                  "30"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "response": {
+              "status": 429,
+              "headers": {
+                "headers": [
+                  [
+                    "anthropic-ratelimit-unified-representative-claim",
+                    "five_hour"
+                  ],
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "retry-after",
+                    "30"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              }
+            },
+            "retryAfterMs": 30000,
+            "providerQuota": true,
+            "quotaExceeded": true,
+            "status": 429,
+            "httpStatus": 429,
+            "initialResponseError": true,
+            "fastDowngraded": false
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "30",
+              "anthropic-ratelimit-unified-representative-claim": "five_hour"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"the credential fixture-access-token is over its limit\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-refreshes-a-revoked-token-403",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:800",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[anthropic-oauth] 403 — forcing refresh and retrying once\n",
+          "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}\n"
+        ],
+        "attemptRequests": [
+          0,
+          2
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 403,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"OAuth token has been revoked. Please obtain a new token or refresh your existing token.\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://platform.claude.com",
+          "path": "/v1/oauth/token",
+          "headers": [
+            [
+              "host",
+              "platform.claude.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "121"
+            ]
+          ],
+          "body": "{\"grant_type\":\"refresh_token\",\"refresh_token\":\"fixture-refresh-token\",\"client_id\":\"9d1c250a-e61b-44d9-88ed-5944d1962f5e\"}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"access_token\":\"fixture-refreshed-token\",\"refresh_token\":\"fixture-refresh-token-2\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-refreshed-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-a-policy-403-is-terminal",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:800",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic OAuth API 403: {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"This organization is not allowed to use this model\"}}",
+          "code": "permission_error",
+          "props": {
+            "status": 403,
+            "httpStatus": 403,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[anthropic-oauth] API error 403: {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"This organization is not allowed to use this model\"}}\n"
+        ],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 403,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"This organization is not allowed to use this model\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "opencode-go-gemini-raises-the-ladder-stage",
       "source": "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141",
       "input": {
@@ -4482,6 +5344,390 @@
             "status": 400,
             "contentType": "application/proto",
             "body": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "cursor-end-frame-error-surfaces-the-server-error",
+      "source": "src/runtime/agent/orchestrator/providers/cursor-wire-stream-bridge.mjs:157",
+      "input": {
+        "provider": "cursor-oauth",
+        "credentials": {
+          "cursor-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000
+          }
+        },
+        "env": {
+          "MIXDOG_CURSOR_CLIENT_VERSION": "cli-2026.11.01-0123456"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Cursor invalid_argument: the model is not available",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "cursorCode": "invalid_argument",
+            "cursorDetail": "the model is not available",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 6,
+              "waitMs": 208,
+              "retryAt": 1794225627419,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 2/6 in 208ms"
+            }
+          },
+          {
+            "stage": "streaming"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          1,
+          3
+        ],
+        "draws": {
+          "first": 20,
+          "count": 2,
+          "uuidFirst": 10,
+          "uuidCount": 5
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/cursor.mjs.CursorOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/cursor.mjs.CursorOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "fixture-model",
+            [],
+            {
+              "sessionId": "fixture-session",
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 208,
+          "fromMs": 27211,
+          "fired": [
+            {
+              "dueMs": 27419
+            }
+          ],
+          "toMs": 27419
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/aiserver.v1.AiService/AvailableModels",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/aiserver.v1.AiService/AvailableModels"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "92487089-71b2-4731-8e6a-d631c2c6c6e1"
+            ]
+          ],
+          "body": "\u0010\u0001(\u00010\u00008\u0000@\u0000",
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "EiUKDWZpeHR1cmUtbW9kZWwoAXjAmgyKAQ1GaXh0dXJlIE1vZGVsWAE="
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/agent.v1.AgentService/Run",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/agent.v1.AgentService/Run"
+            ],
+            [
+              "content-type",
+              "application/connect+proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "d398a45f-1f8e-4c18-8d88-1cac2295a39f"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ]
+          ],
+          "body": "\u0000\u0000\u0000\u0000q\no\n\u0000\u00122\n0\n,\n\u0002hi\u0012$db932f52-29fd-400c-81bd-3d985898a305\u001a\u0000\u0012\u0000*$ae863df9-23f8-48bf-9b16-0c0bc0e9cfc1J\u0011\n\rfixture-model\u0010\u0000",
+          "reply": {
+            "status": 200,
+            "contentType": "application/connect+proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "AgAAADx7ImVycm9yIjp7ImNvZGUiOiJ1bmF2YWlsYWJsZSIsIm1lc3NhZ2UiOiJ0aGUgcnVuIGlzIGJ1c3kifX0="
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/auth/exchange_user_api_key",
+          "headers": [
+            [
+              "host",
+              "api2.cursor.sh"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-refresh-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"accessToken\":\"fixture-exchanged-token-2\",\"refreshToken\":\"fixture-refresh-token-2\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api2.cursor.sh",
+          "path": "/agent.v1.AgentService/Run",
+          "headers": [
+            [
+              ":method",
+              "POST"
+            ],
+            [
+              ":scheme",
+              "https"
+            ],
+            [
+              ":authority",
+              "api2.cursor.sh"
+            ],
+            [
+              ":path",
+              "/agent.v1.AgentService/Run"
+            ],
+            [
+              "content-type",
+              "application/connect+proto"
+            ],
+            [
+              "te",
+              "trailers"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-exchanged-token-2"
+            ],
+            [
+              "x-ghost-mode",
+              "true"
+            ],
+            [
+              "x-cursor-client-version",
+              "cli-2026.11.01-0123456"
+            ],
+            [
+              "x-cursor-client-type",
+              "cli"
+            ],
+            [
+              "x-request-id",
+              "2085de83-6fd3-4c45-8f27-23f3c2beda79"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ]
+          ],
+          "body": "\u0000\u0000\u0000\u0000q\no\n\u0000\u00122\n0\n,\n\u0002hi\u0012$db932f52-29fd-400c-81bd-3d985898a305\u001a\u0000\u0012\u0000*$ae863df9-23f8-48bf-9b16-0c0bc0e9cfc1J\u0011\n\rfixture-model\u0010\u0000",
+          "reply": {
+            "status": 200,
+            "contentType": "application/connect+proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "AgAAAEx7ImVycm9yIjp7ImNvZGUiOiJpbnZhbGlkX2FyZ3VtZW50IiwibWVzc2FnZSI6InRoZSBtb2RlbCBpcyBub3QgYXZhaWxhYmxlIn19"
+            }
           }
         }
       ]
