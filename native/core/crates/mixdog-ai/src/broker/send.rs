@@ -4,6 +4,7 @@ use std::time::Duration;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::RetryLineStyle;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::retry::RetryClass;
@@ -103,7 +104,7 @@ impl ModelBroker {
         let mut midstream_state = RetryState::new(RetryClass::Midstream, model.clone());
         let mut attempts = 0;
         let liveness = permit.liveness().cloned();
-        let stages = adapter.send_stages(&model);
+        let mut stages = adapter.send_stages(&model);
         for _ in 0..stages.preparing {
             sink.stage("requesting", None);
         }
@@ -132,6 +133,8 @@ impl ModelBroker {
                 }
                 Err(Stop::Failed(err)) => err,
             };
+            // A gateway knows the wire a send goes out on only once an attempt did: its stages follow it.
+            stages = adapter.send_stages(&model);
             if failure.status == Some(429) {
                 permit.report_rate_limit(failure.retry_after);
             }
@@ -160,8 +163,8 @@ impl ModelBroker {
             };
             match decision.verdict {
                 Verdict::Retry { delay, .. } => {
+                    let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
                     if stages.reconnecting {
-                        let max = policy.row(class).map_or(0, |row| row.schedule.max_retries) + 1;
                         sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
                     }
                     if let Some(line) = adapter.retry_line(&model) {
@@ -171,12 +174,28 @@ impl ModelBroker {
                             .flatten()
                             .find(|text| !text.is_empty())
                             .unwrap_or("transient error");
-                        let wait = match (line.delay, failure.retry_after.is_some()) {
-                            (false, _) => String::new(),
-                            (true, false) => format!(", delay {}ms", delay.as_millis()),
-                            (true, true) => format!(", delay {}ms (retry-after)", delay.as_millis()),
-                        };
-                        mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
+                        let advised = if failure.retry_after.is_some() { " (retry-after)" } else { "" };
+                        match line.style {
+                            RetryLineStyle::Attempt => {
+                                let wait = match (line.delay, failure.retry_after.is_some()) {
+                                    (false, _) => String::new(),
+                                    (true, false) => format!(", delay {}ms", delay.as_millis()),
+                                    (true, true) => format!(", delay {}ms (retry-after)", delay.as_millis()),
+                                };
+                                mixdog_rt::node_stderr!("{} retry attempt {attempt} after {cause}{wait}", line.tag);
+                            }
+                            RetryLineStyle::OfMax => {
+                                // `status || code || message || 'network error'`.
+                                let reason = failure
+                                    .status
+                                    .map(|status| status.to_string())
+                                    .or_else(|| failure.code.clone().filter(|code| !code.is_empty()))
+                                    .or_else(|| Some(failure.message.clone()).filter(|message| !message.is_empty()))
+                                    .unwrap_or_else(|| "network error".to_owned());
+                                mixdog_rt::node_stderr!("{} retry attempt {attempt}/{max} after {reason}, backoff {}ms{advised}", line.tag, delay.as_millis());
+                            }
+                            RetryLineStyle::Plain => mixdog_rt::node_stderr!("{} retry {attempt} after {cause}", line.tag),
+                        }
                     }
                     if let Some(usage) = &failure.partial_usage {
                         sink.abandoned(usage, failure.partial_model.as_deref());
