@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 10: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 11: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 10;
+PRAGMA user_version = 11;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -349,16 +349,32 @@ CREATE TABLE fork_edges (
 ) WITHOUT ROWID;
 CREATE INDEX fork_edges_child ON fork_edges(child);
 
--- Reference sets (offload_sources.rs): each session's header `offloadSources`, one row per
--- source segment, `inheriting` while a copy of a conversation is still being made into it
--- (`offloadInheriting`): the sessions naming a session's sidecars are one range.
+-- Reference sets (offload_sources.rs): one row per source segment (`segment_key`) a session
+-- may name the sidecars of: its header's `offloadSources`, and for a session whose header
+-- holds none (written by an older build) what a scan of its transcript found. Rows are never
+-- taken away but with the session's set (a set only grows): the sessions naming a session's
+-- sidecars are one range.
 CREATE TABLE offload_refs (
     source TEXT NOT NULL,
     session TEXT NOT NULL,
-    inheriting INTEGER NOT NULL,
     PRIMARY KEY (source, session)
 ) WITHOUT ROWID;
 CREATE INDEX offload_refs_session ON offload_refs(session);
+-- The sessions whose set is known: from their header (`ordinal` NULL), or from a scan of
+-- their transcript at `ordinal` (their `projected_ordinal` then; a session projected past it
+-- is unknown again). A listed session without a row is unknown: no prune runs until it is
+-- scanned.
+CREATE TABLE offload_known (
+    session TEXT PRIMARY KEY,
+    ordinal INTEGER
+) WITHOUT ROWID;
+-- A copy of a conversation being made into `session` from `source` by the process of boot
+-- `boot` (`offloadInheriting`): only the boot that owns the data dir now is still making it.
+CREATE TABLE offload_marks (
+    session TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    boot TEXT NOT NULL
+) WITHOUT ROWID;
 
 -- Prompt history (the `promptHistoryList` of 1.4.5): every visible `user` message row's
 -- prompt text, keyed by the JS rule `text.trim().replace(/\s+/g, ' ')`.

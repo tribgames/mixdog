@@ -2041,8 +2041,10 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     assert_eq!(store.title("s3").await.unwrap().as_deref(), Some("t"));
 }
 
-/// The sessions whose reference set (`offloadSources`) names a session are one index read, each with whether a copy is
-/// still being made into it; a deleted one is not listed, and a header change replaces the set.
+/// The sessions whose reference set (`offloadSources`) names a session are one index read, with a copy still being
+/// made by this boot (a mark another boot left is no copy in progress); a deleted one is not listed. A session whose
+/// header holds no set is unknown, not empty, until a scan of its transcript at the ordinal it is projected to is
+/// stored (a scan at another ordinal is not); a set taken out of a header leaves its session unknown and its rows kept.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
     let env = Env::new();
@@ -2051,14 +2053,29 @@ async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
         head.header.extend(fields.as_object().unwrap().clone());
         head
     };
+    let marked = json!({"offloadSources": ["a"], "offloadInheriting": "a", "offloadInheritingBoot": "this-boot"});
     env.store.upsert(with("c", json!({"offloadSources": ["a", "b"]})), DirtyMark::Clear).await.unwrap();
-    env.store.upsert(with("h", json!({"offloadSources": ["a"], "offloadInheriting": "a"})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("h", marked), DirtyMark::Clear).await.unwrap();
     env.store.upsert(with("x", json!({"offloadSources": ["b"]})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("e", json!({"offloadSources": []})), DirtyMark::Clear).await.unwrap();
     env.store.upsert(with("gone", json!({"offloadSources": ["a"], "deleted": true})), DirtyMark::Clear).await.unwrap();
-    assert_eq!(env.store.offload_referencers("a").await.unwrap(), (vec![("c".to_owned(), false), ("h".to_owned(), true)], None));
+    env.store.upsert(with("u", json!({})), DirtyMark::Clear).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.copying), (vec!["c".to_owned(), "h".to_owned()], Some(("h".to_owned(), "a".to_owned()))));
+    let [(unknown, at)] = <[(String, i64); 1]>::try_from(found.unknown).expect("only the session holding no set is unknown");
+    assert_eq!(unknown, "u");
+    assert_eq!(env.store.offload_referencers("a", "an-earlier-boot").await.unwrap().copying, None, "a mark another boot left");
+    env.store.record_offload_scan("u", at + 1, vec!["a".into()]).await.unwrap();
+    assert_eq!(env.store.offload_referencers("a", "this-boot").await.unwrap().unknown, [("u".to_owned(), at)], "a scan at another ordinal");
+    env.store.record_offload_scan("u", at, vec!["a".into()]).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.unknown), (vec!["c".to_owned(), "h".to_owned(), "u".to_owned()], Vec::new()));
     env.store.upsert(with("h", json!({"offloadSources": ["b"]})), DirtyMark::Clear).await.unwrap();
-    assert_eq!(env.store.offload_referencers("a").await.unwrap(), (vec![("c".to_owned(), false)], None));
-    assert_eq!(env.store.offload_referencers("b").await.unwrap().0, [("c".to_owned(), false), ("h".to_owned(), false), ("x".to_owned(), false)]);
+    env.store.upsert(with("c", json!({})), DirtyMark::Clear).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.copying), (vec!["c".to_owned(), "u".to_owned()], None));
+    assert_eq!(found.unknown.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), ["c"]);
+    assert_eq!(env.store.offload_referencers("b", "this-boot").await.unwrap().sessions, ["c", "h", "x"]);
 }
 
 /// The index holds no user data (FORMAT.md §8): a `user_version` 8 index (no `user_name` column) is not refused or altered, it is

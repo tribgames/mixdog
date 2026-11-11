@@ -21,36 +21,70 @@ fn node_messages(header: &mixdog_store::schema::record::Header, rows: Vec<(mixdo
     system.into_iter().chain(rows.into_iter().map(|(_, row)| row)).collect()
 }
 
+/// The stored messages of session `thread` (`node_messages`), `None` for one deleted or gone, or why it cannot be
+/// read.
+async fn stored_messages(deps: &SessionDeps, thread: &ThreadId) -> Result<Option<Vec<Value>>, String> {
+    let (store, read) = (deps.store.clone(), thread.clone());
+    let header = match mixdog_core_base::support::on_lane(deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &read)).await {
+        Ok(Ok(header)) => header,
+        Ok(Err(mixdog_core_api::CoreError::ThreadNotFound { .. })) => return Ok(None),
+        Ok(Err(error)) => return Err(format!("the session {} cannot be read: {error:?}", thread.as_str())),
+        Err(_) => return Err(format!("the session {} was not read", thread.as_str())),
+    };
+    if mixdog_store::summary::is_deleted(&header) {
+        return Ok(None);
+    }
+    match super::super::run::read_context(&deps.store, &deps.lanes, thread).await {
+        Ok(rows) => Ok(Some(node_messages(&header, rows))),
+        Err(error) => Err(format!("the session {} cannot be read: {error:?}", thread.as_str())),
+    }
+}
+
 /// `offloadCopies`: the stored messages of the sessions whose reference set names `own` (the copies of its
 /// conversation, and the copies of those: one catalog read, no session between them needed, so a copy whose source
-/// was deleted counts), read when the prune asks for them (`OffloadCopies`). A copy deleted since names nothing. A
-/// session the catalog or the store cannot read (whether it names `own` is not known then), or a copy still being made
-/// (its rows not stored yet), answers `None`: nothing is deleted, and the skip says why.
+/// was deleted counts), read when the prune asks for them (`OffloadCopies`). A session whose set is unknown (its header
+/// holds none: an older build wrote it) is read first, and what its transcript names stored as its set
+/// (`record_offload_scan`): it counts when that names `own`. A copy deleted since names nothing. A session the catalog
+/// or the store cannot read (whether it names `own` is not known then), or a copy still being made (its rows not
+/// stored yet), answers `None`: nothing is deleted, and the skip says why.
 async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId) -> Option<String> {
     let skipped = |why: String| {
         tracing::warn!(thread = own.as_str(), "offload prune skipped: {why}");
         None
     };
-    let copies = match deps.store.copies_of(&own).await {
-        Ok(copies) => copies,
+    let found = match deps.store.copies_of(&own).await {
+        Ok(found) => found,
         Err(error) => return skipped(format!("the copies of the conversation could not be listed: {error:?}")),
     };
+    let segment = mixdog_store::offload_sources::segment_key(&mixdog_store::offload_sources::safe_segment(own.as_str()));
+    let mut read = std::collections::BTreeSet::new();
     let mut out = Vec::new();
-    for copy in copies {
-        let thread = ThreadId::from(copy);
-        let (store, read) = (deps.store.clone(), thread.clone());
-        let header = match mixdog_core_base::support::on_lane(deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &read)).await {
-            Ok(Ok(header)) => header,
-            Ok(Err(mixdog_core_api::CoreError::ThreadNotFound { .. })) => continue,
-            Ok(Err(error)) => return skipped(format!("the session {} cannot be read: {error:?}", thread.as_str())),
-            Err(_) => return skipped(format!("the session {} was not read", thread.as_str())),
+    for (session, ordinal) in found.unknown {
+        let thread = ThreadId::from(session.clone());
+        let messages = match stored_messages(&deps, &thread).await {
+            Ok(Some(messages)) => messages,
+            Ok(None) => continue,
+            Err(why) => return skipped(why),
         };
-        if mixdog_store::summary::is_deleted(&header) {
+        let named = mixdog_store::offload_sources::named_in(&serde_json::to_string(&messages).unwrap_or_default());
+        let sources = mixdog_store::offload_sources::transcript_sources(named, &session);
+        let names_own = sources.contains(&segment);
+        if let Err(error) = deps.store.record_offload_scan(&session, ordinal, sources).await {
+            return skipped(format!("the set of the session {session} could not be stored: {error:?}"));
+        }
+        if names_own {
+            read.insert(session);
+            out.push(Value::Array(messages));
+        }
+    }
+    for copy in found.copies {
+        if !read.insert(copy.clone()) {
             continue;
         }
-        match super::super::run::read_context(&deps.store, &deps.lanes, &thread).await {
-            Ok(rows) => out.push(Value::Array(node_messages(&header, rows))),
-            Err(error) => return skipped(format!("the session {} cannot be read: {error:?}", thread.as_str())),
+        match stored_messages(&deps, &ThreadId::from(copy)).await {
+            Ok(Some(messages)) => out.push(Value::Array(messages)),
+            Ok(None) => {}
+            Err(why) => return skipped(why),
         }
     }
     Some(mixdog_js::json_stringify(&Value::Array(out)))
