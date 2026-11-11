@@ -6,6 +6,12 @@
     "notRun": "the relay transport; the sender callback is a local array",
     "runs": "createRemoteStreamingMailbox (remote-streaming-mailbox.ts) with an injected timer pair on a virtual clock (the test's own: advance() runs due callbacks), createSnapshotDeltaEncoder/Decoder (state-delta.ts), streamingPartialSuffix of desktop shared/streaming-partial.ts and the daemon session-state-patch.mjs"
   },
+  "differences": {
+    "batching reduces real compact packet bytes while preserving decoder state": {
+      "field": "bytes",
+      "reason": "encoding: Node's relay sends a compact snapshot delta per packet (createSnapshotDeltaEncoder, about 20 B of envelope plus the text, e.g. {\"r\":3,\"ta\":\"...\",\"__v\":2}); K1's phone reads the thread feed, one JSON-RPC item/agentMessage/delta per packet (about 380 B of envelope per window: method, threadId, turnId, itemId, feed id/epoch/seq/from). Send times, packet count and the phone's text are replayed (mixdog-app-server-transport tests/it/mailbox_cases.rs)."
+    }
+  },
   "exclusions": {},
   "fileCount": 1,
   "files": [
