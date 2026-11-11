@@ -1,0 +1,96 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "captures fit both encoder budgets before their coordinate frame is registered",
+      "observed": {
+        "fits": [
+          {
+            "width": 1275,
+            "height": 2274,
+            "image": {
+              "width": 816,
+              "height": 1456
+            }
+          },
+          {
+            "width": 2560,
+            "height": 1440,
+            "image": {
+              "width": 1280,
+              "height": 720
+            }
+          },
+          {
+            "width": 3840,
+            "height": 2160,
+            "image": {
+              "width": 1280,
+              "height": 720
+            }
+          },
+          {
+            "width": 1080,
+            "height": 3840,
+            "image": {
+              "width": 441,
+              "height": 1568
+            }
+          },
+          {
+            "width": 800,
+            "height": 600,
+            "image": {
+              "width": 800,
+              "height": 600
+            }
+          },
+          {
+            "width": 1,
+            "height": 3000,
+            "image": {
+              "width": 1,
+              "height": 1567
+            }
+          },
+          {
+            "width": 1280,
+            "height": 720,
+            "image": {
+              "width": 1280,
+              "height": 720
+            }
+          }
+        ],
+        "invalidGeometry": {
+          "width": 0,
+          "height": 100,
+          "name": "Error",
+          "message": "capture_geometry_invalid: positive integer dimensions are required"
+        }
+      }
+    },
+    {
+      "case": "provider preparation does not rescale an already bound computer frame",
+      "observed": {
+        "frame": {
+          "width": 816,
+          "height": 1456
+        },
+        "frameImage": "3-channel jpeg quality 55, background rgb(40,80,120)",
+        "sentMediaType": "image/jpeg",
+        "sent": {
+          "width": 816,
+          "height": 1456
+        },
+        "partTypes": [
+          "image"
+        ],
+        "hasMultiplyCoordinatesNote": false
+      }
+    }
+  ]
+}
