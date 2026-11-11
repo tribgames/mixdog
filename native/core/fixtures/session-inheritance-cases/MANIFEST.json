@@ -75,12 +75,18 @@
       "mixdog-core-session/src/session/inheritance.rs:100 `carry_into` is pub(super): it is reached through thread/fork"
     ],
     "missingOnO1": [],
-    "normalised": {},
+    "normalised": {
+      "rowIds": "Node numbered restored rows by message position (hist_<session>_<message>_<part>); the core's row id is its item id. Rows are compared whole without the id"
+    },
     "protocolMethods": [
       "thread/fork (mixdog-app-server/src/server.rs:114; mixdog-app-protocol/src/inventory.rs:1139-1141 inheritSession): handle.rs:476 `fork` calls carry_into at handle.rs:492"
     ],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": {
+      "successful inheritance restores its boundary": "mixdog-app-server-daemon session_host_replay_tests::a_successful_inheritance_restores_its_boundary_as_node_recorded (thread/fork intoThreadId over a real store, read back by a reopened directory)",
+      "rejected inheritance does not persist or display a successful boundary": "mixdog-app-server-daemon session_host_replay_tests::a_rejected_inheritance_persists_and_shows_nothing_as_node_recorded"
+    }
   },
   "set": "session-inheritance-cases",
   "totalBytes": 20187,

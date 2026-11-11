@@ -254,6 +254,8 @@ pub struct MemStore {
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
+    /// The catalog's list row of a session (its index `summary`), which `session_meta` answers for it.
+    pub summaries: Mutex<HashMap<ThreadId, Value>>,
     /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
     pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
     /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
@@ -422,8 +424,12 @@ impl ThreadStore for MemStore {
 
     fn session_meta(
         &self,
-        _id: &ThreadId,
+        id: &ThreadId,
     ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+        if let Some(summary) = lock(&self.summaries).get(id) {
+            let meta = super::seams::SessionMeta::of(None, &summary.to_string());
+            return Box::pin(async move { Ok(Some(meta)) });
+        }
         let listed = self.listed.load(Ordering::SeqCst);
         Box::pin(async move { Ok(listed.then(super::seams::SessionMeta::default)) })
     }
