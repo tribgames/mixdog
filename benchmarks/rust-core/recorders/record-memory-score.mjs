@@ -30,7 +30,7 @@ finish(ctx, {
   golden: { domain: 'memory-score', source: 'src/runtime/memory/lib/memory-score.test.mjs', cases },
   extra: {
     entry: { runs: 'computeEntryScore and CATEGORY_GRADE (memory-score.mjs)', notRun: 'the SQL function category_score_params/compute_entry_score the schema installs: Rust replays that one' },
-    replay: 'mixdog-services memory: mem/schema.rs category_score_params + compute_entry_score (PG function or its Rust twin); compares every score and the null answers exactly (f64 equal)',
+    replay: "No pub Rust fn: the score is the SQL function compute_entry_score (native/core/crates/mixdog-services/src/memory/schema.rs:41) with the category table category_score_params (:31) and the trigger trg_entry_score_recalc (:115). A replay runs the same (category, last_seen_at, now) through that SQL function on a PG with the installed schema (or writes entries through SessionIngest::ingest_session, memory/ingest/mod.rs:133, and reads entries.score) and compares every score and the null answers exactly (f64 equal). Needs MIXDOG_PG_RUNTIME",
     exclusions: 'none',
     normalised: { none: 'no run-dependent value' },
   },

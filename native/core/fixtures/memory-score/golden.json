@@ -175,6 +175,9 @@
         {
           "input": {
             "category": "constraint",
+            "lastSeenAt": {
+              "$exact": "undefined"
+            },
             "nowMs": 34560000000
           },
           "result": 1.6
@@ -182,7 +185,9 @@
         {
           "input": {
             "category": "constraint",
-            "lastSeenAt": null,
+            "lastSeenAt": {
+              "$exact": "NaN"
+            },
             "nowMs": 34560000000
           },
           "result": 1.6
@@ -199,14 +204,19 @@
           "input": {
             "category": "rule",
             "lastSeenAt": 0,
-            "nowMs": null
+            "nowMs": {
+              "$exact": "NaN"
+            }
           },
           "result": null
         },
         {
           "input": {
             "category": "rule",
-            "lastSeenAt": 0
+            "lastSeenAt": 0,
+            "nowMs": {
+              "$exact": "undefined"
+            }
           },
           "result": null
         },
@@ -228,6 +238,9 @@
         },
         {
           "input": {
+            "category": {
+              "$exact": "undefined"
+            },
             "lastSeenAt": 0,
             "nowMs": 34560000000
           },
