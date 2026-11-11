@@ -2666,7 +2666,8 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
 }
 
-/// Sends through the provider, keeping what the run had published as the turn's effort when each request went out.
+/// Sends through the provider, keeping what the run had published as the turn's effort when each request went out,
+/// and the effort the request itself carries (`RequestOptions.effort`, Anthropic's `output_config.effort`).
 struct SampledEffort {
     provider: Arc<Scripted>,
     observer: Arc<Observer>,
@@ -2680,17 +2681,18 @@ impl mixdog_agent::effort::EffortAdapter for SampledEffort {
         _: Option<mixdog_agent::effort::EffortProjection>,
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
         let published = self.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
-        self.at_sends.lock().unwrap().push(json!(published));
+        self.at_sends.lock().unwrap().push(json!({ "turnEffort": published, "requestEffort": request.options.effort }));
         self.provider.attempt(request).await
     }
 }
 
-/// The step judgment the turn-effort recording's model answered: the effort Node marked on the step's tool result.
-struct RecordedStepJudge(Option<String>);
+/// The judge model's answer as the turn-effort recording scripted it (`judgeTurn` answering `JUDGE.step`): the core's
+/// judge resolves it through its own ladder.
+struct RecordedProbs(Vec<f64>);
 #[async_trait]
-impl mixdog_agent::step_effort::StepEffortJudge for RecordedStepJudge {
-    async fn judge(&self, _: mixdog_agent::step_effort::StepInput) -> Option<mixdog_agent::step_effort::StepResult> {
-        self.0.clone().map(|effort| mixdog_agent::step_effort::StepResult { level: None, effort: Some(effort) })
+impl mixdog_services::effort_judge::judge::StepProbs for RecordedProbs {
+    async fn probs(&self, _: mixdog_agent::step_effort::StepInput) -> Result<Vec<f64>, mixdog_services::effort_judge::error::JudgeError> {
+        Ok(self.0.clone())
     }
 }
 
@@ -2715,6 +2717,8 @@ async fn the_turn_effort_published_is_the_one_node_answered_at_each_request_and_
         ]);
         let adapter = Arc::new(SampledEffort { provider: h.provider.clone(), observer: h.observer.clone(), at_sends: Mutex::new(Vec::new()) });
         let mut cfg = config();
+        // The route's effort as the host puts it on the turn's requests (`assemble.rs`, the header's `effort`).
+        cfg.options.effort = effort.clone();
         // The turn's snapshot `prepareTurnEffortConfiguration` stamps: none without an effort on the route.
         cfg.effort = Some(EffortWiring {
             route: EffortRoute {
@@ -2729,19 +2733,39 @@ async fn the_turn_effort_published_is_the_one_node_answered_at_each_request_and_
         });
         let sends = recorded["sends"].as_array().unwrap();
         let mut run = if auto {
-            cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: recorded["prompt"].as_str().unwrap().into(), base: effort.clone().unwrap() });
+            // The judge model's answers are the recording's script: the turn's distribution sets the base on the route's
+            // ladder (`resolveAutoEffort` at turn start), the step's goes to the core's judge over the same ladder.
+            let options = mixdog_ai::effort::effort_options_for("anthropic", &json!({ "id": model, "reasoningLevels": ["low", "medium", "high"], "customReasoning": true }), None);
+            let probs = |kind: &str| recorded["judge"][kind].as_array().unwrap().iter().map(|p| p.as_f64().unwrap()).collect::<Vec<f64>>();
+            let base = mixdog_services::effort_judge::ladder::resolve_auto_effort(effort.as_deref().unwrap(), &options, &probs("turn")).expect("the route's effort is on its ladder").effort.to_owned();
+            cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: recorded["prompt"].as_str().unwrap().into(), base: base.clone() });
             let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())]);
-            run.set_step_judge(Arc::new(RecordedStepJudge(sends[1]["turnEffort"].as_str().map(str::to_owned))));
+            let ladder = Arc::new(mixdog_services::effort_judge::AutoLadder { base, options });
+            run.set_step_judge(Arc::new(mixdog_services::effort_judge::EffortJudge::over(Arc::new(RecordedProbs(probs("step"))), ladder)));
             run
         } else {
             h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())])
         };
         run.run().await.expect("run");
         assert_eq!(h.provider.requests().len(), sends.len(), "{name}");
-        // The published value in force at each request, then at the end.
+        // The published value in force at each request and the effort the request carried, then at the end.
         let current = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
-        let node: Vec<_> = sends.iter().map(|send| send["turnEffort"].clone()).collect();
+        let node: Vec<_> = sends.iter().map(|send| json!({ "turnEffort": send["turnEffort"], "requestEffort": send["requestEffort"] })).collect();
         assert_eq!(*adapter.at_sends.lock().unwrap(), node, "{name}: at each request");
+        // What a client saw (the recording's TUI store, a status pass while each request was in flight and after the turn):
+        // the run's publications as the session actor forwards them, each one that differs from the value in force
+        // (`actor.rs` `on_producer`, from the thread's initial `null`).
+        let client = recorded["client"].clone();
+        assert_eq!((&client["initial"], &client["status"]), (&json!(null), &json!("done")), "{name}");
+        let mut in_force: Option<String> = None;
+        let mut forwarded = Vec::new();
+        for effort in h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }) {
+            if effort != in_force {
+                forwarded.push(json!(effort));
+                in_force = effort;
+            }
+        }
+        assert_eq!(json!(forwarded), client["published"], "{name}: what the client saw");
         assert_eq!(json!(current), recorded["settled"]["turnEffort"], "{name}: after the turn settled");
     }
 }

@@ -3,19 +3,19 @@
   "fileCount": 3,
   "files": [
     {
-      "bytes": 923,
+      "bytes": 1077,
       "path": "auto-step.json",
-      "sha256": "c31bccb773309ef132dd557d4fc470999ba59e35bb451154eb0fc3a04d3098d0"
+      "sha256": "71cca469ee0e3b923d23cd17172c085d7bccc939f28453eb7599f51df64aa34e"
     },
     {
-      "bytes": 822,
+      "bytes": 960,
       "path": "fixed.json",
-      "sha256": "d5f557b7c5567a372c756c84b02d16d62b5a536daa7a76f59bc106b74f87de04"
+      "sha256": "459aa5fbe5cb77dd4f2c5373f5740937ae74333cb6ef3c1ef47d1061af277e5d"
     },
     {
-      "bytes": 808,
+      "bytes": 928,
       "path": "none.json",
-      "sha256": "3523ed61ad78f8bfba774b452b748d17fa31f258bb7146a6b6a833ef1ba0aed5"
+      "sha256": "47035153d3fa72af6877a891518412ce2bad2c7da6ee6bccfa1bd40f4ec83720"
     }
   ],
   "inputs": [
@@ -59,12 +59,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-effort.mjs",
-  "recorderSha256": "350234ef115df47b08d5d37f9f5bc49c7f06db37595a19fdda0faa8604ddeab9",
+  "recorderSha256": "c7030bd4a73f1e8f75f983db02fd9a2b430a92b1fd565fd417b24418bacacb1a",
   "scenarios": [
     "fixed",
     "none",
     "auto-step"
   ],
   "set": "turn-effort",
-  "totalBytes": 2553
+  "totalBytes": 2965
 }

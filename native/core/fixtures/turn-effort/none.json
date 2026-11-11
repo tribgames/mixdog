@@ -54,5 +54,12 @@
   "judged": [],
   "settled": {
     "turnEffort": null
+  },
+  "client": {
+    "initial": null,
+    "atStart": [],
+    "status": "done",
+    "published": [],
+    "requests": 2
   }
 }

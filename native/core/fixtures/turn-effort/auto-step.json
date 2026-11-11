@@ -62,5 +62,15 @@
   ],
   "settled": {
     "turnEffort": "high"
+  },
+  "client": {
+    "initial": null,
+    "atStart": [],
+    "status": "done",
+    "published": [
+      "medium",
+      "high"
+    ],
+    "requests": 2
   }
 }
