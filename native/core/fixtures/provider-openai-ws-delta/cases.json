@@ -1,0 +1,719 @@
+{
+  "set": "provider-openai-ws-delta",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "tool-search-malformed-args-marker",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:21",
+      "input": {
+        "args": "{\"query\": dispatchAiWrapped}"
+      },
+      "result": {
+        "out": {
+          "__invalidToolArgs": true,
+          "__rawArguments": "{\"query\": dispatchAiWrapped}",
+          "__parseError": "Unexpected token 'd', ...\"{\"query\": dispatchAi\"... is not valid JSON"
+        },
+        "isMarker": true
+      }
+    },
+    {
+      "id": "tool-search-valid-object-empty-preserved",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:30",
+      "input": {},
+      "result": {
+        "valid": {
+          "query": "x"
+        },
+        "objectPassthroughIsSame": true,
+        "empty": {},
+        "whitespace": {},
+        "nul": {},
+        "undef": {},
+        "emptyIsMarker": false
+      }
+    },
+    {
+      "id": "default-delta-falls-back-on-request-property-mismatch",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:44",
+      "input": {},
+      "result": {
+        "body": {
+          "model": "gpt-5.5",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        },
+        "entry": {
+          "lastRequestSansInput": "{}",
+          "lastResponseId": "resp_prev",
+          "lastRequestInput": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "hi"
+            }
+          ],
+          "lastResponseItems": []
+        },
+        "delta": {
+          "mode": "full",
+          "reason": "request_properties_changed",
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ws-delta-previous-response-id-safe-fallbacks",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:60",
+      "input": {
+        "env": "ws-delta"
+      },
+      "result": {
+        "refs": {
+          "mode": "delta",
+          "reason": null,
+          "strippedResponseItems": 0,
+          "skippedResponseItems": 0,
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "previous_response_id": "resp_prev",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "next"
+              }
+            ]
+          }
+        },
+        "changed": {
+          "mode": "full",
+          "reason": "request_properties_changed",
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.6",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "prev"
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": "next"
+              }
+            ]
+          }
+        },
+        "noAnchor": {
+          "mode": "full",
+          "reason": "no_anchor",
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "prev"
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": "next"
+              }
+            ]
+          }
+        },
+        "prefixMismatch": {
+          "mode": "full",
+          "reason": "input_prefix_mismatch",
+          "requestInputMismatch": {
+            "inputPrefixMismatchIndex": 0,
+            "inputPrefixMismatchPreviousCount": 1,
+            "inputPrefixMismatchCurrentCount": 2,
+            "inputPrefixMismatchExpectedType": "message",
+            "inputPrefixMismatchExpectedHash": "6d737c9e2c791cbdd5f3f78f98f47ca214a08a5a41beca63ba2b3c90a34a7250",
+            "inputPrefixMismatchActualType": "message",
+            "inputPrefixMismatchActualHash": "6d737c9e2c791cbdd5f3f78f98f47ca214a08a5a41beca63ba2b3c90a34a7250"
+          },
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "prev"
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": "next"
+              }
+            ]
+          }
+        },
+        "responseMismatch": {
+          "mode": "full",
+          "reason": "response_output_mismatch:function_call",
+          "responseOutputMismatch": {
+            "response_output_mismatch_expected_type": "function_call",
+            "response_output_mismatch_expected_hash": "e730db6fd4fafe3ea5ee31bc2c6b2a327b7f3f0a3c5016b97095bb117914580b",
+            "response_output_mismatch_expected_response_item_count": 1,
+            "response_output_mismatch_actual_type": "function_call",
+            "response_output_mismatch_actual_hash": "a657b66e998a08a6190ecbcabb6d86febb1d70236a6c76b6ac624ed97ce1c5d3",
+            "response_output_mismatch_actual_replayed_input_item_count": 2
+          },
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": "prev"
+              },
+              {
+                "type": "function_call",
+                "call_id": "call_other",
+                "name": "tool",
+                "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": "next"
+              }
+            ]
+          }
+        },
+        "traceSafe": [
+          [
+            "call_other",
+            false
+          ],
+          [
+            "provider-function-secret",
+            false
+          ],
+          [
+            "replayed-function-secret",
+            false
+          ]
+        ]
+      }
+    },
+    {
+      "id": "message-mismatch-diagnostics-hash-content",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:161",
+      "input": {},
+      "result": {
+        "reason": "response_output_mismatch:message",
+        "mismatch": {
+          "response_output_mismatch_expected_type": "message",
+          "response_output_mismatch_expected_hash": "f3e85545d7120eef948284a4c49414d5c0fdd85c30dcb7a7ecfa3b5598b8690f",
+          "response_output_mismatch_expected_response_item_count": 1,
+          "response_output_mismatch_actual_type": "message",
+          "response_output_mismatch_actual_hash": "40d1d545e668ac8c228f1a7098404e5bd4e95a2f6bd7d5d7cd463d4d74c9f80a",
+          "response_output_mismatch_actual_replayed_input_item_count": 1
+        },
+        "leaks": [
+          [
+            "provider secret",
+            false
+          ],
+          [
+            "replayed secret",
+            false
+          ]
+        ]
+      }
+    },
+    {
+      "id": "diagnostic-hashes-normalize-equivalent-forms",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:195",
+      "input": {},
+      "result": {
+        "messageExpected": {
+          "response_output_mismatch_expected_type": "message",
+          "response_output_mismatch_expected_hash": "9a155fab64d790cdb40a5c4c7f562c6ac0e02dafff576486bac70ae58c2bc143",
+          "response_output_mismatch_expected_response_item_count": 1,
+          "response_output_mismatch_actual_type": "message",
+          "response_output_mismatch_actual_hash": "2f3d34eb96bfee7cc458a88a7345e9fc72cc88a4f965b86900b5cd3ba1740572",
+          "response_output_mismatch_actual_replayed_input_item_count": 1
+        },
+        "messageActual": {
+          "response_output_mismatch_expected_type": "message",
+          "response_output_mismatch_expected_hash": "2f3d34eb96bfee7cc458a88a7345e9fc72cc88a4f965b86900b5cd3ba1740572",
+          "response_output_mismatch_expected_response_item_count": 1,
+          "response_output_mismatch_actual_type": "message",
+          "response_output_mismatch_actual_hash": "9a155fab64d790cdb40a5c4c7f562c6ac0e02dafff576486bac70ae58c2bc143",
+          "response_output_mismatch_actual_replayed_input_item_count": 1
+        },
+        "messageHashesEqual": true,
+        "functionA": {
+          "response_output_mismatch_expected_type": "function_call",
+          "response_output_mismatch_expected_hash": "5b9731386aa67b6ccaaf61efa2d0860eaab2b0f9ae17c178fc919671af2f9dc8",
+          "response_output_mismatch_expected_response_item_count": 1,
+          "response_output_mismatch_actual_type": "function_call",
+          "response_output_mismatch_actual_hash": "1e3ea37d010af334372f188bd74a7c07e08654e9c835eea4a3a21e3f961a9125",
+          "response_output_mismatch_actual_replayed_input_item_count": 1
+        },
+        "functionB": {
+          "response_output_mismatch_expected_type": "function_call",
+          "response_output_mismatch_expected_hash": "5b9731386aa67b6ccaaf61efa2d0860eaab2b0f9ae17c178fc919671af2f9dc8",
+          "response_output_mismatch_expected_response_item_count": 1,
+          "response_output_mismatch_actual_type": "function_call",
+          "response_output_mismatch_actual_hash": "1e3ea37d010af334372f188bd74a7c07e08654e9c835eea4a3a21e3f961a9125",
+          "response_output_mismatch_actual_replayed_input_item_count": 1
+        },
+        "functionHashesEqual": true
+      }
+    },
+    {
+      "id": "mismatch-diagnostics-reach-trace-rows",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:262",
+      "input": {
+        "env": "ws-delta"
+      },
+      "result": {
+        "sends": [
+          {
+            "type": "function_call",
+            "expectedDiagnostics": {
+              "response_output_mismatch_expected_type": "function_call",
+              "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+              "response_output_mismatch_expected_response_item_count": 1,
+              "response_output_mismatch_actual_type": "function_call",
+              "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+              "response_output_mismatch_actual_replayed_input_item_count": 1
+            },
+            "emittedKinds": [
+              "cache_break",
+              "transport"
+            ],
+            "emittedPayloadsEqualDiagnostics": [
+              true,
+              true
+            ],
+            "emittedPayloadMismatchFields": [
+              {
+                "response_output_mismatch_expected_type": "function_call",
+                "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                "response_output_mismatch_expected_response_item_count": 1,
+                "response_output_mismatch_actual_type": "function_call",
+                "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                "response_output_mismatch_actual_replayed_input_item_count": 1
+              },
+              {
+                "response_output_mismatch_expected_type": "function_call",
+                "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                "response_output_mismatch_expected_response_item_count": 1,
+                "response_output_mismatch_actual_type": "function_call",
+                "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                "response_output_mismatch_actual_replayed_input_item_count": 1
+              }
+            ]
+          },
+          {
+            "type": "custom_tool_call",
+            "expectedDiagnostics": {
+              "response_output_mismatch_expected_type": "custom_tool_call",
+              "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+              "response_output_mismatch_expected_response_item_count": 1,
+              "response_output_mismatch_actual_type": "custom_tool_call",
+              "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+              "response_output_mismatch_actual_replayed_input_item_count": 1
+            },
+            "emittedKinds": [
+              "cache_break",
+              "transport"
+            ],
+            "emittedPayloadsEqualDiagnostics": [
+              true,
+              true
+            ],
+            "emittedPayloadMismatchFields": [
+              {
+                "response_output_mismatch_expected_type": "custom_tool_call",
+                "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                "response_output_mismatch_expected_response_item_count": 1,
+                "response_output_mismatch_actual_type": "custom_tool_call",
+                "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                "response_output_mismatch_actual_replayed_input_item_count": 1
+              },
+              {
+                "response_output_mismatch_expected_type": "custom_tool_call",
+                "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                "response_output_mismatch_expected_response_item_count": 1,
+                "response_output_mismatch_actual_type": "custom_tool_call",
+                "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                "response_output_mismatch_actual_replayed_input_item_count": 1
+              }
+            ]
+          }
+        ],
+        "allRowKinds": [
+          "transport",
+          "cache_break",
+          "transport",
+          "cache_break"
+        ],
+        "secretsInTrace": [
+          [
+            "provider-function-secret",
+            false
+          ],
+          [
+            "replayed-function-secret",
+            false
+          ],
+          [
+            "provider-custom-input-secret",
+            false
+          ],
+          [
+            "replayed-custom-input-secret",
+            false
+          ]
+        ]
+      }
+    },
+    {
+      "id": "native-tool-search-output-replays-canonically",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:351",
+      "input": {
+        "env": "ws-delta"
+      },
+      "result": {
+        "body": {
+          "model": "gpt-5.5",
+          "instructions": "sys",
+          "tools": [
+            {
+              "type": "tool_search",
+              "execution": "client",
+              "description": "load tools",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "prompt_cache_key": "cache-key",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "load read"
+            },
+            {
+              "type": "tool_search_call",
+              "call_id": "call_load_1",
+              "execution": "client",
+              "arguments": {
+                "names": [
+                  "read"
+                ]
+              }
+            },
+            {
+              "type": "tool_search_output",
+              "call_id": "call_load_1",
+              "status": "completed",
+              "execution": "client",
+              "tools": [
+                {
+                  "type": "function",
+                  "name": "read",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "content": "use read"
+            }
+          ]
+        },
+        "delta": {
+          "mode": "delta",
+          "reason": null,
+          "strippedResponseItems": 1,
+          "skippedResponseItems": 0,
+          "frame": {
+            "type": "response.create",
+            "model": "gpt-5.5",
+            "instructions": "sys",
+            "tools": [
+              {
+                "type": "tool_search",
+                "execution": "client",
+                "description": "load tools",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "prompt_cache_key": "cache-key",
+            "previous_response_id": "resp_prev",
+            "input": [
+              {
+                "type": "tool_search_output",
+                "call_id": "call_load_1",
+                "status": "completed",
+                "execution": "client",
+                "tools": [
+                  {
+                    "type": "function",
+                    "name": "read",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": "use read"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "canonical-full-frame-key-order",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:402",
+      "input": {},
+      "result": {
+        "body": {
+          "model": "gpt-5.5",
+          "instructions": "sys",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "hi"
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true,
+          "reasoning": {
+            "effort": "medium"
+          },
+          "store": false,
+          "stream": true,
+          "include": [
+            "reasoning.encrypted_content"
+          ],
+          "prompt_cache_key": "k",
+          "text": {
+            "verbosity": "low"
+          }
+        },
+        "frame": {
+          "type": "response.create",
+          "model": "gpt-5.5",
+          "instructions": "sys",
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "content": "hi"
+            }
+          ],
+          "tool_choice": "auto",
+          "parallel_tool_calls": true,
+          "reasoning": {
+            "effort": "medium"
+          },
+          "store": false,
+          "include": [
+            "reasoning.encrypted_content"
+          ],
+          "prompt_cache_key": "k",
+          "text": {
+            "verbosity": "low"
+          }
+        },
+        "frameKeys": [
+          "type",
+          "model",
+          "instructions",
+          "input",
+          "tool_choice",
+          "parallel_tool_calls",
+          "reasoning",
+          "store",
+          "include",
+          "prompt_cache_key",
+          "text"
+        ],
+        "frameJson": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"sys\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\",\"text\":{\"verbosity\":\"low\"}}"
+      }
+    },
+    {
+      "id": "canonical-delta-frame-key-order",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:426",
+      "input": {},
+      "result": {
+        "body": {
+          "model": "gpt-5.5",
+          "instructions": "sys",
+          "input": [
+            {
+              "a": 1
+            },
+            {
+              "b": 2
+            }
+          ],
+          "tool_choice": "auto",
+          "text": {
+            "verbosity": "low"
+          }
+        },
+        "delta": {
+          "type": "response.create",
+          "model": "gpt-5.5",
+          "instructions": "sys",
+          "previous_response_id": "resp_prev",
+          "input": [
+            {
+              "b": 2
+            }
+          ],
+          "tool_choice": "auto",
+          "text": {
+            "verbosity": "low"
+          }
+        },
+        "deltaKeys": [
+          "type",
+          "model",
+          "instructions",
+          "previous_response_id",
+          "input",
+          "tool_choice",
+          "text"
+        ],
+        "noInstr": {
+          "type": "response.create",
+          "model": "gpt-5.5",
+          "previous_response_id": "resp_prev",
+          "input": [],
+          "tool_choice": "auto",
+          "text": {
+            "verbosity": "low"
+          }
+        },
+        "noInstrKeys": [
+          "type",
+          "model",
+          "previous_response_id",
+          "input",
+          "tool_choice",
+          "text"
+        ]
+      }
+    },
+    {
+      "id": "cache-observation-warm-zero-and-retreats",
+      "source": "scripts/provider-toolcall/openai-ws-delta.test.mjs:455",
+      "input": {},
+      "result": {
+        "zero": {
+          "inputTokens": 59000,
+          "promptTokens": 59000,
+          "cachedTokens": 0,
+          "uncachedTokens": 59000,
+          "previousMaxCached": 47616,
+          "wasWarm": true,
+          "warmThreshold": 2048,
+          "promptThreshold": 4096,
+          "dropRatio": 0.6,
+          "dropThreshold": 28569,
+          "cacheRatio": 0,
+          "actualMiss": true,
+          "continuityResetReason": null,
+          "missReason": "warm_session_zero_cached_tokens"
+        },
+        "partial": {
+          "inputTokens": 102456,
+          "promptTokens": 102456,
+          "cachedTokens": 60928,
+          "uncachedTokens": 41528,
+          "previousMaxCached": 101888,
+          "wasWarm": true,
+          "warmThreshold": 2048,
+          "promptThreshold": 4096,
+          "dropRatio": 0.6,
+          "dropThreshold": 61132,
+          "cacheRatio": 0.594674787225736,
+          "actualMiss": true,
+          "continuityResetReason": null,
+          "missReason": "warm_session_cached_tokens_dropped"
+        },
+        "healthy": {
+          "inputTokens": 106468,
+          "promptTokens": 106468,
+          "cachedTokens": 103424,
+          "uncachedTokens": 3044,
+          "previousMaxCached": 101888,
+          "wasWarm": true,
+          "warmThreshold": 2048,
+          "promptThreshold": 4096,
+          "dropRatio": 0.6,
+          "dropThreshold": 61132,
+          "cacheRatio": 0.9714092497276177,
+          "actualMiss": false,
+          "continuityResetReason": null,
+          "missReason": null
+        },
+        "compacted": {
+          "inputTokens": 21066,
+          "promptTokens": 21066,
+          "cachedTokens": 8704,
+          "uncachedTokens": 12362,
+          "previousMaxCached": 255488,
+          "wasWarm": false,
+          "warmThreshold": 2048,
+          "promptThreshold": 4096,
+          "dropRatio": 0.6,
+          "dropThreshold": 153292,
+          "cacheRatio": 0.41317763220355075,
+          "actualMiss": false,
+          "continuityResetReason": "input_prefix_mismatch",
+          "missReason": null
+        },
+        "continuityResetReason": "input_prefix_mismatch"
+      }
+    }
+  ]
+}
