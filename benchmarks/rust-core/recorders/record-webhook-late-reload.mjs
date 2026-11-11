@@ -14,6 +14,7 @@
 //
 // Output: native/core/fixtures/webhook-late-reload/golden.json (+ MANIFEST.json), or only the result at --out (a run on
 // the stock tree, without --patch, shows the refusal).
+import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
@@ -184,8 +185,10 @@ result.listeningAfter = await listening();
 const reloadsEntered = [];
 let reloadsEnded = 0;
 const reloadEnded = [];
+const reloadEntered = [];
 WebhookServer.prototype.reloadConfig = function (config, ...rest) {
   reloadsEntered.push(config.port ?? null);
+  for (const w of reloadEntered.splice(0)) w();
   const reloaded = reloadConfig.call(this, config, ...rest);
   delivery ??= deliver();
   return Promise.resolve(reloaded).finally(() => { reloadsEnded += 1; for (const w of reloadEnded.splice(0)) w(); });
@@ -227,7 +230,8 @@ for (const port of [OTHER, PORT]) {
   steps.push({
     patch: { port },
     reply,
-    reloads: reloadsEntered.length,
+    // No reload count here: a port change also reaches the worker's config watch, whose reload coalesces with the
+    // route's own by timing (1 to 3 `reloadConfig` calls across runs of the same tree).
     // The delivery the reload's entry sent to the old port (its listener closing), and one sent once it ended.
     afterReload: await deliver(),
     listeningOnFirst: await listensOn(PORT),
@@ -236,6 +240,22 @@ for (const port of [OTHER, PORT]) {
 }
 for (const server of blockers) server.close();
 result.portBounce = { otherPort: OTHER, blocked: 8, steps };
+
+// An external config edit: another process changes the channels section (port kept); the worker's config watch
+// (config-reload-watch.mjs) hears it and reloads the runtime, whose webhook sync is where the delivery lands.
+delivery = null;
+reloadsEntered.length = 0; reloadsEnded = 0;
+const sharedConfig = pathToFileURL(join(tree, 'src/runtime/shared/config.mjs')).href;
+result.configEdit = { section: 'channels', set: { revision: 1 } };
+const write = `const { updateSection } = await import(${JSON.stringify(sharedConfig)}); updateSection('channels', (section) => ({ ...section, revision: 1 }));`;
+const entered1 = new Promise((resolve) => reloadEntered.push(resolve));
+const child = spawnSync(process.execPath, ['--input-type=module', '-e', write], { env: { ...process.env }, encoding: 'utf8', timeout: 30_000 });
+if (child.status !== 0) throw new Error(`the external config write failed: ${child.stderr || child.stdout}`);
+await entered1;
+await reloadsSettled();
+result.configEdit.delivery = await delivery;
+result.configEdit.reloads = reloadsEntered.length;
+result.configEdit.listeningAfter = await listening();
 result.log =log.filter((line) => /^mixdog webhook: /.test(line)).map((line) => line.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>'));
 
 const out = args.get('out');
