@@ -43,7 +43,11 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
-const WIRE_ANTHROPIC: &str = include_str!("../../../../fixtures/wire-anthropic-gemini/anthropic.json");
+// Read at run time: an `include_str!` put the 3 MB recording into every test build of the crate.
+#[allow(clippy::disallowed_methods)] // test fixture loading
+static WIRE_ANTHROPIC: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/wire-anthropic-gemini/anthropic.json")).unwrap()
+});
 const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
 const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 
@@ -412,7 +416,7 @@ async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() 
 /// `CatalogCaps` over such a catalog gives the same answers, so the adapter test's input is the product's.
 #[tokio::test]
 async fn the_anthropic_wire_models_get_nodes_catalog_answers() {
-    let recorded: Value = serde_json::from_str(WIRE_ANTHROPIC).unwrap();
+    let recorded: Value = serde_json::from_str(&WIRE_ANTHROPIC).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new()));
     let models = recorded["capabilities"].as_object().unwrap();
