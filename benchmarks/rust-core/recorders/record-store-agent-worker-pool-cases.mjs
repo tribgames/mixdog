@@ -3,13 +3,11 @@
 // rewrites, 300 cached headers, async-only I/O, index rewrite), store-agent-worker-header-cache.test.mjs (the persisted header
 // cache across daemon restarts and a data-dir switch) and store-agent-worker-listing-fs-ops.test.mjs (bounded fs calls). Real
 // store-agent-worker-rows.mjs, one module instance per "cold pool" / "restarted daemon" (a distinct ?query URL), over stores in a
-// temp data dir. Date.now is held at the recorder's fixed clock for the listing logic, but the header worker thread reads the real clock, so the
-// 2.2 s settle waits of the Node tests are kept. Every rewrite that keeps size and mtime still moves
+// temp data dir. Date.now is held at the recorder's fixed clock for the listing logic, but the header worker thread reads the real clock and caches a record only once its mtime is over 2 s old: the recorder ages the files' mtime as an input instead of waiting (no sleep). Every rewrite that keeps size and mtime still moves
 // the change time, which is what the cases prove. Raw cache stamps (inode, change time) are machine values and are never recorded:
 // the cache is recorded by its keys and by what the next restart reads.
 //
 //   node benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs --tree <export of b6f10295a with node_modules>
-import { createHash } from 'node:crypto';
 import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
@@ -28,11 +26,17 @@ const freshPool = () => import(`${ROWS_URL}?instance=${(instance += 1)}`);
 const roots = [];
 const MINUTE = 60_000;
 const NOW = Date.now();
-const sha = (v) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
-/** The header worker thread reads the real clock: a record younger than its racy window is not cached, as in the Node tests. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 2_200));
-const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-
+/** The header worker thread reads the real clock and caches a record only once its mtime is more than 2 s old (RACY_STAMP_WINDOW_NS in
+ *  session-record.mjs). The recorder does not wait for that: it writes the age as a recorded input, setting every store file's mtime to
+ *  one hour before the real clock (`age`). Records it has not aged are racy, as a freshly written one is. Only mtime counts for
+ *  "settled"; the change time still moves with each rewrite, which is what the cases prove. */
+const REAL_NOW_MS = Math.floor(performance.timeOrigin + performance.now());
+const AGED = new Date(REAL_NOW_MS - 60 * MINUTE);
+const AGE_INPUT = { mtimeAgeMs: 60 * MINUTE, note: 'every store file (sessions/*.json, agent-workers.json, lead-workers.json) gets this mtime before the read that the Node test made after its 2.2 s wait' };
+function age(root) {
+  for (const name of readdirSync(join(root, 'sessions'))) utimesSync(join(root, 'sessions', name), AGED, AGED);
+  for (const name of ['agent-workers.json', 'lead-workers.json']) if (existsSync(join(root, name))) utimesSync(join(root, name), AGED, AGED);
+}
 async function withDataDir(run) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-pool-'));
   roots.push(root);
@@ -85,7 +89,7 @@ await set.run('an incrementally updated pool lists exactly what a cold read of t
   const live = await freshPool();
   const options = { runningSessionIds: RUNNING };
   const listed = live.listStoredAgentWorkers(options);
-  const out = { agentCount: ids.length, running: [...RUNNING], leadRecord, leadWorkers, initial: { listed, listsMostOfItsAgents: listed.length > 20, unchangedStoreListsIdentically: eq(live.listStoredAgentWorkers(options), listed) }, rounds: [] };
+  const out = { agentCount: ids.length, running: [...RUNNING], leadRecord, leadWorkers, initial: { listed, listedAgain: live.listStoredAgentWorkers(options) }, rounds: [] };
   for (let round = 0; round < 6; round++) {
     for (const id of ['churn-00', 'churn-01', 'churn-02', 'churn-03']) {
       const turn = turns.get(id) + 1;
@@ -105,8 +109,7 @@ await set.run('an incrementally updated pool lists exactly what a cold read of t
     const reference = (await freshPool()).listStoredAgentWorkers(options);
     out.rounds.push({
       round, index: JSON.parse(readFileSync(join(root, 'agent-workers.json'), 'utf8')), reference,
-      incrementalEqualsCold: eq(live.listStoredAgentWorkers(options), reference), asyncEqualsCold: eq(await live.listStoredAgentWorkersAsync(options), reference),
-      coldAsyncEqualsCold: eq(await (await freshPool()).listStoredAgentWorkersAsync(options), reference), linksEqual: eq(live.listStoredAgentWorkerLinks(), (await freshPool()).listStoredAgentWorkerLinks()), links: live.listStoredAgentWorkerLinks(),
+      incremental: live.listStoredAgentWorkers(options), incrementalAsync: await live.listStoredAgentWorkersAsync(options), coldAsync: await (await freshPool()).listStoredAgentWorkersAsync(options), links: live.listStoredAgentWorkerLinks(), coldLinks: (await freshPool()).listStoredAgentWorkerLinks(),
     });
   }
   return out;
@@ -126,42 +129,42 @@ await set.run('a session rewrite that keeps its size and mtime is still read, se
   const titles = [pool.listStoredAgentWorkers()[0].title];
   const rewrite = (title) => { writeFileSync(path, JSON.stringify({ id: 'stamp-child', owner: 'agent', title, messages: [] })); utimesSync(path, mtime, mtime); };
   rewrite('BBBB'); titles.push(pool.listStoredAgentWorkers()[0].title);
-  await settle();
+  age(root);
   titles.push(pool.listStoredAgentWorkers()[0].title); // settled and cached
   rewrite('CCCC'); titles.push(pool.listStoredAgentWorkers()[0].title);
-  return { index, record: { id: 'stamp-child', owner: 'agent', title: 'AAAA', messages: [] }, titlesSeen: titles, steps: ['first read AAAA', 'rewrite BBBB same size and mtime', 'read again (cached)', 'rewrite CCCC same size and mtime'] };
+  return { index, record: { id: 'stamp-child', owner: 'agent', title: 'AAAA', messages: [] }, aged: AGE_INPUT, titlesSeen: titles, steps: ['first read AAAA', 'rewrite BBBB same size and mtime', 'age every store file', 'read again (cached)', 'rewrite CCCC same size and mtime'] };
 }));
 await set.run('a settled, unchanged header is served from the cache, however many there are', () => withDataDir(async (root) => {
   const ids = Array.from({ length: 300 }, (_, index) => `many-${String(index).padStart(3, '0')}`);
   for (const id of ids) writeFileSync(join(root, 'sessions', `${id}.json`), JSON.stringify({ id, owner: 'agent', title: id }));
   const index = { workers: ids.map((sessionId) => ({ sessionId, tag: sessionId, agent: 'worker', status: 'idle' })) };
   writeFileSync(join(root, 'agent-workers.json'), JSON.stringify(index));
-  await settle();
+  age(root);
   const pool = await freshPool();
   const first = pool.listStoredAgentWorkers();
   const { reads } = pool.storedAgentWorkerHeaderStats();
   const second = pool.listStoredAgentWorkers();
   const stats = pool.storedAgentWorkerHeaderStats();
-  return { count: ids.length, first, firstReads: reads, secondEqualsFirst: eq(second, first), readsAfterSecond: stats.reads, noUnchangedRecordReadAgain: stats.reads === reads, entries: stats.entries };
+  return { count: ids.length, aged: AGE_INPUT, first, firstReads: reads, second, statsAfterSecond: stats };
 }));
 await set.run('the awaited listing touches the store only through async I/O, and its caches serve the next one', () => withDataDir(async (root) => {
   const ids = Array.from({ length: 50 }, (_, index) => `async-${String(index).padStart(2, '0')}`);
   for (const id of ids) writeFileSync(join(root, 'sessions', `${id}.json`), JSON.stringify({ id, owner: 'agent', title: id, ownerSessionId: 'async-lead' }));
   writeFileSync(join(root, 'sessions', 'async-lead.json'), JSON.stringify({ id: 'async-lead', owner: 'agent', agent: 'worker' }));
   writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({ workers: ids.map((sessionId) => ({ sessionId, tag: sessionId, agent: 'worker', status: 'idle' })) }));
-  await settle();
+  age(root);
   const pool = await freshPool();
   const originals = { readFileSync: fs.readFileSync, statSync: fs.statSync };
   let syncCalls = 0;
   for (const name of Object.keys(originals)) fs[name] = () => { syncCalls += 1; throw new Error(`synchronous ${name} during an awaited listing`); };
   syncBuiltinESMExports();
   let listed;
-  let failure = null;
-  try { listed = await pool.listStoredAgentWorkersAsync(); } catch (e) { failure = String(e.message); } finally { Object.assign(fs, originals); syncBuiltinESMExports(); }
+  let failure;
+  try { listed = await pool.listStoredAgentWorkersAsync(); } catch (e) { failure = e; } finally { Object.assign(fs, originals); syncBuiltinESMExports(); }
   const sync = pool.listStoredAgentWorkers();
   const { reads } = pool.storedAgentWorkerHeaderStats();
   await pool.listStoredAgentWorkersAsync();
-  return { count: ids.length, ownerRecord: { id: 'async-lead', owner: 'agent', agent: 'worker' }, failure, synchronousFsCallsDuringAwaitedListing: syncCalls, listed, asyncEqualsSync: eq(listed, sync), readsAfterFirst: reads, readsAfterSecondAwaited: pool.storedAgentWorkerHeaderStats().reads };
+  return { count: ids.length, ownerRecord: { id: 'async-lead', owner: 'agent', agent: 'worker' }, aged: AGE_INPUT, failure, synchronousFsCallsDuringAwaitedListing: syncCalls, listed, sync, readsAfterFirst: reads, readsAfterSecondAwaited: pool.storedAgentWorkerHeaderStats().reads };
 }));
 await set.run('a worker index rewrite that keeps its size and mtime is still read', () => withDataDir(async (root) => {
   const indexPath = join(root, 'agent-workers.json');
@@ -222,19 +225,19 @@ async function corruptCacheCases(root, reference) {
     else writeFileSync(cachePath(root), text);
     const restarted = await runDaemon();
     const recovered = await runDaemon();
-    results.push({ label, damage: text === null ? { removed: true } : { text: text.length > 400 ? '<the valid cache with the change named by the label>' : text }, rowsEqualFullScan: eq(restarted.rows, reference), reads: restarted.reads, expectedReads, recoveredRowsEqual: eq(recovered.rows, reference), recoveredReads: recovered.reads });
+    results.push({ label, damage: text === null ? { removed: true } : { text: text.length > 400 ? '<the valid cache with the change named by the label>' : text }, rows: restarted.rows, reads: restarted.reads, expectedReads, recoveredRows: recovered.rows, recoveredReads: recovered.reads });
   }
   return { cacheKeys: Object.keys(valid).sort(), cacheVersion: valid.version, cacheFields: valid.fields, sessionEntryKeys: Object.keys(valid.sessions[IDS[0]]).sort(), tamperedEntries: { [IDS[2]]: 'stamp[3] replaced by "1"', [IDS[3]]: 'stamp "garbage"', [IDS[5]]: 'header an array', [IDS[7]]: 'header plus unknownField', '../escape': 'a copy of another entry under a path-like id' }, results };
 }
 await set.run('the persisted header cache across daemon restarts', () => withDataDir(async (root) => {
   writeStoreFiles(root);
-  await settle();
+  age(root);
   const out = { ids: IDS, running: [...PRUNNING], phases: {} };
   const first = await runDaemon();
   const cacheExists = existsSync(cachePath(root));
   const reference = await fullScan();
   const restarted = await runDaemon();
-  out.phases.restart = { firstReads: first.reads, firstReadsEveryRecordPlusOwner: first.reads === IDS.length + 1, cachePersisted: cacheExists, reference, listsMostOfItsAgents: reference.length > 10, firstEqualsReference: eq(first.rows, reference), restartedEqualsReference: eq(restarted.rows, reference), restartedReads: restarted.reads, restartedAsyncEqualsReference: eq(await restarted.pool.listStoredAgentWorkersAsync(OPTIONS), reference) };
+  out.phases.restart = { aged: AGE_INPUT, firstReads: first.reads, firstRows: first.rows, cachePersisted: cacheExists, reference, restartedRows: restarted.rows, restartedReads: restarted.reads, restartedAsyncRows: await restarted.pool.listStoredAgentWorkersAsync(OPTIONS) };
   out.phases.corrupt = await corruptCacheCases(root, reference);
   // Replaced by rename (new inode), rewritten in place keeping size and mtime, and deleted.
   const renamed = sessionPath(root, IDS[4]);
@@ -245,13 +248,12 @@ await set.run('the persisted header cache across daemon restarts', () => withDat
   writeFileSync(inPlace, persistRecord(IDS[5], 5, 'XX'));
   utimesSync(inPlace, mtime, mtime);
   rmSync(sessionPath(root, IDS[8]));
-  await settle();
+  age(root);
   const changed = await fullScan();
-  const titles = new Map(changed.map((row) => [row.sessionId, row.title]));
-  const afterChange = await runDaemon();
+    const afterChange = await runDaemon();
   const persisted = JSON.parse(readFileSync(cachePath(root), 'utf8')).sessions;
   const again = await runDaemon();
-  out.phases.changedWhileDown = { changes: ['rename-replace IDS[4] title RENAMED', 'in-place IDS[5] title XX keeping size and mtime', 'delete IDS[8]'], changed, titleOf4: titles.get(IDS[4]), titleOf5: titles.get(IDS[5]), restartedEqualsFullScan: eq(afterChange.rows, changed), restartedReads: afterChange.reads, deletedLeavesPersistedCache: !Object.hasOwn(persisted, IDS[8]), keepsNeighbour: Object.hasOwn(persisted, IDS[9]), nextRestartRows: eq(again.rows, changed), nextRestartReads: again.reads };
+  out.phases.changedWhileDown = { changes: ['rename-replace IDS[4] title RENAMED', 'in-place IDS[5] title XX keeping size and mtime', 'delete IDS[8]'], aged: AGE_INPUT, changed, restartedRows: afterChange.rows, restartedReads: afterChange.reads, persistedSessionIds: Object.keys(persisted), nextRestartRows: again.rows, nextRestartReads: again.reads };
   rmSync(cachePath(root));
   const lingering = await freshPool();
   await lingering.listStoredAgentWorkersAsync(OPTIONS);
@@ -275,7 +277,7 @@ await set.run('switching data directories before a scheduled persist still persi
   roots.push(...dirs);
   try {
     for (const root of dirs) { mkdirSync(join(root, 'sessions')); writeStoreFiles(root); }
-    await settle();
+    for (const root of dirs) age(root);
     const pool = await freshPool();
     const [first, second] = dirs;
     process.env.MIXDOG_DATA_DIR = first;
@@ -323,7 +325,7 @@ await set.run('listing a large index costs a bounded number of fs calls, whateve
   const pool = await freshPool();
   const cold = await countingFsCalls(() => pool.listStoredAgentWorkersAsync({ runningSessionIds: running }));
   const warm = await countingFsCalls(() => pool.listStoredAgentWorkersAsync({ runningSessionIds: running }));
-  return { rows: ROWS, live: LIVE, running: [...running], referenceCount: reference.length, reference, liveRowsListed: reference.length >= LIVE, coldEqualsReference: eq(cold.result, reference), warmEqualsReference: eq(warm.result, reference), coldWithinBound: cold.calls <= 40, warmWithinBound: warm.calls <= 40, bound: 40, note: 'the exact fs call counts are Node internals and are not recorded: only the bound the test asserts' };
+  return { rows: ROWS, live: LIVE, running: [...running], reference, cold: cold.result, warm: warm.result, coldWithinBound: cold.calls <= 40, warmWithinBound: warm.calls <= 40, bound: 40, note: 'the exact fs call counts are Node internals and are not recorded: only the bound the test asserts' };
 }));
 
 await set.finish({
