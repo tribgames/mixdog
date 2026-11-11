@@ -30,7 +30,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
-const GOLDEN: &str = include_str!("../../../../fixtures/mcp-output-schema/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/mcp-output-schema/golden.json");
 
 fn ctx() -> ToolContext {
     let tokens = mixdog_rt::testing::tokens();
@@ -199,7 +199,7 @@ async fn replay(case: &Value, artifacts: &std::path::Path) -> Value {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mut differ = Vec::new();
     for case in golden["cases"].as_array().unwrap() {
@@ -251,7 +251,7 @@ async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
 #[ignore = "a measurement, not a check"]
 fn hostile_patterns_take() {
     use mixdog_mcp::output_schema::OutputValidators;
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let name = "pattern matches as a JavaScript regular expression with the u flag";
     let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == name).unwrap();
     let validators = OutputValidators::of(case["tools"].as_array().unwrap()).unwrap();
