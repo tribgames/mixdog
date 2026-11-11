@@ -8,11 +8,22 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  pure: {
+    'assistant-source-and-uuid': 'mixdog-ai/src/providers/devin/request.rs:63 deterministic_uuid(&str) -> String (pub; `pub mod request` at devin/mod.rs:17)',
+    'foreign-tool-call-ids-normalized': 'mixdog-ai/src/providers/devin/request.rs:78 normalize_tool_call_id(&str) and :148 wire_tool_call_ids (pub)',
+    'responses-origin-composite-ids': 'mixdog-ai/src/providers/devin/request.rs:78 normalize_tool_call_id and :148 wire_tool_call_ids (pub)',
+    'composite-result-pairs-plain-responses-call': 'mixdog-ai/src/providers/devin/request.rs:148 wire_tool_call_ids (pub)',
+    'opaque-composite-id-never-collapses': 'mixdog-ai/src/providers/devin/request.rs:148 wire_tool_call_ids (pub)',
+    'unanswered-call-and-orphan-result': 'mixdog-ai/src/providers/devin/request.rs:258 paired_transcript(Vec<Message>) (pub)',
+    'misplaced-result-pulled-forward': 'mixdog-ai/src/providers/devin/request.rs:258 paired_transcript (pub)',
+    'tool-schema-draft-upgrade-google-projection': 'RUST WORK: the draft upgrade / Google projection of tool schemas is not a public Devin function (looked in devin/request.rs and devin/schema.rs; google::schema is a separate public module with a different signature)',
+    '*': 'mixdog-ai/src/providers/devin/request.rs:483 build_chat_request(&ModelRequest, &ChatParams) -> ChatRequest (pub); the framed, compressed WireRequest is DevinCodec::encode (devin/mod.rs:88), a different result: compare the ChatRequest before framing (ChatRequest::encode, devin/schema.rs:227)',
+  },
   set: 'provider-devin-wire-request',
   net: false,
   entry: 'devin-wire-request.mjs buildDevinChatRequest(messages, { model, modelRow, metadata, cascadeId, executionId, ...options }) -> { request, activeTail }, devinHistoryBytes, devinDeterministicUuid, normalizeDevinToolCallId, responsesCallComponent; devin-wire-identity.mjs devinModelClass / isDevinGeminiModel / devinDemotedThinking; devin-wire-schema.mjs devinToolWireSchema / devinGoogleToolSchema; devin-wire-protobuf.mjs for the bytes. Not run: a send.',
   compare: 'mixdog-ai providers::devin request.rs (:78-91, :258) and connect/pb.rs: feed each scenario\'s `input.messages` + `input.options` (+ metadata/ids) and compare `result.hex` (the exact request bytes) and `result.activeTail`; `result.wire` is the decoded form for diagnosis; pure rows compare `result` whole.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "PURE: mixdog-ai/src/providers/devin/request.rs (`pub mod request`, devin/mod.rs:17): build_chat_request :483 returns the ChatRequest (the builder result Node records); deterministic_uuid :63, normalize_tool_call_id :78, wire_tool_call_ids :148, paired_transcript :258; per case see `levels`. DevinCodec::encode returns a framed, compressed WireRequest and is NOT the recorded value. The tool-schema draft-upgrade case is Rust work.",
 });
 const P = 'agent/orchestrator/providers/';
 const { DEVIN_ENUMS, decodeDevinMessage, encodeDevinMessage } = await rec.P(`${P}devin-wire-protobuf.mjs`);
