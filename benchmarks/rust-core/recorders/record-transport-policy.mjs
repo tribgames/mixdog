@@ -4,7 +4,6 @@
 // classifiers and the WebSocket pool (`acquireWebSocket` / `releaseWebSocket`) over a scripted socket opener (`_setOpenSocketForTest`: the
 // scripted external side; the pool, its owner wait and reuse are the real code).
 //   node benchmarks/rust-core/recorders/record-transport-policy.mjs --tree <exact export of b6f10295a>
-import { EventEmitter } from 'node:events';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
@@ -13,7 +12,7 @@ const rec = await startRecording({
   net: false,
   entry: 'openai-transport-policy.mjs resolveOpenAiTransportPolicy / resolveResponsesTransportPolicy / _normalizeTransportMode / _gateTransportMode, openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame, openai-codex-metadata.mjs _withCodexWsClientMetadata, openai-ws-stream.mjs _captureTurnStateFromEvent, gemini-stream.mjs geminiChunkProgressKind, shared/stream-progress.mjs isVisibleStreamProgress, openai-ws-pool.mjs acquireWebSocket / releaseWebSocket with _setOpenSocketForTest(opener) scripted. Not run: a real socket.',
   compare: 'mixdog-ai registry builder.rs:461-467 (transport mapping; K1 gaps G11: ws-full/ws-delta env pins), providers::openai delta.rs / client_meta.rs:108-147 / pool.rs:178-230, and mixdog-core stream-progress: feed `input` and compare `result` whole.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:494), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178). The mode selection is DefaultProviderBuilder::build (registry/builder.rs:1295).",
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178). The mode selection is DefaultProviderBuilder::build (registry/builder.rs:1295).",
 });
 const P = 'agent/orchestrator/providers/';
 const policy = await rec.P(`${P}openai-transport-policy.mjs`);
@@ -22,7 +21,7 @@ const { _withCodexWsClientMetadata } = await rec.P(`${P}openai-codex-metadata.mj
 const { _captureTurnStateFromEvent } = await rec.P(`${P}openai-ws-stream.mjs`);
 const { geminiChunkProgressKind } = await rec.P(`${P}gemini-stream.mjs`);
 const { isVisibleStreamProgress } = await rec.P('shared/stream-progress.mjs');
-const { acquireWebSocket, releaseWebSocket, _clearWebSocketPoolForTest, _setOpenSocketForTest } = await rec.P(`${P}openai-ws-pool.mjs`);
+const { acquireWebSocket, releaseWebSocket, _clearWebSocketPoolForTest } = await rec.raw(`${P}openai-ws-pool.mjs`);
 const { resolveOpenAiTransportPolicy, _normalizeTransportMode, resolveResponsesTransportPolicy, RESPONSES_TRANSPORT_CAPABILITIES, _gateTransportMode, FULL_RESPONSES_TRANSPORT_CAPS } = policy;
 const SRC = 'scripts/provider-toolcall/transport-policy.test.mjs';
 const run = (id, line, input, fn) => rec.run(id, `${SRC}:${line}`, input, fn);
@@ -134,47 +133,42 @@ await run('turn-state-parity-disabled-untouched', 360, {}, () => {
   const out = _withCodexWsClientMetadata(frame, entry, false, { sendOpts: { turnId: 'turn-A' } });
   return { out, isSameFrame: out === frame, entryAfter: entry };
 });
-await run('turn-state-never-enters-connection-handshake', 370, {}, async () => {
-  const fakeSocket = () => {
-    const socket = new EventEmitter();
-    socket.readyState = 1;
-    socket.close = () => { if (socket.readyState === 3) return; socket.readyState = 3; socket.emit('close'); };
-    socket.terminate = socket.close;
-    socket.ref = () => {};
-    socket.unref = () => {};
-    return socket;
-  };
-  const openedWith = [];
+await run('turn-state-never-enters-connection-handshake', 370, { server: 'the first connection\'s 101 response carries x-codex-turn-state: tok-shard-1; later connections carry none', steps: ['acquire (poolKey sess-turn-state-1)', 'release keep, server closes that socket', 'acquire again (replacement)', 'parallel acquire for the same session, 1 ms of virtual time', 'release replacement keep', 'acquire another session', 'release both without keep'] }, async () => {
+  const world = await rec.wsWorld();
+  world.reset({ upgradeHeaders: () => (world.count((e) => e.event === 'upgrade-request') === 1 ? [['x-codex-turn-state', 'tok-shard-1']] : []) });
+  const upgrades = () => world.count((e) => e.event === 'upgrade-request');
   _clearWebSocketPoolForTest();
-  _setOpenSocketForTest(async ({ turnState }) => {
-    openedWith.push(turnState ?? null);
-    return { socket: fakeSocket(), turnState: openedWith.length === 1 ? 'tok-shard-1' : null };
-  });
+  const connection = (entry) => rec.describe(entry, { $connection: 'provider client socket: a real WebSocket to the loopback server' });
   try {
-    const auth = { type: 'openai-oauth', account_id: 'acct-1' };
+    const auth = { type: 'openai-oauth', access_token: 'fixture-access-token', account_id: 'acct-1' };
     const poolKey = 'sess-turn-state-1';
     const cacheKey = 'cache-turn-state-1';
     const first = await acquireWebSocket({ auth, poolKey, cacheKey });
-    const firstState = { opened: [...openedWith], turnState: first.entry.turnState };
+    connection(first.entry);
+    const firstState = { opened: upgrades(), turnState: first.entry.turnState };
     releaseWebSocket({ entry: first.entry, poolKey, keep: true });
-    first.entry.socket.readyState = 3;
+    world.conns[0].close(1000, 'server-ends-first-socket');
+    await world.until((x) => x.some((e) => e.event === 'closed'), 'first socket closed');
     const replacement = await acquireWebSocket({ auth, poolKey, cacheKey });
-    const replacementState = { opened: [...openedWith], turnState: replacement.entry.turnState };
-    // A concurrent acquire for the same session waits for the live owner: after 1 ms of virtual time (every due timer run, microtasks drained) it has not resolved.
+    connection(replacement.entry);
+    const replacementState = { opened: upgrades(), turnState: replacement.entry.turnState };
+    // A concurrent acquire for the same session waits for the live owner: after 1 ms of virtual time (every due timer run) it has not resolved.
     let parallelResolved = false;
     const parallelPromise = acquireWebSocket({ auth, poolKey, cacheKey }).then((value) => { parallelResolved = true; return value; });
-    await rec.clock.advance(1);
-    const waiting = { resolved: parallelResolved, opened: openedWith.length };
+    await rec.clock.advance(1, { what: 'owner wait' });
+    const waiting = { resolved: parallelResolved, opened: upgrades() };
     releaseWebSocket({ entry: replacement.entry, poolKey, keep: true });
     const parallel = await parallelPromise;
-    const reused = { sameEntry: parallel.entry === replacement.entry, opened: openedWith.length };
+    connection(parallel.entry);
+    const reused = { sameEntry: parallel.entry === replacement.entry, opened: upgrades() };
     const other = await acquireWebSocket({ auth, poolKey: 'sess-turn-state-2', cacheKey });
-    const otherState = { opened: [...openedWith] };
+    connection(other.entry);
+    const otherState = { opened: upgrades() };
     releaseWebSocket({ entry: other.entry, poolKey: 'sess-turn-state-2', keep: false });
     releaseWebSocket({ entry: parallel.entry, poolKey, keep: false });
-    return { firstState, replacementState, waiting, reused, otherState };
+    await world.until((x) => x.filter((e) => e.event === 'closed').length >= 3, 'sockets closed after release');
+    return { firstState, replacementState, waiting, reused, otherState, events: world.trace.map((e) => ({ ...e })) };
   } finally {
-    _setOpenSocketForTest(null);
     _clearWebSocketPoolForTest();
   }
 });
