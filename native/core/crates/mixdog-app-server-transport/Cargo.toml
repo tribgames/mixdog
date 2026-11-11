@@ -24,7 +24,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 # The relay-only grant is judged by the real server's origin gate, behind the real listener.
-mixdog-app-server = { workspace = true }
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 serde_json = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }

@@ -255,6 +255,10 @@ pub(crate) enum Inbox {
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
+    /// Replay-only ([`super::SessionDirectory::durability_settled`]): answered once every record accepted so far is durable
+    /// or failed and released (the outbox is empty), which is at once when nothing is pending.
+    #[cfg(any(test, feature = "test-support"))]
+    Settled { tx: oneshot::Sender<()> },
 }
 
 /// Where a test's injected unwind of the actor happens.
@@ -645,6 +649,9 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
+    /// [`Inbox::Settled`] callers waiting for the outbox to empty.
+    #[cfg(any(test, feature = "test-support"))]
+    settled: Vec<oneshot::Sender<()>>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -955,6 +962,8 @@ impl SessionActor {
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
             after_publish: Vec::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            settled: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
             prompt_appends: Default::default(),
@@ -1052,6 +1061,13 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
+            // After the pump, which may return early on a failed hand-off: every iteration ends here.
+            #[cfg(any(test, feature = "test-support"))]
+            if self.outbox.is_empty() {
+                for waiting in self.settled.drain(..) {
+                    let _ = waiting.send(());
+                }
+            }
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -3942,6 +3958,9 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
+            // Answered at the end of this iteration of the run loop once the outbox is empty.
+            #[cfg(any(test, feature = "test-support"))]
+            Inbox::Settled { tx } => self.settled.push(tx),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {

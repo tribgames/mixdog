@@ -8,8 +8,8 @@
 // - After the cases, `inventorySweep` (manifest): every refused request and notification field of the inventory (a method only a
 //   phone may call sent from a phone paired through the relay), with the same checks on files and on the local server, to which the
 //   language server reports every message it receives.
-// Every look at the files is taken behind the manifest's barrier (`worldFiles.barrier`): a config write answered once the config's
-// one writer has written it.
+// Every look at the files is taken behind the manifest's barrier (`worldFiles.barrier`), one step per store: a config write answered
+// once the config's one writer has written it, and `replay/storesSettled`, answered once the session durability tasks are drained.
 // - Every other case: what the window is given (the value, or the failure's message as apps/desktop/src/main/protocol/core-error.ts
 //   frames it for the window) equals Node's outcome, and the requests the local server got equal Node's, in order; Node's values go
 //   through the manifest's one mapping (`mapping.at`, lone-mapping.mjs) and nothing else.
@@ -104,14 +104,21 @@ export async function replay({ exe, golden, manifest, only, startServer, buildWo
     };
     // Every file of the core's folders and of the cases' world, but the paths the manifest declares (`worldFiles.skip`).
     const files = () => worldFiles({ core: join(WORLDS, 'core'), world: ROOT }, manifest.worldFiles.skip);
-    // The barrier before every look at the files (manifest `worldFiles.barrier`): on the same connection, a config write of the theme
-    // the config already holds, answered only once the config's one writer has written it; a write the refused call queued on that
-    // writer is written before it. Its answer is required to be the theme's.
+    // The barrier before every look at the files, one step per store a call writes (manifest `worldFiles.barrier`), each after the
+    // refused call's answer: the config writer (the config file and the MCP server list in it) by a config write
+    // of the theme the config already holds, answered once that one writer has written it, so a write the refused call queued on it
+    // is written first; the session store by `replay/storesSettled`, answered once every loaded thread's durability task has
+    // committed what it was given; the secrets store needs none (a secret is written inside the call that writes it). Each answer is
+    // required to be the expected one.
     let theme = null;
     const settle = async () => {
       theme ??= (await call('config/getTheme', {})).value;
       const set = await call('config/setTheme', { id: theme });
       if (!set.ok || set.value?.id !== theme) throw new Error(`the barrier's config write failed: ${JSON.stringify(set)}`);
+      // Sent as a raw frame from the paired phone: the desktop's protocol client sends only the method table's methods, and this
+      // control is in no table. It follows the config step's answer, so it follows the refused call's.
+      const sessions = await phoneCall('replay/storesSettled', {});
+      if (!Number.isInteger(sessions.result?.threads)) throw new Error(`the barrier's session store wait failed: ${JSON.stringify(sessions)}`);
     };
     /** `files()` once the core has settled. */
     const settled = async () => {
