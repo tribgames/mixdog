@@ -3256,6 +3256,8 @@ impl SessionActor {
     fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
             ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
+            // Node publishes a route value only when it changed (`local-session-runtime.mjs` `publishChanged`).
+            ProducerMsg::Section(Section::TurnEffort(effort)) if effort == self.acked.route().turn_effort => {}
             ProducerMsg::Section(section) => self.accept_view(Change::Section(section), Vec::new()),
             ProducerMsg::ItemStarted { turn, item } => {
                 if !self.active(&turn) {
