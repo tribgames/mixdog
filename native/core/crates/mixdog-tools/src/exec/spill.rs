@@ -230,12 +230,18 @@ impl LogWriter {
     }
 
     /// Starts a drain (`draining` is already set), waiting for an io-pty thread when the lane is
-    /// at its live cap; the job's token ends that wait when the writer is given up. A drain that
-    /// cannot be started ends through its [`DrainExit`].
+    /// at its live cap, for at most [`LOG_STALL`] (then the writer is given up); the job's token
+    /// also ends that wait when the writer is given up. A drain that cannot be started ends
+    /// through its [`DrainExit`].
     async fn start_drain(&self) {
         let exit = DrainExit { shared: Some(self.shared.clone()) };
         let shared = self.shared.clone();
-        let _ = self.lane.submit_wait(&self.shared.stop, move |_| drain(&shared, exit)).await;
+        let admission = self.lane.submit_wait(&self.shared.stop, move |_| drain(&shared, exit));
+        // A saturated lane is not reported wedged, so its admission has its own deadline; the
+        // dropped wait leaves the lane's queue and takes the drain's exit with it.
+        if mixdog_rt::time::timeout(LOG_STALL, admission).await.is_err() {
+            self.abandon();
+        }
     }
 
     /// Waits until everything queued is written (or its log stopped), for at most `deadline`;

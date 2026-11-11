@@ -1494,6 +1494,43 @@ async fn a_refused_log_drain_leaves_the_writer_ended_not_hung() {
     };
     tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain was refused");
     assert_eq!(writer.unwritten(), 0);
+    assert_eq!(writer.close(super::spill::LOG_STALL).await, super::spill::LogsClosed::Incomplete);
+    assert_eq!(writer.gaps(), [Some(0), None], "the refused output is recorded as missing from byte 0");
+}
+
+/// The io-pty lane stays saturated (a one-job cap, held for good): admission has a deadline, so
+/// the collector's `open` and `push` return, and the job's close reports the output incomplete.
+#[tokio::test(start_paused = true)]
+async fn a_log_drain_the_saturated_lane_never_admits_ends_with_the_output_incomplete() {
+    let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
+    config.pty_max_live = 1;
+    let (_executors, tokens) = mixdog_rt::exec::boot(config).expect("the executors");
+    let (started, held_started) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    {
+        use mixdog_rt::LaneToken;
+        tokens
+            .pty_io
+            .submit(&CancellationToken::new(), move |_| {
+                started.send(()).unwrap();
+                let _ = held.recv_timeout(std::time::Duration::from_secs(60));
+            })
+            .expect("io-pty takes the holder");
+    }
+    held_started.recv_timeout(std::time::Duration::from_secs(60)).expect("the only io-pty thread is held");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("w.stdout.log"), dir.path().join("w.stderr.log")];
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    let run = async {
+        writer.open().await;
+        writer.push(0, b"never admitted\n".to_vec()).await;
+        writer.close(super::spill::LOG_STALL).await
+    };
+    let closed = tokio::time::timeout(super::spill::LOG_STALL * 3, run).await.expect("the writer gives the drain up instead of waiting for ever");
+    drop(release);
+    assert_eq!(closed, super::spill::LogsClosed::Incomplete);
+    assert_eq!(writer.gaps(), [Some(0), None]);
+    assert_eq!(writer.unwritten(), 0);
 }
 
 /// Every io-pty thread is taken (a one-job cap, held): the writer waits for a thread instead of
