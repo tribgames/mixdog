@@ -3,7 +3,7 @@
   "entry": "Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded with their path and bytes); case 139 ran the real HTTP session transport (behind a TCP tap that records every HTTP exchange) + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.",
   "exclusions": [
     "case 75: spool paths are recorded as relative to the runtime root with the separator Node produced (a backslash on Windows); the root itself (a temp dir) is not recorded. Files are listed in the directory-walk order the OS returns them, not sorted",
-    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine's roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads \"<CWD> (JSON-escaped)\"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
@@ -42,7 +42,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -63,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs",
-  "recorderSha256": "34d2291f3fe67c7d27a5dd1593c416b560f09fc0937573a3c8cf198e091c1d51",
+  "recorderSha256": "0779baa366d5bfcab9392beebb13477770735453f2c8a7d81b7826aa3893bea9",
   "replay": "Cases 14 and 90 are the Node TUI client's steering/restore logic (createSessionApiA/B): it has no Rust counterpart (list as Rust-side work). What the Rust core must equal is what a client observes through the app-server protocol (native/core/crates/mixdog-app-protocol): turn/start while a turn is busy (ACK before the queue settles), turn/interrupt with {restorePrompt, submissionId} returning the restored text, thread/resume restoring the queued steering before the thread is released, and, for case 139, turn/interrupt answered at once while 64 thread/read requests are in flight (compare the ordered service calls, the abort options the runtime received and its result). Case 75 (the persisted steering spool: path, bytes, restored rows with their submission identity) is a durable-queue contract: compare the spool rows after the same appends when the Rust pending queue persists steering; otherwise Rust-side work.",
   "set": "session-transport-steering-recovery",
   "testFile": "scripts/session-transport/steering-recovery.test.mjs",
