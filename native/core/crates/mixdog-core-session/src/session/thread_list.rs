@@ -219,7 +219,7 @@ impl ThreadListService {
     /// Waits, at most [`FENCE_BOUND`], for the projections queued before this call; it holds no lock while it waits.
     async fn caught_up(&self) {
         let Some(wait) = self.fence.get().and_then(|fence| fence.pending()) else { return };
-        if tokio::time::timeout(FENCE_BOUND, wait).await.is_err() {
+        if mixdog_rt::time::timeout(FENCE_BOUND, wait).await.is_err() {
             tracing::warn!("thread/list: the index has not taken the writes acknowledged before this list within {FENCE_BOUND:?}; answering what it holds");
         }
     }
@@ -741,7 +741,7 @@ mod tests {
             tokio::spawn(async move { value(&*service, request(LIST, json!({ "limit": 100 }), None)).await.expect("thread/list") })
         };
         // The list has to be at the gate before the projector applies the write, or it could read either row.
-        tokio::time::timeout(std::time::Duration::from_secs(10), waiting)
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), waiting)
             .await
             .expect("the list never waited for the pending projection")
             .expect("gate");
@@ -896,7 +896,7 @@ mod tests {
             let summaries = summaries.clone();
             tokio::spawn(async move { summaries.publish_catalogs().await })
         };
-        tokio::time::timeout(DEADLINE, at_fence).await.expect("the listing never waited for the projections").expect("gate");
+        mixdog_rt::time::timeout(DEADLINE, at_fence).await.expect("the listing never waited for the projections").expect("gate");
 
         // The row's write commits there; its notification stops at its lookup.
         let (open_edge, held) = tokio::sync::oneshot::channel();
@@ -906,13 +906,13 @@ mod tests {
         let header = json!({ "id": id, "title": "Written late", "cwd": "C:\\Tasks", "desktopSession": { "classification": "task", "projectPath": null }, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
         let head = CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
         list.store.upsert(head, DirtyMark::Clear).await.expect("upsert");
-        tokio::time::timeout(DEADLINE, at_edge).await.expect("the write was never announced").expect("stop");
+        mixdog_rt::time::timeout(DEADLINE, at_edge).await.expect("the write was never announced").expect("stop");
 
         // The listing reads the row; it may not send it while the row's `thread/started` is held.
         let mut waits = edges.waits();
         let before = *waits.borrow_and_update();
         open_fence.send(()).expect("the listing waits at the fence");
-        tokio::time::timeout(DEADLINE, async {
+        mixdog_rt::time::timeout(DEADLINE, async {
             tokio::select! {
                 waited = waits.wait_for(|waits| *waits > before) => drop(waited.expect("the waits are held by the edges")),
                 ended = &mut listing => ended.expect("the listing's task"),
@@ -922,9 +922,9 @@ mod tests {
         .expect("the listing neither ended nor waited for the write's announcement");
         open_edge.send(()).expect("the announcement waits at the stop");
         if !listing.is_finished() {
-            tokio::time::timeout(DEADLINE, listing).await.expect("the listing never ended").expect("the listing's task");
+            mixdog_rt::time::timeout(DEADLINE, listing).await.expect("the listing never ended").expect("the listing's task");
         }
-        tokio::time::timeout(DEADLINE, edges.settled()).await.expect("the write was never published");
+        mixdog_rt::time::timeout(DEADLINE, edges.settled()).await.expect("the write was never published");
 
         let frames: Vec<String> = app
             .drain_text()
@@ -992,8 +992,8 @@ mod tests {
         let publish = mixdog_rt::CancellationToken::new();
         publish.cancel();
         let ended = summaries.republish_catalog(publish.clone()).await.expect("the first call answers without the publication").expect("a background listing");
-        tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
-        tokio::time::timeout(std::time::Duration::from_secs(10), ended).await.expect("the background listing never ended");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), ended).await.expect("the background listing never ended");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
         assert!(summaries.republish_catalog(publish).await.expect("the second call publishes inside the call").is_none(), "the second call is loaded");
         // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one

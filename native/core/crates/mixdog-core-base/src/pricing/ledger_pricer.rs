@@ -111,7 +111,7 @@ mod tests {
     #[tokio::test]
     async fn a_cold_catalog_prices_and_stamps_as_nodes_does() {
         let twin: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../fixtures/ai-admin/usage-ledger-source-twin.json")).unwrap();
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/usage-ledger-source-twin.json")).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let pricer = CatalogPricer::ungated(&catalog(dir.path()).await);
         assert_eq!(pricer.revision(), twin["cold"]["revision"].as_str().unwrap());

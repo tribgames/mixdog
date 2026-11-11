@@ -6,7 +6,7 @@
 # a source-level #[allow] for these bans is not accepted. Keep those two files in step with this one.
 #
 # Blocking filesystem or sleep work belongs in a job on a lane token (mixdog-rt), never on
-# RT-C/RT-W; async code gets time from tokio::time.
+# RT-C/RT-W; async code gets time from mixdog_rt::time.
 
 disallowed-methods = [
   { path = "tokio::task::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
@@ -14,7 +14,16 @@ disallowed-methods = [
   { path = "tokio::runtime::Runtime::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
   { path = "tokio::task::block_in_place", allow-invalid = true, reason = "blocks an RT-C/RT-W worker; submit a job to a lane token (mixdog-rt)" },
 
-  { path = "std::thread::sleep", reason = "blocks the thread; use tokio::time in async code or run on a lane/thread token" },
+  # Timers are armed through mixdog_rt::time, so a replay's clock (feature virtual-clock, mixdog-rt/src/virtual_clock.rs) orders
+  # and fires them as Node does. mixdog-rt, their home, carries its own clippy.toml without these.
+  { path = "tokio::time::sleep", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::sleep" },
+  { path = "tokio::time::sleep_until", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::sleep_until" },
+  { path = "tokio::time::timeout", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::timeout" },
+  { path = "tokio::time::timeout_at", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::timeout_at" },
+  { path = "tokio::time::interval", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::interval" },
+  { path = "tokio::time::interval_at", allow-invalid = true, reason = "arms a timer a replay's clock does not see; use mixdog_rt::time::interval_at" },
+
+  { path = "std::thread::sleep", reason = "blocks the thread; use mixdog_rt::time in async code or run on a lane/thread token" },
 
   { path = "std::fs::read", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
   { path = "std::fs::read_to_string", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },

@@ -33,7 +33,7 @@ const STALE: &str = "999999";
 const PHONE: ConnectionId = ConnectionId(7);
 
 fn recorded() -> Value {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
     golden["scenarios"]["approval-answers"].clone()
 }
 
@@ -112,7 +112,7 @@ fn connection_of(by: &str) -> ConnectionId {
 
 /// The recorded races, and the request they answer (the `shell` case of `approval-answers`).
 fn races() -> (Vec<Value>, Value) {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
     let cases = golden["scenarios"]["approval-races"]["cases"].as_array().expect("cases").clone();
     (cases, golden["scenarios"]["approval-answers"]["cases"][0]["input"].clone())
 }
@@ -296,7 +296,7 @@ async fn a_rooms_answer_that_meets_another_is_arbitrated_as_nodes() {
 /// handed its session. (Where Node's host was handed an answer it did not take, nothing is resolved here either.)
 #[tokio::test(flavor = "current_thread")]
 async fn a_cards_bare_allow_is_refused_where_nodes_was() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
     let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
     for case in golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().unwrap();
@@ -328,7 +328,7 @@ async fn a_cards_bare_allow_is_refused_where_nodes_was() {
 /// Allow with `response: 'approve'`), which finds the approval still pending where Node refused the bare one.
 #[tokio::test(flavor = "current_thread")]
 async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes_was() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
     let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
     let mut replayed = Vec::new();
     for case in golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases") {
@@ -367,7 +367,7 @@ async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes
 
 /// A recorded `approval-cards` case and the session waiting on its request.
 async fn card_case(name: &str) -> (Value, Waiting) {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
     let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
     let case = golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).expect("the case").clone();
     let input = &requests.iter().find(|request| request["name"] == case["request"]).expect("the recorded request")["input"];

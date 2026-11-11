@@ -24,7 +24,7 @@ fn root() -> &'static Path {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_composer_resize_equals_nodes_resize_image_buffer_under_the_providers_profile() {
-    let doc: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-ops/composer-image.json")).unwrap();
+    let doc: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-ops/composer-image.json")).unwrap();
     let pool = std::sync::Arc::new(
         ExtHostPool::new(ExtHostConfig {
             program: "node".into(),

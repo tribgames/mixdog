@@ -169,7 +169,7 @@ fn timeout_error(target: &Path, lock_file: &Path, holder: i64) -> ToolError {
 
 async fn pause(ctx: &ToolContext, wait: Duration) -> Result<(), ToolError> {
     tokio::select! {
-        () = tokio::time::sleep(wait) => Ok(()),
+        () = mixdog_rt::time::sleep(wait) => Ok(()),
         () = ctx.cancel.cancelled() => Err(cancelled()),
     }
 }

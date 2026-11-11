@@ -132,7 +132,7 @@ pub(crate) async fn guarded<F: Future>(
 ) -> Result<F::Output, ToolError> {
     let deadline = async {
         match ctx.deadline {
-            Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+            Some(at) => mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(at)).await,
             None => std::future::pending().await,
         }
     };
