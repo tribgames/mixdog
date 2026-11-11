@@ -255,6 +255,51 @@ pub(in crate::memory::replays) mod pg {
         pid: u32,
         waited: std::sync::mpsc::Receiver<std::io::Result<std::process::Output>>,
         answered: std::cell::Cell<bool>,
+        /// The command that ends the process tree of a pid.
+        kill: fn(u32) -> std::process::Command,
+        /// How long the kill command may run.
+        kill_deadline: std::time::Duration,
+    }
+
+    fn kill_tree_command(pid: u32) -> std::process::Command {
+        let mut kill = if cfg!(windows) {
+            let mut kill = std::process::Command::new("taskkill");
+            kill.args(["/PID", &pid.to_string(), "/T", "/F"]);
+            kill
+        } else {
+            let mut kill = std::process::Command::new("kill");
+            kill.args(["-KILL", &pid.to_string()]);
+            kill
+        };
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
+        kill
+    }
+
+    impl KillOnDrop {
+        fn new(pid: u32, waited: std::sync::mpsc::Receiver<std::io::Result<std::process::Output>>) -> Self {
+            Self { pid, waited, answered: std::cell::Cell::new(false), kill: kill_tree_command, kill_deadline: std::time::Duration::from_secs(10) }
+        }
+
+        /// Runs the kill command and waits for it for at most `kill_deadline`; the error names what did not finish.
+        fn kill_tree(&self) -> Result<(), String> {
+            let mut command = (self.kill)(self.pid);
+            let mut kill = command
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|e| format!("the command that ends the TUI parser's process tree (pid {}) did not start: {e}", self.pid))?;
+            let kill_pid = kill.id();
+            let (done, finished) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = done.send(kill.wait());
+            });
+            finished.recv_timeout(self.kill_deadline).map(drop).map_err(|_| {
+                // The stuck command is ended too, so it outlives neither the guard nor its waiting thread.
+                let _ = kill_tree_command(kill_pid).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+                format!("the command that ends the TUI parser's process tree (pid {}) did not finish within {:?}", self.pid, self.kill_deadline)
+            })
+        }
     }
 
     impl Drop for KillOnDrop {
@@ -262,18 +307,9 @@ pub(in crate::memory::replays) mod pg {
             if self.answered.get() {
                 return;
             }
-            let mut kill = if cfg!(windows) {
-                let mut kill = std::process::Command::new("taskkill");
-                kill.args(["/PID", &self.pid.to_string(), "/T", "/F"]);
-                kill
-            } else {
-                let mut kill = std::process::Command::new("kill");
-                kill.args(["-KILL", &self.pid.to_string()]);
-                kill
-            };
-            #[cfg(windows)]
-            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
-            let _ = kill.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+            if let Err(message) = self.kill_tree() {
+                eprintln!("{message}");
+            }
             let _ = self.waited.recv_timeout(std::time::Duration::from_secs(10));
         }
     }
@@ -313,7 +349,7 @@ pub(in crate::memory::replays) mod pg {
         });
         // From here every way out of this function but the parser's own answer (a panic included, here or in the waiting thread)
         // ends the parser's process tree and waits for the waiting thread to reap it.
-        let parser = KillOnDrop { pid, waited, answered: std::cell::Cell::new(false) };
+        let parser = KillOnDrop::new(pid, waited);
         if let Err(e) = stdin.write_all(formatted.as_bytes()) {
             panic!("{what}: writing the formatted text to the TUI parser failed: {e}");
         }
@@ -349,11 +385,31 @@ pub(in crate::memory::replays) mod pg {
             let _ = done.send(output);
         });
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _parser = KillOnDrop { pid, waited, answered: std::cell::Cell::new(false) };
+            let _parser = KillOnDrop::new(pid, waited);
             panic!("the parser's output could not be read");
         }));
         assert!(unwound.is_err());
         assert!(reaped.load(std::sync::atomic::Ordering::SeqCst), "the guard returned before the parser (pid {pid}) was reaped");
+    }
+
+    /// A kill command that does not finish does not hold the guard: the wait for it ends at its deadline with a message naming it.
+    #[test]
+    fn a_kill_command_that_does_not_finish_is_given_up_on_at_its_deadline() {
+        fn slow_kill(_pid: u32) -> std::process::Command {
+            // Ends by itself after 5 s, so no process outlives the test for long.
+            let mut command = std::process::Command::new("node");
+            command.args(["-e", "setTimeout(() => {}, 5000)"]);
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
+            command
+        }
+        let (_done, waited) = std::sync::mpsc::channel();
+        let mut guard = KillOnDrop::new(0, waited);
+        guard.kill = slow_kill;
+        guard.kill_deadline = std::time::Duration::from_millis(300);
+        let message = guard.kill_tree().expect_err("the kill command runs for 5 s, past the 300 ms deadline");
+        assert!(message.contains("did not finish within"), "{message}");
+        guard.answered.set(true);
     }
 
     /// The recorder's `roundTrip(formatted, entries)` over the core's formatted text and the core's listed entries.
