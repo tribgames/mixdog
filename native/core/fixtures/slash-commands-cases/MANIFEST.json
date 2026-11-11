@@ -79,7 +79,8 @@
     "normalised": {},
     "protocolMethods": [],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": "src/tui/app/slash-commands-replay.test.mjs: every case through the K1 TUI (src/tui/app/slash-commands.mjs normalizeSlashCommandName, slashArgumentHint, overlayBlocksGlobalTranscriptScroll; src/tui/app/btw-controller.mjs btwScrollMax/Offset, btwContentRows/PanelRows), the whole observed value exact-encoded. The TUI owns these; the core recognises slash tokens only (pending.rs recognised_slash_token)."
   },
   "set": "slash-commands-cases",
   "totalBytes": 4063,
