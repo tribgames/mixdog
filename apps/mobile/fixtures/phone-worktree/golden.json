@@ -451,7 +451,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -1095,7 +1095,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -1262,7 +1262,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -1621,7 +1621,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -1962,7 +1962,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -2185,7 +2185,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -2350,7 +2350,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -2515,7 +2515,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -2679,7 +2679,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -3877,7 +3877,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -4089,7 +4089,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -4185,17 +4185,6 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
-      }
-    },
-    {
-      "group": "project",
-      "settled": {
-        "control": null,
-        "session": {
-          "action": "settings_changed",
-          "seq": 1,
-          "at": "<time>"
-        }
       }
     },
     {
@@ -4311,7 +4300,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -4403,6 +4392,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -4534,7 +4528,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -4626,6 +4620,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -4721,7 +4720,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -5173,7 +5172,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -5265,6 +5264,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -5620,7 +5624,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -5712,6 +5716,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -5864,7 +5873,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -5956,6 +5965,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -6057,7 +6071,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -6149,6 +6163,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -6268,7 +6287,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -6360,6 +6379,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -6483,7 +6507,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -6575,6 +6599,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -7191,7 +7220,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -7283,6 +7312,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -7470,7 +7504,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -7562,6 +7596,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -7703,7 +7742,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -8649,7 +8688,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -8741,6 +8780,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -8849,7 +8893,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -8941,6 +8985,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -9073,7 +9122,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -9165,6 +9214,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -9304,7 +9358,7 @@
             "promptHistoryList": [],
             "sessionId": "<session>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-wide",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -9396,6 +9450,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 2,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -9471,7 +9530,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "fixture-model",
             "provider": "custom-fixture",
             "sessionProvider": "custom-fixture",
@@ -9550,6 +9609,11 @@
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -9567,21 +9631,6 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
-      }
-    },
-    {
-      "group": "session",
-      "settled": {
-        "control": {
-          "action": "settings_changed",
-          "seq": 1,
-          "at": "<time>"
-        },
-        "session": {
-          "action": "settings_changed",
-          "seq": 2,
-          "at": "<time>"
-        }
       }
     },
     {
@@ -9649,7 +9698,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -9732,7 +9781,7 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
@@ -10369,7 +10418,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -10452,14 +10501,22 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
             "remoteEnabled": false,
-            "remoteSessionId": null
+            "remoteSessionId": null,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 1,
+              "at": "<time>"
+            }
           }
         }
+      },
+      "unsettled": {
+        "setupChanged": null
       },
       "repository": {
         "head": "main",
@@ -10547,7 +10604,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -10630,13 +10687,25 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 2,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
+        }
+      },
+      "unsettled": {
+        "setupChanged": {
+          "action": "settings_changed",
+          "seq": 1,
+          "at": "<time>"
         }
       },
       "repository": {
@@ -10722,7 +10791,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -10805,13 +10874,25 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
+        }
+      },
+      "unsettled": {
+        "setupChanged": {
+          "action": "settings_changed",
+          "seq": 2,
+          "at": "<time>"
         }
       },
       "repository": {
@@ -10893,7 +10974,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -10976,10 +11057,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11055,7 +11141,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -11138,10 +11224,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11245,7 +11336,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -11328,10 +11419,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11463,7 +11559,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -11546,10 +11642,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -11685,7 +11786,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -11768,10 +11869,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12020,7 +12126,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -12103,10 +12209,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12188,7 +12299,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -12271,10 +12382,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12356,7 +12472,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -12439,10 +12555,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12528,7 +12649,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -12611,10 +12732,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12786,7 +12912,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -12869,10 +12995,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -12962,7 +13093,7 @@
             "promptHistoryList": [],
             "sessionId": "<control>",
             "sessionForkedFrom": null,
-            "clientHostPid": "<pid>",
+            "clientHostPid": "<runtime pid>",
             "model": "",
             "provider": "anthropic-oauth",
             "sessionProvider": null,
@@ -13045,10 +13176,15 @@
             "agentWorkers": [],
             "agentJobs": [],
             "agentScope": {
-              "clientHostPid": "<pid>"
+              "clientHostPid": "<runtime pid>"
             },
             "toolMode": "full",
             "themeEpoch": 0,
+            "setupChanged": {
+              "action": "settings_changed",
+              "seq": 3,
+              "at": "<time>"
+            },
             "remoteEnabled": false,
             "remoteSessionId": null
           }
@@ -13395,12 +13531,6 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
-      }
-    },
-    {
-      "group": "settings",
-      "settled": {
-        "control": null
       }
     },
     {
@@ -15186,17 +15316,6 @@
           "HEAD 6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
           "branch refs/heads/main"
         ]
-      }
-    },
-    {
-      "group": "review",
-      "settled": {
-        "control": null,
-        "session": {
-          "action": "settings_changed",
-          "seq": 1,
-          "at": "<time>"
-        }
       }
     }
   ]
