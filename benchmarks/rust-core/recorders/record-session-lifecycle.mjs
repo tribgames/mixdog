@@ -157,7 +157,7 @@ writeSetManifest(stage, {
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
       'no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process',
-      'the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext only (the stored system prompt). The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine\'s and stays as written',
+      'this machine\'s roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext only (the stored system prompt). The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine\'s and stays as written',
       ...DETERMINISM,
     ],
   },
