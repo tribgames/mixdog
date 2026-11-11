@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText, within } from './common.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
+// Local-time formatting in recalled text depends on the PC's zone: every recording of this family runs in UTC (an input of
+// the recording, stated in each manifest's `normalised`).
+process.env.TZ = 'UTC';
+
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 export { importFrom, within };
 
@@ -50,7 +54,7 @@ export function finish(ctx, { url, set, golden, extra, flags = '', files = {} })
     recorder: provenance.recorder,
     command: `node ${flags}${provenance.recorder} --tree <git archive of ${NODE_COMMIT} with node_modules>`.replace('  ', ' '),
     identity: ctx.identity,
-    extra: { ...provenance, ...extra },
+    extra: { ...provenance, ...extra, timezone: 'UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)' },
   });
   commitStage(stage, final);
   console.log(`${set}: recorded ${Array.isArray(golden.cases) ? golden.cases.length : Object.keys(golden.cases ?? {}).length} cases`);

@@ -1,0 +1,57 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-chunk-audit.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "a real database: getDb().query is the test file's fake and answers by SQL text; the real PG statements are replayed by the recall goldens",
+    "runs": "createQueryHandlers(...).recallSessionRows (query-handlers.mjs) with makeChunkQuality (memory-chunk-quality.mjs) building the root verification"
+  },
+  "exclusions": "test cases 38 (legacy audit report: auditChunkEntries/collectChunkRoots are a diagnostic with no Rust counterpart), 55 and 65 (assessChunkQuality on legacy roots: covered by native/core/crates/mixdog-services mem/cycles golden_tests.rs prompts_budgets_and_quality_equal_node), 101 (non-string projectScope binding: JS typing artefact) are not recorded",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 25528,
+      "path": "golden.json",
+      "sha256": "5998f723e4d03c29126b5cbe7cbe797391ef5aea7e065f083104e7b7edd3391a"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "edcf65dd38d8f36e0e80a60c6a560da2778a6be341823dd364808b27ff1a265d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "verifiedAt": "Date.now() fixed at clock.dateNowMs (virtual clock, never advanced)"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-chunk-audit.mjs",
+  "recorderSha256": "64bd3539ca8b486c1ac029c6592c579bbea25db5b0467144ffa83c6afc9a6a92",
+  "replay": "mixdog-services memory: mem/recall/browse.rs session recall (recall_session_rows) + mem/recall/compact.rs compact_handoff_rows over a db seam that answers the same statements; compares the returned text/rows and the ordered statements (text and params)",
+  "set": "memory-chunk-audit",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 25528
+}
