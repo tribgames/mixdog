@@ -58,7 +58,19 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "answer",
+                        "reasoning_content": ""
+                      },
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "fixture",
@@ -127,7 +139,18 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "answer"
+                      },
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "fixture",
@@ -332,7 +355,14 @@
           "entry": "src/runtime/agent/orchestrator/session/agent-loop.mjs.agentLoop",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "deepseek",
+                {
+                  "apiKey": "fixture",
+                  "preconnect": false
+                }
+              ]
             },
             [
               {

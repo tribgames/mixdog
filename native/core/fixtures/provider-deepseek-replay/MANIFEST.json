@@ -2,6 +2,12 @@
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-deepseek-replay.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "mixdog-ai providers::compat chat decode (decode.rs:286-292, :530-537) and encode: feed `input.chunks` / the `requests[*].reply` SSE and compare `result` (reasoningContent and whether reasoning_content is present), the second request body (assistant message reasoning_content \"\") and the replayed messages.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
   "entry": "openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, parseToolCalls, knownToolNames }); OpenAICompatProvider(\"deepseek\", { apiKey, preconnect: false }) driven by session/agent-loop.mjs agentLoop over a loopback Chat endpoint (the OpenAI SDK sends real HTTP); openai-compat-wire.mjs toOpenAIMessages. Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
@@ -11,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 22528,
+      "bytes": 23240,
       "path": "cases.json",
-      "sha256": "df72abf2077a955793ad5337c07ba2fd5e789b2ce7c2d15bfe3816ff2a6ee1b4"
+      "sha256": "8aa9d912dde4daf93886d838559c71ca9d11e14d8cd5f244562005a36c9c5546"
     }
   ],
   "inputs": [
@@ -35,7 +41,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7af794122bfbb318bc6e920e13f654f5596962f285d5e574e233a7a6163ee979"
+      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -57,23 +67,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-deepseek-replay.mjs",
-  "recorderSha256": "bb92fd3a001f558028cf9aa413421366da3c0ac71363bfd87e50e93bef5bebd7",
+  "recorderSha256": "dff078bd6c838208f4f73d668f039b317124a3b94ea6f04c55ee9baaf9becabc",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "replayExclusions": {
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
   },
   "set": "provider-deepseek-replay",
-  "totalBytes": 22528,
-  "valueTags": {
-    "{\"$bigint\":\"<digits>\"}": "bigint",
-    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
-    "{\"$cycle\":true}": "a reference back to an ancestor object",
-    "{\"$date\":\"<ISO>\"}": "Date",
-    "{\"$function\":\"<name>\"}": "a function",
-    "{\"$map\":[[k,v]...]}": "Map, insertion order",
-    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
-    "{\"$set\":[v...]}": "Set, insertion order",
-    "{\"$symbol\":\"<text>\"}": "a symbol",
-    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
-  }
+  "totalBytes": 23240,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
