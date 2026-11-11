@@ -2040,7 +2040,33 @@
               "effort": "low"
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-retry-http-400-before-stream-opens",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -2081,7 +2107,33 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-retry-http-400-before-stream-opens",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -2089,7 +2141,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-retry-http-400-before-stream-opens",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -2468,7 +2546,33 @@
               "effort": "low"
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-retry-response-failed-after-created-ack",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -2509,7 +2613,33 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-retry-response-failed-after-created-ack",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -2517,7 +2647,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-retry-response-failed-after-created-ack",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -2798,7 +2954,33 @@
               "effort": "low"
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-visible",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -2839,7 +3021,33 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-visible",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -2847,7 +3055,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-visible",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -3057,7 +3291,33 @@
               "effort": "low"
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-cancelled",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -3098,7 +3358,33 @@
               }
             },
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-cancelled",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             }
           ]
         },
@@ -3106,7 +3392,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-e2e-cancelled",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "fetch": {
+                      "callback": "fetch"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -3282,7 +3594,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-headers-record",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -3516,7 +3860,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-headers-Headers",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -3759,7 +4135,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-headers-pairs",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -3961,7 +4369,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-header-deletion-false",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -4147,7 +4587,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-header-deletion-true",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -4395,7 +4867,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-default-headers",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "Session-ID": "configured-session"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "Session-ID": "configured-session"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -4432,7 +4930,47 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-client-options-headers",
+              "config": {
+                "clientOptions": {
+                  "defaultHeaders": {
+                    "headers": [
+                      [
+                        "x-client-request-id",
+                        "sdk-request"
+                      ]
+                    ]
+                  }
+                }
+              },
+              "defaultHeaders": {
+                "Session-ID": "unused"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "headers": [
+                        [
+                          "x-client-request-id",
+                          "sdk-request"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -4811,7 +5349,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-undefined-request-record",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -5015,7 +5585,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-undefined-request-pairs",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -5230,7 +5832,55 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-undefined-provider-defaults",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "session-id": {
+                  "$exact": "undefined"
+                },
+                "X-Client-Request-ID": {
+                  "$exact": "undefined"
+                }
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "session-id": {
+                        "$exact": "object",
+                        "entries": [
+                          [
+                            "$exact",
+                            "undefined"
+                          ]
+                        ]
+                      },
+                      "X-Client-Request-ID": {
+                        "$exact": "object",
+                        "entries": [
+                          [
+                            "$exact",
+                            "undefined"
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -5431,7 +6081,59 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-undefined-sdk-defaults",
+              "config": {
+                "clientOptions": {
+                  "defaultHeaders": {
+                    "session-id": {
+                      "$exact": "undefined"
+                    },
+                    "X-Client-Request-ID": {
+                      "$exact": "undefined"
+                    }
+                  }
+                }
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "session-id": {
+                        "$exact": "object",
+                        "entries": [
+                          [
+                            "$exact",
+                            "undefined"
+                          ]
+                        ]
+                      },
+                      "X-Client-Request-ID": {
+                        "$exact": "object",
+                        "entries": [
+                          [
+                            "$exact",
+                            "undefined"
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -5640,7 +6342,49 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-empty-header-arrays",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "Session-ID": [],
+                "X-Client-Request-ID": [
+                  {
+                    "$exact": "undefined"
+                  }
+                ]
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "Session-ID": [],
+                      "X-Client-Request-ID": [
+                        {
+                          "$exact": "object",
+                          "entries": [
+                            [
+                              "$exact",
+                              "undefined"
+                            ]
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -5836,7 +6580,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-auth-record",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "api-key": "gateway-key"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "api-key": "gateway-key"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -6034,7 +6804,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-auth-pairs",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "api-key": "gateway-key"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "api-key": "gateway-key"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -6236,7 +7032,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-auth-Headers",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "api-key": "gateway-key"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "api-key": "gateway-key"
+                    }
+                  }
+                ]
+              }
             },
             [
               {
@@ -6483,7 +7305,39 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAI at $.client has no exact form (give classes.OpenAI)"
+              "name": "custom-boundary-auth-caller-override",
+              "config": {
+                "clientOptions": {}
+              },
+              "defaultHeaders": {
+                "$exact": "undefined"
+              },
+              "customConfig": {
+                "protocol": "openai-responses"
+              },
+              "nativePdf": false,
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              },
+              "client": {
+                "$instance": "node_modules/openai/index.mjs.default",
+                "constructedWith": [
+                  {
+                    "apiKey": "test-only",
+                    "baseURL": "https://mixdog-test.invalid/v1",
+                    "maxRetries": 0,
+                    "defaultHeaders": {
+                      "$exact": "object",
+                      "entries": [
+                        [
+                          "$exact",
+                          "undefined"
+                        ]
+                      ]
+                    }
+                  }
+                ]
+              }
             },
             [
               {
