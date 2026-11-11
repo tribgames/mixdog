@@ -15,6 +15,11 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  // Every case without a socket: the Node test builds the failure by hand against `createWsSendAttempts` / the formatting helpers. Where the same behaviour is reachable over the wire it is
+  // ALSO recorded as a `ws-*` case (the state-machine rows :74 :86 :97 :111 :124 :142 :153 :165 :214 :374 :392 :431). What remains has no same-input/output public Rust function:
+  // looked in crates/** (mixdog-ai, mixdog-core-api domain/provider.rs, mixdog-agent) for retry_reason_class / safe_retry_error_code / emit_provider_retry_stage / provider_timeout_error /
+  // reconnecting-stage builders: none is public; the retry stage is produced inside the broker retry loop.
+  pure: { '*': 'RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form' },
   set: 'provider-openai-ws-send-attempts',
   net: false,
   exclusions: ['result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
@@ -46,7 +51,7 @@ function harness(overrides = {}) {
   const details = [];
   const spanEvents = [];
   const sleeps = [];
-  const sendSpan = { retryBackoffMs: 0, poolAcquireMs: 0, poolOwnerWaitMs: 0, emit(kind, target) { spanEvents.push([kind, target ?? null]); } };
+  const sendSpan = { retryBackoffMs: 0, poolAcquireMs: 0, poolOwnerWaitMs: 0, emit(kind, target) { spanEvents.push([kind, target]); } };
   const attempts = createWsSendAttempts({
     externalSignal: null, sleepFn: async (ms) => { sleeps.push(ms); }, sendSpan,
     emitReconnectProgress: (p) => { progress.push({ attempt: p.attempt, max: p.max, classifier: p.classifier }); details.push(p); },
@@ -225,7 +230,7 @@ await rec.run('exhausted-falls-back-to-first-error-or-unreachable-marker', `${SR
 });
 // ---- over a real loopback WebSocket ----
 const completed = (id) => [{ type: 'response.created', response: { id, model: 'gpt-fixture' } }, { type: 'response.completed', response: { id, model: 'gpt-fixture', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 1, output_tokens: 1 } } }];
-async function overSocket(plans, { refusals = [], poolKey }) {
+async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
   let connections = 0;
   world.reset({
     refuse: (_req, n) => refusals[n - 1],
@@ -235,24 +240,18 @@ async function overSocket(plans, { refusals = [], poolKey }) {
       if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
     },
   });
-  const sleeps = [];
-  let outcome;
-  try {
-    const out = await sendViaWebSocket({
-      auth: { type: 'xai', access_token: 'fixture-access-token' }, body: { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] }, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
-      onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail: detail ?? null }),
-      onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
-      onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
-      _sleepFn: async (ms) => { sleeps.push(ms); world.note({ event: 'sleep-requested', ms }); },
-      _sendSpanTraceFn: () => {}, _agentTraceFn: () => {},
-    });
-    outcome = { result: out };
-  } catch (error) {
-    outcome = { error };
-  }
+  // The send's own backoff sleeps run on the virtual clock: every armed retry sleep is advanced to (a recorded step) until the send ends.
+  const settled = sendViaWebSocket({
+    auth: { type: 'xai', access_token: 'fixture-access-token' }, body, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
+    onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail }),
+    onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
+    onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
+    ...sendExtras,
+  }).then((result) => ({ result }), (error) => ({ error }));
+  const outcome = await rec.clock.followRetries(settled);
   for (const conn of world.conns) conn.close(1000, 'recorder-end');
   await world.until((trace) => trace.every((e) => e.event !== 'open') || trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
-  return { ...outcome, sleeps, events: world.trace.map((e) => ({ ...e })) };
+  return { ...outcome, events: world.trace.map((e) => ({ ...e })) };
 }
 await rec.run('ws-http-401-on-upgrade-surfaces-immediately', `${SRC}:86`, { refusals: [401] }, () => overSocket([], { refusals: [{ status: 401, headers: [['content-type', 'application/json']], body: '{"error":{"message":"unauthorized"}}' }], poolKey: 'sa-401' }));
 await rec.run('ws-abnormal-close-before-output-retries-on-a-new-socket', `${SRC}:124`, { connections: ['frames: none, then the server drops the connection (1006)', 'completed'] }, () => overSocket([{ frames: [], close: [1006, ''] }, { frames: completed('resp_retry') }], { poolKey: 'sa-1006' }));
@@ -260,4 +259,10 @@ await rec.run('ws-cut-while-tool-input-streams-surfaces', `${SRC}:142`, { connec
 await rec.run('ws-rate-limited-response-failed-waits-advised-time', `${SRC}:153`, { connections: ['response.failed rate_limit_exceeded "try again in 1.5s"', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_rl', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 1.5s.' } } }] }, { frames: completed('resp_after') }], { poolKey: 'sa-rl' }));
 await rec.run('ws-relayed-text-then-drop-surfaces-without-replay', `${SRC}:374`, { connections: ['created + text delta, then the drop (1006)'] }, () => overSocket([{ frames: [{ type: 'response.created', response: { id: 'resp_t', model: 'gpt-fixture' } }, { type: 'response.output_text.delta', delta: 'half' }], close: [1006, ''] }], { poolKey: 'sa-text' }));
 await rec.run('ws-server-1009-on-retry-surfaces-itself', `${SRC}:431`, { connections: ['drop (1006)', 'close 1009 message too big'] }, () => overSocket([{ frames: [], close: [1006, ''] }, { frames: [], close: [1009, 'too big'] }], { poolKey: 'sa-1009' }));
+// ---- more state-machine cases over the socket (the Node tests build the failures by hand; the wire produces them) ----
+await rec.run('ws-connection-reset-on-every-upgrade-spends-budget-then-surfaces-first-error', `${SRC}:111`, { refusals: 'every upgrade request: the server resets the connection', note: 'also covers :74 (a transient connect error spends the budget and retries)' }, () => overSocket([], { refusals: Array.from({ length: 12 }, () => ({ reset: true })), poolKey: 'sa-reset' }));
+await rec.run('ws-policy-veto-503-on-upgrade-tagged-for-http-fallback', `${SRC}:97`, { refusals: [503], handshakeErrorPolicy: 'retry:false, httpFallback when classifier === http_503' }, () => overSocket([], { refusals: [{ status: 503, headers: [['content-type', 'application/json']], body: '{"error":{"message":"unavailable"}}' }], poolKey: 'sa-503', sendExtras: { handshakeErrorPolicy: ({ classifier }) => ({ retry: false, httpFallback: classifier === 'http_503' }) } }));
+await rec.run('ws-long-advised-wait-announced-before-it-starts', `${SRC}:165`, { connections: ['response.failed rate_limit_exceeded "try again in 90s"', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_long', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 90s.' } } }] }, { frames: completed('resp_long_retry') }], { poolKey: 'sa-long' }));
+await rec.run('ws-server-error-text-never-reaches-retry-stage', `${SRC}:214`, { connections: ['response.failed server_error with echoed prompt, token and account in the message', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_echo', error: { code: 'server_error', message: 'upstream echoed prompt "hi", token sk-LEAK-fixture and account acct-LEAK-fixture' } } }] }, { frames: completed('resp_echo_retry') }], { poolKey: 'sa-echo' }));
+await rec.run('ws-duplicate-reasoning-rejection-strips-replay-once', `${SRC}:392`, { connections: ['response.failed: duplicate item rs_dup already exists', 'completed'], requestInput: 'a user message and a reasoning item rs_dup' }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_dup', error: { code: 'invalid_request_error', message: 'Duplicate item found with id rs_dup. Reasoning item already exists.' } } }] }, { frames: completed('resp_dup_retry') }], { poolKey: 'sa-dup', body: { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }, { type: 'reasoning', id: 'rs_dup', summary: [], encrypted_content: 'enc' }] } }));
 await rec.finish();

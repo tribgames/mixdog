@@ -3134,12 +3134,13 @@
             }
           }
         },
-        "sleeps": [],
         "events": [
           {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -3236,15 +3237,6 @@
               },
               "onStreamDelta": {
                 "callback": "onStreamDelta"
-              },
-              "_sleepFn": {
-                "callback": "_sleepFn"
-              },
-              "_sendSpanTraceFn": {
-                "callback": "_sendSpanTraceFn"
-              },
-              "_agentTraceFn": {
-                "callback": "_agentTraceFn"
               }
             }
           ]
@@ -3329,14 +3321,13 @@
             "acquireMode": "new"
           }
         },
-        "sleeps": [
-          200
-        ],
         "events": [
           {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -3399,7 +3390,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -3409,12 +3402,6 @@
           {
             "event": "terminate",
             "by": "server"
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
           },
           {
             "event": "stage",
@@ -3431,13 +3418,17 @@
             }
           },
           {
-            "event": "sleep-requested",
-            "ms": 200
-          },
-          {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
           },
           {
             "event": "dial",
@@ -3500,7 +3491,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -3578,18 +3571,21 @@
               },
               "onStreamDelta": {
                 "callback": "onStreamDelta"
-              },
-              "_sleepFn": {
-                "callback": "_sleepFn"
-              },
-              "_sendSpanTraceFn": {
-                "callback": "_sendSpanTraceFn"
-              },
-              "_agentTraceFn": {
-                "callback": "_agentTraceFn"
               }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 200,
+          "fromMs": 0,
+          "fired": [
+            {
+              "dueMs": 200
+            }
+          ],
+          "toMs": 200
         }
       ]
     },
@@ -3648,12 +3644,13 @@
             "partialToolCallStarted": true
           }
         },
-        "sleeps": [],
         "events": [
           {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -3716,7 +3713,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -3738,12 +3737,6 @@
             "by": "server"
           },
           {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
-          },
-          {
             "event": "progress",
             "kind": "transport"
           },
@@ -3756,6 +3749,12 @@
             "by": "server",
             "code": 1000,
             "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
           }
         ]
       },
@@ -3792,15 +3791,6 @@
               },
               "onStreamDelta": {
                 "callback": "onStreamDelta"
-              },
-              "_sleepFn": {
-                "callback": "_sleepFn"
-              },
-              "_sendSpanTraceFn": {
-                "callback": "_sendSpanTraceFn"
-              },
-              "_agentTraceFn": {
-                "callback": "_agentTraceFn"
               }
             }
           ]
@@ -3885,14 +3875,13 @@
             "acquireMode": "new"
           }
         },
-        "sleeps": [
-          1500
-        ],
         "events": [
           {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -3955,7 +3944,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -3975,26 +3966,24 @@
               "attempt": 1,
               "max": 5,
               "waitMs": 1500,
-              "retryAt": 1794225601500,
+              "retryAt": 1794225601700,
               "reason": "Rate limited by the provider",
               "classifier": "response_failed_rate_limited",
               "message": "Rate limited by the provider · retry 1/5 in 2s"
             }
           },
           {
-            "event": "sleep-requested",
-            "ms": 1500
-          },
-          {
-            "event": "stage",
-            "stage": "requesting",
-            "detail": null
-          },
-          {
             "event": "closed",
             "serverInitiated": false,
             "code": 1000,
             "reason": "release_no_keep"
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -4057,7 +4046,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -4135,18 +4126,81 @@
               },
               "onStreamDelta": {
                 "callback": "onStreamDelta"
-              },
-              "_sleepFn": {
-                "callback": "_sleepFn"
-              },
-              "_sendSpanTraceFn": {
-                "callback": "_sendSpanTraceFn"
-              },
-              "_agentTraceFn": {
-                "callback": "_agentTraceFn"
               }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1500,
+          "fromMs": 200,
+          "fired": [
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 250
+            },
+            {
+              "dueMs": 450
+            },
+            {
+              "dueMs": 450
+            },
+            {
+              "dueMs": 1700
+            }
+          ],
+          "toMs": 1700
         }
       ]
     },
@@ -4206,12 +4260,13 @@
             "wsFailurePhase": "stream"
           }
         },
-        "sleeps": [],
         "events": [
           {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -4274,7 +4329,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -4296,12 +4353,6 @@
             "by": "server"
           },
           {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
-          },
-          {
             "event": "progress",
             "kind": "transport"
           },
@@ -4318,6 +4369,12 @@
             "by": "server",
             "code": 1000,
             "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
           }
         ]
       },
@@ -4354,15 +4411,6 @@
               },
               "onStreamDelta": {
                 "callback": "onStreamDelta"
-              },
-              "_sleepFn": {
-                "callback": "_sleepFn"
-              },
-              "_sendSpanTraceFn": {
-                "callback": "_sendSpanTraceFn"
-              },
-              "_agentTraceFn": {
-                "callback": "_agentTraceFn"
               }
             }
           ]
@@ -4425,14 +4473,13 @@
             "wsFailurePhase": "stream"
           }
         },
-        "sleeps": [
-          204
-        ],
         "events": [
           {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "dial",
@@ -4495,7 +4542,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -4507,12 +4556,6 @@
             "by": "server"
           },
           {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 1006,
-            "reason": ""
-          },
-          {
             "event": "stage",
             "stage": "reconnecting",
             "detail": {
@@ -4520,20 +4563,24 @@
               "attempt": 1,
               "max": 5,
               "waitMs": 204,
-              "retryAt": 1794225600204,
+              "retryAt": 1794225601904,
               "reason": "Connection interrupted",
               "classifier": "ws_1006",
               "message": "Connection interrupted · retry 1/5 in 204ms"
             }
           },
           {
-            "event": "sleep-requested",
-            "ms": 204
-          },
-          {
             "event": "stage",
             "stage": "requesting",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1006,
+            "reason": ""
           },
           {
             "event": "dial",
@@ -4596,7 +4643,9 @@
           {
             "event": "stage",
             "stage": "streaming",
-            "detail": null
+            "detail": {
+              "$exact": "undefined"
+            }
           },
           {
             "event": "frame",
@@ -4662,15 +4711,1739 @@
               },
               "onStreamDelta": {
                 "callback": "onStreamDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 204,
+          "fromMs": 1700,
+          "fired": [
+            {
+              "dueMs": 1904
+            }
+          ],
+          "toMs": 1904
+        }
+      ]
+    },
+    {
+      "id": "ws-connection-reset-on-every-upgrade-spends-budget-then-surfaces-first-error",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:111",
+      "input": {
+        "refusals": "every upgrade request: the server resets the connection",
+        "note": "also covers :74 (a transient connect error spends the budget and retries)"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "socket hang up",
+          "code": "ECONNRESET",
+          "props": {
+            "attempts": 1,
+            "retryClassifier": "reset",
+            "wsRetriesExhausted": true,
+            "wsFailurePhase": "handshake",
+            "midstreamClassifier": "reset",
+            "midstreamRetries": 5
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "b457ab4eaa06b9a9808d5ad069a7a699"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "bNtg/d0FFe4Ojmw54AoOMA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-reset"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 194,
+              "retryAt": 1794225602098,
+              "reason": "Connection interrupted",
+              "classifier": "reset",
+              "message": "Connection interrupted · retry 1/5 in 194ms"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "5ce24b6e16bb5df7366c2f226489ca57"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "/hZPizAoljNO9roN98hqlw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-reset"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 2,
+              "max": 5,
+              "waitMs": 398,
+              "retryAt": 1794225602496,
+              "reason": "Connection interrupted",
+              "classifier": "reset",
+              "message": "Connection interrupted · retry 2/5 in 398ms"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "8ec952c2dd5f476c900d80f0f3f5612d"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "8bWPPnS0v3FNa3O9Y7t60A=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-reset"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 3,
+              "max": 5,
+              "waitMs": 852,
+              "retryAt": 1794225603348,
+              "reason": "Connection interrupted",
+              "classifier": "reset",
+              "message": "Connection interrupted · retry 3/5 in 852ms"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "e7cf6720e930a29bedf83b6268e5b118"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "SxeFQDdlrM6RmciAsvz3Nw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-reset"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 4,
+              "max": 5,
+              "waitMs": 1467,
+              "retryAt": 1794225604815,
+              "reason": "Connection interrupted",
+              "classifier": "reset",
+              "message": "Connection interrupted · retry 4/5 in 1s"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "42ab3ae1b340b78601482e939d524b46"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "3utsdw1i8zNvBJd8IXGErg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-reset"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 5,
+              "max": 5,
+              "waitMs": 3440,
+              "retryAt": 1794225608255,
+              "reason": "Connection interrupted",
+              "classifier": "reset",
+              "message": "Connection interrupted · retry 5/5 in 3s"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "429388e7638be4ccb8ab573796c74f02"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "hdUnMBTyp93+JVZJ++Xwlg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-reset"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
               },
-              "_sleepFn": {
-                "callback": "_sleepFn"
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
               },
-              "_sendSpanTraceFn": {
-                "callback": "_sendSpanTraceFn"
+              "poolKey": "sa-reset",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
               },
-              "_agentTraceFn": {
-                "callback": "_agentTraceFn"
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 194,
+          "fromMs": 1904,
+          "fired": [
+            {
+              "dueMs": 1950
+            },
+            {
+              "dueMs": 1950
+            },
+            {
+              "dueMs": 2098
+            }
+          ],
+          "toMs": 2098
+        },
+        {
+          "advanceMs": 398,
+          "fromMs": 2098,
+          "fired": [
+            {
+              "dueMs": 2154
+            },
+            {
+              "dueMs": 2496
+            }
+          ],
+          "toMs": 2496
+        },
+        {
+          "advanceMs": 852,
+          "fromMs": 2496,
+          "fired": [
+            {
+              "dueMs": 3348
+            }
+          ],
+          "toMs": 3348
+        },
+        {
+          "advanceMs": 1467,
+          "fromMs": 3348,
+          "fired": [
+            {
+              "dueMs": 4815
+            }
+          ],
+          "toMs": 4815
+        },
+        {
+          "advanceMs": 3440,
+          "fromMs": 4815,
+          "fired": [
+            {
+              "dueMs": 8255
+            }
+          ],
+          "toMs": 8255
+        }
+      ]
+    },
+    {
+      "id": "ws-policy-veto-503-on-upgrade-tagged-for-http-fallback",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:97",
+      "input": {
+        "refusals": [
+          503
+        ],
+        "handshakeErrorPolicy": "retry:false, httpFallback when classifier === http_503"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "xAI WS handshake 503: unavailable",
+          "props": {
+            "providerError": {
+              "message": "unavailable"
+            },
+            "status": 503,
+            "httpStatus": 503,
+            "headers": {
+              "content-type": "application/json",
+              "content-length": "35",
+              "connection": "close"
+            },
+            "httpBody": "{\"error\":{\"message\":\"unavailable\"}}",
+            "attempts": 1,
+            "retryClassifier": "http_503",
+            "wsRetriesExhausted": true,
+            "wsFailurePhase": "handshake",
+            "wsHttpFallbackEligible": true
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "33aa1e07f8eb4dc65486365e91062a94"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "pJtEN3pZgZ2z31thpuClGg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-refused",
+            "status": 503,
+            "statusText": "Service Unavailable",
+            "headers": [
+              [
+                "content-type",
+                "application/json"
+              ]
+            ],
+            "bodyChunks": [
+              "{\"error\":{\"message\":\"unavailable\"}}"
+            ]
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-503",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "handshakeErrorPolicy": {
+                "callback": "handshakeErrorPolicy"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-long-advised-wait-announced-before-it-starts",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:165",
+      "input": {
+        "connections": [
+          "response.failed rate_limit_exceeded \"try again in 90s\"",
+          "completed"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "xai-responses",
+            "items": [
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "serviceTier": {
+            "$exact": "undefined"
+          },
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "new"
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "0fe80e009b70df8479affcd48551f023"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "Sfg2y6Z4ixRsRVM2Y7uBTw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: by8Bqngk8C1ofkYmfyqayIrOygs="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.failed\",\"response\":{\"id\":\"resp_long\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"Rate limit reached. Please try again in 90s.\"}}}"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "rate_limited",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 90000,
+              "retryAt": 1794225698255,
+              "reason": "Rate limited by the provider",
+              "classifier": "response_failed_rate_limited",
+              "message": "Rate limited by the provider · retry 1/5 in 90s"
+            }
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "dc2b9d4130f91c06d9dafb5b487a1a80"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "OfmhvT2NGy+JddU3cSrZ0Q=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: d9DDFptK6Obj/SUDdAJNbFlKQU4="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_long_retry\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_long_retry\",\"model\":\"gpt-fixture\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-long",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 90000,
+          "fromMs": 8255,
+          "fired": [
+            {
+              "dueMs": 8505
+            },
+            {
+              "dueMs": 38255
+            },
+            {
+              "dueMs": 68255
+            },
+            {
+              "dueMs": 98255
+            }
+          ],
+          "toMs": 98255
+        }
+      ]
+    },
+    {
+      "id": "ws-server-error-text-never-reaches-retry-stage",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:214",
+      "input": {
+        "connections": [
+          "response.failed server_error with echoed prompt, token and account in the message",
+          "completed"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "xai-responses",
+            "items": [
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "serviceTier": {
+            "$exact": "undefined"
+          },
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "new"
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "ea44479616c9ca91558d98a1383d746f"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "Un3aKAC4CKNAudyR+f9gag=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: f1qsRZCC4xhICSspigWBl/+32sA="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.failed\",\"response\":{\"id\":\"resp_echo\",\"error\":{\"code\":\"server_error\",\"message\":\"upstream echoed prompt \\\"hi\\\", token sk-LEAK-fixture and account acct-LEAK-fixture\"}}}"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "server_error",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 196,
+              "retryAt": 1794225698451,
+              "reason": "Provider server error",
+              "classifier": "response_failed_retryable",
+              "message": "Provider server error · retry 1/5 in 196ms"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "136f49f388279974d6584c94df330b04"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "j4goF1Mk0wE27KFGFK4wwg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: luKtSnpf5epx3TzAJGrotcOq6ks="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_echo_retry\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_echo_retry\",\"model\":\"gpt-fixture\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "poolKey": "sa-echo",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 196,
+          "fromMs": 98255,
+          "fired": [
+            {
+              "dueMs": 98451
+            }
+          ],
+          "toMs": 98451
+        }
+      ]
+    },
+    {
+      "id": "ws-duplicate-reasoning-rejection-strips-replay-once",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:392",
+      "input": {
+        "connections": [
+          "response.failed: duplicate item rs_dup already exists",
+          "completed"
+        ],
+        "requestInput": "a user message and a reasoning item rs_dup"
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "version": 1,
+            "provider": "xai-responses",
+            "items": [
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "serviceTier": {
+            "$exact": "undefined"
+          },
+          "transportTiming": {
+            "transport": "websocket",
+            "outcome": "ok",
+            "admissionQueueWaitMs": "<ms, real clock>",
+            "providerConcurrentRequests": 1,
+            "providerQueuedRequests": 0,
+            "poolOwnerWaitMs": "<ms, real clock>",
+            "socketAcquireMs": "<ms, real clock>",
+            "poolAcquireMs": "<ms, real clock>",
+            "requestBuildSerializationMs": "<ms, real clock>",
+            "preResponseCreatedMs": "<ms, real clock>",
+            "providerFirstEventMs": "<ms, real clock>",
+            "retryBackoffMs": "<ms, real clock>",
+            "handshakeRetries": 0,
+            "acquireAttempts": 2,
+            "acquireMode": "new"
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "2f8690ecc42b349a116651dc5e5b4114"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "fDpsT7QZS2euQZjlBOvguQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: JHO78rqWp0a2dOIV5r6RwX0jTWE="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"},{\"type\":\"reasoning\",\"id\":\"rs_dup\",\"summary\":[],\"encrypted_content\":\"enc\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.failed\",\"response\":{\"id\":\"resp_dup\",\"error\":{\"code\":\"invalid_request_error\",\"message\":\"Duplicate item found with id rs_dup. Reasoning item already exists.\"}}}"
+          },
+          {
+            "event": "stage",
+            "stage": "reconnecting",
+            "detail": {
+              "reasonClass": "other",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 0,
+              "retryAt": 1794225698451,
+              "reason": "Connection interrupted",
+              "classifier": "reasoning_replay_rejected",
+              "message": "Connection interrupted · retry 1/5"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
+            "event": "dial",
+            "host": "api.x.ai",
+            "port": 443,
+            "servername": "api.x.ai"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer undefined"
+              ],
+              [
+                "x-client-request-id",
+                "e0d9163a48bc0d849049d61fbb79ab5f"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "UP2etpRWMTf3m0Hn+1DwHA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.x.ai"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: HKKd9FQtMomWr2XVIHQ68YNqLrs="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_dup_retry\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_dup_retry\",\"model\":\"gpt-fixture\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "fixture-access-token"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  },
+                  {
+                    "type": "reasoning",
+                    "id": "rs_dup",
+                    "summary": [],
+                    "encrypted_content": "enc"
+                  }
+                ]
+              },
+              "poolKey": "sa-dup",
+              "cacheKey": "send-attempts-ws",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "traceProvider": "xai",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
               }
             }
           ]
