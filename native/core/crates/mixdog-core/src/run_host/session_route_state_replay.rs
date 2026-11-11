@@ -9,14 +9,14 @@
 //! conversation; the compactor calls Node's mocks counted are not observable. Lines 10, 104 and 255 call the route
 //! functions, each declared in the case table with the reason no client call carries the recorded step.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::admin_route::{
-    Obj, ContextState, refresh_route_fields, resolve_route_context_state, route_fast_key, save_model_settings,
+    Obj, ContextState, resolve_route_context_state, route_fast_key, save_model_settings,
     selection_fast_capable, window_meta_of,
 };
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
@@ -33,12 +33,12 @@ use mixdog_core_domains::domains::ai_admin::model_list::ModelListService;
 use mixdog_core_domains::domains::ai_admin::route_service::{LiveControls, RouteService};
 use mixdog_core_domains::domains::ai_admin::route_set_service::{ROUTE_SET, RouteSetService};
 use mixdog_core_ports::ports::domain_sessions::AgentRoutePublisher;
-use mixdog_core_ports::ports::route::{LiveRoute, SessionRoutes};
-use mixdog_core_ports::ports::route_write::RouteWriter;
+use mixdog_core_ports::ports::route::SessionRoutes;
+use mixdog_core_ports::ports::route_write::{LiveRouteWriter, StatuslineUsage};
+use mixdog_core_session::session::route_cell::SessionRoutes as SessionRouteCells;
 use mixdog_core_session::session::route_session::SessionRouteAdapter;
 use mixdog_core_session::session::thread_state::SessionThreads;
 use mixdog_store::schema::record::Header;
-use mixdog_tools::orch::util::PortError;
 use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
@@ -134,58 +134,30 @@ impl RouteFacts for Facts {
     }
 }
 
-/// The thread's live route cell with `LiveRouteWriter`'s refresh (`refresh_route_fields` over the config and the row), minus
-/// the provider preparation the replay has no provider for.
-struct Cell {
-    route: Mutex<Obj>,
-    config: Config,
-    catalog: Arc<CatalogService>,
-}
+/// The provider registry's builder: every provider the config names builds a scripted adapter; no replayed call sends.
+struct Builds;
 
 #[async_trait]
-impl RouteWriter for Cell {
-    fn route(&self, _: &ThreadId) -> Obj {
-        self.route.lock().unwrap().clone()
+impl mixdog_ai::registry::providers::ProviderBuilder for Builds {
+    async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+        Ok(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
     }
-
-    fn set_route_state(&self, _: &ThreadId, route: Obj) {
-        *self.route.lock().unwrap() = route;
+    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
-
-    fn generation(&self, _: &ThreadId) -> u64 {
-        0
+    fn available(&self, _: &str) -> bool {
+        true
     }
-
-    async fn refresh_route_effort(&self, thread: &ThreadId, meta: Option<Value>, _: bool, _: Option<u64>) -> Result<Option<Obj>, PortError> {
-        let target = RouteWriter::route(self, thread);
-        let config = self.config.agent();
-        let text = |key: &str| target.get(key).and_then(Value::as_str).unwrap_or("").trim().to_owned();
-        let (provider, model) = (text("provider"), text("model"));
-        let meta = meta.unwrap_or_else(|| self.catalog.model_meta_in(&provider, &model, None));
-        let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
-        let route = refresh_route_fields(
-            &config,
-            &target,
-            Some(&meta),
-            &provider,
-            &fast,
-            &|provider, model| self.catalog.cached_windows(provider, model).and_then(|w| serde_json::to_value(w).ok()),
-        );
-        self.set_route_state(thread, route.clone());
-        Ok(Some(route))
+    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
     }
-
-    fn refresh_statusline_usage(&self, _: &ThreadId, _: &Obj) {}
 }
 
-impl LiveRoute for Cell {
-    fn route(&self, thread: &ThreadId) -> Obj {
-        RouteWriter::route(self, thread)
-    }
+/// The statusline's usage reading: no account is measured.
+struct NoUsage;
 
-    fn adopt_held(&self, _: &ThreadId, _: &Obj) {
-        unreachable!("route/set adopts no pick held by an earlier process")
-    }
+impl StatuslineUsage for NoUsage {
+    fn refresh(&self, _: &ThreadId, _: &Obj) {}
 }
 
 struct NoControls;
@@ -221,6 +193,8 @@ struct Client {
     config_file: std::path::PathBuf,
     _dirs: (tempfile::TempDir, tempfile::TempDir),
     _rig: mixdog_core_session::session::testing::Rig,
+    /// The thread store's data folder; the databases close before it is removed.
+    _data: mixdog_core_session::session::testing::DataDir,
 }
 
 /// The op store every `route/set` of a test records its op in; each call carries its own op id.
@@ -255,24 +229,43 @@ impl Client {
         }
         let catalog = Arc::new(catalog(dir.path()).await.with_rosters(dir.path().to_path_buf()));
         let facts = Arc::new(Facts { meta: setup.meta, catalog: catalog.clone(), known: setup.known });
-        let cell = Arc::new(Cell { route: Mutex::default(), config: config.clone(), catalog: catalog.clone() });
+        let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(Builds)));
+        let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry, catalog.clone());
         let models = Arc::new(ModelListService {
-            catalog,
+            catalog: catalog.clone(),
             config: config.clone(),
             primary_provider: Arc::new(String::new),
             unsupported: Arc::new(mixdog_ai::service::effort_configuration::UnsupportedEfforts::default()),
             host: None,
         });
         let rig = mixdog_core_session::session::testing::Rig::new();
-        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone()))));
+        // The production thread store over a temp data folder.
+        let data = mixdog_core_session::session::testing::DataDir::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.path().to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let index = data.index(index);
+        let store = mixdog_core_session::session::StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store");
+        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(Arc::new(store)))));
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         let change = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
         let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
-        let follow = Arc::new(SessionRoutes::new(threads.clone(), threads, adapter, cell.clone()));
+        // The route cell starts empty: a thread's route is set by the call.
+        let cell = Arc::new(SessionRouteCells::new(|request: &Obj| Ok(request.clone())));
+        let follow = Arc::new(SessionRoutes::new(threads.clone(), threads, adapter.clone(), cell.clone()));
+        let writer = Arc::new(LiveRouteWriter { cell, session: adapter, config: config.clone(), catalog: catalog.clone(), readiness, usage: Arc::new(NoUsage) });
         let record = setup.session.as_object().cloned().expect("the session record");
         let thread = ThreadId::from(record["id"].as_str().expect("the session id").to_owned());
         directory.create_with_id(thread.clone(), record, json!({})).await.expect("the session record is created");
-        let routes = RouteService { config: config.clone(), facts: facts.clone(), writer: cell, session: follow, models, controls: Arc::new(NoControls) };
+        let routes = RouteService { config: config.clone(), facts: facts.clone(), writer, session: follow, models, controls: Arc::new(NoControls) };
         let agent_routes = AgentRouteSetter {
             routes: mixdog_core_config::config::AgentRoutes::new(config.clone(), agents.path()),
             config: config.clone(),
@@ -281,7 +274,7 @@ impl Client {
             hidden: mixdog_core_config::config::hidden_agents::hidden_agents(),
         };
         let service = RouteSetService { routes: Arc::new(routes), agents: Arc::new(agent_routes), ops: ops.scopes.clone() };
-        Client { service, thread, directory, config_file: path, _dirs: (dir, agents), _rig: rig }
+        Client { service, thread, directory, config_file: path, _dirs: (dir, agents), _rig: rig, _data: data }
     }
 
     /// `route/set` of the client's thread with `route`, op `n`: the live route it answers.
@@ -365,19 +358,19 @@ async fn route_sets(line: f64, restrict_to_default: bool) {
 }
 
 /// Line 27: a cold placeholder row keeps the route's effort and Fast setting.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cold_metadata_preserves_effort_and_fast() {
     route_sets(27.0, false).await;
 }
 
 /// Line 49: a resolved row's metadata decides the effort and Fast capability.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resolved_metadata_is_authoritative() {
     route_sets(49.0, false).await;
 }
 
 /// Line 74: Cursor's parameter variants validate Fast.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cursor_parameter_variants_validate_fast() {
     route_sets(74.0, false).await;
 }
@@ -400,13 +393,13 @@ fn the_context_share_has_a_model_default_and_ten_point_steps() {
 
 /// Line 149: a placeholder row (no windows of its own) takes the catalog's cached windows: the recorded table is the
 /// catalog's roster files, and each selection's reply and stored state are Node's.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_placeholder_row_takes_the_catalogs_windows() {
     route_sets(149.0, false).await;
 }
 
 /// Line 229: a cleared saved percent is the model's default (`route/set` answers no `contextPercent`).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cleared_saved_share_is_the_model_default() {
     route_sets(229.0, true).await;
 }
