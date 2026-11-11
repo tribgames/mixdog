@@ -748,3 +748,86 @@ async fn the_gate_asks_the_builders_switch_and_gets_nodes_answer() {
         }
     }
 }
+
+/// `fixtures/provider-anthropic-thinking-contract` (PURE): with an empty catalog (`setModelEffortCapabilities([])`),
+/// the caps the product builds (`CatalogCaps::caps`) make the Anthropic codec refuse a manual thinking budget on an
+/// adaptive-only model with Node's text (`applyAnthropicEffortToBody`), and build the subscription body Node builds
+/// (`_buildRequestBodyForCacheSmoke`) per model and effort, whole.
+#[tokio::test]
+async fn the_anthropic_thinking_contract_replays_as_nodes() {
+    use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor};
+    use mixdog_core_api::domain::provider::{Content, Message, Role, WireCodec};
+    use mixdog_testkit::Exact;
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/provider-anthropic-thinking-contract/cases.json");
+    let recording = Exact::load(path);
+    let dir = tempfile::tempdir().unwrap();
+    let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new())).lookup();
+    let codec = AnthropicCodec::new(Flavor::OAuth, AnthropicConfig::new(caps));
+    let plain = |e: &Exact| e.to_plain().unwrap();
+    let cases = recording.get("cases").as_array();
+    assert_eq!(cases.len(), 15, "the recorded cases");
+    for case in cases {
+        let id = case.get("id").as_str();
+        let calls = case.get("calls").as_array();
+        let result = case.get("result");
+        let entry = |call: &Exact| call.get("entry").as_str().rsplit('.').next().unwrap().to_owned();
+        if id.starts_with("adaptive-only-rejects-manual-budget:") {
+            assert_eq!(calls.len(), 1, "{id}");
+            assert_eq!(entry(&calls[0]), "applyAnthropicEffortToBody", "{id}");
+            let args = calls[0].get("args").as_array();
+            let (body, params) = (&args[0], &args[1]);
+            let opts = plain(params.get("opts"));
+            let request = ModelRequest {
+                model: params.get("model").as_str().to_owned(),
+                messages: Vec::new(),
+                tools: Vec::new(),
+                options: RequestOptions {
+                    effort: opts["effort"].as_str().map(str::to_owned),
+                    model_max_output_tokens: Some(params.get("maxTokens").as_f64() as u32),
+                    // A JS number's plain form is a float; the product's parameters arrive as config JSON integers.
+                    model_parameters: Some(json!({ "thinkingBudgetTokens": opts["thinkingBudgetTokens"].as_f64().unwrap() as u64 })),
+                    ..RequestOptions::default()
+                },
+            };
+            let refused = codec.encode(&request).expect_err(id);
+            // Node throws a TypeError before writing anything: the body it was given stands unchanged, and the core
+            // refuses the request before it is built (an invalid request, never sent).
+            // Every field of the recorded error: a TypeError (a local refusal: invalid, not sent), its message, and no
+            // code, cause or other property.
+            let Exact::Error { name, message, code, cause, props } = result.get("threw") else {
+                panic!("{id}: Node threw an error")
+            };
+            assert_eq!(name, "TypeError", "{id}");
+            assert!(code.is_none() && cause.is_none() && props.is_empty(), "{id}: no other error field");
+            let mut want = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
+            want.message = message.clone();
+            assert_eq!(refused, want, "{id}: the whole error");
+            assert_eq!(result.get("bodyAfter"), body, "{id}: Node left the body as given");
+        } else {
+            assert_eq!(calls.iter().map(entry).collect::<Vec<_>>(), ["setModelEffortCapabilities", "_buildRequestBodyForCacheSmoke"], "{id}");
+            assert!(calls[0].get("args").as_array()[0].as_array().is_empty(), "{id}: the empty catalog");
+            let args = calls[1].get("args").as_array();
+            let messages = args[0]
+                .as_array()
+                .iter()
+                .map(|m| {
+                    assert_eq!(m.get("role").as_str(), "user", "{id}");
+                    Message::new(Role::User, Content::Text(m.get("content").as_str().to_owned()))
+                })
+                .collect();
+            assert!(args[2].as_array().is_empty(), "{id}: no tools");
+            let opts = plain(&args[3]);
+            assert_eq!(opts.as_object().unwrap().len(), 1, "{id}: effort only");
+            let request = ModelRequest {
+                model: args[1].as_str().to_owned(),
+                messages,
+                tools: Vec::new(),
+                options: RequestOptions { effort: opts["effort"].as_str().map(str::to_owned), ..RequestOptions::default() },
+            };
+            let wire = codec.encode(&request).unwrap_or_else(|e| panic!("{id}: {}", e.message));
+            let body: Value = serde_json::from_slice(&wire.body).unwrap();
+            let got = Exact::plain(&body);
+            assert_eq!(&got, result.get("body"), "{id}: the request body");
+        }
+    }
+}
