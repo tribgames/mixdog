@@ -2331,7 +2331,7 @@
     },
     {
       "id": "chat-known-tool-recovered",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:173",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:182",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -2700,7 +2700,7 @@
     },
     {
       "id": "chat-harmony-recovered",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:202",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:182",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -3070,7 +3070,7 @@
     },
     {
       "id": "chat-tags-split-across-deltas",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:226",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:202",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -3437,7 +3437,7 @@
     },
     {
       "id": "chat-unknown-tool-text-preserved",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:248",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:221",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -3763,7 +3763,7 @@
     },
     {
       "id": "chat-benign-prose-preserved",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:272",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:239",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -4089,7 +4089,7 @@
     },
     {
       "id": "chat-native-tool-calls-with-guard",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:293",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:256",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -4485,7 +4485,7 @@
     },
     {
       "id": "responses-leaked-invoke-recovered",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:322",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:283",
       "input": {
         "route": "responses",
         "knownToolNames": [
@@ -4912,7 +4912,7 @@
     },
     {
       "id": "responses-harmony-split-across-deltas",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:345",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:305",
       "input": {
         "route": "responses",
         "knownToolNames": [
@@ -5337,7 +5337,7 @@
     },
     {
       "id": "responses-benign-prose",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:364",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:323",
       "input": {
         "route": "responses",
         "knownToolNames": [
@@ -5721,7 +5721,7 @@
     },
     {
       "id": "anthropic-fence-invoke-in-code-block",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:389",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:342",
       "input": {
         "route": "anthropic",
         "knownToolNames": [
@@ -6137,7 +6137,7 @@
     },
     {
       "id": "anthropic-fence-opens-and-closes-across-deltas",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:413",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:362",
       "input": {
         "route": "anthropic",
         "knownToolNames": [
@@ -6561,7 +6561,7 @@
     },
     {
       "id": "anthropic-inline-code-span",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:438",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:385",
       "input": {
         "route": "anthropic",
         "knownToolNames": [
@@ -6977,7 +6977,7 @@
     },
     {
       "id": "anthropic-fence-control-outside-fence",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:462",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:404",
       "input": {
         "route": "anthropic",
         "knownToolNames": [
@@ -7403,7 +7403,7 @@
     },
     {
       "id": "chat-harmony-inside-fence",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:485",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:426",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -7729,7 +7729,7 @@
     },
     {
       "id": "anthropic-dedupe-leaked-plus-native",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:515",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:443",
       "input": {
         "route": "anthropic",
         "knownToolNames": [
@@ -8214,7 +8214,7 @@
     },
     {
       "id": "chat-dedupe-leaked-plus-native",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:536",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:476",
       "input": {
         "route": "chat",
         "knownToolNames": [
@@ -8619,7 +8619,7 @@
     },
     {
       "id": "anthropic-bare-antml-prose-streamed",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:559",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:512",
       "input": {
         "route": "anthropic",
         "knownToolNames": [
@@ -9035,7 +9035,7 @@
     },
     {
       "id": "anthropic-bare-antml-control-bracket-form",
-      "source": "scripts/provider-toolcall/leak-guards.test.mjs:579",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:533",
       "input": {
         "route": "anthropic",
         "knownToolNames": [

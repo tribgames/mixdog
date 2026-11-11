@@ -19,7 +19,7 @@
     {
       "bytes": 304119,
       "path": "cases.json",
-      "sha256": "3aebad5b4dd3c0bb5a26ab60c721838c09329c50ff4b3e51fbc68c5e81868a56"
+      "sha256": "c6366b1da97e56870f44411c9498a5622d74052af6fea8417cdc3121c82a6818"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-leak-guards.mjs",
-  "recorderSha256": "f02c150eff05cb28d30b9f4fcadf297ebacf08e1cfdaca714c7b2b56fea1fce4",
+  "recorderSha256": "6c59ffa33aaf1350a5275114552549d98537ca8bb0fe73250531387d325ef764",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::leak::LeakGuard (leak.rs:359) and scan (leak.rs:310), exercised through each route's adapter driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "replayExclusions": {
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
