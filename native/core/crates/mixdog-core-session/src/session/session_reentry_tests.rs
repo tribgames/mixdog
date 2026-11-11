@@ -16,6 +16,7 @@ use super::handle::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::Script;
+use super::testing::awaiting;
 use super::tests::idle;
 use super::tests::rows;
 use super::tests::start_thread;
@@ -75,8 +76,11 @@ async fn a_replayed_submission_id_joins_the_original_as_node_recorded() {
     rig.set_script(replies());
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    let both = tokio::join!(submit(&handle, "op-1", "once", "retry-id"), submit(&handle, "op-2", "once", "retry-id"));
-    let again = submit(&handle, "op-3", "once", "retry-id").await;
+    let both = awaiting(|| "the two sends of one submission id to be answered".to_owned(), async {
+        tokio::join!(submit(&handle, "op-1", "once", "retry-id"), submit(&handle, "op-2", "once", "retry-id"))
+    })
+    .await;
+    let again = awaiting(|| "the third send of the submission id to be answered".to_owned(), submit(&handle, "op-3", "once", "retry-id")).await;
     eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() >= 2).then_some(())).await;
     let texts: Vec<String> = rows(&handle).into_iter().map(|(_, text)| text).collect();
     let once = texts.iter().filter(|text| *text == "once").count();

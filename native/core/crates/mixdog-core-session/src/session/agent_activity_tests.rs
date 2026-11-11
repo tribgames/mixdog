@@ -52,7 +52,7 @@ async fn a_loaded_thread_publishes_its_agent_status_after_one_settle_beat() {
     // The settle beat passes only by this advance.
     tokio::time::advance(super::actor::STATUS_SETTLE).await;
     eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
     assert!(published(&rig, &quiet.id).is_empty(), "empty lists are Node's initial state: no change");
 
     set_status(&rig, agents("review"));
@@ -104,7 +104,7 @@ async fn a_thread_that_is_not_loaded_hears_nothing() {
     eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
     directory.agent_activity("never-loaded");
     directory.agent_activity("");
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::advance(Duration::from_millis(50)).await;
     assert_eq!(*rig.agents.reads.lock().unwrap(), vec![handle.id.clone()], "only the loaded thread's own load pass");
     assert!(published(&rig, &handle.id).is_empty());
 }
@@ -122,14 +122,14 @@ async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
     rig.work.0.store(true, Ordering::SeqCst);
 
     tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
     assert!(directory.handle(&handle.id).is_some(), "background work keeps the thread");
 
     rig.work.0.store(false, Ordering::SeqCst);
     directory.agent_activity(handle.id.as_str());
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
     tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
     assert!(directory.handle(&handle.id).is_some(), "the clock started over at the signal");
     tokio::time::advance(Duration::from_secs(2)).await;
     eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
