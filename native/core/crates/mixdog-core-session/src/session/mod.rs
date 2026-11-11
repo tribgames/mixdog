@@ -117,6 +117,7 @@ pub use routine_turn::SendSettle;
 pub mod report_runtime;
 pub mod room_member;
 pub mod room_approval;
+pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;

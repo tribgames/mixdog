@@ -1954,14 +1954,23 @@ impl DataDir {
     }
 }
 
-impl Drop for DataDir {
-    fn drop(&mut self) {
-        for index in self.indexes.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+impl DataDir {
+    /// Closes the databases opened so far and keeps the folder: a process that ends, whose successor opens the same files.
+    pub fn close_databases(&self) {
+        let indexes = std::mem::take(&mut *self.indexes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for index in indexes {
             index.close();
         }
-        for state in self.states.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+        let states = std::mem::take(&mut *self.states.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for state in states {
             state.close();
         }
+    }
+}
+
+impl Drop for DataDir {
+    fn drop(&mut self) {
+        self.close_databases();
     }
 }
 

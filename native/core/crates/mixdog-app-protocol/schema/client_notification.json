@@ -1,6 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "BrowserStreamAckParams": {
+      "description": "`browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the `browser/frame` of `seq`, so its next (newest) frame of the session may go out.",
+      "properties": {
+        "seq": {
+          "format": "double",
+          "type": "number"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "ClientActivityParams": {
       "description": "`client/activity`: sent on user input, at most once per 60 s (client-side rate).",
       "properties": {
@@ -22,6 +39,21 @@
       },
       "required": [
         "line"
+      ],
+      "type": "object"
+    },
+    "HostBrowserFrameParams": {
+      "description": "`host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType: \"image/jpeg\"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the core sends the frame once it has the picture; a frame without `image` carries facts only.",
+      "properties": {
+        "frame": true,
+        "tabId": {
+          "description": "The session, as in `host/browser/viewFrames`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frame",
+        "tabId"
       ],
       "type": "object"
     },
@@ -582,6 +614,99 @@
           "type": "object"
         },
         {
+          "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "session_account_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "accountRouting"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountSwitching"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountChanged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "at",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole (`StreamEvent::WireRerouted`, Node `wireReroute`).",
+          "properties": {
+            "route": true,
+            "type": {
+              "enum": [
+                "wireRerouted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "route",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {
@@ -902,6 +1027,18 @@
       ],
       "type": "object"
     },
+    "RemoteConnectionTimelineParams": {
+      "description": "Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase, state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an attached relay connection is heard. No response.",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -994,10 +1131,14 @@
           ]
         },
         "sessionIds": {
+          "description": "Absent only from a paired phone stating one of the other fields alone (Node's `setForeground` or `setVisualizePanels`): its last set stays. A UI's notification without it changes nothing.",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "visualizeSessionIds": {
           "items": {
@@ -1009,9 +1150,6 @@
           ]
         }
       },
-      "required": [
-        "sessionIds"
-      ],
       "type": "object"
     },
     "UiTerminalRunClaimedParams": {
@@ -1210,6 +1348,44 @@
       "type": "object"
     },
     {
+      "description": "A viewed browser page's frame facts; a picture announced in them follows as the next X17 frame of the stream.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserFrameParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/streamAck"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserStreamAckParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "properties": {
         "method": {
           "enum": [
@@ -1333,6 +1509,25 @@
         },
         "params": {
           "$ref": "#/definitions/UiScreenSessionsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A paired phone's account of a slow reconnect, for the core's log.",
+      "properties": {
+        "method": {
+          "enum": [
+            "remote/connectionTimeline"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemoteConnectionTimelineParams"
         }
       },
       "required": [

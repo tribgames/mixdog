@@ -1722,6 +1722,20 @@ pub fn staged_payload() -> std::io::Result<(PathBuf, File)> {
     }
 }
 
+/// An opened attachment as `stageSessionAttachment` (session-attachments.ts) writes it: `<temp>/mixdog-attachments/<first 16 of the
+/// id>-<view name>`, written over (0600 on Unix), so it previews through the ordinary file calls.
+pub fn stage_attachment(id: &str, name: &str, bytes: &[u8]) -> WsResult<PathBuf> {
+    let directory = std::env::temp_dir().join("mixdog-attachments");
+    std::fs::create_dir_all(&directory)?;
+    let file = directory.join(format!("{}-{name}", id.get(..16).unwrap_or(id)));
+    let mut options = File::options();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(&file)?.write_all(bytes)?;
+    Ok(file)
+}
+
 /// The private folder of one staged download (`mkdtemp`, 0700 on Unix).
 fn staged_folder() -> std::io::Result<PathBuf> {
     let folder = std::env::temp_dir().join(format!("mixdog-download-{}", new_id().replace('-', "")));

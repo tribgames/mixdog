@@ -1,0 +1,199 @@
+{
+  "id": "openrouter-model-switch",
+  "provider": "openrouter",
+  "config": {
+    "enabled": true,
+    "preconnect": false,
+    "apiKey": "or-fixture"
+  },
+  "sends": [
+    {
+      "model": "anthropic/claude-sonnet-4.5",
+      "tools": [],
+      "history": [],
+      "sessionId": "sess-1",
+      "pin": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "wire": "messages",
+        "profileId": "openrouter:messages",
+        "source": "family"
+      },
+      "pinAfter": {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "wire": "messages",
+        "profileId": "openrouter:messages",
+        "source": "family"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/messages",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "Anthropic/JS 0.137.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-timeout": "600",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "0.137.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "anthropic-version": "2023-06-01",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "308"
+          },
+          "body": "{\"model\":\"anthropic/claude-sonnet-4.5\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "answer": {
+            "status": 200,
+            "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_x\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"fixture\",\"content\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The result is 42.\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":8}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": "end_turn",
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    },
+    {
+      "model": "openai/gpt-5",
+      "tools": [],
+      "history": [],
+      "sessionId": "sess-1",
+      "pin": {
+        "provider": "openrouter",
+        "model": "openai/gpt-5",
+        "wire": "responses",
+        "profileId": "openrouter:responses",
+        "source": "family"
+      },
+      "pinAfter": {
+        "provider": "openrouter",
+        "model": "openai/gpt-5",
+        "wire": "responses",
+        "profileId": "openrouter:responses",
+        "source": "family"
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/responses",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "273"
+          },
+          "body": "{\"model\":\"openai/gpt-5\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are a fixture assistant.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Look up the answer.\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "answer": {
+            "status": 200,
+            "body": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The result \"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"is 42.\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The result is 42.\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8,\"total_tokens\":28},\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The result is 42.\"}]}]}}\n\n"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        },
+        {
+          "on": "stageChange",
+          "stage": "streaming",
+          "payload": null
+        },
+        {
+          "on": "textDelta",
+          "text": "The result "
+        },
+        {
+          "on": "textDelta",
+          "text": "is 42."
+        }
+      ],
+      "result": {
+        "content": "The result is 42.",
+        "reasoning": null,
+        "toolCalls": [],
+        "reasoningContent": null,
+        "stopReason": null,
+        "usage": {
+          "inputTokens": 20,
+          "outputTokens": 8
+        },
+        "providerMetadata": null,
+        "wireReroute": null
+      }
+    }
+  ]
+}
