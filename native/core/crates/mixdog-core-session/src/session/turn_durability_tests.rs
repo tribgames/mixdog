@@ -320,3 +320,89 @@ async fn a_failed_save_keeps_the_turn_and_holds_the_next_until_it_lands() {
     let texts: Vec<String> = stored(&rig, &handle.id).into_iter().filter(|text| !text.is_empty()).collect();
     assert_eq!(texts, ["first task", "re: first task", "second task", "re: second task"]);
 }
+
+/// The run id of `id`'s first started run.
+fn started_rid(rig: &Rig, id: &mixdog_core_api::ids::ThreadId) -> String {
+    use mixdog_store::schema::record::RunPhase;
+    rig.store
+        .records(id)
+        .into_iter()
+        .find_map(|(_, record)| match record {
+            Record::Run(run) if run.phase == RunPhase::Started => Some(run.rid.as_str().to_owned()),
+            _ => None,
+        })
+        .expect("the run started")
+}
+
+/// A second process opening the thread, with its recovery done.
+async fn reopen(rig: &Rig, id: &mixdog_core_api::ids::ThreadId) -> (SessionDirectory, Arc<super::SessionHandle>) {
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = directory.open_handle(id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
+    crate::eventually_on!(&[&handle.cell.stepped], || handle.recovered().then_some(())).await;
+    (directory, handle)
+}
+
+/// Killed once the draft is written and before the run ends: the next open recovers the run from its draft (Node's
+/// `replayCheckpoint`) and its draft file goes once the recovered end is saved.
+#[tokio::test(start_paused = true)]
+async fn killed_after_the_draft_is_written_the_open_recovers_it_and_removes_the_file() {
+    let rig = Rig::new();
+    let drafted = Arc::new(tokio::sync::Notify::new());
+    let signal = drafted.clone();
+    rig.set_script(Arc::new(move |run| {
+        let signal = signal.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.port.draft(json!({ "text": "streamed before" })).await.expect("drafted");
+            signal.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    turn(&handle, "first task", "op-1").await;
+    crate::session::testing::awaiting(|| "the draft".to_owned(), drafted.notified()).await;
+    assert_eq!(rig.store.draft_files(&handle.id).len(), 1, "the draft is in its file");
+
+    let (_second, reopened) = reopen(&rig, &handle.id).await;
+    assert_eq!(rig.runs.crashed_drafts.lock().unwrap().iter().map(|draft| draft.text.clone()).collect::<Vec<_>>(), ["streamed before"]);
+    crate::eventually_on!(&[&reopened.cell.stepped, &rig.store.committed], || rig.store.draft_files(&handle.id).is_empty().then_some(())).await;
+}
+
+/// Killed once the run's end record is durable and before its draft file is removed: the next open shows the finished turn
+/// as it was saved, recovers nothing, and removes the left file.
+#[tokio::test(start_paused = true)]
+async fn killed_after_the_end_is_durable_the_open_shows_the_turn_once_and_removes_the_file() {
+    let rig = Rig::new();
+    rig.set_script(failing_from_the_answer(rig.store.failing.clone(), Arc::default()));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    turn(&handle, "first task", "op-1").await;
+    crate::eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || (idle(&handle) && !handle.turn_busy() && rig.store.draft_files(&handle.id).is_empty()).then_some(())).await;
+    let shown = rows(&handle);
+    // The removal did not land before the kill.
+    let rid = started_rid(&rig, &handle.id);
+    super::testing::lock(&rig.store.drafts).insert((handle.id.as_str().to_owned(), rid), vec![json!({ "text": "re: first" })]);
+
+    let (_second, reopened) = reopen(&rig, &handle.id).await;
+    assert!(rig.runs.crashed.lock().unwrap().is_empty(), "nothing is recovered");
+    assert_eq!(rows(&reopened), shown, "the turn is shown once, as saved");
+    crate::eventually_on!(&[&reopened.cell.stepped, &rig.store.committed], || rig.store.draft_files(&handle.id).is_empty().then_some(())).await;
+}
+
+/// Killed after the draft file is removed: the next open shows the saved turn and finds nothing to recover or remove.
+#[tokio::test(start_paused = true)]
+async fn killed_after_the_file_is_removed_the_open_shows_the_saved_turn() {
+    let rig = Rig::new();
+    rig.set_script(failing_from_the_answer(rig.store.failing.clone(), Arc::default()));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    turn(&handle, "first task", "op-1").await;
+    crate::eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || (idle(&handle) && !handle.turn_busy() && rig.store.draft_files(&handle.id).is_empty()).then_some(())).await;
+    let shown = rows(&handle);
+
+    let (_second, reopened) = reopen(&rig, &handle.id).await;
+    assert!(rig.runs.crashed.lock().unwrap().is_empty(), "nothing is recovered");
+    assert_eq!(rows(&reopened), shown);
+    assert!(rig.store.draft_files(&handle.id).is_empty());
+}
