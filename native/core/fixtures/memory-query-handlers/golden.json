@@ -31,7 +31,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -71,7 +71,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -111,7 +111,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -151,7 +151,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -191,7 +191,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -231,7 +231,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -271,7 +271,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -311,7 +311,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -351,7 +351,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -391,7 +391,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -431,7 +431,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -471,7 +471,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -511,7 +511,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -551,7 +551,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -591,7 +591,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -1021,7 +1021,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -1061,7 +1061,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -1126,7 +1126,7 @@
                 "ts_to": 1748736000000,
                 "projectScope": "all",
                 "category": {
-                  "$undefined": true
+                  "$exact": "undefined"
                 },
                 "excludeStatuses": [],
                 "latestByConcept": false
@@ -1208,7 +1208,7 @@
               "ts_to": 1706745599999,
               "projectScope": "all",
               "category": {
-                "$undefined": true
+                "$exact": "undefined"
               },
               "excludeStatuses": [],
               "latestByConcept": false
@@ -1224,7 +1224,7 @@
               "ts_to": 1706745599999,
               "projectScope": "all",
               "category": {
-                "$undefined": true
+                "$exact": "undefined"
               },
               "excludeStatuses": [],
               "latestByConcept": false,
@@ -1320,7 +1320,7 @@
               "ts_to": 1706745599999,
               "projectScope": "all",
               "category": {
-                "$undefined": true
+                "$exact": "undefined"
               },
               "excludeStatuses": [],
               "latestByConcept": false
@@ -1336,7 +1336,7 @@
               "ts_to": 1706745599999,
               "projectScope": "all",
               "category": {
-                "$undefined": true
+                "$exact": "undefined"
               },
               "excludeStatuses": [],
               "latestByConcept": false,

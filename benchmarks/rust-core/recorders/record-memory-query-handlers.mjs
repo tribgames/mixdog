@@ -101,7 +101,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'createQueryHandlers(...).handleSearch (query-handlers.mjs) with its real planning, paging, enrichment, duplicate collapse and rendering (query-search-plan, query-ranking, history-duplicates, recall-format)', notRun: 'PostgreSQL and the hybrid retrieval: searchRelevantHybrid is replaced by db.search at the module boundary (as the test file does), and db.query answers only the browse statement from the scripted rows' },
-    replay: 'mixdog-services memory: mem/recall search (plan.rs caps 100/500 and page_bounds, retrieve_candidates limit, expand_and_bound, page_rows) over a candidate seam that returns the scripted rows; compares the rendered text (whole, error flag included), the search options handed to the seam (limit, offset, rootOnly, period bounds) and the browse statements in order',
+    replay: "The `memory/recall` request (memory/service.rs:273) -> Recall::recall (memory/recall/mod.rs:240; page cursor next_cursor :85, enrichment :600). A replay sends each recorded request over the same rows and compares the returned page (rows, cursor, boundaries) exactly",
     exclusions: 'none: the whole text of every call is stored (several MB for the 100-row pages)',
     normalised: { 'row timestamps': 'Date.now() fixed at clock.dateNowMs; text rendered in UTC' },
   },
