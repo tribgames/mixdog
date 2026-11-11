@@ -64,17 +64,17 @@ impl Clock for FixedClock {
 
 /// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
 /// run on its own runtime's clock, paused or not, and nothing outlives the test.
-fn backend() {
+pub(crate) fn backend() {
     mixdog_rt::testing::tokens();
 }
 
-async fn settle() {
+pub(crate) async fn settle() {
     for _ in 0..8 {
         tokio::time::sleep(std::time::Duration::from_millis(15)).await;
     }
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -110,14 +110,14 @@ fn turn_result(v: &Value) -> TurnResult {
 
 // ---- the world's fakes --------------------------------------------------------------------
 
-struct Shared {
+pub(crate) struct Shared {
     log: Log,
-    notices: Log,
+    pub(crate) notices: Log,
     steps: Vec<Value>,
     session: Mutex<Value>,
     config: Obj,
     tags: Mutex<HashMap<String, String>>,
-    board: JobBoard,
+    pub(crate) board: JobBoard,
     /// Sessions whose review the store holds for their owner (a completion with no patch of its own
     /// still joins one it holds).
     parked: Mutex<std::collections::HashSet<String>>,
@@ -185,6 +185,9 @@ impl Sess {
                 if let Some(hook) = &request.hooks.on_terminal_result {
                     hook(&turn_result(terminal));
                 }
+            } else if let Some(notice) = step.get("notify") {
+                // A completion of the worker's own tool, as its tools hand it to the turn.
+                (request.hooks.notify)(notice["text"].as_str().unwrap_or_default(), &notice["meta"]);
             } else if let Some(result) = step.get("return") {
                 return Ok(turn_result(result));
             } else if let Some(error) = step.get("throw") {
@@ -584,10 +587,12 @@ impl mixdog_agent::agent_tool::error_text::ErrorText for Presented {
     }
 }
 
-struct Rig {
-    shared: Arc<Shared>,
-    spawn: Arc<SpawnFlowImpl>,
+pub(crate) struct Rig {
+    pub(crate) shared: Arc<Shared>,
+    pub(crate) spawn: Arc<SpawnFlowImpl>,
     send: Arc<SendFlowImpl>,
+    /// The agent tool over the flows, as the compose root assembles it.
+    pub(crate) runtime: Arc<mixdog_agent::agent_tool::AgentRuntime>,
 }
 
 fn stopped_shells(host: Option<&Value>) -> Option<StoppedShellJobs> {
@@ -597,7 +602,7 @@ fn stopped_shells(host: Option<&Value>) -> Option<StoppedShellJobs> {
     host.and_then(|h| h.get("stoppedShellJobs")).map(|_| StoppedShellJobs { stopped: names("stopped"), stopping: names("stopping") })
 }
 
-fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
+pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
     let clock: Arc<dyn Clock> = Arc::new(FixedClock);
     // The board delivers through the shared state, which holds the board: build the state first
     // with a placeholder board, then the board over the state.
@@ -678,7 +683,8 @@ fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
         default_cwd: "/default".into(),
         mcp_scope_id: None,
     });
-    let (spawn, send) = (assembled.spawn, assembled.send);    Rig { shared, spawn, send }
+    let (spawn, send, runtime) = (assembled.spawn, assembled.send, assembled.runtime);
+    Rig { shared, spawn, send, runtime }
 }
 
 /// No terminal trace, no caller scope: the flows under test never reach them.

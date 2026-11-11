@@ -128,6 +128,14 @@ const excluded = {
     'COVERED (gaps-tools.md row 10): mixdog-cli exec/tests.rs replays the exec parser',
   'channel worker daemon spawn env advertises host identity':
     "Node's standalone channel worker spawning its own daemon: the core is the daemon, and no worker spawns it",
+  'agent completion notifications route to the owner exactly once: workerQueued':
+    "the test hands the worker's notify a legacy `background task` record, which Node's queue converts to a " +
+    '<task-notification> envelope; the core\'s tools hand it envelopes only and its queue takes nothing else ' +
+    '(`agent_registry/flow.rs` model_visible), so the same input queues nothing. Replayed: the nested completion never reaches the owner',
+  'agent completion notifications route to the owner exactly once: ownerNotifications[1].meta':
+    "the final completion reaches the owner through the job board's TaskNotifier (owner, surface, task, status, text); the " +
+    'session directory makes its meta {execution_surface, execution_id, status}, Node adds type, instruction, caller_session_id and ' +
+    'client_host_pid. Replayed: its session and whole text',
 };
 
 const finalDir = join(FIXTURES_ROOT, 'agent-worker-cases');

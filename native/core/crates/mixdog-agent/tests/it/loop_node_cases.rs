@@ -162,7 +162,7 @@ impl ProviderAdapter for CaseProvider {
             None => StopReason::ToolUse,
         };
         steps.push(done(stop));
-        Ok(Box::new(ScriptedStream(steps.into())))
+        Ok(Box::new(ScriptedStream(steps.into(), None)))
     }
     async fn settle_send(&self, _group: &str, _end: mixdog_core_api::domain::provider::SendEnd) {}
 }
