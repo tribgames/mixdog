@@ -251,7 +251,7 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
     };
     let effort_judge = EffortJudgeModel::with_options(
         ModelConfig::in_data_dir(data_dir, ort_library),
-        tokens.cpu_bulk,
+        mixdog_services::effort_judge::JudgeLanes::of(tokens),
         JudgeOptions { tick: tick.clone(), manifest: None, progress: None },
     )
     .map_err(ComposeError::EffortJudge)?;

@@ -2398,7 +2398,7 @@ mod tests {
         let data = workspace.path().join("data");
         let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
             mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll"))),
-            tokens.cpu_bulk,
+            mixdog_services::effort_judge::JudgeLanes::of(&tokens),
             mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
         )
         .unwrap();

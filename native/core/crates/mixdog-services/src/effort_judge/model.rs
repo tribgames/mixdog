@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use mixdog_agent::step_effort::StepInput;
-use mixdog_rt::CpuBulk;
+use mixdog_rt::{JudgeThread, LaneToken, ThreadToken};
+use ort::environment::ThreadManager;
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Tensor;
@@ -23,7 +24,9 @@ use crate::memory::embed::engine::ort_environment;
 use crate::memory::embed::install::holds_data;
 
 const DEFAULT_MAX_TOKENS: usize = 256;
-/// One judgment runs at a time; four threads halve the long-input tail.
+/// One judgment runs at a time; four threads halve the long-input tail (Node's `intraOpNumThreads: 4`).
+/// The judge's thread runs one of the four itself; ONNX Runtime starts the other three through
+/// [`OrtThreads`].
 const INTRA_THREADS: usize = 4;
 const MODEL_FILES: [&str; 2] = ["model.onnx", "tokenizer.json"];
 
@@ -76,7 +79,7 @@ pub fn available(config: &ModelConfig) -> bool {
 }
 
 /// [`available`] as a job on `lane`.
-pub async fn available_on(lane: CpuBulk, config: &ModelConfig) -> Result<bool, InstallError> {
+pub async fn available_on<L: LaneToken>(lane: L, config: &ModelConfig) -> Result<bool, InstallError> {
     let config = config.clone();
     on_lane(lane, move || available(&config)).await.map_err(InstallError::io)
 }
@@ -100,7 +103,7 @@ fn calibration(dir: &Path) -> Calibration {
 
 /// `effortJudgeSupportsSteps`: whether `calibration.json` in `dir` says `steps: 1`.
 /// A missing or unreadable file is `false`.
-pub async fn steps_in(lane: CpuBulk, dir: &Path) -> Result<bool, InstallError> {
+pub async fn steps_in<L: LaneToken>(lane: L, dir: &Path) -> Result<bool, InstallError> {
     let dir = dir.to_owned();
     on_lane(lane, move || calibration(&dir).steps).await.map_err(InstallError::io)
 }
@@ -118,11 +121,30 @@ fn run_error(error: impl std::fmt::Display) -> JudgeError {
     JudgeError::Run(error.to_string())
 }
 
+/// Starts the session's intra-op threads through the judge's thread token, so they run at the
+/// judge's priority (normal) on every platform rather than whatever the creating thread had.
+struct OrtThreads(JudgeThread);
+
+impl ThreadManager for OrtThreads {
+    type Thread = std::thread::JoinHandle<()>;
+
+    fn create(&self, work: impl FnOnce() + Send + 'static) -> ort::Result<Self::Thread> {
+        self.0
+            .spawn_thread("mixdog-effort-judge-ort", move |_| work())
+            .map_err(|error| ort::Error::new(format!("effort judge onnxruntime thread: {error}")))
+    }
+
+    fn join(thread: Self::Thread) -> ort::Result<()> {
+        thread.join().map_err(|_| ort::Error::new("an effort judge onnxruntime thread panicked"))
+    }
+}
+
 impl JudgeModel {
     /// Loads the tokenizer and session, then runs one warm-up judgment: the
     /// first run allocates buffers and is several times slower than the rest.
-    #[allow(clippy::disallowed_methods, reason = "a lane-job body: `ensure_loaded` runs it on the lane")]
-    pub fn load(config: &ModelConfig) -> Result<Self, JudgeError> {
+    /// `threads` starts the session's intra-op threads.
+    #[allow(clippy::disallowed_methods, reason = "runs on the judge's own thread: `ensure_loaded` sends it there")]
+    pub fn load(config: &ModelConfig, threads: JudgeThread) -> Result<Self, JudgeError> {
         let OrtRuntime::Library(library) = &config.ort_library else { return Err(JudgeError::Unsupported) };
         if !available(config) {
             return Err(JudgeError::NotInstalled(config.dir.display().to_string()));
@@ -132,7 +154,8 @@ impl JudgeModel {
         let session = (|| -> ort::Result<Session> {
             let mut builder = Session::builder(environment)?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_intra_threads(INTRA_THREADS)?;
+                .with_intra_threads(INTRA_THREADS)?
+                .with_thread_manager(OrtThreads(threads))?;
             builder.commit_from_file(config.dir.join("model.onnx"))
         })()
         .map_err(|e| JudgeError::Load(format!("onnxruntime session: {e}")))?;
