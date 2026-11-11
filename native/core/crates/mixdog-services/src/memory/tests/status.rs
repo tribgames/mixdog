@@ -66,7 +66,7 @@ async fn the_status_and_the_cycle_state_file_are_nodes() {
     }
     // Writes go one at a time: this one waits for the hydration's to end, and writes the same state.
     scheduler.ledger().write().await;
-    let state: Value = serde_json::from_slice(&std::fs::read(&state_file).expect("state file")).expect("json");
+    let state = String::from_utf8(std::fs::read(&state_file).expect("state file")).expect("utf-8");
 
     let lane = mixdog_rt::testing::tokens().durability_io;
     let recall = Recall::new(RecallDeps {
@@ -80,11 +80,11 @@ async fn the_status_and_the_cycle_state_file_are_nodes() {
     });
     let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(move || now_ms), lane);
     let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
+    // The whole result as the tool route sends it, and the state file's bytes.
     let reply = memory.memory_reply(&golden["args"]).await;
-    let recorded = &golden["status"]["result"];
     assert_eq!(
-        json!({ "text": reply.text, "isError": reply.is_error, "stateFile": state }),
-        json!({ "text": recorded["text"], "isError": recorded["isError"], "stateFile": golden["stateFile"] })
+        json!({ "result": reply.envelope(), "stateFile": state }),
+        json!({ "result": golden["statusJson"], "stateFile": golden["stateFileText"] })
     );
     assert_eq!(memory.memory(golden["args"].clone()).await, reply.text, "the module's route answers the same readout");
     scheduler.shutdown().await;

@@ -3,7 +3,8 @@
 // whose store is seeded (`seedSql`, run on `openDatabase` of src/runtime/memory/lib/memory.mjs, then closed), then `init()` of
 // src/runtime/memory/index.mjs (which starts the cycles: the ledger writes `memory-cycle-state.json` and hydrates the last
 // cycle1 success from the store), then `handleToolCall('memory', { action: 'status' })` (maintenance-actions.mjs:25).
-// Recorded: the tool result and the state file once the hydration wrote it (awaited on the file, with a deadline).
+// Recorded: the tool result (as a value and as the JSON text the daemon sends) and the state file's text once the
+// hydration wrote it (awaited on the file, with a deadline).
 // `Date.now()` stands still at `clockMs`; nothing waits on time.
 //
 //   node benchmarks/rust-core/recorders/record-memory-status.mjs --tree <dir>
@@ -57,13 +58,16 @@ const memory = await importFrom(ctx.tree, 'src/runtime/memory/index.mjs');
 await memory.init();
 if (!hydrated()) await within('the ledger hydration', hydration);
 const stateFileText = readFileSync(stateFile, 'utf8');
-const status = await capture(() => memory.handleToolCall('memory', { action: 'status' }));
+let raw;
+const status = await capture(async () => (raw = await memory.handleToolCall('memory', { action: 'status' })));
+// The result as the daemon's /api/tool route sends it (JSON text, the keys in the order the handler built them).
+const statusJson = JSON.stringify(raw);
 
 finish(ctx, {
   url: import.meta.url,
   set: 'memory-status',
   flags: '',
-  golden: { clockMs: CLOCK_MS, seedSql, args: { action: 'status' }, status, stateFile: JSON.parse(stateFileText) },
+  golden: { clockMs: CLOCK_MS, seedSql, args: { action: 'status' }, status, statusJson, stateFileText },
   extra: {
     entry: 'src/runtime/memory/index.mjs init() (its cycle start writes memory-cycle-state.json), handleToolCall("memory", { action: "status" })',
     replay: 'native/core/crates/mixdog-services/src/memory/tests/status.rs',
