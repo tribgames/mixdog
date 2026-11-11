@@ -163,6 +163,9 @@ pub enum Surface {
 
 /// `TypeError: fetch failed`, the message of every network error of a raw `fetch`.
 pub const FETCH_FAILED: &str = "fetch failed";
+/// `TypeError: terminated`, undici's error for a `fetch` body whose socket failed mid-body (the socket error is its
+/// `cause`).
+pub const TERMINATED: &str = "terminated";
 /// `APIConnectionError: Connection error.`, the SDK's wrapper of a failed connection.
 pub const CONNECTION_ERROR: &str = "Connection error.";
 /// `APIConnectionTimeoutError: Request timed out.`, the SDK's timer.

@@ -56,6 +56,7 @@ pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
 pub use lanes::SubmitWaitError;
 pub use lanes::ThreadKind;
+pub use liveness::Deadline;
 pub use liveness::Expired;
 pub use liveness::Liveness;
 pub use tokens::ComputerThread;
