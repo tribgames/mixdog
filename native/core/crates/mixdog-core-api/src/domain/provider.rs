@@ -189,6 +189,9 @@ pub struct Message {
     /// Assistant only: the roster account that served this turn, as its stored `providerMetadata.accountRouting`
     /// names it. An account pool passes this message's replay state to that account alone.
     pub account_routing: Option<AccountRouting>,
+    /// Assistant only: the stored `providerMetadata.gemini` (`{thoughtParts, textParts}`), which a Gemini-wire request
+    /// replays for a turn that has no replay envelope of its own (`geminiThoughtPartsFromMetadata`).
+    pub gemini_metadata: Option<JsonValue>,
     provider_replay: Vec<ProviderReplay>,
 }
 
@@ -208,6 +211,7 @@ impl Message {
             source: None,
             turn_reminder: None,
             account_routing: None,
+            gemini_metadata: None,
             provider_replay: Vec::new(),
         }
     }

@@ -23,6 +23,11 @@
 //!   (`mixdog_ai::transport::redirect`), to hand to the product's builder in place of the production ones.
 //! - [`Endpoint::arrivals`]: each request as it arrived, in the recorded shape (method, origin, path, every header in
 //!   arrival order and case, body bytes; `clientClosedConnection` when a held response saw the client close).
+//!   A `HEAD` is the core's socket warm-up (`preconnect`, http-agent.mjs:496-527), a raw `undici.request` the
+//!   recorders' `fetch` redirect never saw: answered `200` empty, never scripted, and kept apart in
+//!   [`Endpoint::warmups`].
+//! - [`T0_MS`]` + `[`Endpoint::now_ms`]: the recorders' `Date.now()`, for `mixdog_ai::wall::set` where the product
+//!   stamps wall time into its result.
 //! - [`CaseSet::assert_requests`]`(case, arrivals, either_order)`: whole and in order, after the manifest's declared rules
 //!   only: `host` as the addressed origin's host (or `127.0.0.1:<port>`), the `x-stainless-*` recording-host placeholders,
 //!   a `Content-Encoding: gzip` body as its gzip header and inflated bytes, and one declared either-order pair of
@@ -61,6 +66,9 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 /// How long one wait may last before it is the test's failure, on the machine's clock.
 pub const DEADLINE: Duration = Duration::from_secs(60);
+
+/// The recorders' `Date.now()` at running-clock 0 (`T0`, provider-case-recorder.mjs: `2026-11-09T12:00:00Z`).
+pub const T0_MS: u64 = 1_794_225_600_000;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The recording
@@ -483,6 +491,7 @@ enum WsCommand {
 struct State {
     replies: Vec<Exact>,
     arrivals: Vec<Exact>,
+    warmups: Vec<Exact>,
     trace: Vec<Exact>,
     /// The connection of each trace entry (`None`: a case-side entry), for the script to address its actions.
     trace_conns: Vec<Option<usize>>,
@@ -664,6 +673,11 @@ impl Endpoint {
     /// Each request as it arrived, in the recorded shape.
     pub fn arrivals(&self) -> Vec<Exact> {
         self.inner.state.lock().unwrap().arrivals.clone()
+    }
+
+    /// Each `HEAD` warm-up as it arrived (`{method, origin, path}`), apart from the requests.
+    pub fn warmups(&self) -> Vec<Exact> {
+        self.inner.state.lock().unwrap().warmups.clone()
     }
 
     /// The replay's ws-world trace.
@@ -893,6 +907,13 @@ async fn connection(inner: Arc<Inner>, mut socket: TcpStream) {
         }
         let Some(body) = read_body(&mut socket, &mut buf, &head).await else { return };
         let origin = head.get(ORIGIN_HEADER).map_or_else(|| format!("http://127.0.0.1:{port}"), str::to_owned);
+        if head.method == "HEAD" {
+            let warmup = obj(vec![("method", text(head.method.clone())), ("origin", text(origin)), ("path", text(head.target.clone()))]);
+            inner.state.lock().unwrap().warmups.push(warmup);
+            inner.bump();
+            let _ = socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nConnection: close\r\n\r\n").await;
+            return;
+        }
         let headers = head
             .headers
             .iter()

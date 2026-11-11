@@ -200,6 +200,7 @@ impl AgentMessage {
         message.source = self.source.and_then(Source::wire);
         message.turn_reminder = self.turn_reminder.clone().filter(|text| !text.is_empty());
         message.account_routing = self.account_routing();
+        message.gemini_metadata = self.provider_metadata.as_ref().and_then(|m| m.get("gemini")).cloned();
         message
     }
 

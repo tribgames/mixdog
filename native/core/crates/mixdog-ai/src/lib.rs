@@ -24,10 +24,12 @@ pub mod effort;
 pub mod netproxy;
 pub mod oauth;
 pub mod providers;
+pub mod random;
 pub mod registry;
 pub mod retry;
 pub mod service;
 pub mod transport;
+pub mod wall;
 pub mod warmer;
 #[cfg(feature = "count-work")]
 pub mod work;
@@ -45,6 +47,8 @@ pub fn reset_process_state() {
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
     providers::grok::reset_process_state();
+    random::script(Vec::new());
+    wall::set(None);
     providers::openai::adapter::reset_zstd_latch();
     providers::google::adapter::reset_announced();
     providers::google::cache::registry::Registry::reset_shared();

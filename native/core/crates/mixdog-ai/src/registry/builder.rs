@@ -1072,6 +1072,7 @@ impl DefaultProviderBuilder {
             self.env.antigravity_client_version.clone(),
             self.env.http.clone(),
             self.env.google_traits.clone(),
+            self.env.env.clone(),
             Box::new(now_ms_u64),
         )
         .await
