@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 // openai-oauth-transport.test.mjs (13 test bodies, 24 rows with the loops): the real OpenAI OAuth WebSocket send path
-// (`sendViaWebSocket`, the real `_streamResponse` over a scripted socket that emits the recorded frames and closes 1006) and the real
+// (`sendViaWebSocket` over a real WebSocket) and the real
 // `OpenAIOAuthProvider.send` transport fallback (WS budget -> sticky HTTP, HTTP failure after fallback, handshake 404, application 404).
-// The connection layer is scripted through the product's own injection points (`_acquireWithRetryFn`, `_sendFrameFn`, `_streamFn`,
-// `_sleepFn`, `_sendViaWebSocketFn`, `_sendViaHttpSseFn`): the sockets, the HTTP transport and the sleeps are the scripted external side;
-// every sleep the product asks for is recorded (delays), none waits. Credentials: `ensureAuth` returns a fixture token.
+// Over real transports: the WebSocket is a real loopback server (lib/ws-world.mjs: the provider's own ws client connects, only `tls.connect` is redirected) and the HTTP
+// fallback is the recorder's loopback HTTP endpoint (the product's own fetch). Each case is ONE ordered list: dial, upgrade request (every header), frames each way,
+// closes, HTTP requests and their answers, the retry sleeps the product asks for (its `_sleepFn` seam wrapper records the ms and returns at once: no real waiting).
+// Not over a socket: the two `cancelled` cases of :163 (an AbortError needs the caller to abort while the server holds the answer; the endpoint answers
+// synchronously) stay on the product's seams (`_sendViaWebSocketFn` / `_sendViaHttpSseFn`). `ensureAuth` returns a fixture token and `_refreshModelCache` is stubbed (a catalog fetch).
 //   node benchmarks/rust-core/recorders/record-openai-oauth-transport.mjs --tree <exact export of b6f10295a>
-import { EventEmitter } from 'node:events';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openai-oauth-transport',
-  net: false,
   maskRow: (row) => {
     for (const call of row.calls ?? []) for (const arg of call.args) {
       const state = arg?.state;
@@ -27,8 +27,8 @@ const rec = await startRecording({
 });
 const P = 'agent/orchestrator/providers/';
 const { sendViaWebSocket } = await rec.P(`${P}openai-oauth-ws.mjs`);
+const { sendViaHttpSse } = await rec.P(`${P}openai-oauth-http-sse.mjs`);
 const { OpenAIOAuthProvider } = await rec.P(`${P}openai-oauth.mjs`);
-const { _streamResponse } = await rec.P(`${P}openai-ws-stream.mjs`);
 const { classifyError } = await rec.P(`${P}retry-classifier.mjs`);
 const SRC = 'scripts/provider-toolcall/openai-oauth-transport.test.mjs';
 
@@ -48,24 +48,7 @@ const oauthProvider = () => {
   return provider;
 };
 const prebuiltBody = Object.freeze({ model: 'gpt-5.6-sol', instructions: 'fixture', input: [], tools: [], stream: true });
-const streamEntry = () => {
-  const socket = new EventEmitter();
-  socket.readyState = 1;
-  socket.close = () => { socket.readyState = 3; };
-  socket.terminate = socket.close;
-  const entry = { socket, ephemeral: true };
-  rec.describe(socket, { $scriptedSocket: 'an event emitter standing in for the connection: it receives the case\'s frames as `message` events and a `close` (1006) as the case script says; close()/terminate() set readyState 3' });
-  return entry;
-};
-const closeAfterReasoning = (args, type) => {
-  const pending = _streamResponse({ ...args, logSuppressedReasoningDeltas: false });
-  const socket = args.entry.socket;
-  for (const event of [{ type: 'response.created', response: { id: 'reasoning-response', model: prebuiltBody.model } }, { type, delta: 'hidden reasoning' }]) socket.emit('message', Buffer.from(JSON.stringify(event)));
-  socket.close();
-  socket.emit('close', 1006, Buffer.alloc(0));
-  return pending;
-};
-// 	ransportTiming.*Ms are performance.now() durations (the real clock, not the virtual one): written as a marker, keys kept.
+// transportTiming.*Ms are performance.now() durations (the real clock, not the virtual one): written as a marker, keys kept.
 const maskTiming = (r) => (r && typeof r === 'object' && r.transportTiming ? { ...r, transportTiming: Object.fromEntries(Object.entries(r.transportTiming).map(([k, v]) => [k, /Ms$/.test(k) && typeof v === 'number' ? '<ms, real clock>' : v])) } : r);
 const attempt = async (promise) => {
   try {
@@ -75,107 +58,127 @@ const attempt = async (promise) => {
   }
 };
 
+const world = await rec.wsWorld();
+const sse = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+const created = (id) => ({ type: 'response.created', response: { id, model: prebuiltBody.model } });
+const completed = (id, text) => [created(id), { type: 'response.output_text.delta', delta: text }, { type: 'response.completed', response: { id, model: prebuiltBody.model, output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }], usage: { input_tokens: 1, output_tokens: 1 } } }];
+const reasoningClose = (type) => ({ frames: [created('reasoning-response'), { type, delta: 'hidden reasoning' }], close: [1006, ''] });
+const dropAlways = { frames: [], close: [1006, ''] };
+// Server scripts: `wsPlans` is one entry per connection (the last one repeats), `refusals` the upgrade refusals by attempt, `http` one answer per HTTP request.
+function serve(net, { wsPlans = [dropAlways], refusals = [], http = [] }) {
+  let connections = 0;
+  world.reset({
+    refuse: (_req, n) => refusals[n - 1],
+    onFrame: (conn) => {
+      const plan = wsPlans[Math.min(connections++, wsPlans.length - 1)];
+      for (const frame of plan.frames) conn.send(frame);
+      if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
+    },
+  });
+  net.reply = (record, n) => {
+    world.note({ event: 'http-request', n, method: record.method, path: record.path, headers: record.headers, body: record.body });
+    const answer = (typeof http === 'function' ? http(record, n) : http[Math.min(n - 1, http.length - 1)]) ?? { status: 404, contentType: 'application/json', body: '{}' };
+    world.note({ event: 'http-response', n, status: answer.status ?? 200, headers: answer.headers ?? [], body: answer.body });
+    return answer;
+  };
+}
+const sleeper = (delays) => async (ms) => { delays.push(ms); world.note({ event: 'sleep-requested', ms }); };
+// The HTTP fallback's own retry sleep is its `_sleepFn` argument (the product passes none in production): the wrapper hands it the recording sleeper, like the WS wrapper.
+const httpViaSleeper = (delays) => (args) => sendViaHttpSse({ ...args, _sleepFn: sleeper(delays) });
+const wsViaSleeper = (delays) => (args) => sendViaWebSocket({ ...args, _sleepFn: sleeper(delays), _sendSpanTraceFn: () => {}, _agentTraceFn: () => {} });
+const finish = async (out, delays) => {
+  for (const conn of world.conns) conn.close(1000, 'recorder-end');
+  await world.until((trace) => trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
+  return { ...out, delaysMs: delays, events: world.trace.map((e) => ({ ...e })) };
+};
+
 for (const type of ['response.reasoning_text.delta', 'response.reasoning_summary_text.delta', 'response.reasoning.summary.delta']) {
-  await rec.run(`suppressed-reasoning-permits-fresh-ws-retry:${type}`, `${SRC}:77`, { closeFrames: ['response.created', type], closeCode: 1006 }, () => withEnv(async () => {
-    const fresh = [];
-    const progress = [];
-    const text = [];
-    let streams = 0;
+  await rec.run(`suppressed-reasoning-permits-fresh-ws-retry:${type}`, `${SRC}:77`, { connections: ['created + reasoning delta, then the drop (1006)', 'completed ws-recovered'] }, ({ net }) => withEnv(async () => {
+    serve(net, { wsPlans: [reasoningClose(type), { frames: completed('resp_ok', 'ws-recovered') }] });
+    const delays = [];
     const out = await attempt(sendViaWebSocket({
-      auth: { access_token: 'fixture-token' }, body: prebuiltBody, useModel: prebuiltBody.model,
-      onStreamDelta: (kind) => progress.push(kind), onTextDelta: (delta) => text.push(delta),
-      _acquireWithRetryFn: async ({ forceFresh }) => { fresh.push(forceFresh); return { entry: streamEntry(), reused: false }; },
-      _sendFrameFn: async () => {}, _streamFn: async (args) => {
-        streams += 1;
-        if (streams === 1) return closeAfterReasoning(args, type);
-        args.state.sawCompleted = true;
-        return { content: 'ws-recovered', toolCalls: [] };
-      },
-      _sleepFn: async () => {}, _sendSpanTraceFn: () => {}, _agentTraceFn: () => {},
+      auth: { access_token: 'fixture-token' }, body: prebuiltBody, useModel: prebuiltBody.model, poolKey: 'oauth-reasoning-retry', cacheKey: 'oauth-reasoning-retry', forceFresh: true,
+      onStreamDelta: (kind) => world.note({ event: 'progress', kind }), onTextDelta: (delta) => world.note({ event: 'text', chunk: delta }),
+      _sleepFn: sleeper(delays), _sendSpanTraceFn: () => {}, _agentTraceFn: () => {},
     }));
-    return { ...out, fresh, progress, text, streams };
+    return finish(out, delays);
   }));
 }
-await rec.run('reasoning-only-closes-exhaust-ws-budget-switch-to-http', `${SRC}:111`, { closeFrames: ['response.created', 'response.reasoning_summary_text.delta'], closeCode: 1006 }, () => withEnv(async () => {
+await rec.run('reasoning-only-closes-exhaust-ws-budget-switch-to-http', `${SRC}:111`, { connections: 'every connection: created + reasoning summary delta, then the drop (1006)', http: 'completed http-recovered' }, ({ net }) => withEnv(async () => {
+  serve(net, { wsPlans: [reasoningClose('response.reasoning_summary_text.delta')], http: [{ status: 200, body: sse(completed('resp_http', 'http-recovered')) }] });
   const provider = oauthProvider();
-  let acquires = 0;
-  let httpCalls = 0;
   const delays = [];
-  const opts = {
-    sessionId: 'oauth-reasoning-close-fallback', _prebuiltBody: prebuiltBody,
-    _sendViaWebSocketFn: (args) => sendViaWebSocket({
-      ...args,
-      _acquireWithRetryFn: async () => { acquires += 1; return { entry: streamEntry(), reused: false }; },
-      _sendFrameFn: async () => {}, _streamFn: (request) => closeAfterReasoning(request, 'response.reasoning_summary_text.delta'),
-      _sleepFn: async (ms) => { delays.push(ms); }, _sendSpanTraceFn: () => {}, _agentTraceFn: () => {},
-    }),
-    _sendViaHttpSseFn: async () => { httpCalls += 1; return { content: 'http-recovered', toolCalls: [] }; },
-  };
-  const first = maskTiming(await provider.send([], prebuiltBody.model, [], opts));
-  const afterFirst = { acquires, httpCalls };
-  const second = maskTiming(await provider.send([], prebuiltBody.model, [], opts));
-  return { first, afterFirst, second, afterSecond: { acquires, httpCalls }, delaysMs: delays, baseDelaysMs: [200, 400, 800, 1600, 3200] };
+  const opts = { sessionId: 'oauth-reasoning-close-fallback', _prebuiltBody: prebuiltBody, _sendViaWebSocketFn: wsViaSleeper(delays), _sendViaHttpSseFn: httpViaSleeper(delays) };
+  world.note({ event: 'send-start', n: 1 });
+  const first = await attempt(provider.send([], prebuiltBody.model, [], opts));
+  world.note({ event: 'send-result', n: 1, ok: !first.error });
+  world.note({ event: 'send-start', n: 2 });
+  const second = await attempt(provider.send([], prebuiltBody.model, [], opts));
+  world.note({ event: 'send-result', n: 2, ok: !second.error });
+  return finish({ first, second, baseDelaysMs: [200, 400, 800, 1600, 3200] }, delays);
 }));
 
+const httpAnswers = {
+  '401': { status: 401, contentType: 'application/json', body: '{"error":{"message":"unauthorized"}}' },
+  '403': { status: 403, contentType: 'application/json', body: '{"error":{"message":"forbidden"}}' },
+  '429': { status: 429, contentType: 'application/json', headers: { 'retry-after': '15' }, body: '{"error":{"message":"rate limited"}}' },
+  '503': { status: 503, contentType: 'application/json', body: '{"error":{"message":"unavailable"}}' },
+  'empty-200': { status: 200, body: '' },
+  'visible text': { status: 200, body: sse([created('resp_cut'), { type: 'response.output_text.delta', delta: 'visible' }]) },
+  'dispatched tool': { status: 200, body: sse([created('resp_cut'), { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read' } }, { type: 'response.output_item.done', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read', arguments: '{}' } }]) },
+};
 for (const authRetry of [false, true]) {
-  for (const [label, fields, classification] of [
-    ['401', { httpStatus: 401 }, 'auth'], ['403', { httpStatus: 403 }, 'auth'], ['429', { httpStatus: 429, retryAfterMs: 15000 }, 'permanent'], ['503', { httpStatus: 503 }, 'transient'],
-    ['unknown', {}, 'unknown'], ['cancelled', { name: 'AbortError' }, 'permanent'], ['visible text', { liveTextEmitted: true, unsafeToRetry: true }, 'permanent'], ['dispatched tool', { emittedToolCall: true, unsafeToRetry: true }, 'permanent'],
-  ]) {
-    await rec.run(`http-${label}-stays-current-failure-after-${authRetry ? 'auth-recovery-and-' : ''}ws-fallback`, `${SRC}:163`, { authRetry, httpErrorFields: fields, expectedClassification: classification }, () => withEnv(async () => {
+  for (const label of Object.keys(httpAnswers)) {
+    await rec.run(`http-${label}-after-ws-fallback${authRetry ? '-and-auth-recovery' : ''}`, `${SRC}:163`, { authRetry, connections: [authRetry ? 'upgrade refused 401 first, then every connection dropped (1006)' : 'every connection dropped (1006)'], http: ['every HTTP request of send 1 answered with ' + label, 'send 2: completed http-ok'] }, ({ net }) => withEnv(async () => {
+      let httpPhase = 'fail';
+      serve(net, { refusals: authRetry ? [{ status: 401, headers: [['content-type', 'application/json']], body: '{"error":{"message":"expired auth"}}' }] : [], http: () => (httpPhase === 'fail' ? httpAnswers[label] : { status: 200, body: sse(completed('resp_http_ok', 'http-ok')) }) });
       const provider = oauthProvider();
-      const wsError = Object.assign(new Error('WS disconnected'), { wsCloseCode: 1006, code: 'ECONNRESET', retryClassifier: 'ws_1006', wsRetriesExhausted: true });
-      const httpCause = new Error('current HTTP cause');
-      const httpError = Object.assign(new Error('current HTTP failure', { cause: httpCause }), fields);
-      let wsCalls = 0;
-      let httpCalls = 0;
-      let failHttp = true;
-      const opts = {
-        sessionId: `oauth-current-http-${authRetry}-${label}`, _prebuiltBody: prebuiltBody,
-        _sendViaWebSocketFn: async () => {
-          wsCalls += 1;
-          if (authRetry && wsCalls === 1) throw Object.assign(new Error('expired auth'), { httpStatus: 401 });
-          throw wsError;
-        },
-        _sendViaHttpSseFn: async () => { httpCalls += 1; if (failHttp) throw httpError; return { content: 'http-ok', toolCalls: [] }; },
-      };
+      const delays = [];
+      const opts = { sessionId: `oauth-current-http-${authRetry}-${label}`, _prebuiltBody: prebuiltBody, _sendViaWebSocketFn: wsViaSleeper(delays), _sendViaHttpSseFn: httpViaSleeper(delays) };
+      world.note({ event: 'send-start', n: 1 });
       const failed = await attempt(provider.send([], prebuiltBody.model, [], opts));
-      const error = failed.error;
-      const afterFailure = { wsCalls, httpCalls };
-      failHttp = false;
+      world.note({ event: 'send-result', n: 1, ok: !failed.error });
+      httpPhase = 'ok';
+      world.note({ event: 'send-start', n: 2 });
       const next = await attempt(provider.send([], prebuiltBody.model, [], opts));
-      return {
-        error, isTheHttpError: error === httpError, causeIsTheHttpCause: error.cause === httpCause, previousTransportErrorIsTheWsError: error.previousTransportError === wsError,
-        classification: classifyError(error), afterFailure, next, afterNext: { wsCalls, httpCalls },
-      };
+      world.note({ event: 'send-result', n: 2, ok: !next.error });
+      return finish({ failed, next }, delays);
     }));
   }
 }
-const handshake404 = () => Object.assign(new Error('handshake 404'), { httpStatus: 404 });
-await rec.run('handshake-404-falls-back-to-http-once', `${SRC}:211`, { handshakeStatus: 404 }, () => withEnv(async () => {
+// The two cancelled cases stay on the seams: the abort comes from the caller, not from the wire.
+for (const authRetry of [false, true]) {
+  await rec.run(`http-cancelled-after-ws-fallback${authRetry ? '-and-auth-recovery' : ''}`, `${SRC}:163`, { authRetry, httpErrorFields: { name: 'AbortError' }, expectedClassification: 'permanent' }, () => withEnv(async () => {
+    const provider = oauthProvider();
+    const wsError = Object.assign(new Error('WS disconnected'), { wsCloseCode: 1006, code: 'ECONNRESET', retryClassifier: 'ws_1006', wsRetriesExhausted: true });
+    const httpError = Object.assign(new Error('current HTTP failure'), { name: 'AbortError' });
+    let wsCalls = 0;
+    let httpCalls = 0;
+    const opts = {
+      sessionId: `oauth-current-http-${authRetry}-cancelled`, _prebuiltBody: prebuiltBody,
+      _sendViaWebSocketFn: async () => { wsCalls += 1; if (authRetry && wsCalls === 1) throw Object.assign(new Error('expired auth'), { httpStatus: 401 }); throw wsError; },
+      _sendViaHttpSseFn: async () => { httpCalls += 1; throw httpError; },
+    };
+    const failed = await attempt(provider.send([], prebuiltBody.model, [], opts));
+    return { ...failed, classification: classifyError(failed.error), wsCalls, httpCalls };
+  }));
+}
+await rec.run('handshake-404-falls-back-to-http-once', `${SRC}:211`, { connections: 'upgrade refused 404', http: 'completed http-ok' }, ({ net }) => withEnv(async () => {
+  serve(net, { refusals: [{ status: 404, headers: [['content-type', 'application/json']], body: '{"error":{"message":"not found"}}' }], http: [{ status: 200, body: sse(completed('resp_http', 'http-ok')) }] });
   const provider = oauthProvider();
-  let acquires = 0;
-  let httpCalls = 0;
   let catalogRefreshes = 0;
   provider._refreshModelCache = async () => { catalogRefreshes += 1; };
-  const result = maskTiming(await provider.send([], 'gpt-5.6-sol', [], {
-    sessionId: 'oauth-handshake-404', _prebuiltBody: prebuiltBody,
-    _sendViaWebSocketFn: (args) => sendViaWebSocket({ ...args, _acquireWithRetryFn: async () => { acquires += 1; throw handshake404(); }, _sleepFn: async () => {}, _sendSpanTraceFn: () => {}, _agentTraceFn: () => {} }),
-    _sendViaHttpSseFn: async () => { httpCalls += 1; return { content: 'http-ok', toolCalls: [] }; },
-  }));
-  return { result, acquires, httpCalls, catalogRefreshes };
+  const delays = [];
+  const result = await attempt(provider.send([], 'gpt-5.6-sol', [], { sessionId: 'oauth-handshake-404', _prebuiltBody: prebuiltBody, _sendViaWebSocketFn: wsViaSleeper(delays), _sendViaHttpSseFn: httpViaSleeper(delays) }));
+  return finish({ ...result, catalogRefreshes }, delays);
 }));
-await rec.run('application-404-stays-model-error', `${SRC}:247`, { wsError: { message: 'model_not_found', httpStatus: 404 } }, () => withEnv(async () => {
+await rec.run('application-404-stays-model-error', `${SRC}:247`, { connections: ['an error frame: status 404 model_not_found'], http: 'must not be reached' }, ({ net }) => withEnv(async () => {
+  serve(net, { wsPlans: [{ frames: [{ type: 'error', status: 404, error: { code: 'model_not_found', message: 'model_not_found' } }] }], http: [{ status: 200, body: sse(completed('resp_must_not', 'must-not-fallback')) }] });
   const provider = oauthProvider();
-  let wsCalls = 0;
-  let httpCalls = 0;
   let catalogRefreshes = 0;
   provider._refreshModelCache = async () => { catalogRefreshes += 1; };
-  const out = await attempt(provider.send([], 'gpt-5.6-sol', [], {
-    sessionId: 'oauth-application-404', _prebuiltBody: prebuiltBody,
-    _sendViaWebSocketFn: async () => { wsCalls += 1; throw Object.assign(new Error('model_not_found'), { httpStatus: 404 }); },
-    _sendViaHttpSseFn: async () => { httpCalls += 1; return { content: 'must-not-fallback', toolCalls: [] }; },
-  }));
-  return { ...out, wsCalls, httpCalls, catalogRefreshes };
+  const delays = [];
+  const out = await attempt(provider.send([], 'gpt-5.6-sol', [], { sessionId: 'oauth-application-404', _prebuiltBody: prebuiltBody, _sendViaWebSocketFn: wsViaSleeper(delays), _sendViaHttpSseFn: httpViaSleeper(delays) }));
+  return finish({ ...out, catalogRefreshes }, delays);
 }));
 await rec.finish();
