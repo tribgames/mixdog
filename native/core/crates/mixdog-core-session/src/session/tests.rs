@@ -4495,6 +4495,13 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
     let texts = serde_json::to_string(&context.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>()).expect("rows");
     assert!(texts.contains(&prompt), "the model context keeps the prompt whole: {texts}");
     assert!(std::fs::read_to_string(&history).expect("history").contains("[redacted] is the code from the mail"));
+    // The history a client is sent after the mark: the thread's own lists take the marker too.
+    let list = eventually_on!(&[&handle.cell.stepped], || {
+        let list = prompt_list(&handle);
+        list.iter().all(|entry| !entry.contains(CODE)).then_some(list)
+    })
+    .await;
+    assert_eq!(list, ["[redacted] is the code from the mail"]);
 }
 
 /// The memory ingest of an unloading thread (`ingestSessionIntoMemory`) goes to a database on disk: a value the thread

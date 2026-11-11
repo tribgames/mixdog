@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(artifact.sha256, hex(&Sha256::digest(b"a\nb\nc")));
         assert_eq!(artifact.sha256, preview.sha256);
         assert_eq!(artifact.lines, 3);
-        let file = data.path().join("tool-results/sess_1____x").join(format!("{}.txt", artifact.sha256));
+        let file = data.path().join("tool-results").join("sess_1____x").join(format!("{}.txt", artifact.sha256));
         assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
         assert_eq!(artifact.display_path, display(&file));
         assert_eq!(artifact.path, file.to_string_lossy());
