@@ -18,6 +18,33 @@
           ],
           "state": "ready"
         },
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": [
+              "embed",
+              "memory query",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": [
+                0.25,
+                0.75
+              ],
+              "state": "ready"
+            }
+          }
+        ],
         "calls": [
           "isReady",
           [
@@ -44,6 +71,53 @@
           ],
           "state": "warmed"
         },
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 50
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "event": "warmup settled"
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "product call",
+            "call": [
+              "embed",
+              "교차 language query",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": [
+                0.25,
+                0.75
+              ],
+              "state": "warmed"
+            }
+          }
+        ],
         "calls": [
           "isReady",
           "canWarmup",
@@ -82,6 +156,63 @@
           }
         },
         "errorIsTheInjectedObject": true,
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 50
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "event": "warmup rejected",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "load failed",
+              "props": {}
+            }
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "product call",
+            "call": [
+              "onWarmupError",
+              {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed",
+                "props": {}
+              }
+            ]
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": null,
+              "state": "failed",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed",
+                "props": {}
+              }
+            }
+          }
+        ],
         "calls": [
           "isReady",
           "canWarmup",
@@ -117,6 +248,41 @@
           "props": {}
         },
         "rejectedWithTheInjectedReason": true,
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 5000
+          },
+          {
+            "step": "abort the signal (reason: the injected error)"
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "recall call rejected",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "cancelled",
+              "props": {}
+            }
+          }
+        ],
         "calls": [
           "isReady",
           "canWarmup",
@@ -140,6 +306,45 @@
           "vector": null,
           "state": "timeout"
         },
+        "trace": [
+          {
+            "event": "product call",
+            "call": "isReady"
+          },
+          {
+            "event": "product call",
+            "call": "canWarmup"
+          },
+          {
+            "event": "timer armed",
+            "timer": 0,
+            "delay": 5
+          },
+          {
+            "event": "product call",
+            "call": "warmup"
+          },
+          {
+            "step": "clock: fire timer 0 (delay 5)"
+          },
+          {
+            "event": "timer cleared",
+            "timer": 0
+          },
+          {
+            "event": "recall call settled",
+            "result": {
+              "vector": null,
+              "state": "timeout"
+            }
+          },
+          {
+            "step": "settle: the warmup gate resolves"
+          },
+          {
+            "event": "warmup settled"
+          }
+        ],
         "calls": [
           "isReady",
           "canWarmup",
@@ -164,6 +369,63 @@
             "vector": null,
             "state": "timeout"
           },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "timer armed",
+              "timer": 0,
+              "delay": 5
+            },
+            {
+              "event": "product call",
+              "call": "warmup"
+            },
+            {
+              "step": "clock: fire timer 0 (delay 5)"
+            },
+            {
+              "event": "timer cleared",
+              "timer": 0
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "timeout"
+              }
+            },
+            {
+              "step": "settle: the warmup gate rejects"
+            },
+            {
+              "event": "warmup rejected",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "load failed late",
+                "props": {}
+              }
+            },
+            {
+              "event": "product call",
+              "call": [
+                "onWarmupError",
+                {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "load failed late",
+                  "props": {}
+                }
+              ]
+            }
+          ],
           "calls": [
             "isReady",
             "canWarmup",
@@ -193,6 +455,15 @@
             "vector": null,
             "state": "empty"
           },
+          "trace": [
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "empty"
+              }
+            }
+          ],
           "calls": [],
           "timers": []
         },
@@ -203,6 +474,15 @@
             "vector": null,
             "state": "empty"
           },
+          "trace": [
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "empty"
+              }
+            }
+          ],
           "calls": [],
           "timers": []
         },
@@ -213,6 +493,23 @@
             "vector": null,
             "state": "unavailable"
           },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": null,
+                "state": "unavailable"
+              }
+            }
+          ],
           "calls": [
             "isReady",
             "canWarmup"
@@ -229,6 +526,20 @@
             "props": {}
           },
           "rejectedWithTheInjectedReason": true,
+          "trace": [
+            {
+              "step": "abort the signal before the call (reason: the injected error)"
+            },
+            {
+              "event": "recall call rejected",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "already cancelled",
+                "props": {}
+              }
+            }
+          ],
           "calls": [],
           "timers": []
         },
@@ -243,6 +554,21 @@
             "props": {}
           },
           "rejectedWithTheInjectedReason": null,
+          "trace": [
+            {
+              "step": "abort the signal before the call (no reason)"
+            },
+            {
+              "event": "recall call rejected",
+              "error": {
+                "$exact": "error",
+                "name": "AbortError",
+                "message": "This operation was aborted",
+                "code": 20,
+                "props": {}
+              }
+            }
+          ],
           "calls": [],
           "timers": []
         },
@@ -256,6 +582,53 @@
             ],
             "state": "warmed"
           },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "timer armed",
+              "timer": 0,
+              "delay": 0
+            },
+            {
+              "event": "product call",
+              "call": "warmup"
+            },
+            {
+              "event": "warmup settled"
+            },
+            {
+              "event": "timer cleared",
+              "timer": 0
+            },
+            {
+              "event": "product call",
+              "call": [
+                "embed",
+                "zero wait",
+                {
+                  "priority": true,
+                  "inputType": "query"
+                }
+              ]
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": [
+                  0.25,
+                  0.75
+                ],
+                "state": "warmed"
+              }
+            }
+          ],
           "calls": [
             "isReady",
             "canWarmup",
@@ -287,6 +660,56 @@
             ],
             "state": "warmed"
           },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": "canWarmup"
+            },
+            {
+              "event": "timer armed",
+              "timer": 0,
+              "delay": 60000
+            },
+            {
+              "step": "settle: the warmup gate is released"
+            },
+            {
+              "event": "product call",
+              "call": "warmup"
+            },
+            {
+              "event": "warmup settled"
+            },
+            {
+              "event": "timer cleared",
+              "timer": 0
+            },
+            {
+              "event": "product call",
+              "call": [
+                "embed",
+                "deferred warmup",
+                {
+                  "priority": true,
+                  "inputType": "query"
+                }
+              ]
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": [
+                  0.25,
+                  0.75
+                ],
+                "state": "warmed"
+              }
+            }
+          ],
           "calls": [
             "isReady",
             "canWarmup",
@@ -318,6 +741,33 @@
             ],
             "state": "ready"
           },
+          "trace": [
+            {
+              "event": "product call",
+              "call": "isReady"
+            },
+            {
+              "event": "product call",
+              "call": [
+                "embed",
+                "padded query",
+                {
+                  "priority": true,
+                  "inputType": "query"
+                }
+              ]
+            },
+            {
+              "event": "recall call settled",
+              "result": {
+                "vector": [
+                  0.25,
+                  0.75
+                ],
+                "state": "ready"
+              }
+            }
+          ],
           "calls": [
             "isReady",
             [
