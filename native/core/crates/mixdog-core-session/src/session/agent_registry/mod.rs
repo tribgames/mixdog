@@ -1247,7 +1247,7 @@ pub struct StoreWorkers {
 enum WriteOp {
     Write(String, Option<Row>),
     Keep(String, Option<Row>),
-    Barrier(tokio::sync::oneshot::Sender<()>),
+    Barrier(tokio::sync::oneshot::Sender<Result<(), String>>),
 }
 
 /// The worker maps of sessions deleted while their rows still count (`WorkerStore::keep`), in `state/core.sqlite`'s meta
@@ -1329,14 +1329,17 @@ impl KeptRows {
 /// Node's `RETRY_AFTER_FAILURE_MS`: how long a failed kept write waits for a retry when nothing else writes.
 const KEPT_RETRY_AFTER: std::time::Duration = std::time::Duration::from_millis(15_000);
 
-/// Puts the owed kept writes again, in order; those the table refuses again stay owed.
-async fn retry_owed(keeper: &KeptRows, owed: &mut Vec<(String, Option<Row>)>) {
+/// Puts the owed kept writes again, in order; those the table refuses again stay owed. The last refusal, if any.
+async fn retry_owed(keeper: &KeptRows, owed: &mut Vec<(String, Option<Row>)>) -> Option<String> {
+    let mut refused = None;
     for (session, worker) in std::mem::take(owed) {
         if let Err(error) = keeper.put(&session, worker.clone()).await {
             tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
+            refused = Some(error);
             owed.push((session, worker));
         }
     }
+    refused
 }
 
 /// Whether `path` names a directory.
@@ -1371,7 +1374,7 @@ impl StoreWorkers {
                 if let WriteOp::Keep(session, _) = &op {
                     owed.retain(|(id, _)| id != session);
                 }
-                retry_owed(&keeper, &mut owed).await;
+                let refused = retry_owed(&keeper, &mut owed).await;
                 let (session, worker) = match op {
                     WriteOp::Write(session, worker) => (session, worker),
                     WriteOp::Keep(session, worker) => {
@@ -1382,7 +1385,12 @@ impl StoreWorkers {
                         continue;
                     }
                     WriteOp::Barrier(done) => {
-                        let _ = done.send(());
+                        // Node's `flush` rejects with the persist's error while a batch is unpersisted
+                        // (`index-write-queue.mjs:203,259-265`); the writes stay queued for a later flush.
+                        let _ = done.send(match refused {
+                            Some(error) => Err(format!("{} unpersisted write(s) kept queued after retries: {error}", owed.len())),
+                            None => Ok(()),
+                        });
                         continue;
                     }
                 };
@@ -1457,12 +1465,12 @@ impl WorkerStore for StoreWorkers {
 
 impl StoreWorkers {
     /// Resolves once every write made before the call is applied to the headers: the exit path awaits
-    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`).
-    pub async fn settled(&self) {
+    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`). As Node's `flush` rejects when a
+    /// batch could not be persisted, this is `Err` while a kept write is still owed; the write stays queued.
+    pub async fn settled(&self) -> Result<(), String> {
         let (done, applied) = tokio::sync::oneshot::channel();
-        if self.writes.send(WriteOp::Barrier(done)).is_ok() {
-            let _ = applied.await;
-        }
+        self.writes.send(WriteOp::Barrier(done)).map_err(|_| "the worker writer is closed".to_owned())?;
+        applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())?
     }
 
     /// Binds the status signals; a second bind is refused.

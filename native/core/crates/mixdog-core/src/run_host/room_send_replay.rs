@@ -780,12 +780,12 @@ async fn every_other_way_a_param_could_name_a_target_reaches_nothing() {
         ("a pasted image's path", option("pastedImages", json!({ "1": { "id": "1", "path": path, "attachmentRef": none, "mimeType": "image/png" } }), "sub-p6")),
         ("a pasted text's path", option("pastedTexts", json!({ "1": { "id": "1", "path": path, "source": "file", "name": "secret.txt" } }), "sub-p7")),
     ];
-    for (name, input) in targets {
-        assert_eq!(outcome(world.input(input).await), json!({ "returned": true }), "{name}");
-    }
-    let seen = serde_json::to_string(&world.state().await).unwrap();
-    assert!(!seen.contains("SECRET-MARKER-9f3a1c") && !seen.contains("U0VDUkVULU1BUktFUi05ZjNhMWM"), "the file's bytes stay out of the room: {seen}");
-    for (name, bytes) in world.log.data_files() {
-        assert!(!String::from_utf8_lossy(&bytes).contains("SECRET-MARKER-9f3a1c"), "{name}: the file's bytes stay out of the store");
+    for (target, input) in targets {
+        assert_eq!(outcome(world.input(input).await), json!({ "returned": true }), "{target}");
+        let seen = serde_json::to_string(&world.state().await).unwrap();
+        assert!(!seen.contains("SECRET-MARKER-9f3a1c") && !seen.contains("U0VDUkVULU1BUktFUi05ZjNhMWM"), "{target}: the file's bytes stay out of the room: {seen}");
+        for (name, bytes) in world.log.data_files() {
+            assert!(!String::from_utf8_lossy(&bytes).contains("SECRET-MARKER-9f3a1c"), "{target}: {name}: the file's bytes stay out of the store");
+        }
     }
 }

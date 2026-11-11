@@ -913,10 +913,13 @@ impl Core {
         }
         let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
         let told = restart::notify_restart_failures(&self.registry, &*self.directory, &board, &at(NOW)).await.expect("the pass ran");
-        self.workers.settled().await;
+        self.workers.settled().await.expect("the writes reached the headers");
         told
     }
 }
+
+/// How long the kill of an overdue child, and the wait for it to end, may take.
+const KILL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// `command`'s output, hidden, within `deadline`: a child still running then is killed and the test fails naming `what`.
 fn output_within(mut command: std::process::Command, deadline: std::time::Duration, what: &str) -> std::process::Output {
@@ -947,9 +950,15 @@ fn output_within(mut command: std::process::Command, deadline: std::time::Durati
             kill.args(["-9", &pid]);
             kill
         };
-        let _ = kill.output();
-        let _ = reaper.join();
-        panic!("{what}: the child ended within the deadline");
+        // Both waits are bounded: a kill that hangs or fails leaves its thread and the reaper behind, and the test still fails.
+        let (killed, kill_ended) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let _ = kill.output();
+            let _ = killed.send(());
+        });
+        let kill_done = kill_ended.recv_timeout(KILL_DEADLINE).is_ok();
+        let reaped = kill_done && ending.recv_timeout(KILL_DEADLINE).is_ok();
+        panic!("{what}: the child ended within the deadline (kill finished: {kill_done}, child reaped: {reaped})");
     }
     reaper.join().expect("the reaper")
 }
@@ -996,12 +1005,14 @@ async fn a_kept_row_the_table_refused_reaches_it_when_the_table_takes_writes_aga
     lock_held.recv_timeout(std::time::Duration::from_secs(60)).expect("the lock was taken within the deadline");
     let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
     WorkerStore::keep(&*core.workers, "s-owed", Some(row.clone()));
-    core.workers.settled().await;
+    // Node's `flush` rejects while a batch is unpersisted: the barrier is not settled while a write is owed.
+    let flushed = core.workers.settled().await;
+    assert!(flushed.is_err(), "a write is still owed, so the flush is refused: {flushed:?}");
     let stored = || async { core.state.meta_prefix("agent-kept-worker:").await.unwrap() };
     assert!(stored().await.is_empty(), "the table refused the write");
     unlock.send(()).unwrap();
     holder.await.unwrap().unwrap();
-    core.workers.settled().await;
+    core.workers.settled().await.expect("nothing is owed once the table took the write");
     assert_eq!(stored().await, [("agent-kept-worker:s-owed".to_owned(), serde_json::to_string(&row).unwrap())], "the table took the write once it could");
 }
 
