@@ -106,11 +106,13 @@ pub struct RecallOutcome {
     /// Present (possibly null) only for the `last` browse.
     pub next_cursor: Option<Option<String>>,
     pub is_error: bool,
+    /// The request's cancel ended the call before it answered: its caller gets the cancellation, not a reply (see `recall_cancellable`).
+    pub cancelled: bool,
 }
 
 impl RecallOutcome {
     fn ok(text: String) -> Self {
-        Self { text, next_cursor: None, is_error: false }
+        Self { text, next_cursor: None, is_error: false, cancelled: false }
     }
 
     /// The JSON text of the tool result.
@@ -263,16 +265,23 @@ impl Recall {
         self.clock().now_ms
     }
 
-    /// The `recall` tool; `cancel` is the request's signal (the turn's stop). A cancelled request answers `recall failed: <reason>`: Node's
-    /// `handleToolCall` catches everything the search throws into `${name} failed: ${msg}` (`tool-call-handler.mjs:78-80`); the outer
-    /// `api/tool error:` catch (`tool-routes.mjs:50-55`) only sees a cancel before `handleToolCall` starts, and no reply reaches the cancelling client.
+    /// The `recall` tool; `cancel` is the request's signal (the turn's stop). The tool's caller in Node is the memory proxy
+    /// (`memory-runtime-proxy/calls.mjs` `handleToolCall`): a signal that fires while the request is in flight destroys it with the
+    /// signal's reason and the call REJECTS with that error (`rpc.mjs:74-78` `onAbort`, `memoryAbortError`), so the caller receives no
+    /// reply text. The daemon's own `recall failed: …` answer (`tool-call-handler.mjs:78-80`) reaches nobody. A search that fails while
+    /// the request is cancelled is therefore `cancelled`, not an error reply; one that failed first, with the request still live, is the reply.
     pub async fn recall_cancellable(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
         match self.handle_search(&recall_search_args(args), cancel).await {
             Ok(mut outcome) => {
                 outcome.text = cap_recall_text(&outcome.text, RECALL_OUTPUT_MAX_BYTES);
                 outcome
             }
-            Err(error) => RecallOutcome { text: format!("recall failed: {}", error.message()), next_cursor: None, is_error: true },
+            Err(error) => RecallOutcome {
+                text: format!("recall failed: {}", error.message()),
+                next_cursor: None,
+                is_error: true,
+                cancelled: cancel.is_cancelled(),
+            },
         }
     }
 
@@ -281,7 +290,7 @@ impl Recall {
         match self.handle_search(args, cancel).await {
             Ok(outcome) => outcome,
             Err(error) => {
-                RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true }
+                RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true, cancelled: false }
             }
         }
     }
@@ -365,7 +374,7 @@ impl Recall {
         }
         if plan.is_last() {
             let (text, cursor) = browse_last_sessions(db, &clock, args, &plan).await?;
-            return Ok(RecallOutcome { text, next_cursor: Some(cursor), is_error: false });
+            return Ok(RecallOutcome { text, next_cursor: Some(cursor), is_error: false, cancelled: false });
         }
         Ok(RecallOutcome::ok(browse_entries(db, &clock, args, &plan).await?))
     }

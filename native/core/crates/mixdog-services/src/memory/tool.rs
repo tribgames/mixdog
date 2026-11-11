@@ -18,6 +18,7 @@ use mixdog_tools::orch::service::ToolService;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 
+use crate::memory::recall::RecallOutcome;
 use crate::memory::service::LocalMemory;
 
 /// Whose memory a session reads and writes.
@@ -44,6 +45,15 @@ fn reply_parts(text: String, is_error: bool, capability: &str) -> Result<Vec<Too
         return Err(PortError::Failed { capability: capability.into(), message: text });
     }
     Ok(vec![ToolPart::Text(text)])
+}
+
+/// The `recall` tool's reply parts. A call its request's cancel ended is the caller's cancellation: in Node the memory proxy
+/// rejects the call itself (`rpc.mjs:74-78`), so no reply text, flagged or not, reaches the caller.
+fn recall_parts(outcome: RecallOutcome) -> Result<Vec<ToolPart>, PortError> {
+    if outcome.cancelled {
+        return Err(PortError::Cancelled);
+    }
+    reply_parts(outcome.text, outcome.is_error, "recall")
 }
 
 struct Host {
@@ -73,7 +83,7 @@ struct RecallToolService(Arc<Host>);
 impl ToolService for RecallToolService {
     async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError> {
         let outcome = self.0.memory.recall_outcome_cancellable(&self.0.args(&call).await, call.cancel).await;
-        reply_parts(outcome.text, outcome.is_error, "recall")
+        recall_parts(outcome)
     }
 }
 
@@ -103,6 +113,16 @@ mod tests {
         let got = args_for_caller(&json!({ "query": "x", "cwd": "/elsewhere" }), cwd, caller.clone());
         assert_eq!(got["cwd"], "/elsewhere");
         assert_eq!(args_for_caller(&json!(null), cwd, caller.clone())["cwd"], "/work/project");
+    }
+
+    #[test]
+    fn a_recall_its_request_cancelled_is_the_callers_cancellation_not_a_reply() {
+        let outcome = |is_error: bool, cancelled: bool| RecallOutcome { text: "recall failed: This operation was aborted".into(), next_cursor: None, is_error, cancelled };
+        assert_eq!(recall_parts(outcome(true, true)), Err(PortError::Cancelled));
+        assert_eq!(
+            recall_parts(outcome(true, false)),
+            Err(PortError::Failed { capability: "recall".into(), message: "recall failed: This operation was aborted".into() })
+        );
     }
 
     #[test]
