@@ -1967,5 +1967,56 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_9f6264bc6fb4944b5c7478aa202608f876ca9c30f5f177d2523e2a88f928359a",
+     "preview": "HOLD-TEXT write the file",
+     "title": "HOLD-TEXT write the file",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-with-output\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-with-output\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-TEXT write the file"
+    }
+   ]
+  },
+  {
+   "at": 11,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_9f6264bc6fb4944b5c7478aa202608f876ca9c30f5f177d2523e2a88f928359a",
+     "preview": "HOLD-TEXT write the file",
+     "title": "HOLD-TEXT write the file",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 3,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-with-output\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-with-output\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-PARTIAL-STREAM once upon a time"
+    }
+   ]
+  }
  ]
 }

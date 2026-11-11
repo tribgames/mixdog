@@ -2011,5 +2011,55 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_62ae2e8e79ac1348dfb4e3186516b5c029775470a3229e19188e468ba0f5c932",
+     "preview": "HOLD-EMPTY sent from the first phone",
+     "title": "HOLD-EMPTY sent from the first…",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-other-device-plain-text\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-other-device-plain-text\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY sent from the first phone"
+    }
+   ]
+  },
+  {
+   "at": 12,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_62ae2e8e79ac1348dfb4e3186516b5c029775470a3229e19188e468ba0f5c932",
+     "preview": "",
+     "title": "HOLD-EMPTY sent from the first…",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 0,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-other-device-plain-text\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-other-device-plain-text\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000
+    }
+   ]
+  }
  ]
 }

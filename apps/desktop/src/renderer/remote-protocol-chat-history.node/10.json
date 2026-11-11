@@ -2611,5 +2611,58 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 10,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "preview": "HOLD-APPROVAL add a file",
+     "title": "HOLD-APPROVAL add a file",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "awaitingApproval": true,
+     "awaitingQuestion": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-APPROVAL add a file"
+    }
+   ]
+  },
+  {
+   "at": 12,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+     "preview": "HOLD-APPROVAL add a file",
+     "title": "HOLD-APPROVAL add a file",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 3,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-approval-pending\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-APPROVAL add a file"
+    }
+   ]
+  }
  ]
 }

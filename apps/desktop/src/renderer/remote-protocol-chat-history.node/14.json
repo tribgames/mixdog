@@ -1607,5 +1607,33 @@
     "restoredSubmissionIds": []
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 8,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_4e0b6c774dc102874f081e60208026911a6cac036c049f6ce7aa61cabc2d9a1e",
+     "preview": "a plain question",
+     "title": "a plain question",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 2,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-idle-after-completed-turn\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-idle-after-completed-turn\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "ok"
+    }
+   ]
+  }
  ]
 }

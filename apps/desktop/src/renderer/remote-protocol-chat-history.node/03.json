@@ -1861,5 +1861,56 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_2b967e2ed16d32573f9c8ba31a1a28e003480a47f549ec35af9ff6719d57f1c5",
+     "preview": "HOLD-EMPTY keep this prompt",
+     "title": "HOLD-EMPTY keep this prompt",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-keep-prompt\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-keep-prompt\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY keep this prompt"
+    }
+   ]
+  },
+  {
+   "at": 11,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_2b967e2ed16d32573f9c8ba31a1a28e003480a47f549ec35af9ff6719d57f1c5",
+     "preview": "HOLD-EMPTY keep this prompt",
+     "title": "HOLD-EMPTY keep this prompt",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 2,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-keep-prompt\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-keep-prompt\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY keep this prompt"
+    }
+   ]
+  }
  ]
 }

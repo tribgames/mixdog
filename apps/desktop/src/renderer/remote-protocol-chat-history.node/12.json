@@ -1855,5 +1855,63 @@
    "input": "host.deleteSession",
    "reply": null
   }
+ ],
+ "roster": [
+  {
+   "at": 3,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 8,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_6256f242e3fa3713666ed7622f289004cffb2a6855b011358adbb77dbec5f523",
+     "preview": "HOLD-EMPTY greet the user",
+     "title": "HOLD-EMPTY greet the user",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-runtime-turn\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-runtime-turn\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY greet the user"
+    }
+   ]
+  },
+  {
+   "at": 11,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_6256f242e3fa3713666ed7622f289004cffb2a6855b011358adbb77dbec5f523",
+     "preview": "HOLD-EMPTY greet the user",
+     "title": "HOLD-EMPTY greet the user",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-runtime-turn\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-runtime-turn\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY greet the user"
+    }
+   ]
+  },
+  {
+   "at": 11,
+   "clock": 10000,
+   "sessions": []
+  }
  ]
 }

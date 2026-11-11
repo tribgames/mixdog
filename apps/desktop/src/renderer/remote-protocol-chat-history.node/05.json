@@ -2005,5 +2005,55 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_7e35f1684fc2cf5e55253a636c1a09a1b31c5ef784ceb1791d7fb02fece8569e",
+     "preview": "HOLD-EMPTY with a paste",
+     "title": "HOLD-EMPTY with a paste",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-pasted-text\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-pasted-text\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY with a paste"
+    }
+   ]
+  },
+  {
+   "at": 12,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_7e35f1684fc2cf5e55253a636c1a09a1b31c5ef784ceb1791d7fb02fece8569e",
+     "preview": "",
+     "title": "HOLD-EMPTY with a paste",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 0,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-pasted-text\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-pasted-text\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000
+    }
+   ]
+  }
  ]
 }
