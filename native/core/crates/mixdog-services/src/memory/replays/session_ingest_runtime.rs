@@ -7,9 +7,8 @@
 //! `RawEmbedFlush::flush(limit, ids)`, observed under `cfg(test)`), and the saved high-water.
 //!
 //! Mappings:
-//! - A row id is the database's: the test file's stand-in numbers a stored row by the count of rows stored, while
-//!   PostgreSQL's serial also advances on an insert that conflicts. Ids (in rows and in flush calls) are compared as
-//!   the row's rank among the stored rows, which is the stand-in's number.
+//! - Row ids are the recorder's at the source: the test file's stand-in numbers a stored row by the rows stored before
+//!   it; the private table numbers its rows the same way (`Run::new`), and ids are compared as stored.
 //! - The durable high-water is Node's injected `loadOrdinalHighWater` / `saveOrdinalHighWater` (the facade's `meta`
 //!   key-value; the test file's hooks record the save and hand it to the restarted runtime); in the core it is the
 //!   `meta` row `state.session_ingest_ordinals.<session>`, which the restarted `SessionIngest` reads. `savedAfter` is
@@ -47,6 +46,23 @@ struct Run {
 impl Run {
     async fn new(g: &Exact) -> Self {
         let pg = memory_db().await;
+        // The recorder's ids at the source: its stand-in numbers a row by the rows stored before it, so a row whose
+        // insert conflicts takes no number. The private table draws a row's id from its own sequence only when no
+        // stored row holds its source reference (the conflict the insert skips).
+        pg.db
+            .batch(
+                "CREATE SEQUENCE memory.replay_entry_ids;
+                 CREATE FUNCTION memory.replay_entry_id() RETURNS trigger LANGUAGE plpgsql AS $f$
+                 BEGIN
+                   IF NOT EXISTS (SELECT 1 FROM memory.entries WHERE source_ref = NEW.source_ref) THEN
+                     NEW.id := nextval('memory.replay_entry_ids');
+                   END IF;
+                   RETURN NEW;
+                 END $f$;
+                 CREATE TRIGGER replay_entry_id BEFORE INSERT ON memory.entries FOR EACH ROW EXECUTE FUNCTION memory.replay_entry_id();",
+            )
+            .await
+            .unwrap_or_else(|e| panic!("the scripted id source: {}", e.message()));
         let flush = Arc::new(RawEmbedFlush::new(pg.db.clone(), None));
         Self { pg, flush, now_ms: g.get("clock").get("dateNowMs").as_f64() as i64, statements: Vec::new(), seen: 0 }
     }
@@ -92,17 +108,7 @@ impl Run {
         }
     }
 
-    async fn ids(&self) -> Vec<i64> {
-        let rows = self.pg.db.query("SELECT id FROM entries ORDER BY id", &[]).await.expect("ids");
-        rows.iter().map(|r| r.get::<_, i64>(0)).collect()
-    }
-
-    fn rank(ids: &[i64], id: i64) -> i64 {
-        ids.iter().position(|&i| i == id).unwrap_or_else(|| panic!("no stored row {id}")) as i64 + 1
-    }
-
     async fn rows(&self) -> Exact {
-        let ids = self.ids().await;
         let rows = self
             .pg
             .db
@@ -113,7 +119,7 @@ impl Run {
             rows.iter()
                 .map(|r| {
                     object(vec![
-                        ("id", int(Self::rank(&ids, r.get(0)))),
+                        ("id", int(r.get(0))),
                         ("ts", int(r.get(1))),
                         ("role", string(r.get::<_, String>(2))),
                         ("content", string(r.get::<_, String>(3))),
@@ -135,7 +141,6 @@ impl Run {
     }
 
     async fn take_flushes(&self) -> Exact {
-        let ids = self.ids().await;
         let calls: Vec<_> = std::mem::take(&mut *self.flush.calls.lock().expect("flush calls"));
         Exact::Array(
             calls
@@ -143,7 +148,7 @@ impl Run {
                 .map(|(limit, scoped)| {
                     let mut entries = vec![("limit", int(limit as i64))];
                     if let Some(scoped) = scoped {
-                        entries.push(("ids", Exact::Array(scoped.iter().map(|&id| int(Self::rank(&ids, id))).collect())));
+                        entries.push(("ids", Exact::Array(scoped.iter().map(|&id| int(id)).collect())));
                     }
                     object(entries)
                 })
