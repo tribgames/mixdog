@@ -13,6 +13,8 @@
 //   - a tab whose shell ends by itself (`@exit 3`) while all three read, then its dispose;
 //   - a fresh tab runs a command: its start marker, two lines of output in one chunk, its end marker, each a chunk; then its shell ends;
 //   - a fresh tab whose first line spans two chunks; then its shell ends;
+//   - a fresh tab writes a chunk holding RS and every other control byte, an empty chunk (then a typed line), a chunk of 200 KiB; then
+//     its shell ends;
 //   - p2 claims the desktop tab's size (`termResize` as its owner), then gives it up;
 //   - the tab p2 opened writes, and p2 disposes it while its shell runs: the last output and the exit line that follows;
 //   - an unpair of p1's device (`remoteAccessRevokeClient`) that the relay refuses, or confirms with the phone's socket still open, and
@@ -37,6 +39,9 @@ import { withJob } from './lib/process-job.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 import { assertNoPowerShellProfile, isolatedProfile } from './lib/shell-isolation.mjs';
 import {
+  CONTROLS,
+  CONTROLS_ESCAPED,
+  FILL_BYTES,
   LANE_EVENTS,
   LANE_REACH_CREDENTIALS,
   LANE_REACH_TABS,
@@ -45,6 +50,8 @@ import {
   MARK_START,
   chunks,
   echoed,
+  fill,
+  filled,
   normaliseKilledExit,
   pushesOf,
   typed,
@@ -111,11 +118,11 @@ if (!args.has('child')) {
       entry:
         "Ran: Node's desktop service (createDesktopService) with its relay leg dialling a scripted relay (relay-capabilities, roster, revoke-client answers), three phones through the relay with the app's own E2EE handshake, `setRemoteLanes`, `termEnsure`, `termWrite`, `termDispose`, `termProfiles` as the phones' calls, and the desktop's own `termEnsure`, `termWrite`, `termDispose`, `remoteAccessRevokeClient`. The PTY is the scripted shell (lib/scripted-pty.mjs through lib/scripted-pty-hooks.mjs): node-pty's ConPTY is not run, and the terminal manager's own code runs on what the shell writes. Not run: a direct (WebRTC) transport; binary relay frames (the relay offers text frames).",
       replay:
-        "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::framed_profile over pipes, read one chunk per read through scripted::Frames), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page), in the one order the page got them, are compared whole with Node's; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
+        "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::framed_profile over pipes, read one whole frame per output through scripted::Frames), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page), in the one order the page got them, are compared whole with Node's; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
       compared:
         "Each world's values whole, per phone: every push in the one order the phone received it (termData with tab id and text exactly and its envelope `droppable`, termActivity, termSizeOwner), and whether the desktop closed the phone. Not compared: the `droppable` of termActivity and termSizeOwner (Node sends both never droppable, remote-relay-push-lanes.ts:132-150; the core's come from its sections, which do not carry a phone frame of their own).",
       framing:
-        "How output is cut into termData messages is fixed by the script, not by timing, on both sides. The cut into data events is the script's: the scripted shell ends each chunk with RS and flushes it on its own, and the stand-in hands the terminal manager exactly one data event per chunk whatever the pipe joined or split (lib/scripted-pty.mjs `takeChunks`; the core's reader gets one chunk per read, mixdog-spawn scripted::Frames). The cut into messages is then Node's relay buffer (terminal-data-buffer.ts, `{ delayMs: 16, leadingEdge: true }`, every frame acknowledged as sent, remote-relay-push-lanes.ts:80-89), on the real clock, and these inputs leave it no choice: a data event on a tab with nothing pending is sent at once when 16 ms have passed since that tab's last frame or the tab has had none (:53-60), and otherwise held until 16 ms after the last frame, joined only with data of the same tab arriving meanwhile (:44-50, :63-87). Every step waits until its output reached every phone reading before the next is written, so at most one step's output is ever pending; a step writing one chunk is one message whether sent at once or held (the chunk of two lines on term_lane_cmd is one message); the two chunks on term_lane_split are that tab's first output, so the first is sent at once on arrival and the second, coming after that frame, is a message of its own whether it arrives within 16 ms (held, alone) or later (sent at once). Not recorded here, and timing in Node: two chunks after a tab's first frame arriving within one 16 ms window (joined) or across it (two messages); that rule is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
+        "How output is cut into termData messages is fixed by the script, not by timing, on both sides. The cut into data events is the script's: the scripted shell writes each chunk as one frame (its byte count, `:`, its bytes) flushed on its own, and the stand-in hands the terminal manager exactly one data event per whole frame whatever the pipe joined or split and whatever bytes or length the frame has (lib/scripted-pty.mjs `takeFrames`; the core's reader takes one whole frame per output, mixdog-spawn scripted::Frames and manager.rs `frame_loop`); a frame cut off by the end of the output is an error on both sides. An empty chunk is a data event Node's relay buffer takes nothing of (terminal-data-buffer.ts:44), and the 200 KiB chunk is below the buffer's 256 Ki-character high watermark (:31, every frame acknowledged as sent), so it goes as one message (:67, :75). The cut into messages is then Node's relay buffer (terminal-data-buffer.ts, `{ delayMs: 16, leadingEdge: true }`, every frame acknowledged as sent, remote-relay-push-lanes.ts:80-89), on the real clock, and these inputs leave it no choice: a data event on a tab with nothing pending is sent at once when 16 ms have passed since that tab's last frame or the tab has had none (:53-60), and otherwise held until 16 ms after the last frame, joined only with data of the same tab arriving meanwhile (:44-50, :63-87). Every step waits until its output reached every phone reading before the next is written, so at most one step's output is ever pending; a step writing one chunk is one message whether sent at once or held (the chunk of two lines on term_lane_cmd is one message); the two chunks on term_lane_split are that tab's first output, so the first is sent at once on arrival and the second, coming after that frame, is a message of its own whether it arrives within 16 ms (held, alone) or later (sent at once). Not recorded here, and timing in Node: two chunks after a tab's first frame arriving within one 16 ms window (joined) or across it (two messages); that rule is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
       order:
         "One order per phone across all kinds: Node raises every one of these pushes on the desktop service's one thread, synchronously from the terminal manager's events (terminal-manager.ts:360-372 `pty.onData`: a chunk's text into the data listeners, then its markers into the activity tracker; :380-383 an exit: `activity.exit()`, then the exit line; desktop-operations.ts:525-530 size owner and activity re-emitted as desktop events; remote-relay-push-lanes.ts:97-101, :132-150), and the only deferral among them is the relay buffer's 16 ms timer for termData. For these inputs that timer cannot reorder: on term_lane_cmd the start marker's chunk has no text (its termActivity goes at once), the output chunk is the tab's first data and is sent at once on arrival (terminal-data-buffer.ts:53-60), and the end marker's chunk comes after it; the exit's termActivity (null) is broadcast before its exit line enters the buffer; the size owner changes come with no output pending. Where Node does leave data against activity to timing (output within 16 ms of the tab's last frame is held while a later marker's change goes at once) is not among these inputs.",
       slowPhone:
@@ -324,6 +331,20 @@ async function world(relayConfirms) {
     await invoke('termWrite', LANE_REACH_TABS.split, typed('@exit 0'));
     await reached(LANE_REACH_TABS.split, EXITED);
     await invoke('termDispose', LANE_REACH_TABS.split);
+    for (const phone of Object.values(all)) await phone.call('termProfiles', []);
+
+    // A fresh tab: a chunk holding RS and every other control byte; an empty chunk, then a typed line; a chunk of 200 KiB; then the
+    // shell's end.
+    await invoke('termEnsure', LANE_REACH_TABS.bytes, cwd, null);
+    await invoke('termWrite', LANE_REACH_TABS.bytes, chunks(CONTROLS_ESCAPED));
+    await reached(LANE_REACH_TABS.bytes, CONTROLS);
+    await invoke('termWrite', LANE_REACH_TABS.bytes, chunks(''));
+    await desktopTypes(LANE_REACH_TABS.bytes, 'lane-after-empty');
+    await invoke('termWrite', LANE_REACH_TABS.bytes, fill(FILL_BYTES));
+    await reached(LANE_REACH_TABS.bytes, filled(FILL_BYTES));
+    await invoke('termWrite', LANE_REACH_TABS.bytes, typed('@exit 0'));
+    await reached(LANE_REACH_TABS.bytes, EXITED);
+    await invoke('termDispose', LANE_REACH_TABS.bytes);
     for (const phone of Object.values(all)) await phone.call('termProfiles', []);
 
     // p2 claims the desktop tab's size, then gives it up.
