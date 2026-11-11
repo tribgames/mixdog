@@ -35,6 +35,12 @@ async fn body(response: HttpResponse) -> Result<Vec<u8>, ProviderError> {
     Ok(mixdog_rt::time::timeout(WITHIN, response.read_all()).await.expect("a body or an error within WITHIN")?.body)
 }
 
+/// The next turn of the loop, as a Node caller's `await new Promise(setImmediate)`: a socket whose message ended is free
+/// one check phase after its end (undici `client-h1.js:846`), so a request sent at once would dial anew.
+async fn next_turn() {
+    mixdog_rt::time::immediate().await;
+}
+
 fn link() -> ReqwestLink {
     ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap()
 }
@@ -144,6 +150,7 @@ async fn a2_a_written_post_is_not_replayed_when_the_connection_dies_unanswered()
     let url = format!("http://{addr}/");
     let link = link();
     body(send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap()).await.unwrap();
+    next_turn().await;
     let lost = send(&link, request("POST", url, &[], b"{}")).await;
     assert!(lost.is_err(), "the lost answer is an error");
     assert_eq!(requests.load(Ordering::SeqCst), 2, "the server saw each POST once");
@@ -320,6 +327,7 @@ async fn a4_a_route_change_retires_the_pooled_connection() {
     let link = ReqwestLink::routed(&KeepaliveSchedule::SPEC, false, policy.clone());
     let url = format!("http://{server}/");
     body(send(&link, request("GET", url.clone(), &[], b"")).await.unwrap()).await.unwrap();
+    next_turn().await;
     body(send(&link, request("GET", url.clone(), &[], b"")).await.unwrap()).await.unwrap();
     assert_eq!(accepted.load(Ordering::SeqCst), 1, "the idle connection is reused while the route stands");
     // The loopback host is exempt from a proxy, so the setting changes and the route does not: the connection still
@@ -397,12 +405,13 @@ async fn a5_a_dead_h2_connection_is_not_used_again_and_h2_is_what_a_server_that_
     assert_eq!(accepted.load(Ordering::SeqCst), 2);
 }
 
-// "A drained error response is held": Node's resend of a rejected request (`resendIfEncodingRejected`) runs before the
-// rejected response's socket is free again (undici `pool-base.js:92,135,264`: a client counts as busy until its
-// `drain`), so the resend dials a second connection; once the rejected response is dropped the socket serves requests.
-// The same case is in the OpenAI recording (the two-connection scenarios).
+// Node's resend of a rejected request (`resendIfEncodingRejected`) runs on the turn the rejection arrived, before the
+// rejected response's socket is free again (undici frees it one `setImmediate` after the message ended, `client-h1.js:846`;
+// a client counts as busy until its `drain`, `pool-base.js:92,135,264`), so the resend dials a second connection; a
+// request after that finds the first socket free. The same case is in the OpenAI recording (the two-connection
+// scenarios).
 #[tokio::test]
-async fn a_drained_body_that_is_held_keeps_its_connection_out_of_the_pool_until_dropped() {
+async fn a_resend_on_the_turn_the_answer_ended_finds_its_socket_busy() {
     let (addr, accepted) = listen(move |_, mut stream| async move {
         while read_request(&mut stream).await.is_some() {
             stream.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 2\r\n\r\nno").await.unwrap();
@@ -412,10 +421,9 @@ async fn a_drained_body_that_is_held_keeps_its_connection_out_of_the_pool_until_
     let url = format!("http://{addr}/");
     let link = link();
     let mut rejected = send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap().body;
-    rejected.hold_connection();
     while mixdog_rt::time::timeout(WITHIN, rejected.next()).await.unwrap().is_some() {}
     let resent = send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap();
-    assert_eq!(accepted.load(Ordering::SeqCst), 2, "the resend dialled while the rejected response was held");
+    assert_eq!(accepted.load(Ordering::SeqCst), 2, "the resend dialled while the rejected response's socket was busy");
     drop(body(resent).await);
     drop(rejected);
     body(send(&link, request("POST", url, &[], b"{}")).await.unwrap()).await.unwrap();
@@ -606,6 +614,7 @@ async fn h5_a_write_error_on_a_reused_connection_is_not_replayed() {
     let url = format!("http://{addr}/");
     let link = link();
     body(send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap()).await.unwrap();
+    next_turn().await;
     let big = vec![b'x'; 128 << 20];
     let outcome = link.send(request("POST", url, &[], &big), deadlines::OPENAI_CATALOG).await;
     assert!(outcome.is_err(), "the reset is the request's error");

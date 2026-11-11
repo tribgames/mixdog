@@ -399,6 +399,12 @@ impl NodeClient {
         *self.tap.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tap;
     }
 
+    /// [`Pool::settled`]: every exchange so far has given its connection back, vacated its client or closed it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn settled(&self) {
+        self.pool.settled().await;
+    }
+
     /// The address every connect goes to, when a test pinned it.
     #[cfg(any(test, feature = "test-support"))]
     fn pinned_addr(&self) -> Option<SocketAddr> {
@@ -518,6 +524,7 @@ impl NodeClient {
         let generation = self.pool.generation();
         let proxy = self.route(&url).await?;
         let key = self.key(&url, &proxy);
+        let flight = self.pool.begin();
         let mut replayed = false;
         loop {
             // Dispatched: the connection is chosen now (or none, and one is dialled).
@@ -531,27 +538,23 @@ impl NodeClient {
             // its socket's validation turn and its write come after those of a request dispatched after it in the
             // same turn; a body-less or raw `undici.request` client resumes inside `dispatch`. A turn is this task's
             // poll: such a request yields once here.
-            let streamed = writer == Writer::Fetch && !request.body.is_empty();
-            // A connection held for this request is busy for the rest of this turn: a request polled beside this one
-            // before this task yields finds it busy, one after it finds it free ([`Pool::hold_h1`]). Only the request
-            // that claims the hold waits for it ([`Pool::claim_hold`]).
-            let held = self.pool.claim_hold(&key);
-            if held {
-                // The held socket is resumed by undici's `setImmediate(client[kResume])` (`client-h1.js:846`): on a replay's
-                // clock, in the check phase after every timer of this turn.
-                mixdog_rt::time::immediate().await;
-            } else if streamed {
+            if writer == Writer::Fetch && !request.body.is_empty() {
                 tokio::task::yield_now().await;
             }
-            if held {
-                self.pool.free_held(&key);
-            }
-            let reused = self.pool.validated(&key, chosen).await;
-            let was_reused = reused.is_some();
+            let reused = self.pool.validated(chosen).await;
+            let was_reused = matches!(reused, Some(Taken::H1(_) | Taken::H2 { .. }));
             let outcome = match reused {
-                Some(Taken::H1(conn)) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
+                Some(Taken::H1(mut conn)) => {
+                    conn.flight = Some(flight.clone());
+                    self.exchange_h1(conn, &key, request, &url, writer, surface).await
+                }
                 Some(Taken::H2 { id, send, guard }) => self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await,
-                None => {
+                slot @ (None | Some(Taken::Vacant(_))) => {
+                    // A client of the pool connects again in its own place; otherwise a new client is made.
+                    let born = match slot {
+                        Some(Taken::Vacant(slot)) => slot,
+                        _ => self.pool.birth(),
+                    };
                     #[cfg(test)]
                     self.pool.at(pool::At::Dial);
                     let dialled = mixdog_rt::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
@@ -577,9 +580,11 @@ impl NodeClient {
                         let guard = self.pool.put_h2(key.clone(), id, send.clone(), generation);
                         self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await
                     } else {
-                        let conn = h1::Conn::open(io, self.pool.birth(), generation)
+                        let mut conn = h1::Conn::open(io, born, generation)
                             .await
                             .map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
+                        conn.track(&self.pool, &key);
+                        conn.flight = Some(flight.clone());
                         self.exchange_h1(conn, &key, request, &url, writer, surface).await
                     }
                 }

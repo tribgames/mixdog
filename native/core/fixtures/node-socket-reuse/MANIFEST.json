@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 580,
+      "bytes": 2492,
       "path": "golden.json",
-      "sha256": "811dfd39d8955a3ef8066488fcdf05eb0ed63e9149df561110530272fe83969e"
+      "sha256": "eb43d3e60a2e1cfbcd6b7da8d9ba9986c176611b7032cd63b8b2a858feb0b229"
     }
   ],
   "inputs": [
@@ -57,8 +57,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-node-socket-reuse.mjs",
-  "recorderSha256": "b1134ebd22a55461c0ea287387d898db4af0979936a77905ba401521a1082f32",
+  "recorderSha256": "d66f5b192ec2f77ed73f5d487f83583cccb8355f9258e4a085b7d3961e832542",
   "runs": 3,
   "set": "node-socket-reuse",
-  "totalBytes": 580
+  "totalBytes": 2492
 }
