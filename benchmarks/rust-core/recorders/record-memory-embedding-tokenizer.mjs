@@ -115,7 +115,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'loadUnigramTokenizer and UnsupportedTokenizerError (embedding-tokenizer.mjs) over the synthetic tokenizer.json files stored beside the golden; the reference library encodes every sample and the recorder stops on any difference', notRun: 'the model graph and pooling' },
-    replay: 'mixdog-services memory: mem/embed/tokenizer.rs load + encode over tokenizer-main.json / tokenizer-cut.json; compares ids for every sample, the window cut, and the unsupported-model refusal (Node message in `unsupported`).',
+    replay: "mixdog-services memory/embed/tokenizer.rs: UnigramTokenizer::load (:106) and encode (:356) (pub). A replay loads the same compact tokenizer layouts and compares ids, window cut and the unsupported-layout errors",
     exclusions: 'none',
     normalised: { 'temp paths': 'files are temp; the golden names the stored tokenizer files' },
   },
