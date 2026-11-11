@@ -160,7 +160,6 @@ writeSetManifest(stage, {
       "queued-rows: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
       'spool: the 1.4.5 steering mirror file; Rust keeps queued entries in the session log, compared through the queue a reopened session shows and drains',
       'requests: the user messages of each request, whole, per process',
-      "usage-save-timer: crash-queued-while-take, steps `taken`, `reopened` and `drained`: `usage`, the books of the durable record: whether the first request's usage is in it at the kill follows Node's 150 ms debounced session save (SAVE_DEBOUNCE_MS, a real timer): recordings of this case from the unpatched tree gave 10 input tokens in one and 0 in two, the patched tree's gave 10 in five of five",
     ],
   },
 });

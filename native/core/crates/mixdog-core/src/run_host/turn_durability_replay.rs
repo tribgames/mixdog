@@ -154,16 +154,35 @@ impl Clock for At {
     }
 }
 
-/// A crash child's session clock: each recorded Node process died before its usage write's real 150 ms debounce ran out
-/// (no case's golden holds a debounced usage write), so the replay's debounce does not run out either, however slow this
-/// machine's syncs are.
+/// A crash child's session clock: its sleeps (the usage write's 150 ms debounce) are virtual, as the recorder child's timers
+/// are, and run out only when [`advance_held`] moves the clock (Node's `advance`), however slow this machine's syncs are.
 struct Held(Arc<dyn mixdog_core_session::session::Clock>);
+/// The virtual time and the sleeps waiting on it: (due, wake).
+static HELD_SLEEPS: Mutex<(u64, Vec<(u64, tokio::sync::oneshot::Sender<()>)>)> = Mutex::new((0, Vec::new()));
 impl mixdog_core_session::session::Clock for Held {
     fn now_ms(&self) -> i64 {
         self.0.now_ms()
     }
-    fn sleep(&self, _: Duration) -> futures::future::BoxFuture<'static, ()> {
-        Box::pin(std::future::pending())
+    fn sleep(&self, after: Duration) -> futures::future::BoxFuture<'static, ()> {
+        let (wake, woken) = tokio::sync::oneshot::channel();
+        let mut held = lock(&HELD_SLEEPS);
+        let due = held.0 + after.as_millis() as u64;
+        held.1.push((due, wake));
+        Box::pin(async move {
+            let _ = woken.await;
+        })
+    }
+}
+
+/// Moves the crash child's virtual clock on by `ms`: the sleeps due by then run out.
+fn advance_held(ms: u64) {
+    let mut held = lock(&HELD_SLEEPS);
+    held.0 += ms;
+    let now = held.0;
+    let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut held.1).into_iter().partition(|(at, _)| *at <= now);
+    held.1 = waiting;
+    for (_, wake) in due {
+        let _ = wake.send(());
     }
 }
 
@@ -688,6 +707,9 @@ async fn crash_child() {
             tokio::time::timeout(Duration::from_secs(30), ON_WIRE.notified()).await.expect("the request that took them is on the wire");
             // Node's view after its mirror's drop settled (`flushTuiSteeringPersist`): the queue's dequeue is durable.
             until(&handle, "the taken prompts leave the queue", async || queued_of(&observe(&directory, &handle).await).is_empty()).await;
+            // Node's `advance(150)`: the first request's usage debounce runs out and its write lands before the kill.
+            advance_held(150);
+            until(&handle, "the first request's usage is written", async || usage_of(&directory, &handle).await["lastContextTokens"] == json!(10)).await;
             write_step(&dir, "taken", queue_observe(&directory, &handle).await);
             kill("taken");
         }
@@ -828,9 +850,9 @@ fn cases() -> Vec<Value> {
 /// What the manifest's `exclusions` may name: each line is `<key>: <reason>`. The comparison drops or translates a thing only
 /// while its key is listed; without the line the thing is compared as recorded (and the replay fails where the two sides differ).
 /// `result`, `refusal-class` and `requests` are lines that state how a value is read, not a drop.
-const EXCLUSION_KEYS: [&str; 20] = [
+const EXCLUSION_KEYS: [&str; 19] = [
     "minted-ids", "row-id", "view-messages", "system-message", "rust-disk-stamps", "end-row-message-id", "checkpoint-seal", "queued-stamps", "taken-disk",
-    "saved-uncleared-presence", "secret-before-mark", "secret-files", "busy", "result", "refusal-class", "live-view", "queued-rows", "spool", "requests", "usage-save-timer",
+    "saved-uncleared-presence", "secret-before-mark", "secret-files", "busy", "result", "refusal-class", "live-view", "queued-rows", "spool", "requests",
 ];
 
 /// Whether the manifest's exclusions list `key`.
@@ -1159,11 +1181,6 @@ fn same(case: &str, step: &Value, got: Value) {
         queue_comparable(&mut got, label);
         queue_comparable(&mut want, label);
     }
-    // `usage-save-timer`: whether the first request's usage is in the durable record at the kill follows a real 150 ms timer.
-    if case == "crash-queued-while-take" && ["taken", "reopened", "drained"].contains(&label) && excluded("usage-save-timer") {
-        got.as_object_mut().unwrap().shift_remove("usage");
-        want.as_object_mut().unwrap().shift_remove("usage");
-    }
     if got != want {
         let diff = format!("{case} / {}:\n got {}\nwant {}", step["step"], serde_json::to_string(&got).unwrap(), serde_json::to_string(&want).unwrap());
         lock(&DIFFS).push(diff);
@@ -1337,6 +1354,9 @@ async fn a_held_turn_forks_as_node_forks_it() {
     no_diffs();
 }
 
+/// How long `taskkill` may take to end a crash child's tree.
+const END_TREE_DEADLINE: Duration = Duration::from_secs(20);
+
 /// A crash child that ends, with everything it started, on every exit path of its owner: its tree is ended when it is dropped
 /// still running (a panic, an assertion), and at its deadline.
 struct Crashed(tokio::process::Child);
@@ -1355,26 +1375,57 @@ impl std::ops::DerefMut for Crashed {
 }
 
 impl Crashed {
-    /// Ends the child and every process it started, by its id.
-    fn end_tree(&self) {
-        let Some(pid) = self.0.id() else { return };
+    /// Ends the child and every process it started, by its id. `taskkill` is given [`END_TREE_DEADLINE`] and its result is
+    /// checked: the error names the case and the process that may still be alive.
+    fn end_tree(&self, name: &str) -> Result<(), String> {
+        self.0.id().map_or(Ok(()), |pid| end_tree_of(name, pid))
+    }
+}
+
+fn end_tree_of(name: &str, pid: u32) -> Result<(), String> {
+    {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            let _ = std::process::Command::new("taskkill").args(["/F", "/T", "/PID", &pid.to_string()]).creation_flags(0x0800_0000).status();
+            let mut taskkill = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .creation_flags(0x0800_0000)
+                .spawn()
+                .map_err(|error| format!("{name}: taskkill did not start; the crash child {pid} is still alive: {error}"))?;
+            let (done, ended) = std::sync::mpsc::channel();
+            std::thread::spawn(move || drop(done.send(taskkill.wait())));
+            match ended.recv_timeout(END_TREE_DEADLINE) {
+                Ok(Ok(status)) if status.success() => Ok(()),
+                Ok(Ok(status)) => Err(format!("{name}: taskkill ended with {status}; the crash child {pid} and its processes may still be alive")),
+                Ok(Err(error)) => Err(format!("{name}: taskkill's status was not read ({error}); the crash child {pid} and its processes may still be alive")),
+                Err(_) => Err(format!("{name}: taskkill did not return within {} s; the crash child {pid} and its processes may still be alive", END_TREE_DEADLINE.as_secs())),
+            }
         }
         #[cfg(unix)]
-        // SAFETY: signals the child's own process group (it is spawned as the leader of one).
-        unsafe {
-            libc::kill(-(pid as i32), libc::SIGKILL);
+        {
+            // SAFETY: signals the child's own process group (it is spawned as the leader of one).
+            if unsafe { libc::kill(-(pid as i32), libc::SIGKILL) } != 0 {
+                return Err(format!("{name}: the crash child's process group {pid} was not signalled: {}", std::io::Error::last_os_error()));
+            }
+            Ok(())
         }
     }
 }
 
+/// A tree that cannot be ended is an error naming the case and the process, not a silent pass.
+#[test]
+fn a_tree_that_taskkill_cannot_end_is_named() {
+    // No process has this id.
+    let error = end_tree_of("tree-probe", 0x7fff_fff0).expect_err("nothing to end");
+    assert!(error.starts_with("tree-probe: ") && error.contains(&0x7fff_fff0u32.to_string()), "{error}");
+}
+
 impl Drop for Crashed {
     fn drop(&mut self) {
-        if matches!(self.0.try_wait(), Ok(None)) {
-            self.end_tree();
+        if matches!(self.0.try_wait(), Ok(None))
+            && let Err(error) = self.end_tree("a crash child dropped while running")
+        {
+            eprintln!("{error}");
         }
     }
 }
@@ -1406,8 +1457,12 @@ async fn wait_child(name: &str, process: &mut Crashed, deadline: Duration) -> Re
     match tokio::time::timeout(deadline, process.wait()).await {
         Ok(status) => Ok(status.expect("the child's status")),
         Err(_) => {
-            process.end_tree();
-            tokio::time::timeout(Duration::from_secs(30), process.wait()).await.expect("the ended child is reaped within 30 s").expect("the child's status");
+            process.end_tree(name)?;
+            let pid = process.id().unwrap_or_default();
+            tokio::time::timeout(Duration::from_secs(30), process.wait())
+                .await
+                .map_err(|_| format!("{name}: the crash child {pid} was still alive 30 s after its tree was ended"))?
+                .expect("the child's status");
             Err(format!("{name}: the crash child did not end within {} s", deadline.as_secs()))
         }
     }
