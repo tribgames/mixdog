@@ -92,7 +92,18 @@ export const heard = (publications) =>
 export function nodeSide(recording) {
   const instant = instantOf(recording.manifest.epoch);
   const norm = normalizer({ instant, own: new Map([[recording.id, '<session>']]) });
-  const history = recording.history.map((h, at) => (h.kind === 'reply' ? { at, kind: 'reply', input: h.input, value: norm(h.error !== undefined ? { error: h.error } : { reply: h.reply }) } : { at, kind: 'state', value: norm(h.snapshot) }));
+  // A store publication equal to the state the phone last got reaches no phone: the relay sends a session frame only when the
+  // phone's baseline differs from it (remote-relay-session-state.ts sendSessionStateToClient, isNoDelta, at b6f10295a).
+  let lastSent = null;
+  const history = recording.history
+    .map((h, at) => (h.kind === 'reply' ? { at, kind: 'reply', input: h.input, value: norm(h.error !== undefined ? { error: h.error } : { reply: h.reply }) } : { at, kind: 'state', value: norm(h.snapshot), raw: JSON.stringify(h.snapshot) }))
+    .filter((h) => {
+      if (h.kind !== 'state') return true;
+      const heardNow = h.raw !== lastSent;
+      lastSent = h.raw;
+      delete h.raw;
+      return heardNow;
+    });
   // The thread list the phone heard: the host's catalog publications, each at its clock, less one that changes nothing since the last
   // (the relay sends none: remote-relay-catalog.ts:79-91 isNoListDelta; the phone's baseline is the empty list its join read).
   const roster = heard(recording.roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) })));
