@@ -52,7 +52,27 @@
           "provider": "openai-oauth",
           "model": "gpt-6-astra"
         },
-        "sourceUnchanged": true,
+        "sourceAfter": {
+          "id": "source",
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5-1",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Continue my work."
+            },
+            {
+              "role": "assistant",
+              "content": "Previous answer.",
+              "meta": {
+                "transcript": {
+                  "provider": "anthropic-oauth",
+                  "modelId": "claude-fable-5-1"
+                }
+              }
+            }
+          ]
+        },
         "saves": 1,
         "targetMessages": [
           {
@@ -225,8 +245,10 @@
         "sourceMessageChars": 12500,
         "outcome": {
           "rejected": {
+            "$exact": "error",
             "name": "Error",
-            "message": "inheritFrom: the full conversation needs 3129 tokens but openai/small allows 1000 before compaction"
+            "message": "inheritFrom: the full conversation needs 3129 tokens but openai/small allows 1000 before compaction",
+            "props": {}
           }
         },
         "saved": false,
