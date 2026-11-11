@@ -2,13 +2,18 @@
 // pasted text's `chars`, `sizeBytes` and `attachmentRef`, run unchanged from the exact export.
 //
 //   node record-pasted-text-chars.mjs <export dir> <out file>
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { NODE_COMMIT, verifyNodeExport } from '../../../apps/desktop/src/renderer/remote-protocol-chat-node-export.mjs';
 
 const [exportDir, outFile] = process.argv.slice(2);
-process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'pasted-chars-'));
+// The export is the commit's tree, file by file, before anything of it runs.
+verifyNodeExport(exportDir);
+const dataDir = mkdtempSync(join(tmpdir(), 'pasted-chars-'));
+process.env.MIXDOG_DATA_DIR = dataDir;
+process.on('exit', () => rmSync(dataDir, { recursive: true, force: true }));
 const { materializePromptSubmission } = await import(pathToFileURL(join(exportDir, 'src/runtime/attachments/store.mjs')).href);
 
 const inputs = [
@@ -29,5 +34,5 @@ const cases = inputs.map(({ name, entry }) => {
   const { options } = materializePromptSubmission('see [Pasted text #1]', { pastedTexts: { 1: entry } });
   return { name, entry, materialized: options.pastedTexts[1] };
 });
-writeFileSync(outFile, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-pasted-text-chars.mjs', commit: 'b6f10295a2f698afc85332467192de28500bd146', cases }, null, 2)}\n`);
+writeFileSync(outFile, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-pasted-text-chars.mjs', commit: NODE_COMMIT, cases }, null, 2)}\n`);
 console.log(`recorded ${cases.length} cases`);
