@@ -23,6 +23,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::errors::classify_stream_error;
+use super::replay_blocks;
 use crate::providers::leak;
 use crate::providers::leak::Dedupe;
 use crate::providers::leak::LeakGuard;
@@ -264,23 +265,16 @@ impl AnthropicDecoder {
     }
 
     /// The ordered assistant blocks of the turn, in provider block order,
-    /// reduced to what the API accepts back: empty text is dropped, and a
-    /// thinking block that only became adjacent to the previous one through
-    /// that removal is dropped too (it would fuse two runs into one).
+    /// reduced to what the API accepts back ([`replay_blocks::sanitize`]); a
+    /// merged thinking run dropped is reported once (turn-blocks.mjs:88-99).
     fn replay_blocks(&self) -> Vec<Value> {
-        let mut out: Vec<Value> = Vec::new();
-        let mut separator_removed = false;
-        let mut last_kept_thinking = false;
+        let mut blocks: Vec<Value> = Vec::new();
         for (index, block) in &self.blocks {
             if self.skipped.contains(index) {
                 continue;
             }
             let value = match block {
                 Block::Text { text, citations } => {
-                    if text.is_empty() {
-                        separator_removed = true;
-                        continue;
-                    }
                     let mut value = json!({ "type": "text", "text": text });
                     if !citations.is_empty() {
                         value["citations"] = Value::Array(citations.clone());
@@ -298,15 +292,20 @@ impl AnthropicDecoder {
                 Block::NativeResult(block) => block.clone(),
                 _ => continue,
             };
-            let is_thinking = matches!(block, Block::Thinking { .. } | Block::Redacted { .. });
-            if is_thinking && last_kept_thinking && separator_removed {
-                continue;
-            }
-            out.push(value);
-            last_kept_thinking = is_thinking;
-            separator_removed = false;
+            blocks.push(value);
         }
-        out
+        let mut merged = 0;
+        replay_blocks::sanitize(&blocks, &mut |dropped, block| {
+            if dropped == replay_blocks::Dropped::MergedThinking {
+                merged += 1;
+                if merged == 1 {
+                    let kind = block.get("type").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("thinking");
+                    tracing::warn!(
+                        "[anthropic] dropped a {kind} block separated only by an empty text block; replaying it would merge two thinking runs into one"
+                    );
+                }
+            }
+        })
     }
 
     fn emit_completed(&mut self, out: &mut Vec<StreamEvent>) {
