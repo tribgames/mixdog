@@ -131,7 +131,9 @@ pub fn script_jitter(samples: impl IntoIterator<Item = (f64, f64)>) {
 
 /// Runs a replay's `future` to its end on a current-thread runtime of its own, in a fresh scope: every thread of the
 /// runtime (the caller's while the future runs, and each thread of its blocking pool) draws random bytes, jitter and wall
-/// time from the scripts the replay installs, and no thread outside it does. The scope's scripts go when it ends.
+/// time from the scripts the replay installs, and no thread outside it does. The scope's scripts go when its runtime is
+/// gone: blocking work still running after the future ended is waited for by the runtime's teardown and draws from the
+/// replay's script (a draw past its end panics), never from the real sources.
 #[cfg(any(test, feature = "test-support"))]
 pub fn run_scoped<F: std::future::Future>(future: F) -> F::Output {
     /// Leaves the scope when the replay ends, a panic included.
@@ -149,6 +151,9 @@ pub fn run_scoped<F: std::future::Future>(future: F) -> F::Output {
         }
     }
     let id = scripted::fresh();
+    // Declared before the runtime so it drops after it: the runtime's teardown waits for running blocking work, which
+    // must still find the scripts.
+    let _leave = Leave { id, before: scripted::enter(id) };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .on_thread_start(move || {
@@ -156,12 +161,36 @@ pub fn run_scoped<F: std::future::Future>(future: F) -> F::Output {
         })
         .build()
         .expect("the replay's runtime");
-    let _leave = Leave { id, before: scripted::enter(id) };
     runtime.block_on(future)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// The one deadline of every wait in these tests.
+    const DEADLINE: Duration = Duration::from_secs(30);
+
+    /// Awaits `task` for the deadline; a timeout names `what`.
+    async fn within<T>(what: &str, task: impl std::future::Future<Output = T>) -> T {
+        tokio::time::timeout(DEADLINE, task).await.unwrap_or_else(|_| panic!("timed out after {DEADLINE:?} waiting for {what}"))
+    }
+
+    /// Receives from `channel` for the deadline; a timeout names `what`.
+    fn receive<T>(what: &str, channel: &mpsc::Receiver<T>) -> T {
+        channel.recv_timeout(DEADLINE).unwrap_or_else(|e| panic!("{e} after {DEADLINE:?} waiting for {what}"))
+    }
+
+    /// A wait that never ends fails at its deadline, naming what it waited for (on the paused clock, which jumps to it).
+    #[tokio::test(start_paused = true)]
+    async fn a_wait_past_its_deadline_fails_naming_what_it_waits_for() {
+        use futures::FutureExt as _;
+        let failed = std::panic::AssertUnwindSafe(within("a task that never ends", std::future::pending::<()>())).catch_unwind().await;
+        let message = failed.expect_err("the wait has a deadline").downcast::<String>().expect("a formatted message");
+        assert!(message.contains("a task that never ends") && message.contains("30s"), "{message}");
+    }
+
     /// Work of a replay that moves off the replay's thread (here to the runtime's blocking pool) draws from the replay's
     /// script, in order, and a draw past its end fails loudly.
     #[test]
@@ -169,39 +198,69 @@ mod tests {
         super::run_scoped(async {
             super::script([vec![7; 8], vec![8; 8]]);
             super::script_jitter([(0.5, 0.5)]);
-            let moved = tokio::task::spawn_blocking(|| (super::bytes::<8>(), super::jitter())).await.expect("a draw on the blocking pool");
+            let moved = within("a draw on the blocking pool", tokio::task::spawn_blocking(|| (super::bytes::<8>(), super::jitter())))
+                .await
+                .expect("a draw on the blocking pool");
             assert_eq!(moved, ([7; 8], Some((0.5, 0.5))));
             assert_eq!(super::bytes::<8>(), [8; 8]);
-            let past = tokio::task::spawn_blocking(super::bytes::<8>).await.expect_err("a draw past the script panics");
+            let past = within("a draw past the script", tokio::task::spawn_blocking(super::bytes::<8>)).await.expect_err("a draw past the script panics");
             assert!(past.into_panic().downcast_ref::<String>().is_some_and(|m| m.contains("past the end")));
         });
+    }
+
+    /// Blocking work still running when the replay's future has ended finishes inside the replay's scope: it draws the
+    /// script's value, not a real one.
+    #[test]
+    fn blocking_work_outliving_the_future_still_draws_from_its_script() {
+        let (release, released) = mpsc::channel::<()>();
+        let (drew, outcome) = mpsc::channel::<[u8; 8]>();
+        super::run_scoped(async move {
+            super::script([vec![9; 8]]);
+            // Not awaited: the task outlives the future and draws only once released.
+            drop(tokio::task::spawn_blocking(move || {
+                receive("the release of the escaping task", &released);
+                drew.send(super::bytes::<8>()).expect("the outcome's receiver");
+            }));
+            release.send(()).expect("the task's receiver");
+        });
+        assert_eq!(receive("the escaping task's draw", &outcome), [9; 8]);
     }
 
     /// Two replays scripting their draws at the same time each draw their own, and a thread outside both draws fresh
     /// without failing while both hold scripts.
     #[test]
     fn concurrent_replays_never_see_each_other_or_unrelated_work() {
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+        type Drawn = ([u8; 8], ([u8; 8], Option<(f64, f64)>));
+        let (ready, scripted) = mpsc::channel::<()>();
         let run = |mark: u8| {
-            let barrier = barrier.clone();
-            std::thread::spawn(move || {
+            let ready = ready.clone();
+            let (go, wait) = mpsc::channel::<()>();
+            let (done, result) = mpsc::channel::<Drawn>();
+            let thread = std::thread::spawn(move || {
                 super::run_scoped(async move {
                     super::script([vec![mark; 8], vec![mark + 1; 8]]);
                     super::script_jitter([(f64::from(mark), 0.0)]);
-                    barrier.wait();
+                    ready.send(()).expect("the main thread's receiver");
+                    receive("the unrelated draw to finish", &wait);
                     let first = super::bytes::<8>();
-                    let moved = tokio::task::spawn_blocking(|| (super::bytes::<8>(), super::jitter())).await.expect("a moved draw");
-                    barrier.wait();
-                    (first, moved)
+                    let moved = within("a moved draw", tokio::task::spawn_blocking(|| (super::bytes::<8>(), super::jitter()))).await.expect("a moved draw");
+                    done.send((first, moved)).expect("the main thread's receiver");
                 })
-            })
+            });
+            (thread, go, result)
         };
         let (a, b) = (run(1), run(10));
-        barrier.wait();
+        drop(ready);
+        receive("the first replay's script", &scripted);
+        receive("the second replay's script", &scripted);
         let unrelated = std::thread::spawn(super::jitter).join().expect("an unrelated draw");
-        barrier.wait();
         assert_eq!(unrelated, None);
-        assert_eq!(a.join().unwrap(), ([1; 8], ([2; 8], Some((1.0, 0.0)))));
-        assert_eq!(b.join().unwrap(), ([10; 8], ([11; 8], Some((10.0, 0.0)))));
+        for (_, go, _) in [&a, &b] {
+            go.send(()).expect("the replay's receiver");
+        }
+        assert_eq!(receive("the first replay's draws", &a.2), ([1; 8], ([2; 8], Some((1.0, 0.0)))));
+        assert_eq!(receive("the second replay's draws", &b.2), ([10; 8], ([11; 8], Some((10.0, 0.0)))));
+        a.0.join().expect("the first replay");
+        b.0.join().expect("the second replay");
     }
 }
