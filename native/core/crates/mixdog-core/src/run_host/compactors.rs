@@ -96,6 +96,11 @@ impl CompactorSource for SessionCompactors {
 impl SessionCompactors {
     /// The session's compactor; `None` when the session knows no boundary (Node has no policy).
     async fn fresh(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> Option<Arc<FreshCompactor>> {
+        FreshCompactor::for_session(self.session(thread, header, prior, input).await)
+    }
+
+    /// What the session's compactor is wired from: the world's facts of the session, its settings and its summary plan.
+    pub(crate) async fn session(&self, thread: &ThreadId, header: &Header, prior: &[Value], input: CompactorInput) -> SessionCompactor {
         let facts = self.world.facts(thread, header, prior).await;
         let provider = header.get("provider").and_then(Value::as_str).map_or("", mixdog_js::js_trim);
         let parts = Arc::new(FreshParts {
@@ -107,7 +112,7 @@ impl SessionCompactors {
             redactor: facts.redactor,
             blobs: input.blobs,
         });
-        FreshCompactor::for_session(SessionCompactor {
+        SessionCompactor {
             settings: input.settings,
             parts,
             triggers: TriggerSeams { tool_media: facts.tool_media, native_pdf: facts.native_pdf, cache: facts.cache },
@@ -115,7 +120,7 @@ impl SessionCompactors {
             resolver: Arc::new(SummaryRoutes::new(facts.summary)),
             summary_mode: summary_mode(self.world.compaction_config().as_ref()),
             conversation_threshold_tokens: conversation_threshold(header),
-        })
+        }
     }
 }
 
