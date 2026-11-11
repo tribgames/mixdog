@@ -153,6 +153,7 @@ async function replay({ prefix, seed, opened, following, move }) {
       // newest 64 of the revealed rows, in order; the held rows stay as held.
       assert.deepEqual(rowsOf(page.items.slice(-read.items.length)), rowsOf(read.items), `${name}: the recorded 64 rows are the newest of the revealed rows`);
       assert.equal(latest.items.length, page.items.length + held, `${name}: the revealed rows above the held rows`);
+      assert.deepEqual(rowsOf(latest.items.slice(0, page.items.length)), rowsOf(page.items), `${name}: the rows displayed above the held rows are the page the core answered, whole and in order`);
       assert.deepEqual(rowsOf(latest.items.slice(-held)), rowsOf(recording.heldBeforePage), `${name}: the held rows are kept as held`);
       assert.deepEqual(rowsOf(latest.items.slice(-recording.snapshot.items.length)), rowsOf(recording.snapshot.items), `${name}: the newest 96 rows displayed`);
       // The recorded 64-row page stops short of the first row (hasOlder true); the pager's page reaches the session's first row.
