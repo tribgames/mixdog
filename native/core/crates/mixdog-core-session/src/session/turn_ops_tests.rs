@@ -447,6 +447,27 @@ async fn a_retry_waits_for_a_running_compaction() {
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&seen).len() == 2).then_some(())).await;
 }
 
+/// A manual compaction runs under the session's abort signal (`getSessionAbortSignal`): the runtime's shutdown aborts it with
+/// Node's `runtime close` text, so a compaction in flight does not outlive the session.
+#[tokio::test(start_paused = true)]
+async fn a_shutdown_aborts_the_compaction_in_flight() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold);
+    let mut compacting = {
+        let handle = handle.clone();
+        tokio::spawn(async move { call(&handle, "thread/compact/start", json!({}), "c-1").await })
+    };
+    eventually_on_until!(&[&rig.compaction.called], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(()), &mut compacting).await;
+    let cancel = super::testing::lock(&rig.compaction.cancels)[0].clone();
+    assert!(!cancel.is_aborted(), "a running compaction is not aborted");
+    directory.shutdown().await;
+    assert!(cancel.is_aborted(), "the shutdown aborted the compaction's signal");
+    assert_eq!(cancel.reason(), format!("Session \"{}\" closed: runtime close (reason=cli-exit)", handle.id.as_str()));
+}
+
 /// `resumeGoal`: a quota failure that suspended the Goal is retried by reviving that Goal through
 /// the lane's admission; the Goal then continues on its own, the queued resume and the note
 /// of the suspended Goal end, and a second ask for the same turn is refused.

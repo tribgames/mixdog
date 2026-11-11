@@ -23,6 +23,7 @@ use mixdog_agent::compact::pressure::{
     Archived, CommitInput, CompactionPlan, Route, StatusInput, SummaryFacts, TRANSCRIPT_MOVED_ERROR, TranscriptSigner, UsageSnapshotArgs, commit_compaction, compaction_plan,
     failed_compaction, invalidate_provider_context_baseline, record_context_usage_snapshot, usage_totals,
 };
+use mixdog_agent::cancel::Cancel;
 use mixdog_agent::compact::tool_schema::RequestTools;
 use mixdog_agent::env::{Clock, CompactError, CompactRequest, CompactTrigger};
 use mixdog_agent::message::AgentMessage;
@@ -295,7 +296,7 @@ impl PassTranscript for mixdog_core_session::session::SessionDirectory {
 impl HostManualCompaction {
     /// The manual pass over `snapshot`'s thread (`runSessionCompaction` with `force`), reading and committing through
     /// `transcript`.
-    pub(crate) async fn pass(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, snapshot: ContextSnapshot, transcript: &dyn PassTranscript) -> Result<Option<Value>, CoreError> {
+    pub(crate) async fn pass(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, snapshot: ContextSnapshot, transcript: &dyn PassTranscript, cancel: &Cancel) -> Result<Option<Value>, CoreError> {
         let parts = &self.parts;
         let context = transcript.context(thread).await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
@@ -333,14 +334,22 @@ impl HostManualCompaction {
         // The manager's savings gate passed: `compactStartedAt`, then PreCompact (`onStageChange('compacting')`).
         let started_at = self.now();
         parts.hooks.pre(thread, trigger).await;
-        let output = match compactor.compact(request(require)).await {
+        // `runFreshContextCompact`'s `signal.throwIfAborted()` and the summary send's signal: the session's abort ends the pass,
+        // and dropping the pass's future (cancel-safe) ends the summary request in flight.
+        let compacted = tokio::select! {
+            biased;
+            () = cancel.cancelled() => Err(CompactError::Aborted),
+            compacted = compactor.compact(request(require)) => compacted,
+        };
+        let output = match compacted {
             Ok(output) => output,
             Err(CompactError::Overflow(message) | CompactError::Failed(message)) => {
                 return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
             Err(CompactError::Aborted) => {
-                let message = "compact aborted";
-                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, message, Some(message)).await.map(Some);
+                // Node records the abort signal's own text (`error.message` of the reason it threw).
+                let message = if cancel.is_aborted() { cancel.reason() } else { "compact aborted".to_owned() };
+                return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
         };
         if output.skipped {
@@ -411,10 +420,10 @@ impl HostManualCompaction {
 
 #[async_trait]
 impl ManualCompaction for HostManualCompaction {
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError> {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &Cancel) -> Result<Option<Value>, CoreError> {
         let Some(snapshot) = self.parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
         let Some(directory) = self.parts.directory.directory() else { return Ok(None) };
-        self.pass(thread, trigger, require_reduction, snapshot, &*directory).await
+        self.pass(thread, trigger, require_reduction, snapshot, &*directory, cancel).await
     }
 
     /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's

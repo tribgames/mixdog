@@ -97,8 +97,10 @@ impl SessionActor {
         let (trigger, require_reduction) = super::super::turn_ops::compact_trigger(options.as_ref());
         let recover = options.as_ref().and_then(|options| options.get("recoverAgent")) == Some(&Value::Bool(true));
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
+        let cancel = mixdog_agent::cancel::Cancel::new();
+        *self.cell.compaction_cancel.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancel.clone());
         tokio::spawn(async move {
-            let result = match compaction.compact(&thread, trigger, require_reduction).await {
+            let result = match compaction.compact(&thread, trigger, require_reduction, &cancel).await {
                 Ok(result) => result.unwrap_or(Value::Null),
                 Err(error) => {
                     let _ = jobs.send(JobDone::CompactionEnded);

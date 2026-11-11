@@ -226,6 +226,9 @@ pub(crate) struct ControlCell {
     /// the actor last stepped: what the desktop host counts as the session working.
     pub ui_busy: std::sync::atomic::AtomicBool,
     pub compacting: std::sync::atomic::AtomicBool,
+    /// The running manual compaction's signal (Node's session abort controller, which a compaction reads through
+    /// `getSessionAbortSignal`): a close, a delete or a shutdown aborts it with their own text.
+    pub compaction_cancel: Mutex<Option<mixdog_agent::cancel::Cancel>>,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
@@ -321,6 +324,13 @@ impl ControlCell {
 }
 
 impl ControlCell {
+    /// Stops the manual compaction in flight, if any, with `abort`'s text.
+    pub fn abort_compaction(&self, abort: &mixdog_agent::cancel::Abort) {
+        if let Some(cancel) = lock(&self.compaction_cancel).as_ref() {
+            cancel.abort_with(abort);
+        }
+    }
+
     /// The observers at this moment; called outside the lock.
     pub fn turn_listeners(&self) -> Vec<Arc<dyn TurnListener>> {
         lock(&self.turn_listeners).iter().map(|(_, listener)| listener.clone()).collect()

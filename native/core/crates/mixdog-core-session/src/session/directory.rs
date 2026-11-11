@@ -1285,6 +1285,7 @@ impl DirInner {
             turn_pending: Default::default(),
             ui_busy: Default::default(),
             compacting: Default::default(),
+            compaction_cancel: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]

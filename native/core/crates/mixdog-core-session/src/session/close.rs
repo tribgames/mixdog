@@ -229,6 +229,7 @@ pub(crate) async fn stop_session_work(
 
 async fn abort_and_drop(directory: &SessionDirectory, thread: &ThreadId, reason: &str, caller: &'static str) {
     let Some(handle) = directory.handle(thread) else { return };
+    handle.cell.abort_compaction(&mixdog_agent::cancel::Abort::close_session(thread.as_str(), reason));
     let queued: Vec<String> = handle.cell.queued.load().iter().cloned().collect();
     for queued_id in queued {
         let op = format!("{caller}:{queued_id}:drop");

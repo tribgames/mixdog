@@ -1138,6 +1138,7 @@ impl SessionActor {
             None => self.cell.close(),
         }
         self.deleting = true;
+        self.cell.abort_compaction(abort);
         (self.delete_closed, self.delete_mark, self.delete_marked) = (Some(closed), Some(mark), Some(marked));
         if let Some(run) = &self.run {
             // The deleted session leaves the approvals list now, not when its turn ends.
@@ -2389,6 +2390,7 @@ impl SessionActor {
             Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
                 self.cell.close();
+                self.cell.abort_compaction(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
                 if let Some(run) = &self.run {
                     // Teardown's `quiesce('cli-exit')`.
                     run.cancel.abort_with(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
