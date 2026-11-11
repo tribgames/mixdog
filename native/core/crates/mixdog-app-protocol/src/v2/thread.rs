@@ -915,6 +915,17 @@ pub struct ItemDeltaParams {
     pub index: Option<u32>,
 }
 
+/// One publication of the session's state as Node's frame publisher made it (`frame-batched-store.mjs`): the changes
+/// since the previous `thread/frame` are one state, and `structureRevision` goes up by one when they changed the rows'
+/// structure. Only a reader that shows Node's frames (the phone) reads it; the other notifications are unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadFrameParams {
+    pub thread_id: ThreadId,
+    pub structure_changed: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

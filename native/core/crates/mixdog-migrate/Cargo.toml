@@ -39,8 +39,8 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [dev-dependencies]
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 async-trait = { workspace = true }
-mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tempfile = { workspace = true }
 rusqlite = { workspace = true }

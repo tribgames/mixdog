@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "macros", "sync"] }
 tempfile = { workspace = true }
 # The golden twin holds shortest-round-trip doubles; serde_json's default parser can be 1 ulp off.

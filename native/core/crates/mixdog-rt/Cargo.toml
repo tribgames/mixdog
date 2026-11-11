@@ -32,4 +32,4 @@ windows-sys = { workspace = true, features = ["Win32_System_Threading"] }
 tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-rt = { path = ".", features = ["test-support"] }
+mixdog-rt = { path = ".", features = ["test-support", "virtual-clock"] }

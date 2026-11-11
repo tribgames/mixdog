@@ -27,7 +27,14 @@ export async function startAbortProvider({ gated = false, answered = () => false
   const queued = [];
   // Told (after the handler has queued its writes) that a request is waiting.
   const waiters = new Set();
-  const gate = (entry, res) => {
+  // The response body bytes written so far, over every response (what the core's barrier counts: mixdog-ai replay_bytes.rs).
+  let bodyBytes = 0;
+  const gate = (entry, realRes) => {
+    const counted = (op) => (data, ...rest) => {
+      if (data !== undefined && data !== null && typeof data !== 'function') bodyBytes += Buffer.byteLength(data);
+      return realRes[op](data, ...rest);
+    };
+    const res = { setHeader: (...args) => realRes.setHeader(...args), writeHead: (...args) => realRes.writeHead(...args), write: counted('write'), end: counted('end'), on: (...args) => realRes.on(...args) };
     if (!gated || answered(entry.key)) return res;
     const steps = [];
     entry.steps = steps;
@@ -110,6 +117,8 @@ export async function startAbortProvider({ gated = false, answered = () => false
   return {
     baseURL: `http://127.0.0.1:${server.address().port}/v1`,
     requests,
+    /** The response body bytes written so far. */
+    bodyBytes: () => bodyBytes,
     /** Resolves with the first request that called a tool for the prompt carrying `marker`. */
     asked: (marker) => new Promise((resolve) => {
       const seen = requests.find((r) => r.asked && r.prompt.includes(marker));

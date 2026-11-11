@@ -6,5 +6,5 @@
 mod dev_only;
 
 fn main() {
-    dev_only::refuse_in_release(&["crash-gates", "dev-controls", "replay-controls", "terminal-lease-clock", "virtual-clock"]);
+    dev_only::refuse_in_release(&["crash-gates", "dev-controls", "replay-bytes", "replay-controls", "terminal-lease-clock", "virtual-clock"]);
 }

@@ -36,6 +36,10 @@ export interface SessionFold {
   /** A live row has shown an unfinished line (`streamingPartial`) since the fold began: from then on the field is held, `null`
    *  between lines, as Node's store holds it (turn-stream.mjs:197 sets it, :214 clears it to null; the first draft has none). */
   readonly partialShown?: boolean;
+  /** The core's `thread/frame` announcements since the fold began: Node's publications of the state (frame-batched-store.mjs). */
+  readonly frames?: number;
+  /** `structureRevision` as Node's frames commit it: one up per frame that changed the rows' structure (frame-batched-store.mjs:37). */
+  readonly framedRevision?: number;
 }
 
 // ───────────────────────────── sections ─────────────────────────────
@@ -175,7 +179,7 @@ function* initialSteps(snapshot: Json): Generator<void, SessionFold, void> {
   transcriptCache.set(items, yield* mergeToolRowsSteps(items));
   // Node's store begins at 0 (initial-state.mjs:18) and a snapshot's rows enter it as one structure change (transcript-store.mjs:74,
   // a restore's `replaceItems`; a new task's first row is a push, frame-batched-store.mjs:37): a snapshot with rows is revision 1.
-  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0 };
+  return { sessionId: String(asObj(p.thread).id ?? ''), items, fields: fieldsOfState(asObj(p.state), p.hasOlder === true), live: null, structureRevision: items.length ? 1 : 0, frames: 0, framedRevision: items.length ? 1 : 0 };
 }
 
 export const sessionReducer: ThreadReducer<SessionFold> = {
@@ -201,6 +205,8 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
         return withField(s, 'desktopSessionTitle', typeof p.title === 'string' ? p.title : undefined);
       case 'thread/goal/cleared':
         return withField(s, 'goal', undefined);
+      case 'thread/frame':
+        return { ...s, frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) +(p.structureChanged === true ? 1 : 0) };
       case 'turn/started':
       case 'turn/completed':
         return withLive(s, null);
@@ -348,4 +354,27 @@ export function sessionStateOf(client: ProtocolClient<SessionFold>, threadId: st
   const fold = client.store.thread(threadId);
   if (!fold) return undefined;
   return desktopSessionState(fold.state, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value);
+}
+
+/** The thread's states as Node's frame publisher published them (frame-batched-store.mjs): `listener` hears the first fold of the
+ *  thread and then one state per `thread/frame`, its `structureRevision` the frames' (one up per frame that changed the rows'
+ *  structure). The phone shows these; a reader of every change uses `sessionStateOf`. */
+export function subscribeFramedSessionStates(
+  client: ProtocolClient<SessionFold>,
+  threadId: () => string | undefined,
+  listener: (threadId: string, state: DesktopSessionState) => void
+): () => void {
+  const heard = new Map<string, number>();
+  return client.store.subscribe((change) => {
+    if (change.type !== 'thread') return;
+    const id = threadId() ?? change.threadId;
+    if (change.threadId !== id) return;
+    const fold = client.store.thread(id)?.state;
+    if (!fold) return;
+    const frames = fold.frames ?? 0;
+    if (heard.get(id) === frames) return;
+    heard.set(id, frames);
+    const state = desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value);
+    listener(id, { ...state, structureRevision: fold.framedRevision ?? fold.structureRevision });
+  });
 }

@@ -585,6 +585,8 @@ pub(crate) struct SessionActor {
     feed_id: FeedId,
     epoch: FeedEpoch,
     seq: u64,
+    /// Node's frame publication of this session's state, announced as `thread/frame` (`phone_frame.rs`).
+    frames: super::phone_frame::Frames,
     lineage: Lineage,
     log_id: String,
     acked_end: u64,
@@ -932,6 +934,7 @@ impl SessionActor {
             feed,
             epoch,
             seq: 0,
+            frames: Default::default(),
             lineage,
             log_id,
             acked_end,
@@ -1058,6 +1061,10 @@ impl SessionActor {
                 Some(done) = self.jobs_rx.recv() => self.on_job(done),
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
+                _ = sleep_until(self.frames.due()), if self.frames.due().is_some() => {
+                    let flushed = self.frames.flush();
+                    self.publish_frame(flushed);
+                }
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
                 Some(msg) = self.ch.inbox_rx.recv() => match msg {
                     Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
@@ -1067,6 +1074,11 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
+            // The step's synchronous chain is over: an immediate boundary publishes now (`flushImmediate`'s microtask). Node's
+            // chain applies all of an operation's changes at once (a submit's row, queue and turn start); here they are published
+            // as their writes are acked, so the chain ends once no write of it is still in flight. The frame timer still bounds it.
+            let flushed = if self.outbox.is_empty() { self.frames.chain_end() } else { None };
+            self.publish_frame(flushed);
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -2119,6 +2131,10 @@ impl SessionActor {
             }
             Effect::PublishApproval(request) => {
                 self.deps.server_requests.publish(request);
+                // `set({ toolApproval })` flushes immediately (`draft-store.mjs:69-71`).
+                let mark = super::phone_frame::Mark { immediate: true, ..Default::default() };
+                let flushed = self.frames.mark(mark, tokio::time::Instant::now());
+                self.publish_frame(flushed);
             }
             Effect::Resolved(aid, resolution) => {
                 self.book.resolved(aid, &resolution);
@@ -2217,6 +2233,26 @@ impl SessionActor {
     }
 
     fn publish(&mut self, notes: Vec<Note>) {
+        let now = tokio::time::Instant::now();
+        let mut flushed = None;
+        for note in &notes {
+            if let Some(mark) = super::phone_frame::mark_of(note) {
+                flushed = flushed.or(self.frames.mark(mark, now));
+            }
+        }
+        self.publish_notes(notes);
+        self.publish_frame(flushed);
+    }
+
+    /// `thread/frame`: one of Node's publications of the session's state (`phone_frame.rs`).
+    fn publish_frame(&mut self, flushed: Option<bool>) {
+        let Some(structure_changed) = flushed else { return };
+        let params = mixdog_app_protocol::v2::thread::ThreadFrameParams { thread_id: self.id.clone(), structure_changed };
+        let note = Note::new("thread/frame", &params);
+        self.publish_notes(vec![note]);
+    }
+
+    fn publish_notes(&mut self, notes: Vec<Note>) {
         let start = self.seq + 1;
         let frames: Vec<FeedFrame> = notes
             .iter()
