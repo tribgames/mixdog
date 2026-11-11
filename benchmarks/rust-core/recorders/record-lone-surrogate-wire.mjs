@@ -74,7 +74,7 @@ export function buildWorld() {
 
 if (REPLAY) {
   const { replay } = await import('./lib/lone-surrogate-wire-replay.mjs');
-  process.exit(await replay({ exe: REPLAY, golden: JSON.parse(readFileSync(join(SET, 'golden.json'), 'utf8')), only: ONLY, startServer, buildWorld }));
+  process.exit(await replay({ exe: REPLAY, golden: JSON.parse(readFileSync(join(SET, 'golden.json'), 'utf8')), manifest: JSON.parse(readFileSync(join(SET, 'MANIFEST.json'), 'utf8')), only: ONLY, startServer, buildWorld }));
 }
 
 const tree = resolveTree(args);
@@ -178,6 +178,16 @@ if (ONLY) {
   process.stdout.write(`${JSON.stringify(cases, null, 2)}\n`);
   process.exit(0);
 }
+// Node's first custom provider built for an origin warms it with a fire-and-forget `HEAD /` (openai-compat.mjs `preconnect`,
+// once per origin and process): exactly one in the recording, declared with its position; the replay leaves out that request
+// only, on Node's side only.
+const heads = cases.flatMap((entry) => (entry.requests ?? []).flatMap((request, index) => (request.method === 'HEAD' ? [{ case: entry.name, index, request }] : [])));
+if (heads.length !== 1 || heads[0].request.url !== '/') throw new Error(`expected one warm-up HEAD / in the recording, got ${JSON.stringify(heads)}`);
+const warmup = {
+  ...heads[0],
+  reason: "Node's first custom provider for an origin sends a fire-and-forget HEAD / (openai-compat.mjs preconnect, once per origin and process); the core does not warm a custom origin here. A difference of provider construction, not of the string under test",
+  replayedBySet: 'provider-setup-warmup',
+};
 const stage = stageSet(SET);
 writeJson(join(stage, 'golden.json'), {
   note: 'What Node b6f10295a did with a client string holding a lone surrogate where it becomes an HTTP header, a URL query or a language-server request, or where its serialised size is limited; and every request each case sent to the local server.',
@@ -215,6 +225,7 @@ writeSetManifest(stage, {
     // Compared outside the replay: the Hugging Face search URL, by mixdog-services local_provider/hugging_face.rs (its HTTP is
     // a trait there; the core's catalog has no address but huggingface.co).
     replayedByRustTest: [{ case: 'hf-search-lone', test: 'mixdog-services local_provider::hugging_face::tests::a_query_holding_a_lone_surrogate_is_the_url_node_fetched' }],
+    nodeOnlyRequests: [warmup],
   },
 });
 commitStage(stage, SET);

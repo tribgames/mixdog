@@ -21,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "c4d82066ed107bc3bb6513df726d24df3b8c0093cae71fcd54a39213b1a4b1f0"
+      "sha256": "0279e8c82b5692197f5d18994f53a07f7c10be1d4bda3803d574cf6328bad64a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -38,6 +38,19 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeOnlyRequests": [
+    {
+      "case": "custom-discover-body-2729-lone",
+      "index": 0,
+      "reason": "Node's first custom provider for an origin sends a fire-and-forget HEAD / (openai-compat.mjs preconnect, once per origin and process); the core does not warm a custom origin here. A difference of provider construction, not of the string under test",
+      "replayedBySet": "provider-setup-warmup",
+      "request": {
+        "method": "HEAD",
+        "url": "/",
+        "xToken": null
+      }
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -76,7 +89,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "9f0ee9ea90228e59dac695146629f047c9ff3e328d9dec64f6aa2f674bdc40eb",
+  "recorderSha256": "312edddb9ed53c81631d5640efa7cc2b6abfe583382d75cc61fa18c7bce6b9b3",
   "refusedByRule": {
     "cases": [
       {
