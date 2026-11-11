@@ -161,6 +161,42 @@ test('an edge that changes nothing publishes nothing (Node skipped an unchanged 
   assert.deepEqual(nodeStep('unchanged:delete').published, []);
 });
 
+test("edges reach the phone on Node's catalog clock: 400 ms after the first, no sooner than 2 s after the last refresh", async () => {
+  // Node: session-host-catalog.ts:10-11, 170-180 at b6f10295a (scheduleCatalogRefresh).
+  let now = 10_000;
+  const timers = [];
+  const published = [];
+  const feed = createRosterFeed({
+    summaries: (rows) => rows.map((row) => `${row.id}:${row.name}`),
+    publish: (rows) => published.push({ at: now, rows }),
+    timers: { now: () => now, setTimeout: (run, ms) => timers.push({ due: now + ms, run }) },
+  });
+  let listener;
+  feed.attach({
+    call: async () => ({ data: [] }),
+    on: (l) => ((listener = l), () => undefined),
+    store: { subscribe: () => () => undefined },
+  });
+  await feed.list({ call: async () => ({ data: [] }) });
+  const edge = (name) => listener({ type: 'notification', notification: { method: 'thread/summary/updated', params: { thread: { id: 's', name } } } });
+  const moveTo = (at) => {
+    for (let t; (t = timers.filter((x) => x.due <= at).sort((a, b) => a.due - b.due)[0]); ) {
+      timers.splice(timers.indexOf(t), 1);
+      now = t.due;
+      t.run();
+    }
+    now = at;
+  };
+  published.length = 0;
+  edge('a');
+  moveTo(10_100);
+  edge('b');
+  moveTo(11_000);
+  edge('c');
+  moveTo(20_000);
+  assert.deepEqual(published, [{ at: 10_400, rows: ['s:b'] }, { at: 12_400, rows: ['s:c'] }]);
+});
+
 test('a lost app feed is read again at the next snapshot', async (t) => {
   const r = rig();
   await attached(r, listOf('turns'));

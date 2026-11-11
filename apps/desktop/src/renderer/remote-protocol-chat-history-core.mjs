@@ -84,13 +84,18 @@ export function normalizer({ instant, own, named = new Map() }) {
 /** A side's clock reading as the virtual milliseconds since its clock froze at `epoch` (null: not a reading of that clock). */
 const instantOf = (epoch) => (v) => (v >= epoch && v < epoch + 1e9 ? v - epoch : null);
 
+/** Of roster publications `{ clock, sessions }`, those a phone hears after a baseline of `[]`: each that differs from the one before. */
+export const heard = (publications) =>
+  publications.filter((p, i) => JSON.stringify(p.sessions) !== JSON.stringify(i === 0 ? [] : publications[i - 1].sessions));
+
 /** Node's history of a case, normalized: entries `{ kind: 'state', value }` / `{ kind: 'reply', input, value }`, and its phone inputs. */
 export function nodeSide(recording) {
   const instant = instantOf(recording.manifest.epoch);
   const norm = normalizer({ instant, own: new Map([[recording.id, '<session>']]) });
   const history = recording.history.map((h, at) => (h.kind === 'reply' ? { at, kind: 'reply', input: h.input, value: norm(h.error !== undefined ? { error: h.error } : { reply: h.reply }) } : { at, kind: 'state', value: norm(h.snapshot) }));
-  // The thread list the phone heard (the host's catalog publications), each at its clock.
-  const roster = recording.roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) }));
+  // The thread list the phone heard: the host's catalog publications, each at its clock, less one that changes nothing since the last
+  // (the relay sends none: remote-relay-catalog.ts:79-91 isNoListDelta; the phone's baseline is the empty list its join read).
+  const roster = heard(recording.roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) })));
   return { history, inputs: recording.inputs, roster };
 }
 
@@ -177,7 +182,23 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   const project = join(paths.workspace, 'a');
   const route = { provider: 'custom-harness', model: 'harness-model' };
   globalThis.window ??= { setTimeout: () => 0, clearTimeout() {} };
-  const { adapter } = await import('./remote-protocol-chat.ts');
+  const { phoneChatAdapter } = await import('./remote-protocol-chat.ts');
+  let clockAt = 0;
+  let joined = false;
+  // The catalog clock of the phone's roster feed, on the replay's time (Node's ran on its recorder's): its timers run as the replay
+  // moves the core's clock past their due time, in due then set order.
+  const feedTimers = [];
+  const timers = { now: () => clockAt, setTimeout: (run, ms) => { const t = { due: clockAt + ms, run }; feedTimers.push(t); return t; } };
+  const runFeedTimers = () => {
+    for (let t; (t = feedTimers.filter((x) => x.due <= clockAt).sort((a, b) => a.due - b.due)[0]); ) {
+      feedTimers.splice(feedTimers.indexOf(t), 1);
+      const now = clockAt;
+      clockAt = t.due;
+      t.run();
+      clockAt = now;
+    }
+  };
+  const adapter = phoneChatAdapter(timers);
   const { createProtocolRouter } = await import('./remote-shim-protocol.ts');
 
   const log = [];
@@ -269,7 +290,6 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
     // Frozen once the core serves, as Node's clocks froze once its host was attached; from here it moves with Node's recorded moves.
     const frozenAt = await clock('freeze');
-    let clockAt = 0;
 
     // The core's own values, named as Node's recording names its own.
     let threadId = '';
@@ -340,11 +360,14 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         wake();
       });
       // What the submitting phone's thread list hears, each at the clock the core stood at.
-      const ctx = { phone: { start: async () => undefined }, sessionsCatalog: { publish: (rows) => { if (viewing) roster.push({ clock: clockAt, sessions: norm(rows) }); wake(); } } };
+      // What the submitting phone's thread list hears after its join read, each at the clock it came at (normalized once the thread's id
+      // is known).
+      const ctx = { phone: { start: async () => undefined }, sessionsCatalog: { publish: (rows) => { if (viewing && joined) roster.push({ clock: clockAt, sessions: plain(rows) }); wake(); } } };
       const router = createProtocolRouter([adapter], { host: { ctx, client: () => client, declareLane() {} }, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
       router.install();
       await deadline.race(client.subscribeApp(), `the app feed of ${title}`);
       await deadline.race(router.call('listSessions', []), `the first list read of ${title}`);
+      joined ||= viewing;
       return { client, router };
     };
     let submitting = false;
@@ -375,6 +398,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       // core's moves as far.
       if (input.clock > clockAt) await clock(`advance ${input.clock - clockAt}`);
       clockAt = Math.max(clockAt, input.clock);
+      runFeedTimers();
       if (input.input === 'clock') continue;
       // The model endpoint's next write, of the kind Node released here, once the core has asked for it.
       if (!isPhone(input)) {
@@ -412,8 +436,8 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     const lastNode = compared.findLast((h) => h.kind === 'state');
     const lastCore = log.findLast((e) => e.kind === 'state');
     const after = allDifferences(lastNode.value, lastCore.value).map((d) => ({ entry: 'after the last input', kind: 'state', ...d }));
-    const heard = allDifferences(node.roster, roster).map((d) => ({ entry: 'roster', kind: 'roster', ...d }));
-    const differences = [...alignHistory(compared, log), ...after, ...heard];
+    const rosterDifferences = allDifferences(node.roster, roster.map((p) => ({ clock: p.clock, sessions: norm(p.sessions) }))).map((d) => ({ entry: 'roster', kind: 'roster', ...d }));
+    const differences = [...alignHistory(compared, log), ...after, ...rosterDifferences];
     const entries = compared.length;
     const coreStates = log.filter((e) => e.kind === 'state').length;
     return (result = differences.length ? { name, pass: false, error: `${differences.length} differences`, differences, matched: reached.matched, log, roster } : { name, pass: true, entries, coreStates });

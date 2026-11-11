@@ -28,16 +28,20 @@ function feedOver(listing) {
     on: (l) => (listeners.add(l), () => listeners.delete(l)),
     store: { subscribe: (l) => (stores.add(l), () => stores.delete(l)) },
   };
+  // The feed's catalog clock, moved by the test: `refresh()` runs the refresh its edges set.
+  const due = [];
   const feed = createRosterFeed({
     summaries: (rows) => summariesOfThreadRows(rows),
     publish: (rows) => {
       published.push(plain(rows));
       waiting.splice(0).forEach((resolve) => resolve());
     },
+    timers: { now: () => 0, setTimeout: (run) => due.push(run) },
   });
   feed.attach(client);
   return {
     published,
+    refresh: () => due.splice(0).forEach((run) => run()),
     async attach() {
       const done = new Promise((resolve) => waiting.push(resolve));
       stores.forEach((l) => l({ type: 'appSnapshot' }));
@@ -62,8 +66,9 @@ live.steps.forEach((step, at) => {
     const r = feedOver(before);
     await r.attach();
     // The attach publishes the roster before the action (the previous step's); the action's own publications follow it.
-    r.published.splice(0);
+    const [attached] = r.published.splice(0);
     for (const edge of step.edges) r.edge(edge);
+    r.refresh();
     // The whole sequence the phone's catalog was told (the review's B2), under the Stop rule for coalesced messages over Node's N
     // recordings: the roster is published when summaries reach the host or feed (Node: session-host-catalog.ts:228-240, the free
     // point the fixture's manifest declares), so how many publications an action gives is free; each must be a roster some Node
@@ -81,7 +86,9 @@ live.steps.forEach((step, at) => {
       got.forEach((a, i) => got.slice(i + 1).forEach((b, j) => {
         if (a !== b && shown.has(a) && shown.has(b) && !orders.has(`${a}\u0000${b}`)) problems.push(`publications ${i + 1} and ${i + j + 2}: an order Node never showed`);
       }));
-      problems.push(...parity.classify(node.steps.find((s) => s.name === name).roster, r.published.at(-1) ?? []).map((d) => `the last publication: ${d}`));
+      // The phone's roster at the end: its last publication, or (the action's edges coalesced into one refresh that changed nothing,
+      // as a start and delete of one task does) the roster it attached with.
+      problems.push(...parity.classify(node.steps.find((s) => s.name === name).roster, r.published.at(-1) ?? attached).map((d) => `the last publication: ${d}`));
     }
     assertParity(t, problems);
   });
