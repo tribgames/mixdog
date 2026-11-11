@@ -355,7 +355,9 @@ mod tests {
     #[test]
     fn the_route_surface_follows_node() {
         let surface_golden: Value = serde_json::from_str(include_str!("golden/tool_surface.json")).expect("fixture");
-        let golden: Value = serde_json::from_str(include_str!("golden/route_surface_variant.json")).expect("fixture");
+        #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 0.7 MB out of the test build
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/run_host/golden/route_surface_variant.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(&text).expect("fixture");
         let host = Host(surface_golden["bridgeTools"].as_array().unwrap().clone());
         let surface = ToolSurface { host: &host, clock: &Fixed };
         for row in golden["surface"].as_array().unwrap() {
@@ -381,7 +383,9 @@ mod tests {
     #[test]
     fn the_rules_variant_follows_node() {
         let rules: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
-        let golden: Value = serde_json::from_str(include_str!("golden/route_surface_variant.json")).expect("fixture");
+        #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 0.7 MB out of the test build
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/run_host/golden/route_surface_variant.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(&text).expect("fixture");
         let root = std::path::PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("variant-golden-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for (rel, body) in rules["files"].as_object().unwrap() {

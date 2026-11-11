@@ -155,7 +155,11 @@ mod tests {
 
     use super::*;
 
-    const TWIN: &str = include_str!("../../../../fixtures/quota-usable/quota-usable-twin.json");
+    // Read at run time: an `include_str!` put the 1.3 MB recording into every test build of the crate.
+    #[allow(clippy::disallowed_methods)] // test fixture loading
+    static TWIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/quota-usable/quota-usable-twin.json")).unwrap()
+    });
 
     struct Vars(Option<&'static str>);
 
@@ -211,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_readings_decide_as_nodes_provider_quota_usable() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["cases"].as_array().unwrap();
         assert!(cases.len() > 500);
         for case in cases {
@@ -228,7 +232,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_pc_answers_and_a_disconnected_pc_reports_as_node_does() {
-        let twin: Value = serde_json::from_str(TWIN).unwrap();
+        let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["proxy"].as_array().unwrap();
         assert!(cases.len() > 70);
         let never = Arc::new(Replay { case: json!({}), step: Mutex::new(0), reads: Mutex::new(0) });
