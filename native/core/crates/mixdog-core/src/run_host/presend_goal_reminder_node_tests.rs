@@ -173,7 +173,7 @@ async fn replay(case: &Value) -> Value {
             let inner = session_compactor(World::unsaved("stub", Arc::new(StubHost), None), thread.as_str(), &header, settings, rows, Path::new(DATA_ROOT)).await;
             let compactor = GoalReminderCompactor::new(inner, run.port.clone());
             compactor.prepare(&messages).await;
-            let request = || CompactRequest { messages: &messages, budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: true, reference_latest_attachments: false, latest_user_prefix: "" };
+            let request = || CompactRequest { messages: &messages, budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: true, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" };
             let reduces = compactor.reduces(&request()).await;
             let output = compactor.compact(request()).await.expect("the pass");
             // Every message of the run is stored before its header is read: a change the header does not hold yet is

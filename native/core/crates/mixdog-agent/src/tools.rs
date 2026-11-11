@@ -1255,6 +1255,7 @@ impl Run {
             log.batch(&batch);
         }
         self.emit(RunEvent::ToolBatch(batch));
+        self.emit(RunEvent::ExecutionCalls(execution));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),

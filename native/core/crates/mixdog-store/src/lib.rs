@@ -16,6 +16,7 @@ pub mod fold;
 pub mod framing;
 pub mod fsio;
 pub mod log;
+pub mod log_rewrite;
 pub mod paths;
 pub mod projection;
 pub mod registry;

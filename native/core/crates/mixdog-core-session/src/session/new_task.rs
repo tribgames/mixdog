@@ -663,6 +663,7 @@ impl SessionDirectory {
     /// Whether the thread's stored history holds a user prompt sent under `submission` (`transcript.clientSubmissionId`), whatever
     /// became of its turn.
     async fn holds_submission(&self, id: &ThreadId, submission: &str) -> Result<bool, CoreError> {
+        self.deps().store.unheld().await;
         let (store, thread) = (self.deps().store.clone(), id.clone());
         let (_, rows) = on_lane(self.deps().lanes.io, &CancellationToken::new(), move |lane| store.history_rows(lane, &thread)).await??;
         Ok(rows.iter().any(|row| {

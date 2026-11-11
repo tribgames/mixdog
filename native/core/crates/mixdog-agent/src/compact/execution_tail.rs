@@ -12,6 +12,7 @@ use mixdog_core_api::domain::provider::Role;
 use mixdog_js::JsRegex;
 use serde_json::Value as JsonValue;
 
+use super::dropped::Redactor;
 use super::estimate::MessageMeter;
 use super::messages::is_compact_conversation_row;
 use super::messages::is_protected_context_ack;
@@ -52,6 +53,8 @@ pub struct TailContext<'a> {
     pub meter: &'a MessageMeter<'a>,
     pub rows: &'a dyn MessageRows,
     pub archive: &'a dyn ArtifactStore,
+    /// The session's sensitive-value redaction: the dump is a file like the session log.
+    pub redactor: &'a dyn Redactor,
     /// Compute archive references without writing (a preview keeps the transcript).
     pub preview: bool,
 }
@@ -95,7 +98,8 @@ fn execution_tokens(ctx: &TailContext<'_>, messages: &[AgentMessage]) -> u64 {
             if let Some(fields) = row.as_object_mut() {
                 fields.shift_remove("uiDiff");
             }
-            without_message_ids(row)
+            without_message_ids(&mut row);
+            row
         })
         .collect();
     ctx.meter
@@ -174,34 +178,17 @@ fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
         .collect()
 }
 
-/// `row` without its display bookkeeping (`withoutMessageIdsReplacer`): a meta whose transcript
-/// holds a stable id loses the id and the reactions, and a meta left empty goes.
-fn without_message_ids(mut row: JsonValue) -> JsonValue {
-    let Some(fields) = row.as_object_mut() else { return row };
-    let Some(meta) = fields.get_mut("meta").and_then(JsonValue::as_object_mut) else { return row };
-    if !meta.get("transcript").and_then(|t| t.get("messageId")).is_some_and(JsonValue::is_string) {
-        return row;
-    }
-    if let Some(transcript) = meta.get_mut("transcript").and_then(JsonValue::as_object_mut) {
-        transcript.shift_remove("messageId");
-        transcript.shift_remove("reactions");
-        if transcript.is_empty() {
-            meta.shift_remove("transcript");
-        }
-    }
-    if meta.is_empty() {
-        fields.shift_remove("meta");
-    }
-    row
-}
-
 /// One message per line (JSONL): line N + 1 holds message index N. A line that
 /// reaches `ARCHIVE_BLOB_MIN_BYTES` is stored once per session as its own
-/// content-addressed file and the dump repeats only a reference to it.
+/// content-addressed file and the dump repeats only a reference to it. The session's sensitive
+/// values are redacted in both (Node `redactSensitiveMessages`).
 async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -> Result<String, String> {
+    let rows = ctx.redactor.redact(transcript.iter().map(|m| ctx.rows.row(m)).collect());
     let mut out = String::new();
-    for message in transcript {
-        let line = format!("{}\n", mixdog_js::json_stringify(&without_message_ids(ctx.rows.row(message))));
+    for (message, row) in transcript.iter().zip(&rows) {
+        let mut row = row.clone();
+        without_message_ids(&mut row);
+        let line = format!("{}\n", mixdog_js::json_stringify(&row));
         if line.len() < ARCHIVE_BLOB_MIN_BYTES {
             out.push_str(&line);
             continue;
@@ -220,6 +207,34 @@ async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -
         out.push_str(&format!("{}\n", mixdog_js::json_stringify(&JsonValue::Object(wrapper))));
     }
     Ok(out)
+}
+
+/// `withoutMessageIdsReplacer` (`message-ids.mjs`): every `meta` whose `transcript.messageId` is a string loses the id and
+/// its `reactions` (display bookkeeping), an emptied `transcript` and an emptied `meta` going with them.
+fn without_message_ids(value: &mut JsonValue) {
+    match value {
+        JsonValue::Array(items) => items.iter_mut().for_each(without_message_ids),
+        JsonValue::Object(object) => {
+            let strip = object
+                .get("meta")
+                .and_then(|meta| meta.pointer("/transcript/messageId"))
+                .is_some_and(JsonValue::is_string);
+            if strip && let Some(JsonValue::Object(meta)) = object.get_mut("meta") {
+                if let Some(JsonValue::Object(transcript)) = meta.get_mut("transcript") {
+                    transcript.shift_remove("messageId");
+                    transcript.shift_remove("reactions");
+                    if transcript.is_empty() {
+                        meta.shift_remove("transcript");
+                    }
+                }
+                if meta.is_empty() {
+                    object.shift_remove("meta");
+                }
+            }
+            object.values_mut().for_each(without_message_ids);
+        }
+        _ => {}
+    }
 }
 
 /// Dump paths a recovery reminder names, oldest first.

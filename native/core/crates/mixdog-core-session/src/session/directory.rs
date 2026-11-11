@@ -347,7 +347,31 @@ impl SessionDirectory {
             }
         }));
         *lock(&inner.goal_events) = Some(subscription);
+        let me = Arc::downgrade(&inner);
+        inner.deps.sensitive.on_carried(Box::new(move |thread| {
+            let Some(directory) = me.upgrade() else { return };
+            let thread = thread.clone();
+            drop(mixdog_rt::spawn("sensitive-carried", mixdog_rt::TaskClass::Work, async move {
+                SessionDirectory::over(directory).carried(&thread).await;
+            }));
+        }));
         Self { inner }
+    }
+
+    /// A value marked in a session whose text `thread` holds reached it (`SensitiveMarks::carry`): the thread rewrites what
+    /// it stored as for a mark of its own; one not loaded is opened for it (its files hold the text).
+    async fn carried(&self, thread: &ThreadId) {
+        let handle = match self.inner.loaded(thread) {
+            Some(handle) => handle,
+            None => match self.inner.open(thread, &CallContext::internal("sensitive-carried")).await {
+                Ok(handle) => handle,
+                Err(error) => {
+                    tracing::warn!(%thread, "a carried sensitive value could not open the thread that holds it: {error:?}");
+                    return;
+                }
+            },
+        };
+        let _ = handle.inbox.send(Inbox::SensitiveCarried).await;
     }
 
     /// Woken whenever a thread leaves the directory.
@@ -442,6 +466,7 @@ impl SessionDirectory {
     pub fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
         super::run::ModelContext {
             store: self.inner.deps.store.clone(),
+            sensitive: self.inner.deps.sensitive.clone(),
             lanes: self.inner.deps.lanes,
             thread: id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -461,6 +486,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -500,6 +526,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -1022,6 +1049,7 @@ impl DirInner {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
         let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
         Ok(read.ok())
@@ -1186,46 +1214,30 @@ impl DirInner {
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
     async fn load(&self, id: &ThreadId, prewarm: bool) -> Loaded {
+        use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
-        let dropped = || CoreError::Internal {
-            incident_id: "session-open-job-dropped".into(),
-        };
+        // An open (for a turn, a carried mark, a worker's report) waits out full lanes rather than failing on them.
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let head = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.read_head(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let head = on_lane_wait(deps.lanes.io, &token, move |lane| store.read_head(lane, &thread)).await??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let (head, window) = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| {
-                let window = store.read_window(lane, &thread, &head);
-                (head, window)
-            })?
-            .await
-            .map_err(|_| dropped())?;
+        let (head, window) = on_lane_wait(deps.lanes.io, &token, move |lane| {
+            let window = store.read_window(lane, &thread, &head);
+            (head, window)
+        })
+        .await?;
         let window = window?;
         let (decode_deps, thread) = (deps.clone(), id.clone());
-        let opened = deps
-            .lanes
-            .cpu
-            .submit(&token, move |lane| {
-                let log = decode_deps.store.decode(lane, &thread, head, window)?;
-                Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
-            })?
-            .await
-            .map_err(|_| dropped())??;
+        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+            let log = decode_deps.store.decode(lane, &thread, head, window)?;
+            Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
+        })
+        .await??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let fenced = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.fenced_ops(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
         let lineage = self.lineage_of(id, &opened.state.header);
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);

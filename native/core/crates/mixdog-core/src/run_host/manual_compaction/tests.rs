@@ -25,6 +25,23 @@ impl ImageIdentities for TextOnly {
     }
 }
 
+/// A manual pass archives each message as its stored row (Node's `serializeExecutionArchive` over `session.messages`),
+/// never as `null`.
+#[test]
+fn a_manual_pass_archives_each_message_as_its_stored_row() {
+    use mixdog_agent::compact::execution_tail::MessageRows;
+    let rows = vec![
+        json!({ "role": "user", "content": "hi" }),
+        json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c1", "name": "read", "arguments": {} }] }),
+        json!({ "role": "tool", "content": "body", "toolCallId": "c1" }),
+    ];
+    let messages: Vec<AgentMessage> = rows.iter().map(|row| message_of(row).unwrap()).collect();
+    let stored = registered(&messages, &rows);
+    for (message, row) in messages.iter().zip(&rows) {
+        assert_eq!(&stored.row(message), row);
+    }
+}
+
 fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
     tools
         .iter()

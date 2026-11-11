@@ -222,8 +222,9 @@ impl Outbox {
         self.entries.get_mut(index)
     }
 
-    /// Records an encode result; the bytes now count in the window.
-    pub fn encoded(&mut self, id: u64, encoded: EncodedRecord) {
+    /// Records an encode result; the bytes now count in the window. `stored`: the record as the log holds it when that
+    /// differs from the one accepted, which the log is then handed.
+    pub fn encoded(&mut self, id: u64, encoded: EncodedRecord, stored: Option<Record>) {
         let bytes = encoded.bytes();
         let Some(entry) = self.get_mut(id) else {
             return;
@@ -231,6 +232,9 @@ impl Outbox {
         let Some(durable) = entry.durable.as_mut() else {
             return;
         };
+        if let Some(stored) = stored {
+            durable.record = Arc::new(stored);
+        }
         durable.bytes = bytes;
         durable.stage = Stage::Encoded(encoded);
         let class = durable.class;

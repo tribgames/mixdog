@@ -117,6 +117,8 @@ impl SessionDirectory {
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
+        // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
+        self.deps().sensitive.carry(source, heir);
         // The heir's rows will name the source's sidecars (and those the source's set names): its reference set is
         // stored before anything is copied, with the mark of a copy this boot is making, so no prune of a session the
         // copy names runs while rows of it may exist that a prune cannot read. In order, on disk at each point:
