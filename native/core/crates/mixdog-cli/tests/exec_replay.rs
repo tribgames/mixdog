@@ -28,13 +28,15 @@ use serde_json::json;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
-/// The text-mode cases (the mode `review-deck.mjs` runs). The `--json` cases are not here: their event stream needs
-/// `thread/modelRequest/updated`, a stage notification, `thread/toolBatch/updated` and a tool call's arguments on
-/// `item/started`, which the core does not publish yet; the exec's own handling of them is replayed in `exec/tests.rs`.
-const CASES: [&str; 2] = [
-    include_str!("../../../fixtures/exec-readonly/readonly-blocked.json"),
-    include_str!("../../../fixtures/exec-readonly/full-simple.json"),
-];
+/// The cases a command line selects: text output (the mode `review-deck.mjs` runs) and `--json`, each read-only and full.
+fn cases() -> [&'static str; 4] {
+    [
+        mixdog_testkit::fixture!("../../fixtures/exec-readonly/readonly-blocked.json"),
+        mixdog_testkit::fixture!("../../fixtures/exec-readonly/full-simple.json"),
+        mixdog_testkit::fixture!("../../fixtures/exec-readonly/readonly-json.json"),
+        mixdog_testkit::fixture!("../../fixtures/exec-readonly/full-json.json"),
+    ]
+}
 /// The clock Node's JSON runs were pinned to.
 const FIXED_NOW: i64 = 1_700_000_000_000;
 /// The thread id and working folder Node's runs were pinned to.
@@ -262,7 +264,7 @@ fn pinned(line: &str, thread: &str, cwd: &str) -> String {
 fn an_exec_on_its_own_core_does_what_node_recorded_for_every_case() {
     let (executors, tokens) = mixdog_app_server_daemon::boot_executors().unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    for text in CASES {
+    for text in cases() {
         let case: Value = serde_json::from_str(text).unwrap();
         let label = case["case"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();

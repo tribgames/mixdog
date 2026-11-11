@@ -2416,7 +2416,13 @@ durationMs?: number,
 /**
  * Node's usage delta summary of the request, on `completed`.
  */
-usage?: JsonValue, };
+usage?: JsonValue,
+/**
+ * On `completed`: the tool calls the response streamed, in stream order, each `{ id, name, arguments }` (Node's
+ * `onAssistantToolCallObserved`, which a headless exec shows as the call's `item.started` before the request's
+ * completion). Absent when the response called no tool.
+ */
+toolCalls?: Array<JsonValue>, };
 
 /**
  * Today's `DesktopModelSelection`.

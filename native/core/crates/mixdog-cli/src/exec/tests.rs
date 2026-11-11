@@ -107,7 +107,7 @@ fn usage(model: Option<&str>, input: u64, cached: u64, written: u64, output: u64
 }
 
 fn model_request() -> RpcNotification {
-    notif("thread/modelRequest/updated", json!({ "threadId": "t", "status": "started" }))
+    notif("thread/modelRequest/updated", json!({ "threadId": "t", "phase": "started" }))
 }
 
 fn completion(content: &str, status: &str) -> RpcNotification {
@@ -486,9 +486,9 @@ fn lifecycle_script() -> Vec<RpcNotification> {
         reasoning("inspect first"),
         usage(None, 11, 7, 3, 5),
         tool_started("call_1", "shell", call.clone()),
-        notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "started" })),
+        notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "started" })),
         tool_done("call_1", "shell", call, "ok\n", marks),
-        notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "completed", "iteration": 1, "calls": 1, "elapsedMs": 2 })),
+        notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "completed", "iteration": 1, "calls": 1, "durationMs": 2 })),
         completion("background task completed", "progress"),
         model_request(),
         assistant("done"),
@@ -709,7 +709,7 @@ fn recorded_core_events(case: &Value) -> Vec<RpcNotification> {
         if calls.is_empty() {
             continue;
         }
-        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "started" })));
+        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "started" })));
         for (call, result) in calls.iter().zip(requests[index + 1]["toolResults"].as_array().unwrap()) {
             assert_eq!(result["tool_use_id"], call["id"]);
             let mut done = tool_done(call["id"].as_str().unwrap(), call["name"].as_str().unwrap(), call["input"].clone(), result["content"].as_str().unwrap(), marks.clone());
@@ -718,7 +718,7 @@ fn recorded_core_events(case: &Value) -> Vec<RpcNotification> {
             }
             events.push(done);
         }
-        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "completed", "iteration": index + 1, "calls": calls.len(), "elapsedMs": 0 })));
+        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "completed", "iteration": index + 1, "calls": calls.len(), "durationMs": 0 })));
     }
     events.push(turn_done("completed", None, requests.last().unwrap()["served"]["stopReason"].as_str(), None));
     events

@@ -302,6 +302,7 @@ impl Run {
 
     async fn send_attempts(&mut self) -> Result<SendResult, AgentError> {
         self.request_started_ms = self.env.clock.now_ms();
+        self.emit(RunEvent::ProviderSendStarted);
         loop {
             self.throw_if_aborted()?;
             // Calls a dead attempt started are dropped with it.
@@ -572,6 +573,10 @@ impl Run {
             }))
         };
         let provider = Arc::clone(&self.provider);
+        // Node announces the request twice: its admission scheduler once the send is admitted (`admission-scheduler.mjs:592`),
+        // and the provider as it makes its attempt (`anthropic.mjs:300`). Admission is behind this exchange already.
+        self.emit(RunEvent::Stage(Stage::Requesting));
+        self.emit(RunEvent::Stage(Stage::Requesting));
         // The projection is rebuilt from the transcript for every request.
         let attempt = match &self.config.effort {
             Some(wiring) => {
@@ -684,6 +689,7 @@ impl Run {
                 if !call.id.is_empty() {
                     self.streamed_ids.insert(call.id.clone());
                 }
+                self.emit(RunEvent::ToolCallObserved(call.clone()));
                 self.try_eager(&call).await;
             }
         }

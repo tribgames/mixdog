@@ -69,6 +69,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 # The exec replay's stand-in provider (tests/exec_replay.rs): the request head and the gzip body the provider sends.
 flate2 = { workspace = true }
 httparse = { workspace = true }
+mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
