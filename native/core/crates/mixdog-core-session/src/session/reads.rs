@@ -100,6 +100,7 @@ pub(super) struct History {
 pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History, CoreError> {
     let token = CancellationToken::new();
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
+    deps.store.unheld().await;
     let (store, thread) = (deps.store.clone(), id.clone());
     let (rev, records) = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
     let transcript = deps.transcript.clone();

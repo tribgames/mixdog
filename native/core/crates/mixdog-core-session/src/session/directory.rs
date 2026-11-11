@@ -451,6 +451,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -490,6 +491,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -990,6 +992,7 @@ impl DirInner {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
         let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
         Ok(read.ok())
@@ -1159,6 +1162,7 @@ impl DirInner {
         let dropped = || CoreError::Internal {
             incident_id: "session-open-job-dropped".into(),
         };
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let head = deps
             .lanes
@@ -1166,6 +1170,7 @@ impl DirInner {
             .submit(&token, move |lane| store.read_head(lane, &thread))?
             .await
             .map_err(|_| dropped())??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let (head, window) = deps
             .lanes
@@ -1187,6 +1192,7 @@ impl DirInner {
             })?
             .await
             .map_err(|_| dropped())??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
         let fenced = deps
             .lanes

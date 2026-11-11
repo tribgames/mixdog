@@ -354,6 +354,7 @@ impl SessionHandle {
             return Ok(Reply::Value(reply));
         };
         let iid = ids[done.index].as_str().to_owned();
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), self.id.clone());
         let found = self.deps.lanes.io.submit(&req.ctx.cancel, {
             let iid = iid.clone();
