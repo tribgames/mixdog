@@ -73,6 +73,9 @@ export const CASES = [
     ['discover', 'body-3000-lone', { x: HIGH.repeat(3000) }],
     ['discover', 'body-2730-lone', { x: LOW.repeat(2730) }],
     ['discover', 'body-2729-lone', { x: LOW.repeat(2729) }],
+    // At the limit and one past it: 8 + 6 * 2729 + 2 = 16384 characters, then 16385.
+    ['discover', 'body-at-limit-lone', { x: `${LOW.repeat(2729)}ab` }],
+    ['discover', 'body-past-limit-lone', { x: `${LOW.repeat(2729)}abc` }],
     ['discover', 'body-16376-real-replacement', { x: '\ufffd'.repeat(16376) }],
     ['discover', 'body-one-lone-beside-real-replacements', { x: `${HIGH}${'\ufffd'.repeat(16371)}` }],
     ['discover', 'body-lone-in-two-values', { x: HIGH.repeat(1500), y: `${LOW}${'a'.repeat(7360)}` }],
