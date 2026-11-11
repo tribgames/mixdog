@@ -620,10 +620,10 @@ async fn a_queued_submission_keeps_its_id_across_a_restart() {
 /// before the stop is sent (`startedBeforeAbort`), each lane turn starting one in request order, and none is refused. Node's
 /// abort answer is its stub runtime's (`steering-recovery.test.mjs:198-205`: `aborted: true` with nothing running); the
 /// core's idle stop hands back the queued prompt the stub returned, with its pasted text, and answers `aborted: false`, as
-/// nothing ran. What Node does not order, and the one thing sorted: the arrival order of the 64 answers (the test collects
-/// them by index, `steering-recovery.test.mjs:185`, and the wire tap lists exchanges in request order); the core writes them
-/// from tasks that finish in parallel once the gate opens, so they are compared sorted by request id, after the stop's answer,
-/// which Node's test saw before it opened the gate (`steering-recovery.test.mjs:164-184`).
+/// nothing ran. Node does not order the arrival of the 64 answers (its test collects them by index,
+/// `steering-recovery.test.mjs:185`, and the wire tap lists exchanges in request order), so the replay fixes it: the gate opens
+/// one call at a time in request order and every frame is compared as it arrived, the stop's answer first as Node's test saw it
+/// before it opened the gate (`steering-recovery.test.mjs:164-184`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stop_is_answered_while_reads_are_in_flight() {
     let node = case("session-transport-steering-recovery", 139);
@@ -652,14 +652,14 @@ async fn a_stop_is_answered_while_reads_are_in_flight() {
     stop["threadId"] = json!(world.id);
     client.send(1, "turn/interrupt", stop).await;
     client.answer(1).await;
-    gate.permits.add_permits(reads as usize);
-    client.until("every call answered", |frames| frames.len() as i64 == reads + 1).await;
+    // The gate opens one call at a time in request order, so the answers arrive in the order released.
+    for released in 0..reads {
+        gate.permits.add_permits(1);
+        client.until("the released call's answer", |frames| frames.len() as i64 == released + 2).await;
+    }
     let mut expected = vec![stop_answer(1, abort["restoreText"].as_str().unwrap(), abort["pastedTexts"].clone(), &[submission])];
     expected.extend((0..reads).map(|n| answer(100 + n, outcomes[n as usize]["ok"]["value"].clone())));
-    // The 64 answers are sorted by request id, the one thing Node does not order (see above); the stop's comes first as recorded.
-    let mut frames = client.frames.clone();
-    frames[1..].sort_by_key(|frame| frame["id"].as_i64());
-    whole("steering-recovery-139", &frames, &[world.id.as_str()], expected);
+    whole("steering-recovery-139", &client.frames, &[world.id.as_str()], expected);
 }
 
 /// call-contract case 156: the same call id from two client connections. Node, patched so a call id is accepted once per
