@@ -5482,6 +5482,9 @@ impl SessionActor {
             },
             cancel: token.clone(),
         };
+        // The run's handle for a replay's settled signal, given to the port before the run is spawned (its tools' waits count on it).
+        #[cfg(feature = "replay-settled")]
+        let replay_run = mixdog_ai::transport::replay_bytes::Run::default();
         let port = RunPort {
             thread: self.id.clone(),
             turn: turn.clone(),
@@ -5499,6 +5502,8 @@ impl SessionActor {
                 let cell = self.cell.clone();
                 Arc::new(move || cell.header.load().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned())
             },
+            #[cfg(feature = "replay-settled")]
+            replay_run: replay_run.clone(),
         };
         // A session takes moved settings gates at its next turn start (today's
         // `stageToolAvailability`).
@@ -5562,7 +5567,7 @@ impl SessionActor {
         };
         // A replay's settled signal counts the turn busy until it ends, except while it waits on the model or the user.
         #[cfg(feature = "replay-settled")]
-        let run = mixdog_ai::transport::replay_bytes::in_run(run);
+        let run = mixdog_ai::transport::replay_bytes::in_run_as(replay_run, run);
         mixdog_rt::spawn("session-run", TaskClass::Work, run);
     }
 
