@@ -112,8 +112,9 @@ pub struct TestCompaction {
     /// Each `prune_offloads`: the thread and the transcripts it was given.
     pub pruned: Mutex<Vec<(String, String)>>,
     /// The data dir whose `tool-results/<thread>` sidecars the host's own listing and prune
-    /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on. None lists nothing.
-    pub offloads: Mutex<Option<std::path::PathBuf>>,
+    /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on, and the clock's now (ms) they age at, as the host's
+    /// `parts.clock` (`manual_compaction.rs`). None lists nothing.
+    pub offloads: Mutex<Option<(std::path::PathBuf, u64)>>,
     /// The next listing tells `.0` it arrived, then waits for `.1`.
     pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
@@ -123,11 +124,6 @@ pub fn offload_store(data: &std::path::Path, thread: &ThreadId) -> mixdog_core_r
     let tokens = mixdog_rt::testing::tokens();
     let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
     mixdog_core_run::run_host::artifact::ToolResultArtifacts::new(io, data, thread.as_str())
-}
-
-#[allow(clippy::disallowed_methods, reason = "the store ages sidecars by their real modification time")]
-fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[async_trait::async_trait]
@@ -157,13 +153,13 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
             arrived.notify_one();
             release.notified().await;
         }
-        let Some(data) = lock(&self.offloads).clone() else { return Vec::new() };
-        offload_store(&data, thread).prune_candidates(now_ms()).await
+        let Some((data, now)) = lock(&self.offloads).clone() else { return Vec::new() };
+        offload_store(&data, thread).prune_candidates(now).await
     }
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
-        let data = lock(&self.offloads).clone();
-        if let Some(data) = data {
-            offload_store(&data, thread).prune(candidates, transcripts.clone(), now_ms()).await;
+        let offloads = lock(&self.offloads).clone();
+        if let Some((data, now)) = offloads {
+            offload_store(&data, thread).prune(candidates, transcripts.clone(), now).await;
         }
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
@@ -285,6 +281,8 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
+    pub fail_after_write: Arc<AtomicBool>,
     /// The next read of a thread's model context fails.
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
@@ -319,6 +317,7 @@ type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::R
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
+    fail_after_write: Arc<AtomicBool>,
     commit_gate: CommitGate,
     header_gate: CommitGate,
     committed: Arc<tokio::sync::Notify>,
@@ -356,6 +355,9 @@ impl SessionLog for MemLog {
         }
         drop(log);
         self.committed.notify_waiters();
+        if self.fail_after_write.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::Failed { io_kind: "test".into() });
+        }
         Ok(out)
     }
 
@@ -524,6 +526,7 @@ impl ThreadStore for MemStore {
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            fail_after_write: self.fail_after_write.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             committed: self.committed.clone(),
@@ -544,6 +547,7 @@ impl ThreadStore for MemStore {
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            fail_after_write: self.fail_after_write.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             committed: self.committed.clone(),

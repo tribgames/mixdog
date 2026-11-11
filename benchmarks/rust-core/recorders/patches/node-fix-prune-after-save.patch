@@ -1,18 +1,20 @@
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
 new file mode 100644
-index 0000000..48b4133
+index 0000000..f87e453
 --- /dev/null
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
-@@ -0,0 +1,156 @@
-+// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is saved: a
-+// process that stops before the save restarts from the stored transcript, which still names them. The prune keeps
-+// its idle check: a turn started before it leaves every sidecar to the next prune of the idle session.
+@@ -0,0 +1,198 @@
++// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is stored: a
++// process that stops before the save restarts from the stored transcript, which still names them, and a save that does
++// not store it (dropped by a delete's fence, refused because another writer recorded after this copy, or failed)
++// prunes nothing. The prune keeps its idle check: a turn started before it leaves every sidecar until that turn ends,
++// and then the skipped prune runs, with no second compaction.
 +//
 +// The point between the compaction and its save is the commit's timing line (`recordCompactionTiming`), written once
 +// the compacted transcript is adopted and before `compactSessionMessages` saves it.
 +import assert from 'node:assert/strict';
 +import { spawnSync } from 'node:child_process';
-+import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs';
++import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync } from 'node:fs';
 +import { tmpdir } from 'node:os';
 +import { join } from 'node:path';
 +import test from 'node:test';
@@ -22,9 +24,13 @@ index 0000000..48b4133
 +const dataDir = CHILD ? process.env.MIXDOG_DATA_DIR : mkdtempSync(join(tmpdir(), 'mixdog-prune-after-save-'));
 +process.env.MIXDOG_DATA_DIR = dataDir;
 +const manager = await import('../manager.mjs');
-+const { drainSessionStore, evictLiveSession, loadSession, saveSessionAsync } = await import('../store.mjs');
++const { drainSessionStore, evictLiveSession, fenceSessionWrites, loadSession, saveSessionAsync } = await import('../store.mjs');
 +const { persistToolResultArtifactSync } = await import('../tool-result-offload.mjs');
 +const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
++const { _settleDeferredPrunesForTest } = await import('./compaction-runner.mjs');
++const { _sessionLogIoForTest } = await import('../store/session-log-writer.mjs');
++const { parseSessionLog } = await import('../store/session-log-reader.mjs');
++const { encodePatch } = await import('../store/session-log-format.mjs');
 +
 +const HOUR_AGO = new Date(Date.now() - 3_600_000);
 +
@@ -149,31 +155,105 @@ index 0000000..48b4133
 +    assert.deepEqual(left(seeded.files), ['kept', 'queued']);
 +  });
 +
-+  test('a turn started before the save stops the prune; the next prune of the idle session deletes what it left', async () => {
++  test('a turn started before the save stops the prune; once the turn ends the skipped prune runs, with no second compaction', async () => {
 +    const seeded = await storedSession('turn');
 +    const result = await compact(seeded, () => manager.markSessionAskStart(seeded.sessionId));
 +    assert.equal(result.changed, true, JSON.stringify(result));
 +    assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray'], 'a session that is not idle is not pruned');
 +    manager.markSessionDone(seeded.sessionId);
-+    const next = await compact(seeded);
-+    assert.equal(next.error ?? null, null, JSON.stringify(next));
++    await _settleDeferredPrunesForTest();
 +    assert.deepEqual(left(seeded.files), ['kept']);
++  });
++
++  test('a save dropped by a delete fence prunes nothing', async () => {
++    const seeded = await storedSession('dropped');
++    const result = await compact(seeded, () => fenceSessionWrites(seeded.sessionId));
++    assert.equal(result.changed, true, JSON.stringify(result));
++    assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray']);
++  });
++
++  test('a save refused because another writer recorded after this copy prunes nothing', async () => {
++    const seeded = await storedSession('superseded');
++    // Another writer's header patch, appended after the log's last record (session-writers.test.mjs).
++    const appendForeign = () => {
++      const logPath = join(dataDir, 'sessions', `${seeded.sessionId}.log.jsonl`);
++      const { seq } = parseSessionLog(readFileSync(logPath));
++      appendFileSync(logPath, encodePatch(seq + 1, [['status', JSON.stringify('error')]], []));
++    };
++    await assert.rejects(compact(seeded, appendForeign), { code: 'ESESSIONCHANGED' });
++    assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray']);
++  });
++
++  test('a save whose write fails prunes nothing', async () => {
++    const seeded = await storedSession('thrown');
++    const io = _sessionLogIoForTest();
++    const fsync = io.fsync;
++    const failOnce = () => {
++      io.fsync = (fd, done) => {
++        io.fsync = fsync;
++        done(Object.assign(new Error('injected fsync failure'), { code: 'EIO' }));
++      };
++    };
++    try {
++      await assert.rejects(compact(seeded, failOnce), { code: 'EIO' });
++    } finally {
++      io.fsync = fsync;
++    }
++    assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray']);
 +  });
 +}
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-index 923faae..5135975 100644
+index 923faae..4996a83 100644
 --- a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-@@ -467,11 +467,14 @@ async function compareTranscriptEncodings(before, after) {
+@@ -17,6 +17,7 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
+ import { positiveInt } from '../../../../shared/numbers.mjs';
+ import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
+ import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
++import { onSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
+ import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
+ import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
+ import { pruneOffloadSession } from '../tool-result-offload.mjs';
+@@ -466,12 +467,42 @@ async function compareTranscriptEncodings(before, after) {
+ }
  
  // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
- // lets an in-flight turn's sidecars survive until a later compaction/close.
+-// lets an in-flight turn's sidecars survive until a later compaction/close.
 -async function pruneCompactedOffloads(session, sessionId) {
+-  if (isSessionCompactionBlocked(sessionId)) return;
++// lets an in-flight turn's sidecars survive until that turn has ended.
 +// Called once the compacted transcript is saved: before that, the stored
 +// transcript still names what the compaction dropped, and a process that
 +// stops restarts from it. `transcript` reads what the session holds then.
++// A prune a running turn stopped runs once the turn stops counting as in
++// flight (its end announces it): close keeps every sidecar and only a delete
++// purges them, so a session that never compacts again would otherwise keep
++// what this compaction dropped for its whole life.
++const deferredPrunes = new Map();
++const deferredRuns = new Set();
++// A pulse names its session or none (a settle whose entry holds no session
++// sends ''): an unnamed one re-checks every deferred prune.
++onSessionActivityChange((changed) => {
++  for (const [sessionId, deferred] of [...deferredPrunes]) {
++    if ((changed && changed !== sessionId) || isSessionCompactionBlocked(sessionId)) continue;
++    deferredPrunes.delete(sessionId);
++    const run = pruneCompactedOffloads(deferred.session, sessionId, deferred.transcript);
++    deferredRuns.add(run);
++    void run.finally(() => deferredRuns.delete(run));
++  }
++});
++
++/** Test seam: settles every deferred prune that has started. */
++export function _settleDeferredPrunesForTest() {
++  return Promise.all([...deferredRuns]);
++}
++
 +export async function pruneCompactedOffloads(session, sessionId, transcript = () => session.messages) {
-   if (isSessionCompactionBlocked(sessionId)) return;
++  if (isSessionCompactionBlocked(sessionId)) {
++    deferredPrunes.set(sessionId, { session, transcript });
++    return;
++  }
++  deferredPrunes.delete(sessionId);
    try {
      await pruneOffloadSession(sessionId, () => [
 -      session.messages,
@@ -181,7 +261,7 @@ index 923faae..5135975 100644
        session.liveTurnMessages,
        _getPendingMessagesForSession(sessionId),
      ]);
-@@ -697,7 +700,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
+@@ -697,7 +728,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
    // change re-roots the system prompt now and needs no notice any more.
    if (changed) applyPendingWorkspaceReroot(session);
    if (changed) resetReadStateAfterCompaction(resolvedSessionId);
@@ -190,19 +270,21 @@ index 923faae..5135975 100644
    session.compaction = compactionRecord(plan, {
      stage: mode === 'auto' ? 'post_turn' : 'manual',
 diff --git a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
-index ca19c4c..3f2b708 100644
+index ca19c4c..e930594 100644
 --- a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
-@@ -11,7 +11,7 @@ import {
+@@ -10,8 +10,9 @@ import {
+   listStoredSessionSummaries,
  } from '../store.mjs';
  import { listStoredSessionSummariesAsync } from '../store/listing.mjs';
++import { SAVE_OUTCOME_SAVED } from '../store/live-state.mjs';
  import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 -import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
 +import { pruneCompactedOffloads, runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
  import {
    currentContextEstimateTokens,
    invalidateContextUsageSnapshot,
-@@ -157,6 +157,9 @@ function clearedTokenAccounting(now) {
+@@ -157,6 +158,9 @@ function clearedTokenAccounting(now) {
  async function compactBeforeClear(session, sessionId, clearOptions) {
    let messages = Array.isArray(session.messages) ? session.messages : [];
    let clearCompactError = null;
@@ -212,7 +294,7 @@ index ca19c4c..3f2b708 100644
    if (messages.length >= 3) {
      try {
        // The clear right after discards this compaction's display too, so it
-@@ -167,6 +170,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+@@ -167,6 +171,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
          sessionId,
          archive: false,
        });
@@ -220,7 +302,7 @@ index ca19c4c..3f2b708 100644
        if (compactResult?.error) clearCompactError = new Error(compactResult.error);
      } catch (err) {
        clearCompactError = err;
-@@ -174,11 +178,11 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+@@ -174,11 +179,11 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
      }
      messages = Array.isArray(session.messages) ? session.messages : [];
    }
@@ -234,15 +316,17 @@ index ca19c4c..3f2b708 100644
    const now = Date.now();
    session.compaction = {
      ...(session.compaction || {}),
-@@ -190,6 +194,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+@@ -189,7 +194,8 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+     lastClearCompactError: clearCompactError?.message || String(clearCompactError),
    };
    session.updatedAt = now;
-   await saveSessionAsync(session, { expectedGeneration: session.generation });
-+  if (compacted) await pruneCompactedOffloads(session, sessionId);
+-  await saveSessionAsync(session, { expectedGeneration: session.generation });
++  const saved = await saveSessionAsync(session, { expectedGeneration: session.generation });
++  if (compacted && saved === SAVE_OUTCOME_SAVED) await pruneCompactedOffloads(session, sessionId);
    throw new Error(`auto-clear compact failed; conversation kept: ${session.compaction.lastClearCompactError}`);
  }
  
-@@ -313,9 +318,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -313,9 +319,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
    const compact = clearOptions.compact === true && !archiveAs;
    const currentMessages = Array.isArray(session.messages) ? session.messages : [];
    const beforeMessageTokens = estimateMessagesTokens(currentMessages);
@@ -254,21 +338,29 @@ index ca19c4c..3f2b708 100644
    const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
    const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
    const now = Date.now();
-@@ -379,6 +384,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -378,7 +384,10 @@ export async function clearSessionMessages(sessionId, options = {}) {
+     invalidateContextUsageSnapshot(session);
    }
    session.updatedAt = now;
-   await saveSessionAsync(session, { expectedGeneration: session.generation });
+-  await saveSessionAsync(session, { expectedGeneration: session.generation });
++  const saved = await saveSessionAsync(session, { expectedGeneration: session.generation });
 +  // What the compaction kept (the cleared transcript's fork holds it) keeps
 +  // its sidecars, as when the prune ran inside the compaction.
-+  if (compacted) await pruneCompactedOffloads(session, sessionId, () => messages);
++  if (compacted && saved === SAVE_OUTCOME_SAVED) await pruneCompactedOffloads(session, sessionId, () => messages);
    return session;
  }
  export async function compactSessionMessages(sessionId, options = {}) {
-@@ -414,6 +422,7 @@ export async function compactSessionMessages(sessionId, options = {}) {
+@@ -413,7 +422,12 @@ export async function compactSessionMessages(sessionId, options = {}) {
+     session.lastContextTokensStaleAfterCompact = false;
    }
    session.updatedAt = Date.now();
-   await saveSessionAsync(session, { expectedGeneration: session.generation });
-+  if (!result.error) await pruneCompactedOffloads(session, sessionId);
+-  await saveSessionAsync(session, { expectedGeneration: session.generation });
++  // A save that throws (refused: another writer recorded after this copy, or
++  // the write failed) prunes nothing, nor one that resolves dropped (fenced
++  // by a delete, or superseded by a newer generation's save): only a stored
++  // transcript stops naming what the compaction dropped.
++  const saved = await saveSessionAsync(session, { expectedGeneration: session.generation });
++  if (!result.error && saved === SAVE_OUTCOME_SAVED) await pruneCompactedOffloads(session, sessionId);
    return result;
  }
  export async function updateSessionStatus(id, status) {

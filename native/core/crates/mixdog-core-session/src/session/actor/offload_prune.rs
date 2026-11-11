@@ -1,20 +1,24 @@
-//! `pruneCompactedOffloads` (`compaction-runner.mjs:470`) after a manual compaction, on the actor.
+//! `pruneCompactedOffloads` (`compaction-runner.mjs:470`) after a manual compaction, on the actor, as Node with the
+//! prune-after-save fix (`node-fix-prune-after-save.patch`) does it.
 //!
-//! Node prunes once it adopted the compacted transcript in memory; the core once the compaction is durable. A client
-//! sees no difference: either way the references are read when the deletes are decided, from what the session holds
-//! then (stored rows, records accepted and not yet stored, the queue), so no file a stored or queued message names
-//! is deleted; the core only prunes later, and not at all when the compaction could not be stored.
+//! The prune starts only once the compaction is durable: the commit's ack is sent when the store acknowledged the
+//! batch (`release`), and a batch that failed, a commit the conversation moved past (nothing is written) or an actor
+//! that ended first never sends it (`compaction_rows`), so a stored transcript that still names a sidecar never
+//! outlives it. A prune a running turn stopped runs once that turn has ended (`run_deferred_prune`): a close keeps every
+//! sidecar and only a delete purges them, so a session that never compacts again would keep them for its whole life.
 
 use super::*;
 
 impl SessionActor {
-    /// `pruneCompactedOffloads(session)`: a session that is not idle (`isSessionCompactionBlocked`) is not pruned;
+    /// `pruneCompactedOffloads(session)`: a session that is not idle (`isSessionCompactionBlocked`) is not pruned now;
     /// else its old sidecars are listed off the actor (`pruneOffloadSession`'s `readdir`, while the session takes
     /// messages as Node's does), and `prune_listed` decides.
     pub(super) fn prune_offloads(&mut self, told: oneshot::Sender<()>) {
         if self.compaction_blocked() {
+            self.defer_prune();
             return drop(told.send(()));
         }
+        self.prune_deferred = false;
         let (engine, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
         tokio::spawn(async move {
             let candidates = engine.offload_candidates(&thread).await;
@@ -34,9 +38,9 @@ impl SessionActor {
     /// (Node reads `session.liveTurnMessages`), so its sidecars are left to a later prune, as Node leaves an in-flight
     /// turn's.
     pub(super) async fn prune_listed(&mut self, candidates: Vec<std::path::PathBuf>, told: oneshot::Sender<()>) {
-        if !self.compaction_blocked()
-            && let Ok(rows) = super::super::run::read_context(&self.deps.store, &self.deps.lanes, &self.id).await
-        {
+        if self.compaction_blocked() {
+            self.defer_prune();
+        } else if let Ok(rows) = super::super::run::read_context(&self.deps.store, &self.deps.lanes, &self.id).await {
             let transcript: Vec<Value> = rows.into_iter().map(|(_, row)| row).collect();
             let queued: Vec<Value> = self.projected.queue.iter().map(|queued| queued.entry.clone()).collect();
             let unreleased: Vec<Value> = self.outbox.records().filter_map(|record| serde_json::to_value(record).ok()).collect();
@@ -45,5 +49,21 @@ impl SessionActor {
             self.deps.compaction.prune_offloads(&self.id, candidates, transcripts).await;
         }
         let _ = told.send(());
+    }
+
+    /// A prune a running turn stopped waits for the turn's end; a closing or deleted thread's never runs.
+    fn defer_prune(&mut self) {
+        if self.ui_busy() {
+            self.prune_deferred = true;
+        }
+    }
+
+    /// A turn ended (`run_ended`): the prune it stopped runs now if the session is idle, as Node's runs on the
+    /// activity pulse of the turn's settle.
+    pub(super) fn run_deferred_prune(&mut self) {
+        if self.prune_deferred && !self.compaction_blocked() {
+            let (told, _) = oneshot::channel();
+            self.prune_offloads(told);
+        }
     }
 }
