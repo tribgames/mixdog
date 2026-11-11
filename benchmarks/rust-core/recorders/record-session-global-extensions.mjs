@@ -18,7 +18,8 @@ await runSessionRecorder(import.meta.url, {
     'subscriber ids come from a process counter and are not recorded: the recorder labels each subscriber writer/peer itself (the label is the recorder\'s, not a Node value)',
     'replay line 17: the order across runtimes is not compared, each runtime\'s events are compared whole and in order: Node\'s writer applies the change and then publishes it to its peers, the core runs the operation on every open scope at once, each scope behind its own queue (scope_runtime.rs ScopeRuntime::fan_out)',
     'replay line 17: the peer\'s invalidatePreSessionToolSurface is not compared: the core has one runtime per process and one pre-session tool surface, refreshed once by the runtime that made the change',
-    'replay lines 39, 57: connectDone and cancelMcpLogin are recorded only by line 57\'s scripted connector (an enabled connect stays pending until cancelMcpLogin resolves it); the replay records them, and holds the enabled connect, for that case only',
+    'replay lines 39, 57: connectDone and cancelMcpLogin are recorded only by line 57\'s scripted connector (an enabled connect stays pending until cancelMcpLogin resolves it) and the overlapping-enables connector; the replay records them, and holds the enabled connect, for those cases only',
+    'case overlapping-enables-connect-once (testLine null) is not a test of the file: the recorder adds it to pin scheduleMcpToggle (resource-extension-sync.mjs:56) for two enables of one server asked while the first connect is pending',
     'replay lines 86, 99: the core has no in-process change bus (one runtime per process): a change reaches the other runtimes as the operation the scope runtime runs on every open scope. Line 86 is the writer\'s full reconnect, and each scope other than the writer\'s that ran it is a receipt {to, kind: "mcp", detail: null}; line 99 is a session scope released, then an announce of the published kind: no operation reaches the released scope. published is the announce\'s answer (undefined: Node\'s publish resolves to nothing)',
     'replay lines 17, 39, 57: results are the status the scripted connectConfiguredMcp returned ({servers: []}), passed through; only servers is compared: the core\'s connector answers its real status of an empty server set, whose other fields (counts, warnings, declarationErrors, googleClient) the script has no counterpart for',
   ],
@@ -87,6 +88,36 @@ await runSessionRecorder(import.meta.url, {
       name: 'disable-during-a-pending-enable-cancels-its-login',
       testLine: 57,
       input: { steps: [{ call: 'scheduleMcpToggle', args: exactArgs(['server', true]) }, { call: 'scheduleMcpToggle', args: exactArgs(['server', false]) }], connector: 'an enabled connect stays pending until cancelMcpLogin resolves it' },
+      result: { results, events },
+    });
+  }
+
+  // Not a test of the file (added by this recorder): an enable asked while the server's enable connect is pending rides
+  // the running chain; the desired state did not change, so the chain connects once. The recorder releases the pending
+  // connect once both toggles were asked.
+  {
+    const events = [];
+    let finishConnect;
+    const runtime = createExtensionSync({
+      connectConfiguredMcp: async (options) => {
+        events.push({ connect: exact(options) });
+        if (options.enabled && !finishConnect) await new Promise((resolve) => { finishConnect = resolve; });
+        events.push({ connectDone: exact(options) });
+        return { servers: [] };
+      },
+      invalidatePreSessionToolSurface() { events.push({ invalidatePreSessionToolSurface: true }); },
+    });
+    let results;
+    try {
+      const first = runtime.scheduleMcpToggle('server', true);
+      const second = runtime.scheduleMcpToggle('server', true);
+      finishConnect();
+      results = exact(await Promise.all([first, second]));
+    } finally { runtime.dispose(); }
+    cases.push({
+      name: 'overlapping-enables-connect-once',
+      testLine: null,
+      input: { steps: [{ call: 'scheduleMcpToggle', args: exactArgs(['server', true]) }, { call: 'scheduleMcpToggle', args: exactArgs(['server', true]) }], connector: 'the first enabled connect stays pending until both toggles were asked, then the recorder releases it' },
       result: { results, events },
     });
   }

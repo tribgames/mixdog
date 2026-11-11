@@ -163,11 +163,8 @@ pub struct McpGlue {
     oauths: Mutex<HashMap<String, Arc<McpOAuth>>>,
     /// The plugin servers of the last catalog (`SecretOps::configured_servers` is synchronous).
     plugin_servers: Mutex<Map<String, Value>>,
-    /// One chain per server for its toggles; `desired` is the last state requested with its
-    /// request number, `applied` the last request number a run of the chain connected, with its status.
-    toggle_turns: Arc<mixdog_rt::KeyedChains>,
-    desired: Mutex<HashMap<String, (bool, u64)>>,
-    applied: Mutex<HashMap<String, (u64, Value)>>,
+    /// One chain per server for its toggles (`mcpToggleChains`, `resource-extension-sync.mjs:56`).
+    toggle_chains: Mutex<HashMap<String, ToggleChain>>,
     /// The scopes' connection lifecycle (serialization, generations, readiness, ownership).
     scopes: Arc<ScopeRuntime>,
 }
@@ -191,6 +188,31 @@ pub trait McpScopes: Send + Sync {
     /// (`tool-surface.mjs:100,109,142`). It is never handed to a session: each session is created with a
     /// scope of its own, as each Node `createSession` boots a runtime of its own.
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
+}
+
+/// A server's toggle chain: the state last asked (`desired`) and the run in flight (`running`), which every
+/// toggle asked while it runs returns.
+struct ToggleChain {
+    desired: bool,
+    running: Option<futures::future::Shared<futures::future::BoxFuture<'static, Value>>>,
+}
+
+/// The chain's run: connects the state last asked until a connect ends with it still asked, then refreshes the
+/// surface once; the chain is free again when it ends.
+async fn run_toggle_chain(glue: Arc<McpGlue>, name: String) -> Value {
+    let desired = |glue: &McpGlue| lock(&glue.toggle_chains).get(&name).map(|chain| chain.desired);
+    let status = loop {
+        let want = desired(&glue).expect("the chain is registered while it runs");
+        let status = glue.connect_configured(Op::Only(name.clone(), want)).await;
+        if desired(&glue) == Some(want) {
+            break status;
+        }
+    };
+    glue.surface.refresh_surface().await;
+    if let Some(chain) = lock(&glue.toggle_chains).get_mut(&name) {
+        chain.running = None;
+    }
+    status
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -226,9 +248,7 @@ impl McpGlue {
             health: inputs.health,
             oauths: Mutex::default(),
             plugin_servers: Mutex::default(),
-            toggle_turns: mixdog_rt::KeyedChains::new(),
-            desired: Mutex::default(),
-            applied: Mutex::default(),
+            toggle_chains: Mutex::default(),
         })
     }
 
@@ -1293,12 +1313,15 @@ impl ExtensionHost for GlueHost {
     }
 
     async fn schedule_mcp_toggle(&self, name: &str, enabled: bool) -> Value {
-        let desired = |glue: &McpGlue| lock(&glue.desired).get(name).copied().unwrap_or((enabled, 0));
-        let asked = {
-            let mut desired = lock(&self.glue.desired);
-            let asked = desired.get(name).map_or(0, |(_, seq)| seq + 1);
-            desired.insert(name.to_owned(), (enabled, asked));
-            asked
+        use futures::FutureExt;
+        // Node's `scheduleMcpToggle` (`resource-extension-sync.mjs:56`): the state asked is recorded and a toggle
+        // asked while the server's chain runs returns that run, which connects again only when the state asked
+        // changed by the end of a connect.
+        let run = {
+            let mut chains = lock(&self.glue.toggle_chains);
+            let chain = chains.entry(name.to_owned()).or_insert(ToggleChain { desired: enabled, running: None });
+            chain.desired = enabled;
+            chain.running.get_or_insert_with(|| run_toggle_chain(self.glue.clone(), name.to_owned()).boxed().shared()).clone()
         };
         // A disable would otherwise wait out an explicit sign-in of this server still in flight.
         if !enabled {
@@ -1306,25 +1329,7 @@ impl ExtensionHost for GlueHost {
             self.glue.scopes.cancelling_login(name);
             drop(self.glue.logins.cancel_server(name).await);
         }
-        let _turn = self.glue.toggle_turns.acquire(name).await;
-        // A toggle asked while the server's chain ran rides that run (Node's `chain.running`,
-        // `resource-extension-sync.mjs` scheduleMcpToggle): the run read this request's state
-        // before it ended, so it connects nothing more and refreshes the surface once.
-        if let Some((covered, status)) = lock(&self.glue.applied).get(name)
-            && *covered >= asked
-        {
-            return status.clone();
-        }
-        let status = loop {
-            let (want, seq) = desired(&self.glue);
-            let status = self.glue.connect_configured(Op::Only(name.to_owned(), want)).await;
-            if desired(&self.glue).1 == seq {
-                lock(&self.glue.applied).insert(name.to_owned(), (seq, status.clone()));
-                break status;
-            }
-        };
-        self.glue.surface.refresh_surface().await;
-        status
+        run.await
     }
 
     /// There is no other runtime in this process to tell.

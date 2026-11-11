@@ -222,6 +222,13 @@ pub struct SessionDirectory {
     inner: Arc<DirInner>,
 }
 
+impl DirInner {
+    /// The directory over this shared state, while it lives (the thread requests of a step that runs here).
+    pub(super) fn outer(&self) -> Option<SessionDirectory> {
+        self.me.upgrade().map(SessionDirectory::over)
+    }
+}
+
 impl SessionDirectory {
     /// The directory a thread's handle reaches back to (it holds the shared state, [`SessionHandle::directory`]).
     pub(super) fn over(inner: Arc<DirInner>) -> Self {

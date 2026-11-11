@@ -102,6 +102,33 @@ impl SessionThreads {
             Reply::Subscribe(_) => Err(PortError::Failed { capability: "session".into(), message: format!("{method} subscribed") }),
         }
     }
+
+    /// A header write issued for `expected_generation` (`saveSessionAsync(session, { expectedGeneration })`):
+    /// `thread/header/patch` with `expectedGeneration`, which the thread drops when the header it lands on is past that
+    /// generation. A record ahead of it that failed to land leaves it decided against a header that never was: sent again.
+    pub async fn patch_header_fenced(
+        &self,
+        thread: &ThreadId,
+        expected_generation: Option<f64>,
+        set: Map<String, Value>,
+        unset: Vec<String>,
+    ) -> Result<super::close::Saved, PortError> {
+        let params = json!({ "threadId": thread, "expectedGeneration": expected_generation, "set": set, "unset": unset });
+        loop {
+            let reply = match self.call(thread, "thread/header/patch", params.clone()).await {
+                Ok(reply) => reply,
+                // A deleted session's late save is fenced (`deleteSession(id, { fenceWrites: true })`): dropped.
+                Err(PortError::NotFound { .. }) => return Ok(super::close::Saved::Dropped),
+                Err(error) => return Err(error),
+            };
+            if reply.get("dropped") == Some(&Value::Bool(true)) {
+                return Ok(super::close::Saved::Dropped);
+            }
+            if reply.get("conflict").is_none() {
+                return Ok(super::close::Saved::Written);
+            }
+        }
+    }
 }
 
 #[async_trait]

@@ -520,6 +520,19 @@
           20000,
           500000
         ],
+        "compactorAnswers": {
+          "compacting": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "Compacted for the heir."
+              }
+            ]
+          },
+          "emptyCompaction": {
+            "messages": []
+          }
+        },
         "clock": {
           "Date.now()": 1700000000000
         }
@@ -906,6 +919,19 @@
           "compact": "returns one user message",
           "failing": "throws Error(compactor down)",
           "empty": "returns no messages"
+        },
+        "compactorAnswers": {
+          "compact": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "Summarized on request."
+              }
+            ]
+          },
+          "empty": {
+            "messages": []
+          }
         },
         "clock": {
           "Date.now()": 1700000000000

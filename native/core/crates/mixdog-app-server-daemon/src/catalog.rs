@@ -74,8 +74,8 @@ pub async fn build_catalog(
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let initial = read_snapshot(tokens, data_dir.join("catalogs").join("snapshot.json")).await;
     let service = Arc::new(CatalogService::composed(initial, sources, http, data_dir.to_path_buf(), io).await);
+    // Armed by the boot (`WarmupSchedulers::schedule_model_catalog_warmup`, `boot/session.mjs:124`).
     let warmup = CatalogWarmup::new(Arc::new(MetadataRefresh(service.clone())));
-    arm_first_warm(&warmup, &|name| std::env::var(name).ok());
     Ok(CatalogHost { service, warmup })
 }
 

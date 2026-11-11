@@ -3,9 +3,9 @@
 //! `markSessionClosedAttempt`) are driven through the thread directory's own close and detach (`SessionClose::detach`,
 //! `SessionClose::close`: the calls the delete, the context switch, the exit and the idle sweep make) over the real
 //! thread store, and the whole stored record is compared before and after each step with the generation it resolved.
-//! The save fence is driven through `patch_header_fenced` over the directory's `SessionThreads` (the write a late save
-//! issued with its expected generation makes, as `agent_send_world.rs` does), comparing the outcome and the whole
-//! stored record after it.
+//! The save fence is driven through the thread's request entry, `thread/header/patch` with `expectedGeneration` (the
+//! request a late save issued for its generation sends, as `agent_send_world.rs` does), comparing the outcome and the
+//! whole stored record after it.
 
 use std::sync::Arc;
 
@@ -143,12 +143,7 @@ async fn fence(index: usize) {
         None | Some(Exact::Undefined | Exact::Null) => None,
         Some(value) => Some(value.as_f64()),
     };
-    let threads = super::thread_state::SessionThreads::new(real.directory.clone());
-    let saved = super::close::patch_header_fenced(&threads, &id, expected, change, unset).await.expect("the save");
-    let outcome = match saved {
-        super::close::Saved::Written => "saved",
-        super::close::Saved::Dropped => "dropped",
-    };
+    let outcome = save_fenced(&real, &id, expected, change, unset).await;
     let state = case.get("state").as_str();
     assert_eq!(Exact::String(outcome.into()), *case.get("outcome"), "{state} expected {expected:?}: the outcome");
     let after = stored(&real, &id).await;
@@ -157,6 +152,17 @@ async fn fence(index: usize) {
         same(&after, case.get("storedAfter"), &format!("{state} expected {expected:?}: the record after (storedAfter)"));
     }
     same(&after, case.get("durableAfter"), &format!("{state} expected {expected:?}: the record another process reads (durableAfter)"));
+}
+
+/// A save issued for `expected` generation: the core's fenced save as the delegation rebind sends it
+/// (`agent_send_world.rs` `ThreadHeaders` over `SessionThreads::patch_header_fenced`), the thread's request
+/// `thread/header/patch` with `expectedGeneration`. Its answer: `saved` or `dropped`.
+pub(super) async fn save_fenced(real: &Real, id: &ThreadId, expected: Option<f64>, set: Map<String, Value>, unset: Vec<String>) -> &'static str {
+    let threads = super::thread_state::SessionThreads::new(real.directory.clone());
+    match threads.patch_header_fenced(id, expected, set, unset).await.expect("the save") {
+        super::close::Saved::Written => "saved",
+        super::close::Saved::Dropped => "dropped",
+    }
 }
 
 /// `record` with its `messages` field at the place `recorded` holds it (manifest: Node's live record keeps it where the
