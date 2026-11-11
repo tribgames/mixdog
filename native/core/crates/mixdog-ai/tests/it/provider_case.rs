@@ -992,52 +992,45 @@ async fn answer(inner: &Inner, socket: &mut TcpStream, index: usize, reply: &Exa
     let chunks = reply.try_get("chunks").map(|c| c.as_array().iter().map(bytes_of).collect::<Vec<_>>());
     let body = reply.try_get("body").map(bytes_of).unwrap_or_default();
     let bodiless = status == 204 || status == 304;
-    match &chunks {
-        Some(_) if !has("content-length") && !bodiless => head.push_str("Transfer-Encoding: chunked\r\n"),
-        None if !has("content-length") && !bodiless => head.push_str(&format!("Content-Length: {}\r\n", body.len())),
-        _ => {}
+    // `writeHead` stores the head before the body is known, so Node frames every answer in chunks unless the script
+    // names its length.
+    let chunked = !has("content-length") && !bodiless;
+    if chunked {
+        head.push_str("Transfer-Encoding: chunked\r\n");
     }
     head.push_str("\r\n");
-    let chunked = chunks.is_some() && !has("content-length");
+    let chunks = chunks.unwrap_or_else(|| if bodiless || body.is_empty() { Vec::new() } else { vec![body] });
+    let hold = reply.try_get("hold").is_some_and(|h| h == &Exact::Bool(true));
     if socket.write_all(head.as_bytes()).await.is_err() {
         return false;
     }
-    match chunks {
-        Some(chunks) => {
-            for chunk in chunks {
-                let framed = if chunked {
-                    let mut framed = format!("{:x}\r\n", chunk.len()).into_bytes();
-                    framed.extend_from_slice(&chunk);
-                    framed.extend_from_slice(b"\r\n");
-                    framed
-                } else {
-                    chunk
-                };
-                if socket.write_all(&framed).await.is_err() || socket.flush().await.is_err() {
-                    return false;
-                }
-            }
-            if reply.try_get("hold").is_some_and(|h| h == &Exact::Bool(true)) {
-                // Held open until the client closes the connection; that close is part of the record.
-                let mut sink = [0u8; 4096];
-                while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
-                let mut state = inner.state.lock().unwrap();
-                if let Exact::Object(entries) = &mut state.arrivals[index] {
-                    entries.push(("clientClosedConnection".into(), Exact::Bool(true)));
-                }
-                drop(state);
-                inner.bump();
-                return false;
-            }
-            if chunked && socket.write_all(b"0\r\n\r\n").await.is_err() {
-                return false;
-            }
+    for chunk in chunks {
+        let framed = if chunked {
+            let mut framed = format!("{:x}\r\n", chunk.len()).into_bytes();
+            framed.extend_from_slice(&chunk);
+            framed.extend_from_slice(b"\r\n");
+            framed
+        } else {
+            chunk
+        };
+        if socket.write_all(&framed).await.is_err() || socket.flush().await.is_err() {
+            return false;
         }
-        None => {
-            if !bodiless && socket.write_all(&body).await.is_err() {
-                return false;
-            }
+    }
+    if hold {
+        // Held open until the client closes the connection; that close is part of the record.
+        let mut sink = [0u8; 4096];
+        while matches!(socket.read(&mut sink).await, Ok(n) if n > 0) {}
+        let mut state = inner.state.lock().unwrap();
+        if let Exact::Object(entries) = &mut state.arrivals[index] {
+            entries.push(("clientClosedConnection".into(), Exact::Bool(true)));
         }
+        drop(state);
+        inner.bump();
+        return false;
+    }
+    if chunked && socket.write_all(b"0\r\n\r\n").await.is_err() {
+        return false;
     }
     socket.flush().await.is_ok()
 }
