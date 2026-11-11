@@ -184,8 +184,7 @@ impl StateWebhookStore {
 
     /// Every delivery row with the columns webhooks-db.mjs reads (`DELIVERY_COLS`), ordered by delivery id as Node's
     /// `ORDER BY delivery_id`; the stamps as JSON writes a PostgreSQL `timestamptz` (ISO, milliseconds, `Z`).
-    #[cfg(test)]
-    pub(crate) async fn delivery_rows(&self) -> Vec<Value> {
+    pub async fn delivery_rows(&self) -> Vec<Value> {
         let stamp = |at: Ts| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let mut rows: Vec<Value> = self
             .state

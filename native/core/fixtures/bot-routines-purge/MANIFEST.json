@@ -1,12 +1,12 @@
 {
-  "columns": "each table row keeps its key and owner only: the purge removes whole rows, and the other columns are the seed's or time stamps",
+  "columns": "every column schedules-db.mjs (COLS), webhooks-db.mjs (ENDPOINT_COLS, DELIVERY_COLS) read; stamps on the virtual clock (phase i at start + i * step)",
   "command": "node benchmarks/rust-core/recorders/record-bot-routines-purge.mjs --tree <exact export of b6f10295a with node_modules>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3201,
+      "bytes": 18277,
       "path": "golden.json",
-      "sha256": "ae633900fc96b457cde7e861ac7f37b26fdcc09e89748b9560336846da662f15"
+      "sha256": "33dbbb308d61c69c5616c4e17b82f577b98dd3f1e8730bc4ff5538342c553b80"
     }
   ],
   "inputs": [
@@ -38,7 +38,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-bot-routines-purge.mjs",
-  "recorderSha256": "b5928ee443f8ad98523e1eae2c647fba82384a0d9deeb0d3f77e5e190386ab86",
+  "recorderSha256": "be40d7739c11f984317ac7c2628f0da1ea881cb3bd66872ea2c2346cf78f4679",
   "set": "bot-routines-purge",
-  "totalBytes": 3201
+  "totalBytes": 18277
 }
