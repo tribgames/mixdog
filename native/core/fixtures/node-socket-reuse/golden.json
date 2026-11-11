@@ -1,0 +1,35 @@
+{
+  "node": "v22.20.0",
+  "cases": [
+    {
+      "name": "a-body-ended-before-the-timers",
+      "body": 2,
+      "order": [
+        "t1",
+        "r0-read",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "reused",
+        "r2": "new",
+        "r3": "reused"
+      },
+      "accepted": 2
+    },
+    {
+      "name": "a-body-ended-inside-the-first-timer",
+      "body": 70000,
+      "order": [
+        "t1",
+        "r0-read",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "new",
+        "r2": "new",
+        "r3": "reused"
+      },
+      "accepted": 3
+    }
+  ]
+}
