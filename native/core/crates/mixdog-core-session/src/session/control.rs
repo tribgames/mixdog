@@ -234,6 +234,10 @@ pub(crate) struct ControlCell {
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
     pub busy: std::sync::atomic::AtomicBool,
+    /// A test's mark of a turn in flight with no run (Node's `markSessionAskStart`, until `markSessionDone`): the
+    /// session is not idle (`ui_busy`); `Inbox::AskEnded` clears it and runs what the turn's end runs for a prune.
+    #[cfg(test)]
+    pub ask_marked: std::sync::atomic::AtomicBool,
     /// How many times the actor has armed the prompt-history write timer (the window, or a backoff), counted in the step that arms
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]

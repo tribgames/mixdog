@@ -383,6 +383,20 @@ fn meta_row(m: &AgentMessage, base: Option<&Value>, was: Option<&AgentMessage>) 
     let changed = |same: &dyn Fn(&AgentMessage) -> bool| was.is_none_or(|w| !same(w));
     if changed(&|w| w.source == m.source) {
         set_or_remove(&mut meta, "source", m.source.map(|s| json!(source_name(s))));
+        // The rows Compact writes in the runtime's name are marked synthetic, as Node marks them.
+        if matches!(
+            m.source,
+            Some(
+                Source::CompactContext
+                    | Source::ActiveTurnContinuation
+                    | Source::CompactExecutionRecovery
+                    | Source::CompactSkillWindow
+                    | Source::CompactSkillReload
+                    | Source::CompactSkillRestore
+            )
+        ) {
+            meta.insert("synthetic".into(), json!(true));
+        }
     }
     if changed(&|w| w.attempt == m.attempt) {
         set_or_remove(&mut meta, "attempt", m.attempt.map(|n| json!(n)));

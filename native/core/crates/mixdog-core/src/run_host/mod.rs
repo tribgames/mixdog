@@ -110,6 +110,16 @@ pub mod settings_changes;
 pub mod prompt_session;
 #[cfg(test)]
 mod prompt_session_tests;
+#[cfg(test)]
+mod compaction_node_harness;
+#[cfg(test)]
+mod execution_tail_node_tests;
+#[cfg(test)]
+mod summary_mode_node_tests;
+#[cfg(test)]
+mod presend_goal_reminder_node_tests;
+#[cfg(test)]
+mod offload_prune_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
@@ -129,6 +139,7 @@ pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
 pub mod retiring_compactor;
+pub mod goal_reminder_compactor;
 pub mod side_question_store;
 pub mod side_requests;
 pub mod side_wiring;

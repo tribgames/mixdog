@@ -2255,7 +2255,11 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
             header
         };
         let (rust_header, node_header) = (scratched(&rust_header, &rust.id), scratched(&node_header, &node_heir));
-        let keys: std::collections::BTreeSet<&String> = rust_header.keys().chain(node_header.keys()).filter(|key| key.as_str() != "id").collect();
+        // `offloadSources` and `offloadSourcesRules` (the sessions whose sidecars the heir may name, which the prune's
+        // index reads, and the rules that set was computed under) are the fix of `node-fix-prune-after-save.patch`,
+        // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+        let keys: std::collections::BTreeSet<&String> =
+            rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str())).collect();
         let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
         assert!(differing.is_empty(), "header of {label}: {differing:#?}");
         // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
@@ -3665,6 +3669,9 @@ impl mixdog_core_goal::goal::hooks::GoalContinuationHooks for HeldSettle {
 impl mixdog_core_goal::goal::hooks::GoalViewHooks for HeldSettle {
     async fn goal_status(&self, thread: &ThreadId) -> mixdog_core_goal::goal::GoalResult<Option<mixdog_core_goal::goal::js::Goal>> {
         mixdog_core_goal::goal::hooks::GoalViewHooks::goal_status(&self.goals, thread).await
+    }
+    async fn stored_goal(&self, thread: &ThreadId) -> mixdog_core_goal::goal::GoalResult<Option<mixdog_core_goal::goal::js::Goal>> {
+        mixdog_core_goal::goal::hooks::GoalViewHooks::stored_goal(&self.goals, thread).await
     }
     async fn goal_control(&self, thread: &ThreadId, request: Value) -> mixdog_core_goal::goal::GoalResult<Value> {
         mixdog_core_goal::goal::hooks::GoalViewHooks::goal_control(&self.goals, thread, request).await

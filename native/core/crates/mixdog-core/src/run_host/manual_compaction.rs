@@ -37,7 +37,7 @@ use mixdog_core_session::session::StoredRows;
 use mixdog_core_session::session::route_session::ContextStatusCache;
 use mixdog_core_session::session::run::{Compaction, Dropped};
 use mixdog_core_session::session::thread_context::{ContextSnapshot, ContextWorld};
-use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, CompactionHeader, ManualCompaction};
+use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, CompactionHeader, ManualCompaction, OffloadCopies};
 use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Value, json};
@@ -241,6 +241,17 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     (working, committed.result)
 }
 
+/// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`.
+pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune_candidates().await
+}
+
+/// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
+pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
+    let now = u64::try_from(clock.now_ms()).unwrap_or(0);
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune(candidates, transcripts, copies, now).await;
+}
+
 /// `compactSessionMessages` after a pass that did not fail: the reading of the last request is reset.
 fn manual_tail(working: &mut Header, now: f64) {
     for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens"] {
@@ -303,7 +314,8 @@ impl ManualCompaction for HostManualCompaction {
         // request's media alone would need the compaction.
         compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
-        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false };
+        // `runHandoffCompaction` passes no Goal reminder: a compaction outside a turn marks it for the next turn instead.
+        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, latest_user_prefix: "" };
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
@@ -312,7 +324,7 @@ impl ManualCompaction for HostManualCompaction {
         parts.hooks.pre(thread, trigger).await;
         let output = match compactor.compact(request(require)).await {
             Ok(output) => output,
-            Err(CompactError::Overflow(message) | CompactError::Failed(message)) => {
+            Err(CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) => {
                 return self.record_failure(thread, &snapshot, &session_messages, &plan, None, &message, Some(&message)).await.map(Some);
             }
             Err(CompactError::Aborted) => {
@@ -412,9 +424,9 @@ impl ManualCompaction for HostManualCompaction {
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, latest_user_prefix: "" };
         let output = compactor.compact(request).await.map_err(|error| match error {
-            CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
+            CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),
         })?;
         Ok(Some(output.messages.iter().map(row_of).collect()))
@@ -422,6 +434,14 @@ impl ManualCompaction for HostManualCompaction {
 
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.parts.hooks.post(thread, trigger).await;
+    }
+
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        offload_candidates(&self.parts.io, &self.parts.data_dir, thread).await
+    }
+
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
+        prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, candidates, transcripts, copies).await;
     }
 
     /// `rearmLateDeferredTools(session)` and `rearmPromptSettingsNotice(session)` of the session ops,

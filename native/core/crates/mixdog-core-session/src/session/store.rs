@@ -942,6 +942,23 @@ impl ThreadStore for StoreThreads {
         })
     }
 
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        let (projector, index, id) = (self.projector.clone(), self.index.clone(), id.as_str().to_owned());
+        Box::pin(async move {
+            projector.caught_up().await?;
+            let found = index.offload_referencers(&id, mixdog_store::offload_sources::boot()).await.map_err(|e| internal("copies", &e))?;
+            if let Some((heir, source)) = found.copying {
+                return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation of {source}")));
+            }
+            Ok(super::seams::OffloadCopies { copies: found.sessions, unknown: found.unknown, unreadable: found.unreadable })
+        })
+    }
+
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (index, session) = (self.index.clone(), session.to_owned());
+        Box::pin(async move { index.record_offload_scan(&session, ordinal, sources).await.map_err(|e| internal("copies", &e)) })
+    }
+
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
         Box::pin(async move {

@@ -1095,6 +1095,11 @@ mod tests {
             use mixdog_core_ports::ports::threads::ThreadState;
             let mut got = self.replay.threads.header(&self.id).await.expect("the session");
             let mut want = self.replay.recorded_header(want);
+            // `offloadSources` and `offloadSourcesRules` (every session's reference set, empty for one naming no other
+            // session's sidecars, and the rules it was computed under) are the fix of `node-fix-prune-after-save.patch`,
+            // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+            assert!(got.remove("offloadSources").is_some_and(|sources| sources.is_array()), "{what}: the session holds its reference set");
+            assert_eq!(got.remove("offloadSourcesRules"), Some(Value::from(mixdog_store::offload_sources::RULES)), "{what}: under the present rules");
             for header in [&mut got, &mut want] {
                 assert!(header.get("updatedAt").is_some_and(Value::is_number), "{what}: a stored time");
                 header.remove("updatedAt");

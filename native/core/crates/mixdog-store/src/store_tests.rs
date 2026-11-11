@@ -90,6 +90,9 @@ impl LogFile for FaultFile {
         take(&mut self.1.lock().unwrap().truncate)?;
         self.0.truncate(len)
     }
+    fn size(&mut self) -> io::Result<u64> {
+        self.0.size()
+    }
 }
 
 impl WriterIo for FaultIo {
@@ -2036,6 +2039,57 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     let store = open_index(other.path()).unwrap();
     // `session()` writes the header `{"title":"t"}`.
     assert_eq!(store.title("s3").await.unwrap().as_deref(), Some("t"));
+}
+
+/// The sessions whose reference set (`offloadSources`) names a session are one index read, with a copy still being
+/// made by this boot (a mark another boot left is no copy in progress); a deleted one is not listed. A session whose
+/// header holds no set, or one computed under earlier rules (no `offloadSourcesRules`: the review's `["sess_b"]` of a
+/// transcript naming `TOOL-RESULTS/SESS_A/` too), is unknown, not empty, until a scan of its transcript at the ordinal
+/// it is projected to is stored (a scan at another ordinal is not), and an earlier-rules set's rows stay (a set only
+/// grows); a set taken out of a header leaves its session unknown and its rows kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
+    let env = Env::new();
+    let rules = crate::offload_sources::RULES;
+    let with = |id: &str, fields: serde_json::Value| {
+        let mut head = head(id, "task", "t");
+        head.header.extend(fields.as_object().unwrap().clone());
+        head
+    };
+    let known = |sources: serde_json::Value| json!({"offloadSources": sources, "offloadSourcesRules": rules});
+    let mut marked = known(json!(["a"]));
+    marked.as_object_mut().unwrap().extend([("offloadInheriting".to_owned(), json!("a")), ("offloadInheritingBoot".to_owned(), json!("this-boot"))]);
+    env.store.upsert(with("c", known(json!(["a", "b"]))), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("h", marked), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("x", known(json!(["b"]))), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("e", known(json!([]))), DirtyMark::Clear).await.unwrap();
+    let mut gone = known(json!(["a"]));
+    gone.as_object_mut().unwrap().insert("deleted".to_owned(), json!(true));
+    env.store.upsert(with("gone", gone), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("u", json!({})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("o", json!({"offloadSources": ["b"]})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("p", json!({"offloadSources": ["b"], "offloadSourcesRules": rules - 1})), DirtyMark::Clear).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.copying), (vec!["c".to_owned(), "h".to_owned()], Some(("h".to_owned(), "a".to_owned()))));
+    let unknown: Vec<&str> = found.unknown.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(unknown, ["o", "p", "u"], "the sessions holding no set or one of earlier rules are unknown");
+    let at = found.unknown[2].1;
+    for (id, ordinal) in &found.unknown[..2] {
+        env.store.record_offload_scan(id, *ordinal, Vec::new()).await.unwrap();
+    }
+    assert_eq!(env.store.offload_referencers("a", "an-earlier-boot").await.unwrap().copying, None, "a mark another boot left");
+    env.store.record_offload_scan("u", at + 1, vec!["a".into()]).await.unwrap();
+    assert_eq!(env.store.offload_referencers("a", "this-boot").await.unwrap().unknown, [("u".to_owned(), at)], "a scan at another ordinal");
+    env.store.record_offload_scan("u", at, vec!["a".into()]).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.unknown), (vec!["c".to_owned(), "h".to_owned(), "u".to_owned()], Vec::new()));
+    env.store.upsert(with("h", known(json!(["b"]))), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("c", json!({})), DirtyMark::Clear).await.unwrap();
+    let found = env.store.offload_referencers("a", "this-boot").await.unwrap();
+    assert_eq!((found.sessions, found.copying), (vec!["c".to_owned(), "u".to_owned()], None));
+    assert_eq!(found.unknown.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), ["c"]);
+    // The earlier-rules sets of `o` and `p`, scanned to nothing, still count.
+    assert_eq!(env.store.offload_referencers("b", "this-boot").await.unwrap().sessions, ["c", "h", "o", "p", "x"]);
 }
 
 /// The index holds no user data (FORMAT.md §8): a `user_version` 8 index (no `user_name` column) is not refused or altered, it is

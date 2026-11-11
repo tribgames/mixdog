@@ -4558,6 +4558,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -5273,6 +5274,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-core",
+ "tracing-subscriber",
  "tungstenite",
  "typenum",
  "unicode-normalization",
