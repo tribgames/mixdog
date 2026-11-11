@@ -44,8 +44,9 @@ pub(super) struct Node {
     /// signature for reusing it.
     pub fingerprint: Option<(u64, u64)>,
     lines: OnceLock<Vec<String>>,
-    /// A query read this file's source (Node fills its source caches for it).
-    read: std::sync::atomic::AtomicBool,
+    /// The runtime caches of the resident graph this node belongs to: a read of its source enters them at once, as
+    /// Node's source accessors fill `_sourceTextCache` / `_sourceLinesCache` / `_maskedLinesCache` where they read.
+    runtime: OnceLock<Lookups>,
 }
 
 /// `(size, mtime_ns)` of a file.
@@ -61,14 +62,24 @@ fn rel_of(root: &Path, path: &Path) -> Option<String> {
 
 impl Node {
     pub fn lines(&self) -> &[String] {
-        self.read.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.note_read();
         self.lines.get_or_init(|| split_lines(&self.text))
     }
 
     /// The file's source text, read for an answer.
     pub fn source(&self) -> &str {
-        self.read.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.note_read();
         &self.text
+    }
+
+    /// A query read this file: its source-cache entries enter the resident graph's runtime caches now (again after a
+    /// prune cleared them), so a prune running meanwhile measures them where Node's would.
+    fn note_read(&self) {
+        let Some(runtime) = self.runtime.get() else { return };
+        let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !runtime.sources.contains_key(&self.rel) {
+            runtime.sources.insert(self.rel.clone(), source_entry_bytes(self));
+        }
     }
 
     pub fn has_token(&self, name: &str) -> bool {
@@ -148,12 +159,18 @@ fn field(key: &str, value: u64) -> u64 {
 }
 
 /// The source-cache entries Node keeps for a file it read (`{ fingerprint, text }` and `{ fingerprint, lines }` twice),
-/// each with its Map slot and key.
+/// each with its Map slot and key. The lines are counted off the text (`text.split(/\r?\n/)`: one line per `\n` plus
+/// the last, each `\r\n` or `\n` dropped), not split again.
 fn source_entry_bytes(node: &Node) -> u64 {
     let slot = 24 + js_str(&node.rel);
     let fingerprint = field("fingerprint", js_units(16));
+    let text_units = node.text.encode_utf16().count() as u64;
+    let breaks = node.text.matches('\n').count() as u64;
+    let carriage = node.text.matches("\r\n").count() as u64;
+    let lines_units = text_units - breaks - carriage;
+    let lines_bytes = 24 + (breaks + 1) * (8 + 16) + 2 * lines_units;
     let text = slot + 48 + fingerprint + field("text", js_str(&node.text));
-    let lines = slot + 48 + fingerprint + field("lines", js_strings(split_lines(&node.text).iter().map(String::as_str)));
+    let lines = slot + 48 + fingerprint + field("lines", lines_bytes);
     text + 2 * lines
 }
 
@@ -291,6 +308,12 @@ impl Graph {
             let key = path_key(root);
             let measured = || (graph.base_bytes(&key, unchanged), graph.token_index_bytes());
             let lookups = cache.lookups_for(&key, hasher.finish(), measured);
+            // The query starts: it awaits the graph's token index (symbol-index.mjs `_ensureTokenIndex`), which a prune
+            // from here on counts.
+            lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).queried = true;
+            for node in &graph.nodes {
+                let _ = node.runtime.set(lookups.clone());
+            }
             graph.lookups = lookups;
         }
         Ok(graph)
@@ -426,20 +449,6 @@ impl Graph {
     }
 }
 
-/// The end of a query on this graph: its token index stands built and the files it read stay in the source caches,
-/// as Node's resident graph keeps them.
-impl Drop for Graph {
-    fn drop(&mut self) {
-        let mut runtime = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        runtime.queried = true;
-        for node in self.nodes.iter().filter(|n| n.read.load(std::sync::atomic::Ordering::Relaxed)) {
-            if !runtime.sources.contains_key(&node.rel) {
-                runtime.sources.insert(node.rel.clone(), source_entry_bytes(node));
-            }
-        }
-    }
-}
-
 fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, String> {
     let bytes =
         std::fs::read(path).map_err(|e| format!("read failed for {}: {e}", path.display()))?;
@@ -479,7 +488,7 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
         calls,
         fingerprint,
         lines: OnceLock::new(),
-        read: Default::default(),
+        runtime: OnceLock::new(),
     })
 }
 
@@ -499,7 +508,7 @@ impl Node {
             calls: file.calls.map(|calls| calls.into_iter().map(super::cache::CachedCall::into_call).collect()),
             fingerprint: Some((file.size, file.mtime_ns)),
             lines: OnceLock::new(),
-            read: Default::default(),
+            runtime: OnceLock::new(),
         }
     }
 }
