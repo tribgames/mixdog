@@ -13,7 +13,7 @@ import { openSet } from './lib/case-set.mjs';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'room-files-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
-const set = openSet('agent-room-cases', import.meta.url);
+const set = openSet('agent-room-cases', import.meta.url, { classes: { AbortSignal: (signal) => ({ aborted: signal.aborted, reason: signal.reason }) } }); // the one stand-in: an AbortSignal is stored as { aborted, reason }
 const S = 'src/runtime/agent/orchestrator/session/';
 const room = await set.load(`${S}agent-room.mjs`);
 const sup = await set.load(`${S}agent-room-supervisor.mjs`);
@@ -278,7 +278,7 @@ await set.run('a supervisor step runs once on the Maintainer route with no promp
     loadConfig: () => ({ providers: { p: {} } }),
     resolveMaintenanceRoute: ({ agent, includeDefault }) => { routeCalls.push({ agent, includeDefault }); return agent === 'cycle1-agent' && includeDefault === false ? { provider: 'p', model: 'small' } : null; },
     initProviders: async () => {},
-    getProvider: () => ({ send: async (messages, model, tools, options) => { sent.push({ messages, model, tools, options: { ...options, signal: options.signal ? { class: 'AbortSignal', aborted: options.signal.aborted } : options.signal } }); return { content: replies[sent.length - 1] }; } }),
+    getProvider: () => ({ send: async (messages, model, tools, options) => { sent.push({ messages, model, tools, options }); return { content: replies[sent.length - 1] }; } }),
     log: (line) => logged.push(line),
   });
   const members = [{ id: 'gh', name: 'GitHub' }, { id: 'rel', name: 'Release' }];
@@ -437,6 +437,7 @@ await set.run('a usage limit reads off a failed turndone like the Lead banner: d
 
 await set.finish({
   entry: {
+    standIns: { AbortSignal: 'an AbortSignal is stored as { aborted, reason } (reason through exact)' },
     runs: 'agent-room.mjs (parseRoomAsk, roomMentionOf, normalizeRoomRow/Config, roomRowItem/Message/Targets/rowsOfItems, rowsSinceCursor, roomTurnPrompt, roomMessageBudget, isPassReply, withoutPassMarker, roomUserWaiting, roomUsageLimit, roomMember* and runRoomExchange), agent-room-supervisor.mjs (parseRoomDecision, roomSupervisorPrompt, roomSupervisorRows), createRoomSupervisorCompletion with scripted config/route/provider, createAgentRoomDelivery over the real attachment store, restoreTranscriptItems',
     notRun: 'no real member sessions or model: runRoomExchange gets scripted speak and decide functions (their scripts are in each case)',
   },
