@@ -303,18 +303,21 @@ impl<S: RoomStore> Rooms<S> {
     }
 
 
-    /// A user message was accepted under `submission_id`; false when it was seen before.
-    pub async fn accept_submission(&self, room_id: &str, submission_id: &str) -> Result<bool, RoomError> {
-        self.write(|doc| {
-            let room = doc.get_mut(room_id).ok_or_else(no_room)?;
-            if room.submissions.iter().any(|id| id == submission_id) {
-                return Ok(false);
-            }
-            room.submissions.push(submission_id.to_owned());
-            let excess = room.submissions.len().saturating_sub(SUBMISSIONS_KEPT);
-            room.submissions.drain(..excess);
-            Ok(true)
-        })
+    /// A user message was accepted under `submission_id`: appended, the newest [`SUBMISSIONS_KEPT`] kept
+    /// (`agent-room-messages.ts:103`; a second send of the id that was already on its way appends it again, as Node's does).
+    /// The id stays in the live records even when its save fails, as Node's room keeps it in memory before it awaits
+    /// `persist` (`:103`, `:109`): a retry of that send is acknowledged and posts nothing, and the next save writes the id.
+    pub async fn accept_submission(&self, room_id: &str, submission_id: &str) -> Result<(), RoomError> {
+        self.write_with(
+            |doc| {
+                let room = doc.get_mut(room_id).ok_or_else(no_room)?;
+                room.submissions.push(submission_id.to_owned());
+                let excess = room.submissions.len().saturating_sub(SUBMISSIONS_KEPT);
+                room.submissions.drain(..excess);
+                Ok(())
+            },
+            true,
+        )
         .await
     }
 
@@ -485,14 +488,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn submissions_dedupe_and_stay_bounded() {
+    async fn submissions_stay_bounded() {
         let rooms = Rooms::new(MemStore::default());
         rooms.create(&input(&["a", "b"]), "room01", 1).await.unwrap();
-        assert!(rooms.accept_submission("room01", "s1").await.unwrap());
-        assert!(!rooms.accept_submission("room01", "s1").await.unwrap());
         for n in 0..SUBMISSIONS_KEPT + 5 {
             rooms.accept_submission("room01", &format!("n{n}")).await.unwrap();
         }
-        assert_eq!(rooms.get("room01").await.unwrap().submissions.len(), SUBMISSIONS_KEPT);
+        let kept = rooms.get("room01").await.unwrap().submissions;
+        assert_eq!((kept.len(), kept[0].as_str()), (SUBMISSIONS_KEPT, "n5"), "the newest are kept");
     }
 }
