@@ -2,15 +2,16 @@
 // xai-grok.test.mjs (5 tests): the real Grok tool-schema flattening, the xAI Responses cache routing and fingerprint payload, and the
 // grok-oauth provider's pinned CLI-proxy transport, over scripted inputs and env settings.
 //   node benchmarks/rust-core/recorders/record-xai-grok.mjs --tree <exact export of b6f10295a>
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-xai-grok',
-  pure: { 'xai-responses-fingerprint-payload': 'RUST WORK: `_xaiResponsesFingerprintPayloadForTest` is a test-only trace payload helper; no public Rust function builds it (looked in mixdog-ai/src/providers/grok and compat: no fingerprint payload; the request fields it summarises are recorded at wire level by xai-responses-cache-routing)' },
-  entry: 'provider-toolcall/_shared.mjs re-exports: GrokOAuthProvider({ preconnect: false }) with in-memory tokens .send(messages, model, tools, opts) against the loopback endpoint (WIRE: tool flattening, xAI Responses cache routing, the pinned CLI-proxy HTTP/SSE route with MIXDOG_OAI_TRANSPORT / MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT set as the test sets them); xaiResponsesCacheRouting and _xaiResponsesFingerprintPayloadForTest for the fingerprint case (pure, Rust work). Not run: a live endpoint.',
-  compare: 'WIRE cases: send each case through the Rust Grok adapter to a loopback endpoint (the Responses request is answered with one completed text turn) and compare the request as it arrived in `requests` (origin, path, every header in order, body bytes: flattened tool schemas, prompt_cache_key, store/include) and `sent.*.result`. The fingerprint case is pure and listed as Rust work in `levels`.',
-  replay: "WIRE: mixdog_ai::providers::grok::adapter() (grok/mod.rs:224) with codec() (grok/mod.rs:212) and GrokRewriter (grok/mod.rs:153, which carries the tool flattening: the private grok/tool_schema.rs flatten_tools is reachable only through it), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint. Pure fingerprint case: Rust work (no public function).",
+  entry: 'provider-toolcall/_shared.mjs re-exports: GrokOAuthProvider({ preconnect: false }) with in-memory tokens .send(messages, model, tools, opts) against the loopback endpoint (WIRE: tool flattening, xAI Responses cache routing, the pinned CLI-proxy HTTP/SSE route with MIXDOG_OAI_TRANSPORT / MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT set as the test sets them); the fingerprint case is the same send with MIXDOG_XAI_CACHE_TRACE=1 and the local agent trace pointed at a recording file (WIRE: the cache_context row the provider wrote). Not run: a live endpoint.',
+  compare: 'WIRE cases: send each case through the Rust Grok adapter to a loopback endpoint (the Responses request is answered with one completed text turn) and compare the request as it arrived in `requests` (origin, path, every header in order, body bytes: flattened tool schemas, prompt_cache_key, store/include) and `sent.*.result`. The fingerprint case compares the `trace` rows the send wrote.',
+  replay: "WIRE: mixdog_ai::providers::grok::adapter() (grok/mod.rs:224) with codec() (grok/mod.rs:212) and GrokRewriter (grok/mod.rs:153, which carries the tool flattening: the private grok/tool_schema.rs flatten_tools is reachable only through it), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint.",
 });
 const { _xaiResponsesFingerprintPayloadForTest, xaiResponsesCacheRouting, GrokOAuthProvider, BUILTIN_TOOLS } = await rec.load('scripts/provider-toolcall/_shared.mjs');
 const SRC = 'scripts/provider-toolcall/xai-grok.test.mjs';
@@ -41,14 +42,26 @@ await rec.run('xai-responses-cache-routing', `${SRC}:66`, { sends: routeCases },
   for (const [name, opts] of routeCases) sent[name] = await send([], 'grok-4.6', opts);
   return { sent };
 });
-await rec.run('xai-responses-fingerprint-payload', `${SRC}:66`, { sessionId: 'session-a' }, () => {
-  const first = route({ sessionId: 'session-a' });
-  return _xaiResponsesFingerprintPayloadForTest({
-    model: 'grok-4.6', opts: { sessionId: 'session-a', providerState: { xaiResponses: { store: false, seenMessageCount: 6 } } },
-    params: { input: [{ role: 'user', content: 'next' }], prompt_cache_key: first.key, store: false }, rawTools: [],
-    response: { model: 'grok-4.6-build', usage: { input_tokens: 7_324, input_tokens_details: { cached_tokens: 128 } } },
-    cacheRouting: first, previousResponseId: null, inputStartIndex: 0, continuationResetReason: null, transport: 'http', cacheLane: null,
-  });
+// :66 - the fingerprint payload is the cache_context trace row the provider writes when a Responses turn completes with the xAI cache trace on (MIXDOG_XAI_CACHE_TRACE=1): the case is the send
+// itself (wire), with the local agent trace pointed at a file of the recording and the endpoint answering with the scripted response model and usage; the row the product wrote is the result.
+await rec.run('xai-responses-fingerprint-payload', `${SRC}:66`, { sessionId: 'session-a', providerState: { xaiResponses: { store: false, seenMessageCount: 6 } }, env: { MIXDOG_XAI_CACHE_TRACE: '1', MIXDOG_AGENT_TRACE_PATH: '<data>/agent-trace.jsonl' }, response: { model: 'grok-4.6-build', usage: { input_tokens: 7_324, input_tokens_details: { cached_tokens: 128 } } } }, async ({ clock }) => {
+  const tracePath = join(rec.dataDir, 'agent-trace.jsonl');
+  const saved = ['MIXDOG_XAI_CACHE_TRACE', 'MIXDOG_AGENT_TRACE_PATH', 'MIXDOG_AGENT_TRACE_DISABLE', 'MIXDOG_AGENT_TRACE_LOCAL_DISABLE'].map((k) => [k, process.env[k]]);
+  try {
+    process.env.MIXDOG_XAI_CACHE_TRACE = '1';
+    process.env.MIXDOG_AGENT_TRACE_PATH = tracePath;
+    delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
+    delete process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE;
+    rec.net.reply = (record) => ({ status: 200, contentType: 'text/event-stream', chunks: [`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'resp-1', model: 'grok-4.6-build', status: 'completed', usage: { input_tokens: 7_324, input_tokens_details: { cached_tokens: 128 } }, output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] } })}\n\n`] });
+    const provider = new GrokOAuthProvider({ preconnect: false });
+    provider.tokens = { access_token: 'tok-fixture', refresh_token: 'refresh-fixture', expires_at: Date.parse('2030-01-01T00:00:00Z'), user_id: 'user-fixture' };
+    const sent = await clock.followRetries(provider.send([{ role: 'user', content: 'hi' }], 'grok-4.6', [], { sessionId: 'session-a', providerState: { xaiResponses: { store: false, seenMessageCount: 6 } } }).then((result) => ({ result }), (error) => ({ error })));
+    const rows = () => (existsSync(tracePath) ? readFileSync(tracePath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []);
+    await clock.advance(0, { until: () => rows().some((row) => row.kind === 'cache_context'), what: 'the cache_context trace row written' });
+    return { sent, trace: rows() };
+  } finally {
+    for (const [k, v] of saved) (v === undefined ? delete process.env[k] : (process.env[k] = v));
+  }
 });
 await rec.run('grok-oauth-pinned-to-cli-proxy-http-sse', `${SRC}:161`, { env: { MIXDOG_OAI_TRANSPORT: 'ws-delta', then: { MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT: 'websocket', providerConfig: { responsesTransport: 'websocket' } } }, models: ['grok-build-0.1', 'grok-build', 'grok-4.5'] }, async () => {
   const saved = ['MIXDOG_OAI_TRANSPORT', 'MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT', 'MIXDOG_GROK_OAUTH_TRANSPORT'].map((k) => [k, process.env[k]]);
