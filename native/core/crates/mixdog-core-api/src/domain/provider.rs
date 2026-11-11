@@ -680,6 +680,12 @@ impl ProgressKind {
             Self::Tool => "tool",
         }
     }
+
+    /// `isVisibleStreamProgress`: text, reasoning and a tool are output the caller sees; any other kind (and a
+    /// transport-only chunk, which reports none) is not.
+    pub fn is_visible(self) -> bool {
+        matches!(self, Self::Text | Self::Reasoning | Self::Tool)
+    }
 }
 
 /// Deltas are hints; the folded result is the truth. Partial output of a dead
