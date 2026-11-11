@@ -2633,7 +2633,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         room_log.clone(),
     ));
     // The core is the attached room host (`registerAgentRoomHost(host.agentRoomHost())`, desktop-service.ts:788).
-    let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone(), rooms_ready.clone())));
+    let room_host_registration = room_hosts.register_host(
+        Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone(), rooms_ready.clone())),
+        // `member` / `ask`: a `session` send to a room log (agent-room-messages.ts `addressee`, `acceptAsk`).
+        Some(Arc::new(mixdog_core_rooms::rooms::room_ask::RoomAsks::new(live_rooms.clone(), Arc::new(room_calls.clone()), rooms_ready.clone()))),
+    );
     builder.register(Arc::new(mixdog_core_rooms::rooms::service::RoomService::new(
         rooms.clone(),
         room_host.clone(),
@@ -2867,6 +2871,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     data_dir: b.data_dir.clone(),
                     io: b.tokens.interactive_io,
                 }),
+                rooms: room_hosts.clone(),
             }))
             .map_err(ComposeError::AlreadyBound)?;
         late_bot_sources

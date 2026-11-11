@@ -33,6 +33,7 @@ pub mod turn_prompt;
 pub mod usage;
 pub mod room_hosts;
 pub mod room_relay;
+pub mod room_ask;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum RoomError {

@@ -379,6 +379,10 @@ impl mixdog_services::task_reports::host::HomeQueue for HomeRecords {
         self.settled.notify_one();
         Ok(())
     }
+    /// Node's recorder keeps no watch follows (`follow: async () => {}`).
+    async fn follow(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Node's recorder: no agent work is pending for a task session.
@@ -590,6 +594,136 @@ impl mixdog_services::task_reports::send::TurnSubmit for Submits {
     }
 }
 
+/// The room Node's recorder stands in (`golden.room`): its record, labels and display names, a fixed
+/// clock and ids `n1`, `n2`, ...; what a message into it does is kept as the recorder keeps it
+/// (`seen.room`, in order).
+struct RecordedRoom {
+    golden: Value,
+    seen: Arc<Mutex<Vec<Value>>>,
+    last_at: Mutex<i64>,
+    ids: std::sync::atomic::AtomicU32,
+}
+
+#[async_trait]
+impl mixdog_core_rooms::rooms::room_ask::AskRoom for RecordedRoom {
+    fn name(&self) -> String {
+        self.golden["name"].as_str().expect("room name").to_owned()
+    }
+    fn members(&self) -> Vec<String> {
+        self.golden["members"].as_array().expect("members").iter().map(|m| m.as_str().expect("member").to_owned()).collect()
+    }
+    async fn labels(&self) -> Result<std::collections::HashMap<String, mixdog_core_rooms::rooms::turn_host::MemberLabel>, String> {
+        Ok(self.golden["labels"]
+            .as_object()
+            .expect("labels")
+            .iter()
+            .map(|(id, label)| {
+                let text = |key: &str| label[key].as_str().unwrap_or_default().to_owned();
+                (id.clone(), mixdog_core_rooms::rooms::turn_host::MemberLabel { id: text("id"), name: text("name"), route: label["route"].clone(), description: text("description"), disabled: label["disabled"] == true })
+            })
+            .collect())
+    }
+    async fn display_name(&self, agent_id: &str) -> Option<String> {
+        self.golden["names"][agent_id].as_str().map(str::to_owned)
+    }
+    async fn member_session(&self, member: &mixdog_core_rooms::rooms::turn_host::MemberLabel) -> Result<String, String> {
+        let room = self.golden["id"].as_str().expect("room id");
+        self.seen.lock().expect("room").push(json!(["memberSession", room, member.id]));
+        Ok(mixdog_core_base::rooms::ids::room_member_session_id(room, &member.id).expect("member session"))
+    }
+    async fn post(&self, rows: Vec<Value>) -> Result<(), String> {
+        self.seen.lock().expect("room").push(json!(["post", self.golden["id"], rows]));
+        Ok(())
+    }
+    fn set_last_at(&self, at: i64) {
+        *self.last_at.lock().expect("last at") = at;
+    }
+    async fn persist(&self) -> Result<(), String> {
+        let at = *self.last_at.lock().expect("last at");
+        self.seen.lock().expect("room").push(json!(["persist", { "lastAt": at }]));
+        Ok(())
+    }
+    fn republish_catalog(&self) {
+        self.seen.lock().expect("room").push(json!(["republishCatalog"]));
+    }
+    fn now(&self) -> i64 {
+        self.golden["now"].as_i64().expect("room now")
+    }
+    fn new_id(&self) -> String {
+        format!("n{}", self.ids.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+    }
+}
+
+struct RecordedRooms(Arc<RecordedRoom>);
+
+impl mixdog_core_rooms::rooms::room_ask::AskRooms for RecordedRooms {
+    fn room(&self, room_id: &str) -> Result<Arc<dyn mixdog_core_rooms::rooms::room_ask::AskRoom>, String> {
+        if self.0.golden["id"] == room_id { Ok(self.0.clone()) } else { Err("This room no longer exists.".into()) }
+    }
+}
+
+/// The recorder's scheduler: no stop is pending; a routed call's member turn ends done with the
+/// recorded answer after the route returns.
+struct RecordedScheduler {
+    seen: Arc<Mutex<Vec<Value>>>,
+    answer: String,
+}
+
+struct NotStopped;
+
+impl mixdog_core_rooms::rooms::room_ask::Intake for NotStopped {
+    fn stopped(&self) -> bool {
+        false
+    }
+}
+
+impl mixdog_core_rooms::rooms::room_ask::AskScheduler for RecordedScheduler {
+    fn intake(&self, _: &str) -> Box<dyn mixdog_core_rooms::rooms::room_ask::Intake> {
+        Box::new(NotStopped)
+    }
+    fn route(&self, room_id: &str, request: mixdog_core_rooms::rooms::calls::Request) {
+        let calls: Vec<Value> = request
+            .calls
+            .iter()
+            .map(|call| {
+                let mut view = Map::new();
+                view.insert("agentId".into(), json!(call.agent_id));
+                view.insert("askedBy".into(), json!(call.asked_by));
+                if !call.id.is_empty() {
+                    view.insert("id".into(), json!(call.id));
+                }
+                if call.hop > 0 {
+                    view.insert("hop".into(), json!(call.hop));
+                }
+                if call.on_settled.is_some() {
+                    view.insert("onSettled".into(), json!(true));
+                }
+                if call.follow.is_some() {
+                    view.insert("follow".into(), json!(true));
+                }
+                Value::Object(view)
+            })
+            .collect();
+        self.seen.lock().expect("room").push(json!(["route", room_id, { "to": request.to, "everyone": request.everyone, "waiting": request.waiting, "only": request.only, "calls": calls }]));
+        let answer = self.answer.clone();
+        drop(mixdog_rt::spawn("recorded-room-turn", mixdog_rt::TaskClass::Work, async move {
+            for call in request.calls {
+                call.settle_with(&mixdog_core_rooms::rooms::calls::Settled { status: "done".into(), error: None, content: Some(answer.clone()) });
+            }
+        }));
+    }
+}
+
+/// A room host that relays nothing: no relay runs in a send.
+struct NoRelay;
+
+#[async_trait]
+impl mixdog_services::bots::delivery::env::RoomRelay for NoRelay {
+    async fn relay(&self, _: &str, _: &str, _: mixdog_services::bots::live::WakeOptions, _: mixdog_services::bots::delivery::env::WakeFollow) -> Result<Option<mixdog_services::bots::live::WakeTurn>, String> {
+        unreachable!("no relay runs in a send")
+    }
+}
+
 async fn replay_sends(prefix: &str) {
     use mixdog_core_session::session::SessionDirectory;
     use mixdog_core_session::session::testing::Rig;
@@ -700,8 +834,21 @@ async fn replay_sends(prefix: &str) {
             configured: Mutex::default(),
             watched: Mutex::default(),
         });
+        // The desktop room host Node's recorder registered for a room scenario (none for `room.host: false`).
+        let rooms = Arc::new(mixdog_core_rooms::rooms::room_hosts::RoomHostRegistry::default());
+        let room_seen: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let _room_host = scenario.get("room").filter(|room| room["host"] != false).map(|_| {
+            let room = Arc::new(RecordedRoom { golden: golden["room"].clone(), seen: room_seen.clone(), last_at: Mutex::new(0), ids: Default::default() });
+            let asks = mixdog_core_rooms::rooms::room_ask::RoomAsks::new(
+                Arc::new(RecordedRooms(room)),
+                Arc::new(RecordedScheduler { seen: room_seen.clone(), answer: final_text.clone() }),
+                mixdog_core_rooms::rooms::ready::RoomsReady::prepared(),
+            );
+            rooms.register_host(Arc::new(NoRelay), Some(Arc::new(asks)))
+        });
         let late = Arc::new(super::super::session_send::LateSend::default());
         late.bind(Arc::new(super::super::session_send::SessionSend {
+            rooms: rooms.clone(),
             directory: directory.clone(),
             tasks,
             chains: super::super::session_send::CallerChains {
@@ -854,6 +1001,11 @@ async fn replay_sends(prefix: &str) {
             .map(|(agent, report)| (agent.clone(), approval_named.as_ref().map_or_else(|| report.clone(), |(minted, named)| report.replace(minted, named))))
             .collect();
         assert_eq!(reported, delivered, "{name}: the reports");
+        // What a message into a room stored there and showed its clients: the rows posted, the member sessions, the
+        // request routed to the member, the room's save and the catalog republished.
+        if let Some(room) = recorded.get("room") {
+            assert_eq!(masked_value(&json!(*room_seen.lock().expect("room"))), *room, "{name}: the room");
+        }
         replayed += 1;
     }
     assert!(replayed > 0, "no send- scenario recorded");

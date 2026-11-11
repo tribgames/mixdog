@@ -53,6 +53,9 @@ impl HomeQueue for Home {
     async fn disown_all(&self, _: Vec<String>) -> Result<(), String> {
         Ok(())
     }
+    async fn follow(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Default)]

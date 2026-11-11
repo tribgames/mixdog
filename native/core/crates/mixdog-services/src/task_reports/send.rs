@@ -141,7 +141,12 @@ pub struct Submission {
     pub meta: Map<String, Value>,
     /// The sender follows the turn's end (Node's `onSettled`); a send that reports nothing does not.
     pub settled: bool,
+    /// `follow(submissionId)`: the turn that answers runs under another submission id (a room's),
+    /// and the send's durable watch follows it; only a send that reports.
+    pub follow: Option<SubmissionFollow>,
 }
+
+pub type SubmissionFollow = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
 /// The target session's intake (`sessions.submitSession({ sessionId, prompt, options })` with an
 /// `onSettled`).
@@ -249,6 +254,25 @@ impl TaskSends {
     /// given id; with `before_report`, every report waits until it reads true (create's
     /// "Started" line lands in the home before any report of the brief's turn).
     pub async fn send_as(self: &Arc<Self>, session_id: &str, prompt: &Value, origin: &Origin, id: &str, before_report: Option<tokio::sync::watch::Receiver<bool>>) -> Result<Map<String, Value>, String> {
+        self.run_turn(session_id, prompt, origin, id, before_report, None).await
+    }
+
+    /// `runAgentTurn(sessionId, prompt, origin, id, null, submit)`: [`Self::send`] whose turn is
+    /// taken by `through` instead of a prompt to `session_id` (a message into a group room, whose
+    /// member answers in `session_id`); the prompt goes as given, outside the sender envelope.
+    pub async fn send_through(self: &Arc<Self>, session_id: &str, prompt: &Value, origin: &Origin, through: Arc<dyn TurnSubmit>) -> Result<Map<String, Value>, String> {
+        self.run_turn(session_id, prompt, origin, &format!("atask_{}", uuid::Uuid::new_v4()), None, Some(through)).await
+    }
+
+    async fn run_turn(
+        self: &Arc<Self>,
+        session_id: &str,
+        prompt: &Value,
+        origin: &Origin,
+        id: &str,
+        before_report: Option<tokio::sync::watch::Receiver<bool>>,
+        through: Option<Arc<dyn TurnSubmit>>,
+    ) -> Result<Map<String, Value>, String> {
         let id = id.to_owned();
         let (notify, no_report) = self.watch_turn(session_id, origin, &id).await;
         let turn = Arc::new(SendTurn {
@@ -265,7 +289,7 @@ impl TaskSends {
             recorded: AtomicBool::new(false),
             reported_approval: Mutex::new(None),
         });
-        let accepted = match turn.submit(prompt).await {
+        let accepted = match turn.submit(prompt, through).await {
             Ok(accepted) => accepted,
             Err(error) => {
                 turn.unwatch();
@@ -325,7 +349,7 @@ impl SendTurn {
 
     /// The runtime and the intake: the runtime's state changes re-check the follow; the prompt
     /// reaches the model in the sender envelope when the origin names one.
-    async fn submit(self: &Arc<Self>, prompt: &Value) -> Result<Option<oneshot::Receiver<TurnEnd>>, String> {
+    async fn submit(self: &Arc<Self>, prompt: &Value, through: Option<Arc<dyn TurnSubmit>>) -> Result<Option<oneshot::Receiver<TurnEnd>>, String> {
         let runtime = self.host().materialize_session(&self.session_id).await?;
         if let Some(runtime) = &runtime {
             let (mut changes, this) = (runtime.subscribe(), Arc::clone(self));
@@ -344,11 +368,21 @@ impl SendTurn {
         }
         *self.runtime.lock().expect("send runtime") = runtime;
         let origin = &self.origin;
+        let follow: Option<SubmissionFollow> = self.notify.then(|| {
+            let (home, id) = (self.host().home().clone(), self.id.clone());
+            Arc::new(move |submission_id: String| {
+                let (home, id) = (home.clone(), id.clone());
+                Box::pin(async move { home.follow(&id, &submission_id).await }) as BoxFuture<'static, Result<(), String>>
+            }) as SubmissionFollow
+        });
+        let submission = Submission { hop: origin.hop, bot_chain: origin.bot_chain.clone(), meta: sender_meta(origin), settled: true, follow };
+        if let Some(through) = through {
+            return through.submit(&self.session_id, prompt.clone(), &self.id, submission).await;
+        }
         let sent = match &origin.envelope_name {
             Some(name) => wrap_agent_message(prompt, name, &origin.agent_id),
             None => prompt.clone(),
         };
-        let submission = Submission { hop: origin.hop, bot_chain: origin.bot_chain.clone(), meta: sender_meta(origin), settled: true };
         self.sends.submit.submit(&self.session_id, sent, &self.id, submission).await
     }
 
