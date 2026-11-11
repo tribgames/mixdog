@@ -125,17 +125,24 @@ impl RunConfig {
 #[derive(Clone, Default, Debug)]
 pub struct RunCarry {
     pub repeat: RepeatGuards,
+    /// The session's `wireRoute` after a send was rerouted (`sendOnRoute` sets `session.wireRoute`); `None` when
+    /// no send of the run changed it.
+    pub wire_route: Option<serde_json::Value>,
 }
 
 impl RunCarry {
     /// The carry a session record holds.
     pub fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
-        Self { repeat: RepeatGuards::from_saved(saved) }
+        Self { repeat: RepeatGuards::from_saved(saved), wire_route: None }
     }
 
     /// The record fields the carry is saved under.
     pub fn to_saved(&self) -> serde_json::Map<String, serde_json::Value> {
-        self.repeat.to_saved()
+        let mut saved = self.repeat.to_saved();
+        if let Some(route) = &self.wire_route {
+            saved.insert("wireRoute".into(), route.clone());
+        }
+        saved
     }
 }
 

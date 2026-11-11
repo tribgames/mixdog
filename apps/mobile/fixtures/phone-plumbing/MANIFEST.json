@@ -1,0 +1,73 @@
+{
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-plumbing.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "comparison": {
+    "normalized": {
+      "clientId": "the replay opens the phone's relay leg as Node's recorded leg was named (client-a): the line names the relay client id's first 8 units",
+      "logDestination": "Node's console.info ran in the desktop main process, which hosted the relay; the relay is the core's, so the line is the core's console.info, written as `[<ISO>] [console.info] <line>` to daemon.log (DaemonLog::console, as the rooms log): the replay compares the method and the line, not the time stamp",
+      "viewingOrder": "Node's viewing is its visualizePanelSessionIds set in insertion order, the core publishes the set sorted: both are sorted before comparing (the replay and the Rust test). No page sees the order: the one reader of hostState.remoteViewing asks membership (apps/desktop/src/main/protocol/section-reads.ts visualizeRemoteViewing), as Node's viewsSessionLane answered one session at a time"
+    },
+    "notCompared": {
+      "emptyBrowserId": "a browser id '' is no push subscription's key (a subscription is keyed by the id the phone generated), so it is not asked"
+    },
+    "pushRule": "the push columns ask legShowsSession of a live leg; Node's legacy leg rule (remote-relay-session-wiring.ts legacyLegShows: !background && screenSessionIds.has) is the same answer",
+    "replay": "each step whole except the push columns: the call, the frames the phone received, the whole published hostState.remoteViewing value (read by a local connection once the phone has had an answer to a later request) against { sessionIds: Node's viewing }, and the PC's console lines so far (Node's pcLog against every `[console.<method>]` row the core wrote to <data>/daemon.log since the phone's first call); after the last step the core is stopped (which flushes its log) and the whole log is compared again",
+    "rustTest": "credential, browser and viewing per step: mixdog-core-domains notify::screen::tests::the_phones_plumbing_calls_decide_what_nodes_relay_decided, on the core registry"
+  },
+  "entry": {
+    "notRun": "the relay transport (encryption, admission: the client's channel is set as the handshake leaves it) and the method table: none of these calls reaches it but remotePerfPaint, which has no id and is no method, so the empty table answers it as the full one does (executeRemoteFrame: no id, no answer)",
+    "runs": "createRelayClientCallDispatch (remote-relay-client-calls.ts) over a client state of createRelayClientRegistry (remote-relay-clients.ts), the paint probe tracker of shared/remote-performance.ts (perf flag off), clientViewsSessionLane and legShowsSession (remote-transport/foreground.ts)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11090,
+      "path": "golden.json",
+      "sha256": "670e8bd51dd820e320d926c026a035dd7fa904b084613dee48e43c77adba7014"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+      "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+      "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-plumbing.mjs",
+  "recorderSha256": "bf6890dabeb635d74c55bc1126676c7719f5bdb86d2d39274f23252c361befe5",
+  "set": "phone-plumbing",
+  "steps": 21,
+  "totalBytes": 11090
+}

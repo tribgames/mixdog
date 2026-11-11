@@ -183,11 +183,17 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ProviderState(_) => "ProviderState",
         E::Notice { .. } => "Notice",
         E::ServedModel(_) => "ServedModel",
+        E::AccountRouting(_) => "AccountRouting",
+        E::AccountStage(_) => "AccountStage",
+        E::WireRerouted(_) => "WireRerouted",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 21] = [
+const STREAM_EVENT_VARIANTS: [&str; 24] = [
+    "AccountRouting",
+    "AccountStage",
+    "WireRerouted",
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -244,6 +250,10 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ProviderState(state),
         p::StreamEvent::Notice { message: "m".into(), warn: true },
         p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
+        p::StreamEvent::AccountRouting(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k2".into()) }),
+        p::StreamEvent::AccountStage(p::AccountStage::Switching { message: "Quota exhausted — switching to the next account".into() }),
+        p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 1 }),
+        p::StreamEvent::WireRerouted(json!({ "provider": "openrouter", "model": "m", "wire": "chat", "source": "reroute", "loweredAssistantCount": 0 })),
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();
