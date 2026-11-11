@@ -218,6 +218,86 @@ for (const [at, scenario] of routeSessions.entries()) {
   routes.push({ name: scenario.name, session: routeSession.id, model: 'claude-test', steps: done });
 }
 
+// The compactions: a real compaction of a session, then the next turn's send. Each scenario is one session through
+// `agentLoop` turns over a long conversation (the guard keeps its state on the session between them); the summary is
+// the only part replaced (a provider whose summary requests answer SUMMARY_TEXT, everything else is the product's).
+// - `manual`: the turns settle, then `runSessionCompaction(session, { mode: 'manual', force: true })` rewrites the
+//   transcript and parks `pendingCacheBreakIntent`; the next turn's first send takes it.
+// - `automatic`: the last turn's transcript is over the session's window, so `agentLoop`'s pre-send pass
+//   (`runPreSendCompactPass`) compacts before the send and tags it itself.
+const { runSessionCompaction } = await importFrom(tree, `${orch}/session/manager/compaction-runner.mjs`);
+const { providerTokenCalibration } = await importFrom(tree, `${orch}/session/context-utils.mjs`);
+const SUMMARY_TEXT = [
+  '## Goal', '- continue', '## Constraints & Preferences', '- (none)', '## Progress', '### Done', '- older turns summarized',
+  '### In Progress', '- (none)', '### Blocked', '- (none)', '## Key Decisions', '- (none)', '## Next Steps', '- continue',
+  '## Critical Context', '- (none)', '## Relevant Files', '- (none)',
+].join('\n');
+const words = (count, word) => Array.from({ length: count }, (_, i) => `${word}${i}`).join(' ');
+const compactionSystem = [{ role: 'system', content: 'Stable instructions.' }];
+const compactionRoutes = [];
+for (const scenario of [
+  { name: 'manual', session: 'sess_cache_compact_manual', turns: 3, words: 150, window: 100000, compactBetween: true },
+  { name: 'automatic', session: 'sess_cache_compact_auto', turns: 5, words: 1500, window: 20000, compactBetween: false },
+]) {
+  const record = {
+    id: scenario.session, owner: 'user', provider: 'anthropic', model: 'claude-test', cwd: root,
+    contextWindow: scenario.window, rawContextWindow: scenario.window, effectiveContextWindowPercent: 100,
+    tools: [], compaction: { auto: scenario.name === 'automatic', conversationThresholdTokens: 1 },
+    providerCacheOpts: { cacheStrategy: { messages: '5m' } }, messages: [],
+  };
+  const { messages: _omitted, cwd: _temporary, ...initialHeader } = structuredClone(record);
+  const transcript = compactionSystem.map((message) => ({ ...message }));
+  const steps = [];
+  let summaries = 0;
+  const run = async (name, prompt) => {
+    transcript.push({ role: 'user', content: prompt });
+    const before = traceRows().length;
+    stderrLines.splice(0);
+    const sent = [];
+    const seen = transcript.length;
+    const answer = `answer to ${name}`;
+    record.messages = transcript;
+    const result = await agentLoop(
+      {
+        name: 'anthropic',
+        async send(messages) {
+          // A summary request is the compaction pipeline's own; the turn's request is the one over the transcript.
+          const summary = messages.at(-1)?.content !== prompt;
+          if (summary) summaries += 1;
+          sent.push({ summary, messages: messages.length });
+          return { content: summary ? SUMMARY_TEXT : answer, toolCalls: [], stopReason: 'end_turn', usage: usage(10, 0, 100) };
+        },
+      },
+      transcript, 'claude-test', [], null, root, { session: record, sessionId: record.id }
+    );
+    await drainAgentTrace();
+    transcript.push({ role: 'assistant', content: result.content });
+    steps.push({
+      name, prompt, answer, transcriptBefore: seen, sent, transcriptAfter: transcript.length,
+      rows: traceRows().slice(before).filter((line) => JSON.parse(line).kind === 'cache_break'),
+      stderr: stderrLines.splice(0), pending: record.pendingCacheBreakIntent ?? null,
+    });
+  };
+  for (let turn = 1; turn <= scenario.turns; turn += 1) await run(`turn ${turn}`, words(scenario.words, `u${turn}_`));
+  let compaction = null;
+  if (scenario.compactBetween) {
+    const before = transcript.map((message) => ({ ...message }));
+    let summaryRequests = 0;
+    const outcome = await runSessionCompaction(record, {
+      mode: 'manual', force: true, config: {}, model: record.model, sessionId: record.id,
+      provider: { name: 'anthropic', async send() { summaryRequests += 1; return { content: SUMMARY_TEXT, usage: usage(10, 0, 100) }; } },
+    });
+    transcript.splice(0, transcript.length, ...record.messages);
+    compaction = { before: before.map(({ role, content }) => ({ role, content })), outcome: { changed: outcome.changed, error: outcome.error ?? null }, summaryRequests, pending: record.pendingCacheBreakIntent ?? null };
+  }
+  await run('after', words(scenario.words, 'after_'));  compactionRoutes.push({
+    name: scenario.name, session: scenario.session, model: record.model, provider: record.provider, contextWindow: scenario.window,
+    header: initialHeader, tokenCalibration: providerTokenCalibration(record.provider), system: compactionSystem[0].content,
+    summaryText: SUMMARY_TEXT, compaction, summaries,
+    transcript: transcript.map(({ role, content }) => ({ role, content })), steps,
+  });
+}
+
 // The guard's comparison (`prepareProviderPrefixGuard`) over request fingerprints that reach each of its breaks: the
 // previous and next fingerprints, the options, the details handed to `onCacheBreak`, and whether it refused the send.
 const { prepareProviderPrefixGuard } = await importFrom(tree, `${orch}/session/provider-prefix-guard.mjs`);
@@ -304,6 +384,7 @@ writeJson(join(out, 'golden.json'), {
   payloads,
   turns: { session: turnSession.id, provider: 'anthropic', cacheStrategy: turnSession.providerCacheOpts.cacheStrategy, system: convo[0].content, steps: turns },
   routes,
+  compactions: compactionRoutes,
   guard,
   prefix,
   seeded,
@@ -320,15 +401,16 @@ writeSetManifest(out, {
       'Date.now fixed at 1700000000000; MIXDOG_DIAGNOSTICS=1 so the local trace file is written',
       'the payload records: synthetic values reaching every buildCacheBreakPayload field',
       'the turns: six agentLoop turns of one anthropic session (a 5m messages cache) with the usage, model and tools given per turn, and a manual compaction\'s rewritten transcript and pending intent before the fourth',
+      'the compactions: two anthropic sessions of long synthetic turns through agentLoop; the manual one is compacted by runSessionCompaction (mode manual, force) between turns, the automatic one crosses its 20000-token window so the loop\'s pre-send pass compacts; the summary provider answers one fixed summary text (the only replaced part)',
       'the guard cases: synthetic transcripts and request prefixes reaching every prepareProviderPrefixGuard branch',
       'the prefix bodies: synthetic Anthropic request bodies moving each fingerprinted block, marker and message breakpoint',
     ],
     exclusions: {
       deferred_body_compaction: 'no product path sets it: provider-prefix-guard.mjs:5-10 only accepts it as a compaction intent; the setters of a cache-break intent are pre-send-compact.mjs:461,613 (automatic_compaction), compaction-runner.mjs:737 (post_turn_compaction, manual_compaction), request-boundary.mjs:75,88 (tool_surface_bridge_migration, transcript_rebuild)',
       request_properties_changed: 'no product path reaches it: request-projection.mjs:52-58 hands the guard a prefix of the two tool lists only, and provider-prefix-guard.mjs:176-196 digests each list on its own, so a changed prefix with the same provider, model and both list digests cannot occur (the guard cases give the guard a prefix with another key)',
-      'automatic_compaction, post_turn_compaction, manual_compaction by a real compaction': 'the compaction pipeline (a summarizer over the session) is not recorded here: the turns section sets the intent a compaction leaves (manual_compaction) and the guard cases give the comparison each compaction intent',
+      post_turn_compaction: 'no product path sets it: compaction-runner.mjs:737 sets it only for mode "auto", and runSessionCompaction is called only with mode "manual" (session-crud.mjs:164 and :391, via session-ops.mjs:75 for /compact and auto-clear); the guard cases still give the comparison that intent',
     },
-    keptWhole: 'the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
+    keptWhole: 'the cache_break lines of the local trace file, per route step its transcript, provider, native tools, send count, refusal, rows and stderr lines, the [cache-break] stderr lines, each request\'s message and image count, per payload record its payload, row and stderr line, per turn its rows, stderr lines and record fields, per compaction scenario its compaction outcome, summary request count, parked intent, the transcript after, and per turn the sends (summary or turn, message count), rows, stderr lines and the parked intent, per guard case both fingerprints, the details told and the refusal, per prefix body the persisted fingerprint and the changes',
   },
 });
 commitStage(out, finalOut);

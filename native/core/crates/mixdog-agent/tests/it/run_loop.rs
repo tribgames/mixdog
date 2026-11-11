@@ -851,6 +851,8 @@ struct Harness {
     approvals: Arc<MockApprovalGate>,
     gate: Arc<dyn ToolGate>,
     compactor: Option<Arc<Compactor100>>,
+    /// The product's own compactor, where a test compacts for real instead of through `Compactor100`.
+    real_compactor: Option<Arc<dyn Compactor>>,
     tail: Option<Arc<dyn TailReminder>>,
     side: Option<Arc<dyn mixdog_agent::env::SendTap>>,
     reuse: Option<Arc<dyn ResultReuse>>,
@@ -887,6 +889,7 @@ impl Harness {
             approvals: Arc::new(MockApprovalGate::default()),
             gate: Arc::new(AllowAll),
             compactor: None,
+            real_compactor: None,
             tail: None,
             side: None,
             reuse: None,
@@ -924,7 +927,7 @@ impl Harness {
             sink: self.sink.clone(),
             gate: Arc::clone(&self.gate),
             guards: Arc::new(NoGuards),
-            compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>),
+            compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>).or_else(|| self.real_compactor.clone()),
             route: self.route.clone(),
             skills: None,
             hooks: None,
@@ -2513,6 +2516,269 @@ async fn real_turns_trace_and_refuse_the_breaks_node_does() {
         }
     }
     assert_eq!(refused, 2, "a shrunk history and a rewritten prefix");
+}
+
+/// What the compaction replays summarize with: one fixed text, the calls counted.
+struct FixedSummary {
+    text: String,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl mixdog_agent::compact::summary_run::SummarySender for FixedSummary {
+    async fn send(
+        &self,
+        _system: &str,
+        _prompt: &str,
+        _call: &mixdog_agent::compact::summary_run::SummaryCall,
+    ) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(mixdog_agent::compact::summary_run::SummaryResponse {
+            text: self.text.clone(),
+            tool_call: false,
+            usage: Some(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() }),
+        })
+    }
+}
+
+/// The conversation's own model is the only summary route (`summaryMode: session`).
+struct OwnRoute {
+    sender: Arc<FixedSummary>,
+    model: String,
+    window: u64,
+    calibration: f64,
+}
+
+#[async_trait]
+impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
+    async fn resolve(
+        &self,
+        step: mixdog_agent::compact::summary_run::RouteStep,
+    ) -> Result<Option<mixdog_agent::compact::summary_run::SummaryRoute>, mixdog_agent::compact::summary_run::SummaryFailure> {
+        use mixdog_agent::compact::summary_run::RouteStep;
+        Ok((step == RouteStep::Session).then(|| mixdog_agent::compact::summary_run::SummaryRoute {
+            step,
+            provider_name: "anthropic".into(),
+            model: self.model.clone(),
+            context_window: self.window,
+            calibration: self.calibration,
+            fast: false,
+            effort: None,
+            sender: self.sender.clone(),
+        }))
+    }
+}
+
+/// A forked summary is never available: the pipeline sends the isolated request, as Node's does for a session that has no warm cache.
+struct NoFork;
+#[async_trait]
+impl mixdog_agent::compact::summary_run::ForkSource for NoFork {
+    fn warm(&self) -> bool {
+        false
+    }
+    fn request(&self) -> Option<mixdog_agent::compact::summary_run::ForkRequest> {
+        None
+    }
+    async fn send(
+        &self,
+        _route: &mixdog_agent::compact::summary_run::SummaryRoute,
+    ) -> Result<mixdog_agent::compact::summary_run::SummaryResponse, mixdog_agent::compact::summary_run::SummaryFailure> {
+        panic!("a session without a warm request forks nothing")
+    }
+}
+
+/// A transcript of plain text: a media part is a failure of the replay.
+struct PlainText;
+impl mixdog_agent::compact::estimate::MediaMeter for PlainText {
+    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+        panic!("media part in a text-only replay: {part:?}")
+    }
+}
+impl mixdog_agent::compact::pressure::ImageIdentities for PlainText {
+    fn images(&self, _: &AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
+        Vec::new()
+    }
+}
+impl mixdog_agent::compact::triggers::ToolMediaMeter for PlainText {
+    fn bytes(&self, _: &Content, _: bool) -> u64 {
+        0
+    }
+    fn count(&self, _: &Content, _: bool) -> u64 {
+        0
+    }
+}
+
+/// A user's session: no agent cache tail to expire.
+impl mixdog_agent::compact::triggers::CacheWarmLedger for PlainText {
+    fn last_use_at(&self) -> u64 {
+        0
+    }
+    fn route_use_at(&self) -> Option<u64> {
+        None
+    }
+}
+impl mixdog_agent::compact::triggers::CacheTail for PlainText {
+    fn agent_owner(&self) -> bool {
+        false
+    }
+    fn five_minute_tail(&self) -> bool {
+        false
+    }
+    fn last_provider_send_at(&self) -> u64 {
+        0
+    }
+    fn now_ms(&self) -> u64 {
+        0
+    }
+}
+
+fn wire_role(message: &AgentMessage) -> &'static str {
+    use mixdog_core_api::domain::provider::Role;
+    match message.role() {
+        Role::System => "system",
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        other => panic!("a role the recording has none of: {other:?}"),
+    }
+}
+
+/// `fixtures/cache-break` `compactions` (record-cache-break.mjs): a session whose transcript is compacted for real, then the
+/// send that follows it. The core's own compactor (`FreshCompactor`, over a summary route that answers one fixed text, the only
+/// replaced part) rewrites the transcript, and the loop's trace rows, stderr lines, sends and final transcript are Node's:
+/// - `manual`: three settled turns, a forced compaction (the budget the forced plan asks for) that parks the intent
+///   `manual_compaction`, then the next turn's first send tagged by it;
+/// - `automatic`: the turn whose transcript crosses the window is compacted by the loop's own pre-send pass, which tags the
+///   send itself (`automatic_compaction`); the summary requests it made are Node's count.
+/// `post_turn_compaction` has no product path (the manifest's exclusion names Node's lines).
+#[tokio::test]
+async fn real_compactions_trace_the_cache_breaks_node_traces() {
+    use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, SessionCompactor, TriggerSeams};
+    use mixdog_agent::compact::estimate::MessageMeter;
+    use mixdog_agent::compact::pressure::{Route, StatusInput, TranscriptSigner, forced_target_budget};
+    use mixdog_agent::compact::summary_run::SummaryMode;
+    use mixdog_agent::compact::tool_schema::RequestTools;
+    use mixdog_core_api::domain::provider::{Message, Role, Usage};
+
+    let golden = cache_break_golden();
+    let now = golden["now"].as_i64().unwrap();
+    let mut compared = 0;
+    for scenario in golden["compactions"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let session = scenario["header"].as_object().unwrap();
+        let (provider, model) = (session["provider"].as_str().unwrap(), session["model"].as_str().unwrap());
+        let window = session["contextWindow"].as_u64().unwrap();
+        let calibration = scenario["tokenCalibration"].as_f64().unwrap();
+        let auto = session["compaction"]["auto"] == true;
+        let settings = CompactSettings { auto: true, context_window: Some(window), token_calibration: calibration, ..CompactSettings::default() };
+        let summary = Arc::new(FixedSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default() });
+        let plain = Arc::new(PlainText);
+        let compactor = FreshCompactor::for_session(SessionCompactor {
+            settings: settings.clone(),
+            parts: Arc::new(FreshParts {
+                media: plain.clone(),
+                replay_owner: crate::compact_support::replay_owner(),
+                rows: Arc::new(crate::compact_support::Rows),
+                archive: Arc::new(crate::compact_support::PreviewArchive { session: session["id"].as_str().unwrap().into() }),
+                attachments: Arc::new(crate::compact_support::NoAttachments),
+                redactor: Arc::new(crate::compact_support::NoRedaction),
+                blobs: Arc::new(crate::compact_support::NoBlobs),
+            }),
+            triggers: TriggerSeams { tool_media: plain.clone(), native_pdf: false, cache: plain.clone() },
+            fork: Arc::new(NoFork),
+            resolver: Arc::new(OwnRoute { sender: summary.clone(), model: model.into(), window, calibration }),
+            summary_mode: SummaryMode::Session,
+            conversation_threshold_tokens: session["compaction"]["conversationThresholdTokens"].as_u64(),
+        })
+        .expect("a compactor");
+
+        let mut header = serde_json::Map::new();
+        header.insert("providerCacheOpts".into(), session["providerCacheOpts"].clone());
+        let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(scenario["system"].as_str().unwrap().into())))];
+        let mut guard = None;
+        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+        for step in scenario["steps"].as_array().unwrap() {
+            let step_name = format!("{name}: {}", step["name"].as_str().unwrap());
+            let mut config = RunConfig::new(ThreadId::from(session["id"].as_str().unwrap()), TurnId::from("r"), model);
+            if let Some(compaction) = scenario["compaction"].as_object().filter(|_| step["name"] == "after") {
+                // The forced pass: the budget its plan asks for over the session as the recorder had it, then the compaction itself.
+                let owner = crate::compact_support::replay_owner();
+                let meter = MessageMeter { media: &*plain, replay_owner: &owner };
+                let rows = crate::compact_support::Rows;
+                let signer = TranscriptSigner { meter: &meter, images: &*plain, rows: &rows };
+                let status = StatusInput {
+                    session,
+                    route: Route { provider, model, context_window: JsonValue::Null },
+                    cwd: JsonValue::Null,
+                    mode: JsonValue::Null,
+                    messages: &messages,
+                    active: true,
+                    request_tools: RequestTools { native: &[], defined: &[] },
+                    session_tools: RequestTools { native: &[], defined: &[] },
+                    tool_breakdown: &JsonValue::Null,
+                    agent_mode: false,
+                    meter: &meter,
+                    signer: &signer,
+                };
+                let budget = forced_target_budget(&status).expect("a window") as u64;
+                let request = CompactRequest { messages: &messages[1..], budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false };
+                let compacted = compactor.compact(request).await.expect("the compaction");
+                assert!(!compacted.skipped, "{step_name}: the pass changed the transcript");
+                messages.truncate(1);
+                messages.extend(compacted.messages);
+                assert_eq!(summary.calls.load(Ordering::SeqCst) as u64, compaction["summaryRequests"].as_u64().unwrap(), "{step_name}: the summary requests of the forced pass");
+                summary.calls.store(0, Ordering::SeqCst);
+                assert_eq!(compaction["pending"], "manual_compaction", "{step_name}: the intent a forced pass parks");
+                config.cache_break_intent = compaction["pending"].as_str().map(str::to_owned);
+            }
+            messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
+            let answer = step["answer"].as_str().unwrap();
+            let reported = Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() };
+            let mut h = Harness::new(Vec::new());
+            h.provider = Arc::new(Scripted {
+                id: ProviderId::from(provider),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
+                requests: Mutex::new(Vec::new()),
+                settled: Mutex::new(Vec::new()),
+            });
+            let breaks = Arc::new(CacheBreaks::default());
+            h.failures = Some(breaks.clone());
+            if auto {
+                h.real_compactor = Some(compactor.clone());
+                config.compact = Some(settings.clone());
+            }
+            let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
+            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages.clone(), carry);
+            let output = finish(run).await;
+            header.extend(output.carry.to_saved());
+            header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
+            guard = output.carry.prefix_guard.clone();
+            messages = output.transcript;
+            if messages.last().is_none_or(|m| m.role() != Role::Assistant) {
+                messages.push(AgentMessage::assistant(answer, Vec::new()));
+            }
+
+            let sent: Vec<&JsonValue> = step["sent"].as_array().unwrap().iter().filter(|s| s["summary"] == false).collect();
+            let reached: Vec<u64> = h.provider.requests().iter().map(|r| r.messages.len() as u64).collect();
+            assert_eq!(reached, sent.iter().map(|s| s["messages"].as_u64().unwrap()).collect::<Vec<_>>(), "{step_name}: what reached the provider");
+            let summarized = step["sent"].as_array().unwrap().iter().filter(|s| s["summary"] == true).count();
+            assert_eq!(summary.calls.swap(0, Ordering::SeqCst), summarized, "{step_name}: the summary requests the turn made");
+            let records = breaks.0.lock().unwrap().clone();
+            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+            assert_eq!(rows, want, "{step_name}: the trace rows");
+            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+            assert_eq!(lines, want, "{step_name}: the stderr lines");
+        }
+        let transcript: Vec<(String, String)> = messages.iter().map(|m| (wire_role(m).to_owned(), m.text())).collect();
+        let want: Vec<(String, String)> = scenario["transcript"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
+        assert_eq!(transcript, want, "{name}: the transcript the compaction and the turns left");
+        compared += 1;
+    }
+    assert_eq!(compared, 2, "a manual and an automatic compaction");
 }
 
 /// `fixtures/cache-break` `guard`: the comparison over Node's own request fingerprints tells each break Node told, with the
