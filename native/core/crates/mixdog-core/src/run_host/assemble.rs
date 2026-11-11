@@ -567,7 +567,8 @@ impl RunParts for HostRunParts {
             files: s.files.clone(),
             processes: s.processes.clone(),
             progress: input.progress.clone(),
-            deadline_of: None,
+            // `executeToolOwned` runs every call through `runReadOnlyIoWithDeadline` (`tool-exec.mjs:130`).
+            deadline_of: Some(mixdog_agent::tools::read_only_io_deadline()),
             notify: input.notify.clone(),
             review: None,
         };
