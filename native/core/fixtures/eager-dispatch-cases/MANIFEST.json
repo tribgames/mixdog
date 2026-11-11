@@ -1,0 +1,47 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-eager-dispatch-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "order cases: every start and end at each point the test checks (the Computer Use case: the calls that ran, sorted); the batch: the calls that ran and every answer (id, kind, text); the repeat cases: every tool answer (id, kind, text with the cwd as <cwd>) and the final text",
+  "excluded": {
+    "src/runtime/agent/orchestrator/session/eager-dispatch.test.mjs :: structured explicit failure reaches the transcript as an error with media intact": "difference: Node answers a tool's explicit failure with its structured content, text and image, as an error result; a Rust tool failure is a ToolError whose model text is the whole answer, so the image cannot reach the transcript"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 10294,
+      "path": "golden.json",
+      "sha256": "d27acd1c037b95e536ace97ac369b0fd61788a1f36dea36ca5f9d6ebf3a0a96f"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-eager-dispatch-cases.mjs",
+  "recorderSha256": "2f5635fafae6098e48a0e26eae5d01c08138b3bef832fa4206931b69be434ac5",
+  "set": "eager-dispatch-cases",
+  "totalBytes": 10294
+}

@@ -72,6 +72,12 @@ use tokio_util::sync::CancellationToken;
 #[path = "loop_node_cases.rs"]
 mod loop_node_cases;
 
+#[path = "eager_node_cases.rs"]
+mod eager_node_cases;
+
+#[path = "ids_node_cases.rs"]
+mod ids_node_cases;
+
 // ---------------------------------------------------------------------------
 // Scripted provider
 // ---------------------------------------------------------------------------
