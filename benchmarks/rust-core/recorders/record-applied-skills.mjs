@@ -71,12 +71,15 @@ const stub = {
     const last = [...messages].reverse().find((m) => m.role === 'user');
     const text = typeof last?.content === 'string' ? last.content : JSON.stringify(last?.content ?? '');
     sends.push(text);
+    sentOne?.();
     if (holding) await new Promise((resolve) => held.push(resolve));
     const summary = /summar|compact/i.test(text);
     return { content: summary ? 'a summary of the conversation' : 'Done.', toolCalls: [], stopReason: 'end_turn', usage: { inputTokens: 100, outputTokens: 20 } };
   },
 };
 let holding = false;
+// Resolves when the stub receives its next request (the first request of a held turn).
+let sentOne = null;
 const route = { provider: PROVIDER, model: 'stub-model' };
 const placeholder = (value) => JSON.parse(JSON.stringify(value).split(JSON.stringify(sandbox).slice(1, -1)).join('<SANDBOX>').split(sandbox.replaceAll('\\', '/')).join('<SANDBOX>'));
 
@@ -122,10 +125,13 @@ async function queuedCase(name, first, queued) {
   const session = newSession();
   const applied = [];
   holding = true;
-  const sent = sends.length;
+  const firstRequest = new Promise((resolve) => {
+    sentOne = resolve;
+  });
   world.advance(1000);
   const turn = manager.askSession(session.id, first, null, undefined, work, undefined, { transcriptMeta: turnMeta('msg_turn'), onSkillsApplied: (names) => applied.push(...names) });
-  while (sends.length === sent) await new Promise((resolve) => setImmediate(resolve));
+  await within('the first request of the held turn', firstRequest);
+  sentOne = null;
   manager.enqueuePendingMessage(session.id, { mode: 'prompt', content: queued, transcriptMeta: { messageId: 'msg_queued' } });
   holding = false;
   for (const release of held.splice(0)) release();
@@ -191,7 +197,8 @@ writeSetManifest(out, {
     exclusions: {
       'meta.transcript.messageId / attemptId / checkpointId': 'the client turn carried Node\'s (turnMeta); the core draws its own, so both sides are compared as an id (a non-empty string)',
       'meta.submissionIds': 'a steered prompt\'s submission id is drawn by each side; the count and non-empty ids are compared',
-      'restored row id': 'Node counts hist_<session>_<n>, the core uses the record\'s iid; both sides are compared as an id',
+      'restored row messageId / attemptId / checkpointId (the row\'s own top-level keys)': 'a restored user row repeats the stored row\'s transcript ids at its top level; the same identities as meta.transcript.*, drawn by the core, compared as an id (a non-empty string) on both sides',
+      'restored row id':'Node counts hist_<session>_<n>, the core uses the record\'s iid; both sides are compared as an id',
     },
   },
 });
