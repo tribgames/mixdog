@@ -9,10 +9,8 @@
 //! Database: a private cluster (module `pg`) with the memory schema, holding the test file's fixture rows (case 0's
 //! recorded `before`). The test file's table has no `NOT NULL` on `role`, `content`, `source_ref` and its rows carry
 //! NULL there, so those constraints are dropped on the private table; every other column, key and `ON DELETE` rule is
-//! the core's. Node's stand-in answered the hybrid candidate statement with every root row by id (`sparse_rank` =
-//! position, `sparse_lex` = 1) instead of running it; the replay answers the core's candidate statement the same way
-//! (`hybrid::CANDIDATE_ANSWER`, test builds) with those rows read from the private table, and every other statement
-//! runs on PostgreSQL. Compared per step: the result rows whole and in order, and the statements sent in order with
+//! the core's. Every statement the core sends, the hybrid candidate statement included, runs on PostgreSQL. Compared
+//! per step: the result rows whole and in order, and the statements sent in order with
 //! their params (`recall::store::STATEMENTS`, test builds).
 
 use mixdog_testkit::Exact;
@@ -56,7 +54,7 @@ mod pg {
     use crate::memory::pg::db::Db;
     use crate::memory::recall::browse::{EntryFilters, retrieve_entries};
     use crate::memory::recall::filters::{ScopeOptions, scope_filter};
-    use crate::memory::recall::hybrid::{CANDIDATE_ANSWER, SearchOptions, search_relevant_hybrid};
+    use crate::memory::recall::hybrid::{SearchOptions, search_relevant_hybrid};
     use crate::memory::recall::ranking::collapse_history_duplicates;
     use crate::memory::recall::row::{P, Row, refs};
     use crate::memory::recall::store::STATEMENTS;
@@ -188,19 +186,7 @@ mod pg {
     }
 
     async fn hybrid(db: &Db, what: &str, step: &Exact, query: &str, options: SearchOptions) -> (Vec<Row>, Vec<(String, Vec<P>)>) {
-        // Node's stand-in: every root row by id, `sparse_rank` its position, `sparse_lex` 1.
-        let sql = format!("SELECT {COLUMNS} FROM entries WHERE is_root = 1 ORDER BY id");
-        let answer: Vec<Row> = db
-            .query(&sql, &[])
-            .await
-            .unwrap_or_else(|e| panic!("{what}: candidate answer: {}", e.message()))
-            .iter()
-            .enumerate()
-            .map(|(i, r)| Row { sparse_rank: Some(i as i64 + 1), sparse_lex: Some(1.0), ..Row::from_pg(r) })
-            .collect();
-        CANDIDATE_ANSWER.with(|a| *a.borrow_mut() = Some(answer));
         let (rows, statements) = logged(search_relevant_hybrid(db, query, &options)).await;
-        assert!(CANDIDATE_ANSWER.with(|a| a.borrow().is_none()), "{what}: the search sent no candidate statement");
         let rows = rows.unwrap_or_else(|e| panic!("{what}: {e}"));
         compare_call(what, step, &rows, &statements);
         (rows, statements)
