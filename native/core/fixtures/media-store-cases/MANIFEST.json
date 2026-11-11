@@ -85,7 +85,10 @@
   "recorderSha256": "46932434f6cb9f7fa34226506b6110fdf87dd94d4745238e72d07615edee8a23",
   "replay": {
     "compare": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock",
-    "entry": "Drive these public items on o1: mixdog-services/src/media/store.rs:317 list_assets; mixdog-services/src/media/store.rs:436 delete_assets; mixdog-services/src/media/store.rs:472 list_boards; mixdog-services/src/media/store.rs:498 create_board; mixdog-services/src/media/store.rs:523 delete_board; media/listMediaAssets; media/deleteMediaAssets; media/listMediaBoards; media/createMediaBoard.",
+    "declared": {
+      "cases[*].observed.thumbnailBurst": "Node's in-process index cache counters (how often store.mjs re-read media/index.json); no client reads them, the core keeps no such cache"
+    },
+    "entry": "The media/* protocol methods of mixdog-services/src/media/service.rs MediaService (listMediaAssets, resolveMediaFile, readMediaAsset, cacheMediaThumbnail, deleteMediaAsset, deleteMediaAssets, createMediaBoard, renameMediaBoard, setMediaAssetBoard, deleteMediaBoard, listMediaBoards) over a real data dir; a save through MediaStore::save_asset (the store a media job saves through); mediaOpenCommand through service.rs open_command. Replayed by mixdog-services/src/media/replay_k1_tests.rs.",
     "existsButNotPublicOnO1": [],
     "inputs": {
       "locale": "not read on these paths",
@@ -98,34 +101,28 @@
     },
     "protocolMethods": [
       "media/listMediaAssets",
+      "media/resolveMediaFile",
+      "media/readMediaAsset",
+      "media/cacheMediaThumbnail",
+      "media/deleteMediaAsset",
       "media/deleteMediaAssets",
-      "media/listMediaBoards",
-      "media/createMediaBoard"
+      "media/createMediaBoard",
+      "media/renameMediaBoard",
+      "media/setMediaAssetBoard",
+      "media/deleteMediaBoard",
+      "media/listMediaBoards"
     ],
     "rustTargets": [
       {
-        "line": 317,
-        "name": "list_assets",
-        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+        "name": "MediaService",
+        "path": "native/core/crates/mixdog-services/src/media/service.rs"
       },
       {
-        "line": 436,
-        "name": "delete_assets",
-        "path": "native/core/crates/mixdog-services/src/media/store.rs"
+        "name": "open_command",
+        "path": "native/core/crates/mixdog-services/src/media/service.rs"
       },
       {
-        "line": 472,
-        "name": "list_boards",
-        "path": "native/core/crates/mixdog-services/src/media/store.rs"
-      },
-      {
-        "line": 498,
-        "name": "create_board",
-        "path": "native/core/crates/mixdog-services/src/media/store.rs"
-      },
-      {
-        "line": 523,
-        "name": "delete_board",
+        "name": "MediaStore::save_asset",
         "path": "native/core/crates/mixdog-services/src/media/store.rs"
       }
     ],

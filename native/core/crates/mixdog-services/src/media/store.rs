@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use mixdog_core_base::support::{FsFailure, FsStep};
 use mixdog_rt::DurabilityIo;
 use serde_json::{Map, Value, json};
 
@@ -34,6 +35,9 @@ pub enum MediaError {
     Rendition(String),
     #[error("media store: {0}")]
     Io(#[from] std::io::Error),
+    /// A catalog write that failed at a named `fs` call: answered as Node throws it.
+    #[error("media store: {}", .0.error)]
+    Fs(FsFailure),
     #[error("media store: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -45,7 +49,7 @@ impl MediaError {
             Self::BoardNotFound => "boardNotFound",
             Self::TooLarge => "MEDIA_ASSET_TOO_LARGE",
             Self::Rendition(_) => "renditionFailed",
-            Self::Io(_) | Self::Json(_) => "storeFailed",
+            Self::Io(_) | Self::Fs(_) | Self::Json(_) => "storeFailed",
         }
     }
 }
@@ -81,6 +85,8 @@ pub struct MediaStore {
     /// Every store call of an async path runs on this lane (see [`MediaStore::run`]).
     lane: DurabilityIo,
     marks: Marks,
+    /// `layoutMigrationChecked`: the flat v1 assets were moved by this store's first save.
+    layout_checked: std::sync::atomic::AtomicBool,
 }
 
 fn extension_for(mime: &str) -> &'static str {
@@ -119,14 +125,14 @@ fn str_field<'a>(entry: &'a Value, key: &str) -> &'a str {
     entry.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn organized_asset_file(entry: &Value) -> String {
-    use chrono::TimeZone;
+/// `organizedAssetFile`: the date folder is the local date of `new Date(Number(createdAt) || now)` in
+/// the zone Node's `Date` reads (`TZ`, else the OS zone).
+fn organized_asset_file(entry: &Value, now: i64) -> String {
     let kind = if str_field(entry, "kind") == "video" { "videos" } else { "images" };
-    let created = entry.get("createdAt").and_then(Value::as_i64).filter(|v| *v != 0).unwrap_or_else(now_ms);
-    let date = chrono::Local
-        .timestamp_millis_opt(created)
-        .single()
-        .map_or_else(|| "1970-01-01".to_owned(), |d| d.format("%Y-%m-%d").to_string());
+    let created = mixdog_js::to_number_of(entry.get("createdAt"));
+    let created = if created.is_nan() || created == 0.0 { now as f64 } else { created };
+    let date = mixdog_js::time::local_fields(created)
+        .map_or_else(|| "NaN-NaN-NaN".to_owned(), |d| format!("{}-{:02}-{:02}", d.year, d.month, d.day));
     format!(
         "{kind}/{}/{}/{date}/{}.{}",
         folder_segment(str_field(entry, "lane"), "unknown-provider"),
@@ -140,21 +146,37 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], backup: bool) -> std::io::Result<()> {
+    write_atomic_stepped(path, bytes, backup).map_err(|failure| failure.error)
+}
+
+/// `writeFileAtomicSync` / `updateJsonAtomicSync`'s publication: a sibling temp file
+/// `<name>.mixdog-tmp-<16 hex>`, synced, then renamed over the file (the replaced copy kept as
+/// `<file>.bak` when asked). A failure names the call that failed, as Node's error text does; the
+/// temp file of a failed publication is removed.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+pub(crate) fn write_atomic_stepped(path: &Path, bytes: &[u8], backup: bool) -> Result<(), FsFailure> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent).map_err(|error| FsFailure { error, step: FsStep::Mkdir(parent.to_owned()) })?;
     }
-    let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(format!(".mixdog-tmp-{:016x}", uuid::Uuid::new_v4().as_u64_pair().0));
+    let tmp = path.with_file_name(name);
+    let written = (|| {
+        let mut file = fs::File::create(&tmp).map_err(|error| FsFailure { error, step: FsStep::Open(tmp.clone()) })?;
+        file.write_all(bytes).map_err(|error| FsFailure { error, step: FsStep::Write })?;
+        file.sync_all().map_err(|error| FsFailure { error, step: FsStep::Fsync })
+    })();
+    let published = written.and_then(|()| {
+        if backup && path.exists() {
+            let _ = fs::copy(path, backup_path(path));
+        }
+        fs::rename(&tmp, path).map_err(|error| FsFailure { error, step: FsStep::Rename(tmp.clone(), path.to_owned()) })
+    });
+    if published.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    if backup && path.exists() {
-        let _ = fs::copy(path, backup_path(path));
-    }
-    fs::rename(&tmp, path)
+    published
 }
 
 fn backup_path(path: &Path) -> PathBuf {
@@ -165,8 +187,13 @@ fn backup_path(path: &Path) -> PathBuf {
 
 /// Reads a JSON state file. Absent → `None`. Damaged (unparsable or failing `valid`) → set
 /// aside, the backup restored when it is good, else `None`. Other failures propagate.
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) fn read_state(path: &Path, valid: impl Fn(&Value) -> bool) -> Result<Option<Value>, MediaError> {
+    read_state_at(path, valid, now_ms())
+}
+
+/// [`read_state`] whose set-aside copy is stamped `now` (`.corrupt-<Date.now()>`).
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_state_at(path: &Path, valid: impl Fn(&Value) -> bool, now: i64) -> Result<Option<Value>, MediaError> {
     let parse = |p: &Path| -> std::io::Result<Option<Value>> {
         match fs::read(p) {
             Ok(bytes) => Ok(serde_json::from_slice::<Value>(&bytes).ok().filter(|v| valid(v))),
@@ -181,7 +208,7 @@ pub(crate) fn read_state(path: &Path, valid: impl Fn(&Value) -> bool) -> Result<
         return Ok(Some(value));
     }
     let mut aside = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
-    aside.push(format!(".corrupt-{}", now_ms()));
+    aside.push(format!(".corrupt-{now}"));
     let _ = fs::rename(path, path.with_file_name(aside));
     let restored = parse(&backup_path(path))?;
     if let Some(value) = &restored {
@@ -200,7 +227,62 @@ impl MediaStore {
     }
 
     pub fn with_marks(data_dir: &Path, lane: DurabilityIo, marks: Marks) -> Self {
-        Self { dir: data_dir.join("media"), lock: Mutex::new(()), lane, marks }
+        Self { dir: data_dir.join("media"), lock: Mutex::new(()), lane, marks, layout_checked: std::sync::atomic::AtomicBool::new(false) }
+    }
+
+    fn now(&self) -> i64 {
+        (self.marks.now)()
+    }
+
+    /// `ensureDirs()`: the assets folder exists once the catalog is touched.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+    fn ensure_dirs(&self) -> Result<(), MediaError> {
+        fs::create_dir_all(self.assets_dir())?;
+        Ok(())
+    }
+
+    /// `migrateAssetLayout`: flat v1 assets move into their kind/provider/model/date folders, once
+    /// per store, on the first save (a write-side task: a read never waits on it). An asset whose
+    /// file is already in place is renamed in the index only; one that cannot move stays as it is.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+    fn migrate_asset_layout(&self) -> Result<(), MediaError> {
+        use std::sync::atomic::Ordering;
+        if self.layout_checked.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let now = self.now();
+        self.mutate_assets(|current| {
+            let mut changed = false;
+            let assets: Vec<Value> = current
+                .into_iter()
+                .map(|entry| {
+                    let target_file = organized_asset_file(&entry, now);
+                    let source = self.stored_asset_path(str_field(&entry, "file"));
+                    let Some(target) = self.stored_asset_path(&target_file) else { return entry };
+                    if str_field(&entry, "file").replace('\\', "/") == target_file {
+                        return entry;
+                    }
+                    let moved = |mut entry: Value| {
+                        entry["file"] = json!(target_file);
+                        entry
+                    };
+                    if target.exists() {
+                        changed = true;
+                        return moved(entry);
+                    }
+                    let Some(source) = source.filter(|source| source.exists()) else { return entry };
+                    let renamed = target.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::rename(&source, &target));
+                    if renamed.is_err() {
+                        return entry;
+                    }
+                    changed = true;
+                    moved(entry)
+                })
+                .collect();
+            (changed.then_some(assets), ())
+        })?;
+        self.layout_checked.store(true, Ordering::Release);
+        Ok(())
     }
 
     /// The clock and ids the jobs over this store stamp with.
@@ -255,14 +337,13 @@ impl MediaStore {
     }
 
     fn read_assets(&self) -> Result<Vec<Value>, MediaError> {
-        Ok(read_state(&self.index_path(), has_array("assets"))?
+        Ok(read_state_at(&self.index_path(), has_array("assets"), self.now())?
             .and_then(|v| v.get("assets").and_then(Value::as_array).cloned())
             .unwrap_or_default())
     }
 
     fn write_assets(&self, assets: &[Value]) -> Result<(), MediaError> {
-        write_atomic(&self.index_path(), &serde_json::to_vec(&json!({"version": 2, "assets": assets}))?, true)?;
-        Ok(())
+        write_atomic_stepped(&self.index_path(), &serde_json::to_vec(&json!({"version": 2, "assets": assets}))?, true).map_err(MediaError::Fs)
     }
 
     /// The one catalog read-modify-write; `mutate` returning `None` writes nothing.
@@ -276,7 +357,7 @@ impl MediaStore {
     }
 
     fn read_boards(&self) -> Result<Vec<Value>, MediaError> {
-        Ok(read_state(&self.boards_path(), has_array("boards"))?
+        Ok(read_state_at(&self.boards_path(), has_array("boards"), self.now())?
             .and_then(|v| v.get("boards").and_then(Value::as_array).cloned())
             .unwrap_or_default())
     }
@@ -285,23 +366,26 @@ impl MediaStore {
         let _guard = self.lock.lock().unwrap();
         let (next, out) = mutate(self.read_boards()?);
         if let Some(next) = next {
-            write_atomic(&self.boards_path(), &serde_json::to_vec(&json!({"version": 1, "boards": next}))?, true)?;
+            write_atomic_stepped(&self.boards_path(), &serde_json::to_vec(&json!({"version": 1, "boards": next}))?, true).map_err(MediaError::Fs)?;
         }
         Ok(out)
     }
 
     /// Persists one generated artifact and returns its index entry.
     pub fn save_asset(&self, kind: &str, lane: &str, model: &str, prompt: &str, options: Value, mime: &str, bytes: &[u8], meta: Map<String, Value>) -> Result<Value, MediaError> {
+        self.ensure_dirs()?;
+        self.migrate_asset_layout()?;
+        let now = self.now();
         let mut entry = json!({
             "id": (self.marks.id)(),
             "kind": kind, "lane": lane, "model": model,
             "prompt": mixdog_js::slice_utf16(prompt, 4000),
-            "options": options, "mime": mime, "bytes": bytes.len(), "createdAt": (self.marks.now)(),
+            "options": options, "mime": mime, "bytes": bytes.len(), "createdAt": now,
         });
         for (k, v) in meta {
             entry[k] = v;
         }
-        let file = organized_asset_file(&entry);
+        let file = organized_asset_file(&entry, now);
         let path = self.stored_asset_path(&file).ok_or_else(|| invalid("invalid media asset path"))?;
         // Durable before the index names it.
         write_atomic(&path, bytes, false)?;
@@ -315,6 +399,7 @@ impl MediaStore {
     }
 
     pub fn list_assets(&self, limit: Option<f64>, offset: Option<f64>, kind: Option<&str>, board_id: &str) -> Result<Value, MediaError> {
+        self.ensure_dirs()?;
         let all: Vec<Value> = self
             .read_assets()?
             .into_iter()
@@ -327,6 +412,7 @@ impl MediaStore {
     }
 
     pub(crate) fn get_asset(&self, id: &str) -> Result<Option<Value>, MediaError> {
+        self.ensure_dirs()?;
         Ok(self.read_assets()?.into_iter().find(|e| str_field(e, "id") == id))
     }
 
@@ -412,6 +498,7 @@ impl MediaStore {
     }
 
     pub fn delete_asset(&self, id: &str) -> Result<Value, MediaError> {
+        self.ensure_dirs()?;
         let removed = self.mutate_assets(|assets| match assets.iter().find(|e| str_field(e, "id") == id) {
             None => (None, false),
             Some(entry) => {
@@ -441,6 +528,7 @@ impl MediaStore {
         if ids.is_none() && before.is_none() && !missing && !all {
             return Err(invalid("deleteMediaAssets needs ids, before, missing, or all"));
         }
+        self.ensure_dirs()?;
         let kind = p.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty());
         let board = p.get("boardId").and_then(Value::as_str).unwrap_or("");
         let matches = |e: &Value| {
@@ -470,6 +558,7 @@ impl MediaStore {
     // ---- Boards: membership is the asset entry's `boardId`.
 
     pub fn list_boards(&self) -> Result<Value, MediaError> {
+        self.ensure_dirs()?;
         let assets = self.read_assets()?;
         let mut boards = self.read_boards()?;
         boards.sort_by(|a, b| b.get("createdAt").and_then(Value::as_f64).partial_cmp(&a.get("createdAt").and_then(Value::as_f64)).unwrap_or(std::cmp::Ordering::Equal));
@@ -496,7 +585,8 @@ impl MediaStore {
     }
 
     pub fn create_board(&self, name: Option<&Value>) -> Result<Value, MediaError> {
-        let board = json!({"id": uuid::Uuid::new_v4().to_string(), "name": Self::board_name(name)?, "createdAt": now_ms()});
+        // `{ id: randomUUID(), name: boardName(name), createdAt: Date.now() }`: the id is drawn before the name is judged.
+        let board = json!({"id": (self.marks.id)(), "name": Self::board_name(name)?, "createdAt": self.now()});
         let saved = board.clone();
         self.mutate_boards(|mut boards| {
             boards.insert(0, board);
@@ -558,6 +648,7 @@ impl MediaStore {
         if !target.is_empty() && !self.read_boards()?.iter().any(|b| str_field(b, "id") == target) {
             return Err(MediaError::BoardNotFound);
         }
+        self.ensure_dirs()?;
         let moved = self.mutate_assets(|assets| {
             let mut moved = Vec::new();
             let next: Vec<Value> = assets
