@@ -1,0 +1,80 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a command name resolves through its aliases, and an unknown one stays as typed",
+      "observed": {
+        "names": [
+          {
+            "input": "clear",
+            "result": "clear"
+          },
+          {
+            "input": "NEW",
+            "result": "clear"
+          },
+          {
+            "input": "Projects",
+            "result": "project"
+          },
+          {
+            "input": "nope",
+            "result": "nope"
+          },
+          {
+            "input": "",
+            "result": ""
+          },
+          {
+            "input": {
+              "undefined": true
+            },
+            "result": ""
+          }
+        ]
+      }
+    },
+    {
+      "case": "the argument hint comes from the resolved command, only after a trailing space",
+      "observed": {
+        "hints": [
+          {
+            "input": "/model ",
+            "hint": "/model [name|refresh]"
+          },
+          {
+            "input": "/autoclear ",
+            "hint": "/autoclear [on|off|duration|unlimited]"
+          },
+          {
+            "input": "/projects ",
+            "hint": "/project [path]"
+          },
+          {
+            "input": "/clear ",
+            "hint": ""
+          },
+          {
+            "input": "/nope ",
+            "hint": ""
+          },
+          {
+            "input": "/model",
+            "hint": ""
+          },
+          {
+            "input": "/model x ",
+            "hint": ""
+          },
+          {
+            "input": "",
+            "hint": ""
+          }
+        ]
+      }
+    }
+  ]
+}
