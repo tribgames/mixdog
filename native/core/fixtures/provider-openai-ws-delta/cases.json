@@ -1,6 +1,7 @@
 {
   "set": "provider-openai-ws-delta",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "tool-search-malformed-args-marker",
@@ -15,7 +16,25 @@
           "__parseError": "Unexpected token 'd', ...\"{\"query\": dispatchAi\"... is not valid JSON"
         },
         "isMarker": true
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            "{\"query\": dispatchAiWrapped}"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.isInvalidToolArgsMarker",
+          "args": [
+            {
+              "__invalidToolArgs": true,
+              "__rawArguments": "{\"query\": dispatchAiWrapped}",
+              "__parseError": "Unexpected token 'd', ...\"{\"query\": dispatchAi\"... is not valid JSON"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "tool-search-valid-object-empty-preserved",
@@ -31,7 +50,61 @@
         "nul": {},
         "undef": {},
         "emptyIsMarker": false
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            "{\"query\":\"x\"}"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            {
+              "query": "y"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            ""
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            "   "
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            null
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            {
+              "$exact": "undefined"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.parseToolSearchArgs",
+          "args": [
+            ""
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.isInvalidToolArgsMarker",
+          "args": [
+            {}
+          ]
+        }
+      ]
     },
     {
       "id": "default-delta-falls-back-on-request-property-mismatch",
@@ -75,7 +148,38 @@
             ]
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "ws-delta-previous-response-id-safe-fallbacks",
@@ -219,7 +323,192 @@
             false
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.6",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": null,
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "other"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "tool",
+                    "arguments": "{\"api_key\":\"provider-function-secret\",\"nested\":{\"z\":2,\"a\":1}}"
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "call_other",
+                    "name": "tool",
+                    "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "message-mismatch-diagnostics-hash-content",
@@ -245,7 +534,69 @@
             false
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "provider secret"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "replayed secret"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "diagnostic-hashes-normalize-equivalent-forms",
@@ -286,7 +637,233 @@
           "response_output_mismatch_actual_replayed_input_item_count": 1
         },
         "functionHashesEqual": true
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "same sensitive message"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "different message"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "different message"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "same sensitive message"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "function_call",
+                    "call_id": "call_same",
+                    "name": "tool",
+                    "arguments": "{\"api_key\":\"function-secret\",\"nested\":{\"z\":2,\"a\":1}}"
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "call_different",
+                    "name": "tool",
+                    "arguments": "{\"ignored\":\"replayed-function-secret\"}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "function_call",
+                    "call_id": "call_same",
+                    "name": "tool",
+                    "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"function-secret\"}"
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "call_different",
+                    "name": "tool",
+                    "arguments": "{\"ignored\":\"replayed-function-secret\"}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "mismatch-diagnostics-reach-trace-rows",
@@ -306,31 +883,163 @@
               "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
               "response_output_mismatch_actual_replayed_input_item_count": 1
             },
-            "emittedKinds": [
-              "cache_break",
-              "transport"
+            "emittedRows": [
+              {
+                "sessionId": "mismatch-trace-function_call",
+                "iteration": 1,
+                "kind": "transport",
+                "provider": "xai",
+                "transport": "websocket",
+                "ws_mode": "full",
+                "ws_pre_response_created_timeout_ms": 60000,
+                "ws_inter_chunk_timeout_ms": 300000,
+                "ws_idle_ms": 3600000,
+                "iteration_delta_tokens": 72,
+                "reused_connection": false,
+                "requested_service_tier": null,
+                "response_service_tier": null,
+                "handshake_retries": 0,
+                "handshake_retry_classifiers": [],
+                "midstream_retries": 0,
+                "response_id": "resp_next",
+                "cache_key_hash": "75e5731ccf3f",
+                "request_has_previous_response_id": false,
+                "cached_tokens": 0,
+                "prompt_tokens": 0,
+                "input_tokens": 0,
+                "uncached_tokens": 0,
+                "cache_ratio": null,
+                "actual_cache_miss": false,
+                "actual_cache_miss_reason": null,
+                "previous_max_cached_tokens": 0,
+                "cache_drop_threshold_tokens": 0,
+                "frame_prefix_hash": "16ed2bb9953edce7",
+                "frame_prefix_head_hash": "837174bafd705896",
+                "frame_prefix_prev_match": null,
+                "ws_client_metadata": false,
+                "ws_client_metadata_key_count": 0,
+                "ws_client_metadata_hash": null,
+                "ws_client_metadata_has_turn_metadata": false,
+                "ws_client_metadata_has_thread_id": false,
+                "ws_client_metadata_has_turn_state": false,
+                "ws_entry_turn_state_available": false,
+                "ws_entry_turn_state_fp": null,
+                "chain_delta_reason": "response_output_mismatch:function_call",
+                "chain_stripped_response_items": 0,
+                "chain_skipped_response_items": 0,
+                "response_output_mismatch_expected_type": "function_call",
+                "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                "response_output_mismatch_expected_response_item_count": 1,
+                "response_output_mismatch_actual_type": "function_call",
+                "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                "response_output_mismatch_actual_replayed_input_item_count": 1,
+                "chain_response_items": 0,
+                "body_input_items": 2,
+                "frame_input_items": 2,
+                "frame_has_instructions": false,
+                "tool_call_count": 0,
+                "keep_socket": false,
+                "keep_response_chain": true,
+                "payload": {
+                  "provider": "xai",
+                  "transport": "websocket",
+                  "ws_mode": "full",
+                  "ws_pre_response_created_timeout_ms": 60000,
+                  "ws_inter_chunk_timeout_ms": 300000,
+                  "ws_idle_ms": 3600000,
+                  "iteration_delta_tokens": 72,
+                  "reused_connection": false,
+                  "requested_service_tier": null,
+                  "response_service_tier": null,
+                  "handshake_retries": 0,
+                  "handshake_retry_classifiers": [],
+                  "midstream_retries": 0,
+                  "response_id": "resp_next",
+                  "cache_key_hash": "75e5731ccf3f",
+                  "request_has_previous_response_id": false,
+                  "cached_tokens": 0,
+                  "prompt_tokens": 0,
+                  "input_tokens": 0,
+                  "uncached_tokens": 0,
+                  "cache_ratio": null,
+                  "actual_cache_miss": false,
+                  "actual_cache_miss_reason": null,
+                  "previous_max_cached_tokens": 0,
+                  "cache_drop_threshold_tokens": 0,
+                  "frame_prefix_hash": "16ed2bb9953edce7",
+                  "frame_prefix_head_hash": "837174bafd705896",
+                  "frame_prefix_prev_match": null,
+                  "ws_client_metadata": false,
+                  "ws_client_metadata_key_count": 0,
+                  "ws_client_metadata_hash": null,
+                  "ws_client_metadata_has_turn_metadata": false,
+                  "ws_client_metadata_has_thread_id": false,
+                  "ws_client_metadata_has_turn_state": false,
+                  "ws_entry_turn_state_available": false,
+                  "ws_entry_turn_state_fp": null,
+                  "chain_delta_reason": "response_output_mismatch:function_call",
+                  "chain_stripped_response_items": 0,
+                  "chain_skipped_response_items": 0,
+                  "response_output_mismatch_expected_type": "function_call",
+                  "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                  "response_output_mismatch_expected_response_item_count": 1,
+                  "response_output_mismatch_actual_type": "function_call",
+                  "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                  "response_output_mismatch_actual_replayed_input_item_count": 1,
+                  "chain_response_items": 0,
+                  "body_input_items": 2,
+                  "frame_input_items": 2,
+                  "frame_has_instructions": false,
+                  "tool_call_count": 0,
+                  "keep_socket": false,
+                  "keep_response_chain": true
+                }
+              },
+              {
+                "sessionId": "mismatch-trace-function_call",
+                "iteration": 1,
+                "kind": "cache_break",
+                "classification": "provider_transition",
+                "source": "openai_ws_delta",
+                "provider": "xai",
+                "model": "gpt-5.5",
+                "payload": {
+                  "provider": "xai",
+                  "model": "gpt-5.5",
+                  "transport": "websocket",
+                  "ws_mode": "full",
+                  "reason": "response_output_mismatch:function_call",
+                  "classification": "provider_transition",
+                  "source": "openai_ws_delta",
+                  "intentional_transition": null,
+                  "request_tool_choice": null,
+                  "cache_key_hash": "75e5731ccf3f",
+                  "cached_tokens": 0,
+                  "prompt_tokens": 0,
+                  "uncached_tokens": 0,
+                  "cache_ratio": null,
+                  "actual_cache_miss": false,
+                  "request_has_previous_response_id": false,
+                  "chain_stripped_response_items": 0,
+                  "chain_skipped_response_items": 0,
+                  "response_output_mismatch_expected_type": "function_call",
+                  "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+                  "response_output_mismatch_expected_response_item_count": 1,
+                  "response_output_mismatch_actual_type": "function_call",
+                  "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+                  "response_output_mismatch_actual_replayed_input_item_count": 1,
+                  "chain_response_items": 0,
+                  "body_input_items": 2,
+                  "frame_input_items": 2,
+                  "frame_has_instructions": false,
+                  "keep_response_chain": true,
+                  "tool_call_count": 0
+                }
+              }
             ],
             "emittedPayloadsEqualDiagnostics": [
               true,
               true
-            ],
-            "emittedPayloadMismatchFields": [
-              {
-                "response_output_mismatch_expected_type": "function_call",
-                "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-                "response_output_mismatch_expected_response_item_count": 1,
-                "response_output_mismatch_actual_type": "function_call",
-                "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-                "response_output_mismatch_actual_replayed_input_item_count": 1
-              },
-              {
-                "response_output_mismatch_expected_type": "function_call",
-                "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
-                "response_output_mismatch_expected_response_item_count": 1,
-                "response_output_mismatch_actual_type": "function_call",
-                "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
-                "response_output_mismatch_actual_replayed_input_item_count": 1
-              }
             ]
           },
           {
@@ -343,39 +1052,471 @@
               "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
               "response_output_mismatch_actual_replayed_input_item_count": 1
             },
-            "emittedKinds": [
-              "cache_break",
-              "transport"
+            "emittedRows": [
+              {
+                "sessionId": "mismatch-trace-custom_tool_call",
+                "iteration": 1,
+                "kind": "transport",
+                "provider": "xai",
+                "transport": "websocket",
+                "ws_mode": "full",
+                "ws_pre_response_created_timeout_ms": 60000,
+                "ws_inter_chunk_timeout_ms": 300000,
+                "ws_idle_ms": 3600000,
+                "iteration_delta_tokens": 63,
+                "reused_connection": false,
+                "requested_service_tier": null,
+                "response_service_tier": null,
+                "handshake_retries": 0,
+                "handshake_retry_classifiers": [],
+                "midstream_retries": 0,
+                "response_id": "resp_next",
+                "cache_key_hash": "75e5731ccf3f",
+                "request_has_previous_response_id": false,
+                "cached_tokens": 0,
+                "prompt_tokens": 0,
+                "input_tokens": 0,
+                "uncached_tokens": 0,
+                "cache_ratio": null,
+                "actual_cache_miss": false,
+                "actual_cache_miss_reason": null,
+                "previous_max_cached_tokens": 0,
+                "cache_drop_threshold_tokens": 0,
+                "frame_prefix_hash": "16ed2bb9953edce7",
+                "frame_prefix_head_hash": "eb302e082e5f4a89",
+                "frame_prefix_prev_match": null,
+                "ws_client_metadata": false,
+                "ws_client_metadata_key_count": 0,
+                "ws_client_metadata_hash": null,
+                "ws_client_metadata_has_turn_metadata": false,
+                "ws_client_metadata_has_thread_id": false,
+                "ws_client_metadata_has_turn_state": false,
+                "ws_entry_turn_state_available": false,
+                "ws_entry_turn_state_fp": null,
+                "chain_delta_reason": "response_output_mismatch:custom_tool_call",
+                "chain_stripped_response_items": 0,
+                "chain_skipped_response_items": 0,
+                "response_output_mismatch_expected_type": "custom_tool_call",
+                "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                "response_output_mismatch_expected_response_item_count": 1,
+                "response_output_mismatch_actual_type": "custom_tool_call",
+                "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                "response_output_mismatch_actual_replayed_input_item_count": 1,
+                "chain_response_items": 0,
+                "body_input_items": 2,
+                "frame_input_items": 2,
+                "frame_has_instructions": false,
+                "tool_call_count": 0,
+                "keep_socket": false,
+                "keep_response_chain": true,
+                "payload": {
+                  "provider": "xai",
+                  "transport": "websocket",
+                  "ws_mode": "full",
+                  "ws_pre_response_created_timeout_ms": 60000,
+                  "ws_inter_chunk_timeout_ms": 300000,
+                  "ws_idle_ms": 3600000,
+                  "iteration_delta_tokens": 63,
+                  "reused_connection": false,
+                  "requested_service_tier": null,
+                  "response_service_tier": null,
+                  "handshake_retries": 0,
+                  "handshake_retry_classifiers": [],
+                  "midstream_retries": 0,
+                  "response_id": "resp_next",
+                  "cache_key_hash": "75e5731ccf3f",
+                  "request_has_previous_response_id": false,
+                  "cached_tokens": 0,
+                  "prompt_tokens": 0,
+                  "input_tokens": 0,
+                  "uncached_tokens": 0,
+                  "cache_ratio": null,
+                  "actual_cache_miss": false,
+                  "actual_cache_miss_reason": null,
+                  "previous_max_cached_tokens": 0,
+                  "cache_drop_threshold_tokens": 0,
+                  "frame_prefix_hash": "16ed2bb9953edce7",
+                  "frame_prefix_head_hash": "eb302e082e5f4a89",
+                  "frame_prefix_prev_match": null,
+                  "ws_client_metadata": false,
+                  "ws_client_metadata_key_count": 0,
+                  "ws_client_metadata_hash": null,
+                  "ws_client_metadata_has_turn_metadata": false,
+                  "ws_client_metadata_has_thread_id": false,
+                  "ws_client_metadata_has_turn_state": false,
+                  "ws_entry_turn_state_available": false,
+                  "ws_entry_turn_state_fp": null,
+                  "chain_delta_reason": "response_output_mismatch:custom_tool_call",
+                  "chain_stripped_response_items": 0,
+                  "chain_skipped_response_items": 0,
+                  "response_output_mismatch_expected_type": "custom_tool_call",
+                  "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                  "response_output_mismatch_expected_response_item_count": 1,
+                  "response_output_mismatch_actual_type": "custom_tool_call",
+                  "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                  "response_output_mismatch_actual_replayed_input_item_count": 1,
+                  "chain_response_items": 0,
+                  "body_input_items": 2,
+                  "frame_input_items": 2,
+                  "frame_has_instructions": false,
+                  "tool_call_count": 0,
+                  "keep_socket": false,
+                  "keep_response_chain": true
+                }
+              },
+              {
+                "sessionId": "mismatch-trace-custom_tool_call",
+                "iteration": 1,
+                "kind": "cache_break",
+                "classification": "provider_transition",
+                "source": "openai_ws_delta",
+                "provider": "xai",
+                "model": "gpt-5.5",
+                "payload": {
+                  "provider": "xai",
+                  "model": "gpt-5.5",
+                  "transport": "websocket",
+                  "ws_mode": "full",
+                  "reason": "response_output_mismatch:custom_tool_call",
+                  "classification": "provider_transition",
+                  "source": "openai_ws_delta",
+                  "intentional_transition": null,
+                  "request_tool_choice": null,
+                  "cache_key_hash": "75e5731ccf3f",
+                  "cached_tokens": 0,
+                  "prompt_tokens": 0,
+                  "uncached_tokens": 0,
+                  "cache_ratio": null,
+                  "actual_cache_miss": false,
+                  "request_has_previous_response_id": false,
+                  "chain_stripped_response_items": 0,
+                  "chain_skipped_response_items": 0,
+                  "response_output_mismatch_expected_type": "custom_tool_call",
+                  "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+                  "response_output_mismatch_expected_response_item_count": 1,
+                  "response_output_mismatch_actual_type": "custom_tool_call",
+                  "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+                  "response_output_mismatch_actual_replayed_input_item_count": 1,
+                  "chain_response_items": 0,
+                  "body_input_items": 2,
+                  "frame_input_items": 2,
+                  "frame_has_instructions": false,
+                  "keep_response_chain": true,
+                  "tool_call_count": 0
+                }
+              }
             ],
             "emittedPayloadsEqualDiagnostics": [
               true,
               true
-            ],
-            "emittedPayloadMismatchFields": [
-              {
-                "response_output_mismatch_expected_type": "custom_tool_call",
-                "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-                "response_output_mismatch_expected_response_item_count": 1,
-                "response_output_mismatch_actual_type": "custom_tool_call",
-                "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-                "response_output_mismatch_actual_replayed_input_item_count": 1
-              },
-              {
-                "response_output_mismatch_expected_type": "custom_tool_call",
-                "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
-                "response_output_mismatch_expected_response_item_count": 1,
-                "response_output_mismatch_actual_type": "custom_tool_call",
-                "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
-                "response_output_mismatch_actual_replayed_input_item_count": 1
-              }
             ]
           }
         ],
-        "allRowKinds": [
-          "transport",
-          "cache_break",
-          "transport",
-          "cache_break"
+        "rows": [
+          {
+            "sessionId": "mismatch-trace-function_call",
+            "iteration": 1,
+            "kind": "transport",
+            "provider": "xai",
+            "transport": "websocket",
+            "ws_mode": "full",
+            "ws_pre_response_created_timeout_ms": 60000,
+            "ws_inter_chunk_timeout_ms": 300000,
+            "ws_idle_ms": 3600000,
+            "iteration_delta_tokens": 72,
+            "reused_connection": false,
+            "requested_service_tier": null,
+            "response_service_tier": null,
+            "handshake_retries": 0,
+            "handshake_retry_classifiers": [],
+            "midstream_retries": 0,
+            "response_id": "resp_next",
+            "cache_key_hash": "75e5731ccf3f",
+            "request_has_previous_response_id": false,
+            "cached_tokens": 0,
+            "prompt_tokens": 0,
+            "input_tokens": 0,
+            "uncached_tokens": 0,
+            "cache_ratio": null,
+            "actual_cache_miss": false,
+            "actual_cache_miss_reason": null,
+            "previous_max_cached_tokens": 0,
+            "cache_drop_threshold_tokens": 0,
+            "frame_prefix_hash": "16ed2bb9953edce7",
+            "frame_prefix_head_hash": "837174bafd705896",
+            "frame_prefix_prev_match": null,
+            "ws_client_metadata": false,
+            "ws_client_metadata_key_count": 0,
+            "ws_client_metadata_hash": null,
+            "ws_client_metadata_has_turn_metadata": false,
+            "ws_client_metadata_has_thread_id": false,
+            "ws_client_metadata_has_turn_state": false,
+            "ws_entry_turn_state_available": false,
+            "ws_entry_turn_state_fp": null,
+            "chain_delta_reason": "response_output_mismatch:function_call",
+            "chain_stripped_response_items": 0,
+            "chain_skipped_response_items": 0,
+            "response_output_mismatch_expected_type": "function_call",
+            "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+            "response_output_mismatch_expected_response_item_count": 1,
+            "response_output_mismatch_actual_type": "function_call",
+            "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+            "response_output_mismatch_actual_replayed_input_item_count": 1,
+            "chain_response_items": 0,
+            "body_input_items": 2,
+            "frame_input_items": 2,
+            "frame_has_instructions": false,
+            "tool_call_count": 0,
+            "keep_socket": false,
+            "keep_response_chain": true,
+            "payload": {
+              "provider": "xai",
+              "transport": "websocket",
+              "ws_mode": "full",
+              "ws_pre_response_created_timeout_ms": 60000,
+              "ws_inter_chunk_timeout_ms": 300000,
+              "ws_idle_ms": 3600000,
+              "iteration_delta_tokens": 72,
+              "reused_connection": false,
+              "requested_service_tier": null,
+              "response_service_tier": null,
+              "handshake_retries": 0,
+              "handshake_retry_classifiers": [],
+              "midstream_retries": 0,
+              "response_id": "resp_next",
+              "cache_key_hash": "75e5731ccf3f",
+              "request_has_previous_response_id": false,
+              "cached_tokens": 0,
+              "prompt_tokens": 0,
+              "input_tokens": 0,
+              "uncached_tokens": 0,
+              "cache_ratio": null,
+              "actual_cache_miss": false,
+              "actual_cache_miss_reason": null,
+              "previous_max_cached_tokens": 0,
+              "cache_drop_threshold_tokens": 0,
+              "frame_prefix_hash": "16ed2bb9953edce7",
+              "frame_prefix_head_hash": "837174bafd705896",
+              "frame_prefix_prev_match": null,
+              "ws_client_metadata": false,
+              "ws_client_metadata_key_count": 0,
+              "ws_client_metadata_hash": null,
+              "ws_client_metadata_has_turn_metadata": false,
+              "ws_client_metadata_has_thread_id": false,
+              "ws_client_metadata_has_turn_state": false,
+              "ws_entry_turn_state_available": false,
+              "ws_entry_turn_state_fp": null,
+              "chain_delta_reason": "response_output_mismatch:function_call",
+              "chain_stripped_response_items": 0,
+              "chain_skipped_response_items": 0,
+              "response_output_mismatch_expected_type": "function_call",
+              "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+              "response_output_mismatch_expected_response_item_count": 1,
+              "response_output_mismatch_actual_type": "function_call",
+              "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+              "response_output_mismatch_actual_replayed_input_item_count": 1,
+              "chain_response_items": 0,
+              "body_input_items": 2,
+              "frame_input_items": 2,
+              "frame_has_instructions": false,
+              "tool_call_count": 0,
+              "keep_socket": false,
+              "keep_response_chain": true
+            }
+          },
+          {
+            "sessionId": "mismatch-trace-function_call",
+            "iteration": 1,
+            "kind": "cache_break",
+            "classification": "provider_transition",
+            "source": "openai_ws_delta",
+            "provider": "xai",
+            "model": "gpt-5.5",
+            "payload": {
+              "provider": "xai",
+              "model": "gpt-5.5",
+              "transport": "websocket",
+              "ws_mode": "full",
+              "reason": "response_output_mismatch:function_call",
+              "classification": "provider_transition",
+              "source": "openai_ws_delta",
+              "intentional_transition": null,
+              "request_tool_choice": null,
+              "cache_key_hash": "75e5731ccf3f",
+              "cached_tokens": 0,
+              "prompt_tokens": 0,
+              "uncached_tokens": 0,
+              "cache_ratio": null,
+              "actual_cache_miss": false,
+              "request_has_previous_response_id": false,
+              "chain_stripped_response_items": 0,
+              "chain_skipped_response_items": 0,
+              "response_output_mismatch_expected_type": "function_call",
+              "response_output_mismatch_expected_hash": "8a89b3d68cd85e956d82e7b742b46aeb2a6d516873b6fd8c8524df5235ce1327",
+              "response_output_mismatch_expected_response_item_count": 1,
+              "response_output_mismatch_actual_type": "function_call",
+              "response_output_mismatch_actual_hash": "0380856946ccedf3e16034deac947687c8210ea2382b590fcbaf997081d74611",
+              "response_output_mismatch_actual_replayed_input_item_count": 1,
+              "chain_response_items": 0,
+              "body_input_items": 2,
+              "frame_input_items": 2,
+              "frame_has_instructions": false,
+              "keep_response_chain": true,
+              "tool_call_count": 0
+            }
+          },
+          {
+            "sessionId": "mismatch-trace-custom_tool_call",
+            "iteration": 1,
+            "kind": "transport",
+            "provider": "xai",
+            "transport": "websocket",
+            "ws_mode": "full",
+            "ws_pre_response_created_timeout_ms": 60000,
+            "ws_inter_chunk_timeout_ms": 300000,
+            "ws_idle_ms": 3600000,
+            "iteration_delta_tokens": 63,
+            "reused_connection": false,
+            "requested_service_tier": null,
+            "response_service_tier": null,
+            "handshake_retries": 0,
+            "handshake_retry_classifiers": [],
+            "midstream_retries": 0,
+            "response_id": "resp_next",
+            "cache_key_hash": "75e5731ccf3f",
+            "request_has_previous_response_id": false,
+            "cached_tokens": 0,
+            "prompt_tokens": 0,
+            "input_tokens": 0,
+            "uncached_tokens": 0,
+            "cache_ratio": null,
+            "actual_cache_miss": false,
+            "actual_cache_miss_reason": null,
+            "previous_max_cached_tokens": 0,
+            "cache_drop_threshold_tokens": 0,
+            "frame_prefix_hash": "16ed2bb9953edce7",
+            "frame_prefix_head_hash": "eb302e082e5f4a89",
+            "frame_prefix_prev_match": null,
+            "ws_client_metadata": false,
+            "ws_client_metadata_key_count": 0,
+            "ws_client_metadata_hash": null,
+            "ws_client_metadata_has_turn_metadata": false,
+            "ws_client_metadata_has_thread_id": false,
+            "ws_client_metadata_has_turn_state": false,
+            "ws_entry_turn_state_available": false,
+            "ws_entry_turn_state_fp": null,
+            "chain_delta_reason": "response_output_mismatch:custom_tool_call",
+            "chain_stripped_response_items": 0,
+            "chain_skipped_response_items": 0,
+            "response_output_mismatch_expected_type": "custom_tool_call",
+            "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+            "response_output_mismatch_expected_response_item_count": 1,
+            "response_output_mismatch_actual_type": "custom_tool_call",
+            "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+            "response_output_mismatch_actual_replayed_input_item_count": 1,
+            "chain_response_items": 0,
+            "body_input_items": 2,
+            "frame_input_items": 2,
+            "frame_has_instructions": false,
+            "tool_call_count": 0,
+            "keep_socket": false,
+            "keep_response_chain": true,
+            "payload": {
+              "provider": "xai",
+              "transport": "websocket",
+              "ws_mode": "full",
+              "ws_pre_response_created_timeout_ms": 60000,
+              "ws_inter_chunk_timeout_ms": 300000,
+              "ws_idle_ms": 3600000,
+              "iteration_delta_tokens": 63,
+              "reused_connection": false,
+              "requested_service_tier": null,
+              "response_service_tier": null,
+              "handshake_retries": 0,
+              "handshake_retry_classifiers": [],
+              "midstream_retries": 0,
+              "response_id": "resp_next",
+              "cache_key_hash": "75e5731ccf3f",
+              "request_has_previous_response_id": false,
+              "cached_tokens": 0,
+              "prompt_tokens": 0,
+              "input_tokens": 0,
+              "uncached_tokens": 0,
+              "cache_ratio": null,
+              "actual_cache_miss": false,
+              "actual_cache_miss_reason": null,
+              "previous_max_cached_tokens": 0,
+              "cache_drop_threshold_tokens": 0,
+              "frame_prefix_hash": "16ed2bb9953edce7",
+              "frame_prefix_head_hash": "eb302e082e5f4a89",
+              "frame_prefix_prev_match": null,
+              "ws_client_metadata": false,
+              "ws_client_metadata_key_count": 0,
+              "ws_client_metadata_hash": null,
+              "ws_client_metadata_has_turn_metadata": false,
+              "ws_client_metadata_has_thread_id": false,
+              "ws_client_metadata_has_turn_state": false,
+              "ws_entry_turn_state_available": false,
+              "ws_entry_turn_state_fp": null,
+              "chain_delta_reason": "response_output_mismatch:custom_tool_call",
+              "chain_stripped_response_items": 0,
+              "chain_skipped_response_items": 0,
+              "response_output_mismatch_expected_type": "custom_tool_call",
+              "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+              "response_output_mismatch_expected_response_item_count": 1,
+              "response_output_mismatch_actual_type": "custom_tool_call",
+              "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+              "response_output_mismatch_actual_replayed_input_item_count": 1,
+              "chain_response_items": 0,
+              "body_input_items": 2,
+              "frame_input_items": 2,
+              "frame_has_instructions": false,
+              "tool_call_count": 0,
+              "keep_socket": false,
+              "keep_response_chain": true
+            }
+          },
+          {
+            "sessionId": "mismatch-trace-custom_tool_call",
+            "iteration": 1,
+            "kind": "cache_break",
+            "classification": "provider_transition",
+            "source": "openai_ws_delta",
+            "provider": "xai",
+            "model": "gpt-5.5",
+            "payload": {
+              "provider": "xai",
+              "model": "gpt-5.5",
+              "transport": "websocket",
+              "ws_mode": "full",
+              "reason": "response_output_mismatch:custom_tool_call",
+              "classification": "provider_transition",
+              "source": "openai_ws_delta",
+              "intentional_transition": null,
+              "request_tool_choice": null,
+              "cache_key_hash": "75e5731ccf3f",
+              "cached_tokens": 0,
+              "prompt_tokens": 0,
+              "uncached_tokens": 0,
+              "cache_ratio": null,
+              "actual_cache_miss": false,
+              "request_has_previous_response_id": false,
+              "chain_stripped_response_items": 0,
+              "chain_skipped_response_items": 0,
+              "response_output_mismatch_expected_type": "custom_tool_call",
+              "response_output_mismatch_expected_hash": "39330a9de43170cd121fb343b47875b982e4b73d3c24530f36a769bd73c3608c",
+              "response_output_mismatch_expected_response_item_count": 1,
+              "response_output_mismatch_actual_type": "custom_tool_call",
+              "response_output_mismatch_actual_hash": "8da4c3a265f2bd14d3c248e036ade86129a2d112b0489d0aac0f5808d4f41042",
+              "response_output_mismatch_actual_replayed_input_item_count": 1,
+              "chain_response_items": 0,
+              "body_input_items": 2,
+              "frame_input_items": 2,
+              "frame_has_instructions": false,
+              "keep_response_chain": true,
+              "tool_call_count": 0
+            }
+          }
         ],
         "secretsInTrace": [
           [
@@ -395,7 +1536,289 @@
             false
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._sansInput",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "prior"
+                    }
+                  ]
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "call_actual",
+                  "name": "tool",
+                  "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._stableStringify",
+          "args": [
+            {
+              "model": "gpt-5.5"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "socket": {
+                  "close": {
+                    "callback": "close"
+                  }
+                },
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "function_call",
+                    "call_id": "call_expected",
+                    "name": "tool",
+                    "arguments": "{\"api_key\":\"provider-function-secret\",\"nested\":{\"z\":2,\"a\":1}}"
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "call_actual",
+                    "name": "tool",
+                    "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "test-token"
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "function_call",
+                    "call_id": "call_actual",
+                    "name": "tool",
+                    "arguments": "{\"nested\":{\"a\":1,\"z\":2},\"api_key\":\"replayed-function-secret\"}"
+                  }
+                ]
+              },
+              "poolKey": "mismatch-trace-function_call",
+              "cacheKey": "mismatch-trace-test",
+              "iteration": 1,
+              "useModel": "gpt-5.5",
+              "traceProvider": "xai",
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sendFrameFn": {
+                "callback": "_sendFrameFn"
+              },
+              "_streamFn": {
+                "callback": "_streamFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._sansInput",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "prior"
+                    }
+                  ]
+                },
+                {
+                  "type": "custom_tool_call",
+                  "call_id": "custom_actual",
+                  "name": "apply_patch",
+                  "input": "replayed-custom-input-secret"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._stableStringify",
+          "args": [
+            {
+              "model": "gpt-5.5"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "socket": {
+                  "close": {
+                    "callback": "close"
+                  }
+                },
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "custom_tool_call",
+                    "call_id": "custom_expected",
+                    "name": "apply_patch",
+                    "input": "provider-custom-input-secret"
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "custom_tool_call",
+                    "call_id": "custom_actual",
+                    "name": "apply_patch",
+                    "input": "replayed-custom-input-secret"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "xai",
+                "access_token": "test-token"
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "prior"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "custom_tool_call",
+                    "call_id": "custom_actual",
+                    "name": "apply_patch",
+                    "input": "replayed-custom-input-secret"
+                  }
+                ]
+              },
+              "poolKey": "mismatch-trace-custom_tool_call",
+              "cacheKey": "mismatch-trace-test",
+              "iteration": 1,
+              "useModel": "gpt-5.5",
+              "traceProvider": "xai",
+              "_acquireWithRetryFn": {
+                "callback": "_acquireWithRetryFn"
+              },
+              "_sendFrameFn": {
+                "callback": "_sendFrameFn"
+              },
+              "_streamFn": {
+                "callback": "_streamFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "native-tool-search-output-replays-canonically",
@@ -505,7 +1928,173 @@
             ]
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._sansInput",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "instructions": "sys",
+              "tools": [
+                {
+                  "type": "tool_search",
+                  "execution": "client",
+                  "description": "load tools",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              ],
+              "prompt_cache_key": "cache-key",
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": "load read"
+                },
+                {
+                  "type": "tool_search_call",
+                  "call_id": "call_load_1",
+                  "execution": "client",
+                  "arguments": {
+                    "names": [
+                      "read"
+                    ]
+                  }
+                },
+                {
+                  "type": "tool_search_output",
+                  "call_id": "call_load_1",
+                  "status": "completed",
+                  "execution": "client",
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "read",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {}
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": "use read"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._stableStringify",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "instructions": "sys",
+              "tools": [
+                {
+                  "type": "tool_search",
+                  "execution": "client",
+                  "description": "load tools",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              ],
+              "prompt_cache_key": "cache-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"instructions\":\"sys\",\"model\":\"gpt-5.5\",\"prompt_cache_key\":\"cache-key\",\"tools\":[{\"type\":\"tool_search\",\"execution\":\"client\",\"description\":\"load tools\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}]}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "load read"
+                  }
+                ],
+                "lastResponseItems": [
+                  {
+                    "type": "tool_search_call",
+                    "call_id": "call_load_1",
+                    "execution": "client",
+                    "arguments": {
+                      "names": [
+                        "read"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "instructions": "sys",
+                "tools": [
+                  {
+                    "type": "tool_search",
+                    "execution": "client",
+                    "description": "load tools",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                ],
+                "prompt_cache_key": "cache-key",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "load read"
+                  },
+                  {
+                    "type": "tool_search_call",
+                    "call_id": "call_load_1",
+                    "execution": "client",
+                    "arguments": {
+                      "names": [
+                        "read"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "tool_search_output",
+                    "call_id": "call_load_1",
+                    "status": "completed",
+                    "execution": "client",
+                    "tools": [
+                      {
+                        "type": "function",
+                        "name": "read",
+                        "parameters": {
+                          "type": "object",
+                          "properties": {}
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "use read"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "canonical-full-frame-key-order",
@@ -576,7 +2165,39 @@
           "text"
         ],
         "frameJson": "{\"type\":\"response.create\",\"model\":\"gpt-5.5\",\"instructions\":\"sys\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\",\"text\":{\"verbosity\":\"low\"}}"
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._buildResponseCreateFrame",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "instructions": "sys",
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "tool_choice": "auto",
+              "parallel_tool_calls": true,
+              "reasoning": {
+                "effort": "medium"
+              },
+              "store": false,
+              "stream": true,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "prompt_cache_key": "k",
+              "text": {
+                "verbosity": "low"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "canonical-delta-frame-key-order",
@@ -641,7 +2262,63 @@
           "tool_choice",
           "text"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._buildResponseCreateFrame",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "instructions": "sys",
+              "input": [
+                {
+                  "a": 1
+                },
+                {
+                  "b": 2
+                }
+              ],
+              "tool_choice": "auto",
+              "text": {
+                "verbosity": "low"
+              }
+            },
+            {
+              "previousResponseId": "resp_prev",
+              "inputOverride": [
+                {
+                  "b": 2
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._buildResponseCreateFrame",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "instructions": "",
+              "input": [
+                {
+                  "a": 1
+                },
+                {
+                  "b": 2
+                }
+              ],
+              "tool_choice": "auto",
+              "text": {
+                "verbosity": "low"
+              }
+            },
+            {
+              "previousResponseId": "resp_prev",
+              "inputOverride": []
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "cache-observation-warm-zero-and-retreats",
@@ -713,7 +2390,131 @@
           "missReason": null
         },
         "continuityResetReason": "input_prefix_mismatch"
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs._cacheObservationForTest",
+          "args": [
+            {
+              "entry": {
+                "promptCacheMaxCachedTokens": 47616
+              },
+              "result": {
+                "usage": {
+                  "inputTokens": 59000,
+                  "promptTokens": 59000,
+                  "cachedTokens": 0
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs._cacheObservationForTest",
+          "args": [
+            {
+              "entry": {
+                "promptCacheMaxCachedTokens": 101888
+              },
+              "result": {
+                "usage": {
+                  "inputTokens": 102456,
+                  "promptTokens": 102456,
+                  "cachedTokens": 60928
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs._cacheObservationForTest",
+          "args": [
+            {
+              "entry": {
+                "promptCacheMaxCachedTokens": 101888
+              },
+              "result": {
+                "usage": {
+                  "inputTokens": 106468,
+                  "promptTokens": 106468,
+                  "cachedTokens": 103424
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs._cacheObservationForTest",
+          "args": [
+            {
+              "entry": {
+                "promptCacheMaxCachedTokens": 255488
+              },
+              "result": {
+                "usage": {
+                  "inputTokens": 21066,
+                  "promptTokens": 21066,
+                  "cachedTokens": 8704
+                }
+              },
+              "continuityResetReason": "input_prefix_mismatch"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._sansInput",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": "compact summary"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._stableStringify",
+          "args": [
+            {
+              "model": "gpt-5.5"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs._cacheContinuityResetReasonForTest",
+          "args": [
+            {
+              "mode": "full",
+              "deltaReason": "full_default",
+              "entry": {
+                "lastResponseId": "resp_old",
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "old long transcript"
+                  }
+                ]
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "compact summary"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
