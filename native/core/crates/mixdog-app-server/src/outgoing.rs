@@ -345,7 +345,7 @@ impl Outgoing {
     ) -> Result<Value, HostError> {
         let id = self.next_host_id();
         let reply = claimant
-            .register_host_request(id.clone())
+            .register_host_request(id.clone(), method)
             .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
         let _forget = ForgetOnDrop {
             conn: Arc::clone(&claimant),
@@ -523,7 +523,7 @@ impl HostChannel for Outgoing {
         let claimant = self.claimant(capability)?;
         let id = self.next_host_id();
         let mut stream = claimant
-            .register_host_stream(id.clone())
+            .register_host_stream(id.clone(), method)
             .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
         let _forget = ForgetOnDrop {
             conn: Arc::clone(&claimant),

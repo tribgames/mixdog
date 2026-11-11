@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use mixdog_app_protocol::CLIENT_METHODS;
+use mixdog_app_protocol::free_text::FREE_TEXT;
+use mixdog_app_protocol::free_text::Kind;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreState;
 use mixdog_core_api::Reply;
@@ -116,7 +118,7 @@ async fn a_lone_surrogate_outside_free_text_refuses_the_request_before_the_core(
     }));
     let client = rig.ready(1, json!({}));
     for (id, frame, path) in [
-        (1, r#"{"id":1,"method":"thread/list","params":{"searchTerm":"a\ud800"}}"#, "thread/list.params/searchTerm"),
+        (1, r#"{"id":1,"method":"thread/read","params":{"threadId":"a\ud800"}}"#, "thread/read.params/threadId"),
         (2, r#"{"id":2,"method":"thread/list","params":{"\ud800":1}}"#, "thread/list.params/\u{fffd}"),
         // A selector is no free text: refused whole, not read entry by entry.
         (
@@ -133,6 +135,50 @@ async fn a_lone_surrogate_outside_free_text_refuses_the_request_before_the_core(
     assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the core");
     client.send_text(r#"{"id":4,"method":"thread/list","params":{}}"#);
     assert_eq!(client.response(4).await["result"], json!({ "via": "directory" }));
+}
+
+/// Every free-text field of a request ([`FREE_TEXT`]): a lone surrogate in it is no refusal; the request reaches the core
+/// with exactly the params of the same request holding a real U+FFFD there (the mock core echoes them, compared whole).
+#[tokio::test(start_paused = true)]
+async fn every_free_text_field_of_a_request_reaches_the_core_as_u_fffd() {
+    const MARK: &str = "lone-surrogate-mark";
+    let rig = Rig::new();
+    rig.core.mock.directory().insert(ThreadId::from("x"));
+    let samples = Samples::new();
+    let origins = [Origin::Local, Origin::Ssh, Origin::Relay];
+    let clients: Vec<super::Client> = origins
+        .iter()
+        .enumerate()
+        .map(|(n, origin)| {
+            let client = rig.connect(n as u64 + 1, *origin);
+            client.initialize(super::VERSION, json!({}));
+            client.drain();
+            client
+        })
+        .collect();
+    let mut failures = Vec::new();
+    let mut id = 0;
+    for (kind, method, patterns) in FREE_TEXT {
+        if *kind != Kind::Request {
+            continue;
+        }
+        let spec = CLIENT_METHODS.iter().find(|spec| spec.method == *method).expect("a listed method is in the table");
+        let client = &clients[origins.iter().position(|origin| spec.allows(*origin)).expect("an origin may call it")];
+        for pattern in *patterns {
+            id += 1;
+            let frame = json!({ "id": id, "method": method, "params": samples.with_text(method, pattern, MARK) })
+                .to_string()
+                .replace(&format!("\"{MARK}\""), r#""a\ud800""#);
+            client.send_text(&frame);
+            let answer = client.response(id).await;
+            let expected = json!({ "method": method, "params": samples.with_text(method, pattern, "a\u{fffd}") });
+            if answer.get("result") != Some(&expected) {
+                failures.push(format!("{method} {pattern}: {answer}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(id > 100, "only {id} fields");
 }
 
 /// The preflight names its own thread, but the directory answers it (it measures a source the directory looks up); a

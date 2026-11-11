@@ -890,8 +890,9 @@ impl Shared {
             return;
         };
         let JsonRpcResponse { id, result, lone_surrogates } = response;
-        // A `host/*` answer has no free-text field ([`free_text`]): one that held a lone surrogate fails its request.
-        let (reply, decision) = if lone_surrogates.is_empty() {
+        // A `host/*` answer that held a lone surrogate outside its free-text fields ([`free_text`]) fails its request.
+        let free = conn.host_request_method(&id).is_some_and(|method| free_text::refused(free_text::Kind::Answer, method.as_str(), &lone_surrogates).is_none());
+        let (reply, decision) = if lone_surrogates.is_empty() || free {
             (Ok(result), None)
         } else {
             let failed = HostError::Rpc {
