@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 494656,
+      "bytes": 497500,
       "path": "golden.json",
-      "sha256": "842521653e66d2cfc29e291a852936db1ffa371cc1575c60946ee6675cd3a929"
+      "sha256": "4dab91ac2249ca363087b6423d6ceb04167c70c5072deef9f267cb9af9ae384c"
     }
   ],
   "inputs": [
@@ -65,7 +65,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
-  "recorderSha256": "67789e9c8ac8b16c7bc65ee1474975a15e084dd77fa2a696ef7c56d102b3ab61",
+  "recorderSha256": "ba3d1917cc3970b5f17ed2a92a8e69d1eacaf94fa32ccde76c21b19ec38505a4",
   "set": "phone-worktree",
   "settledStatus": {
     "afterCall": "a field among these the call itself moved (a workspace transition's cwd) Node republishes on the pass after the call: the case's answer holds it as the pass leaves it (the recorder settles and reads once more), the value Node's answer carried is kept under the case's `unsettled`",
@@ -78,7 +78,8 @@
       "autoCompactTokenLimit",
       "compactBoundaryTokens",
       "agentScope",
-      "cwd"
+      "cwd",
+      "workspace"
     ],
     "node": "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
     "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)"
@@ -86,5 +87,5 @@
   "syntheticInput": {
     "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
   },
-  "totalBytes": 494656
+  "totalBytes": 497500
 }

@@ -576,7 +576,7 @@ const statusClock = { dir: join(WORK, 'status-clock'), sent: 0 };
 const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
 
 /** The snapshot fields Node fills on its status pass (manifest `settledStatus`). */
-const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd'];
+const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd', 'workspace'];
 
 async function settleStatus(pid) {
   statusClock.sent += 1;

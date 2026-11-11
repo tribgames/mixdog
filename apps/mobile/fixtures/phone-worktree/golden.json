@@ -5193,12 +5193,12 @@
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
-              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
-              "worktreeId": null,
-              "branch": "main",
-              "baseCommit": null,
-              "mergeTarget": null,
-              "revision": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
+              "worktreeId": "feature-2",
+              "branch": "feature",
+              "baseCommit": "e879a8aafc2c6e489890f6dec514feec356938c5",
+              "mergeTarget": "main",
+              "revision": 1,
               "transition": {
                 "state": "idle",
                 "txId": null
@@ -5271,7 +5271,21 @@
         }
       },
       "unsettled": {
-        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+        "workspace": {
+          "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+          "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "worktreeId": null,
+          "branch": "main",
+          "baseCommit": null,
+          "mergeTarget": null,
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        }
       },
       "repository": {
         "head": "main",
@@ -6063,12 +6077,12 @@
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
-              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
-              "worktreeId": "feature-2",
-              "branch": "feature",
-              "baseCommit": "e879a8aafc2c6e489890f6dec514feec356938c5",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
               "mergeTarget": "main",
-              "revision": 1,
+              "revision": 2,
               "transition": {
                 "state": "idle",
                 "txId": null
@@ -6141,7 +6155,21 @@
         }
       },
       "unsettled": {
-        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2"
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
+        "workspace": {
+          "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+          "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
+          "worktreeId": "feature-2",
+          "branch": "feature",
+          "baseCommit": "e879a8aafc2c6e489890f6dec514feec356938c5",
+          "mergeTarget": "main",
+          "revision": 1,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        }
       },
       "repository": {
         "head": "main",
@@ -6260,12 +6288,12 @@
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
-              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
-              "worktreeId": null,
-              "branch": "main",
-              "baseCommit": null,
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh",
+              "worktreeId": "fresh",
+              "branch": "fresh",
+              "baseCommit": "6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
               "mergeTarget": "main",
-              "revision": 2,
+              "revision": 3,
               "transition": {
                 "state": "idle",
                 "txId": null
@@ -6338,7 +6366,21 @@
         }
       },
       "unsettled": {
-        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+        "workspace": {
+          "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+          "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "worktreeId": null,
+          "branch": "main",
+          "baseCommit": null,
+          "mergeTarget": "main",
+          "revision": 2,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        }
       },
       "repository": {
         "head": "main",
@@ -6461,12 +6503,12 @@
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
-              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh",
-              "worktreeId": "fresh",
-              "branch": "fresh",
-              "baseCommit": "6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+              "worktreeId": null,
+              "branch": "main",
+              "baseCommit": null,
               "mergeTarget": "main",
-              "revision": 3,
+              "revision": 4,
               "transition": {
                 "state": "idle",
                 "txId": null
@@ -6539,7 +6581,21 @@
         }
       },
       "unsettled": {
-        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh"
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh",
+        "workspace": {
+          "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+          "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\fresh",
+          "worktreeId": "fresh",
+          "branch": "fresh",
+          "baseCommit": "6ff62b420aedfe7d3fecf2cd943d840ec90e7895",
+          "mergeTarget": "main",
+          "revision": 3,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        }
       },
       "repository": {
         "head": "main",
@@ -7155,12 +7211,12 @@
             "workspace": {
               "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
               "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
-              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
-              "worktreeId": null,
-              "branch": "main",
-              "baseCommit": null,
+              "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\home\\.mixdog\\data\\worktrees-v1\\17160a27c15a485e\\feature-2",
+              "worktreeId": "feature-2",
+              "branch": "feature",
+              "baseCommit": "e879a8aafc2c6e489890f6dec514feec356938c5",
               "mergeTarget": "main",
-              "revision": 4,
+              "revision": 5,
               "transition": {
                 "state": "idle",
                 "txId": null
@@ -7233,7 +7289,21 @@
         }
       },
       "unsettled": {
-        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project"
+        "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+        "workspace": {
+          "projectPath": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "repoCommonDir": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project\\.git",
+          "cwd": "D:\\mixdog-build\\tmp\\w30-phone-worktree\\project",
+          "worktreeId": null,
+          "branch": "main",
+          "baseCommit": null,
+          "mergeTarget": "main",
+          "revision": 4,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        }
       },
       "repository": {
         "head": "main",
