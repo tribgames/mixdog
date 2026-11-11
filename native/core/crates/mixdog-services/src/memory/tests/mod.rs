@@ -6,6 +6,7 @@
 
 pub mod awaiting;
 mod boot;
+mod cold_recall;
 mod core_memory;
 mod embeddings;
 pub mod fakes;
