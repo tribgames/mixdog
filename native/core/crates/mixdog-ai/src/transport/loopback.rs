@@ -303,8 +303,22 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     for (n, v) in plan["headers"].as_object().into_iter().flatten() {
                         fields.push((n.clone(), v.as_str().unwrap().to_owned()));
                     }
-                    fields.push(("content-length".into(), text.len().to_string()));
                     let status = plan["status"].as_u64().unwrap_or(200);
+                    // `then: 'hold'`: nothing is answered; `then: 'part'`: the head and the body given, chunked, and
+                    // nothing more. Either is the step ([`Loopback::held`]), and the connection stays open until the
+                    // client closes it ([`Loopback::closed`]).
+                    if plan["then"] == "hold" || plan["then"] == "part" {
+                        if plan["then"] == "part" {
+                            fields.push(("transfer-encoding".into(), "chunked".into()));
+                            let head: String = fields.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
+                            io.write_all(format!("HTTP/1.1 {status} X\r\n{head}\r\n{:x}\r\n{text}\r\n", text.len()).as_bytes()).await.ok();
+                            io.flush().await.ok();
+                        }
+                        inner.held.notify_one();
+                        mode = Mode::Head;
+                        continue;
+                    }
+                    fields.push(("content-length".into(), text.len().to_string()));
                     let head: String = fields.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
                     if plan["then"] == "withhold" {
                         // Written when the caller releases it ([`Loopback::release`]); the caller puts the deadline on that.
