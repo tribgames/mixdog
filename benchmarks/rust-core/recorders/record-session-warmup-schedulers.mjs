@@ -7,12 +7,11 @@
 // one, everything observable: the cumulative dependency calls (`calls`), boot-profile events, provider-model warms,
 // catalog runs, the caller-owned `timers` object (key -> null | "armed"), and every `setTimeout` armed during the step
 // (delay in ms). Time is node:test's mock clock (setTimeout only): it moves ONLY by an explicit `tick` step, and the
-// event-loop turns the test awaits are explicit `yield` steps (one real `setImmediate` turn each). The dependencies
+// event-loop turns the test awaits are explicit `yield` steps: a yield waits until every scripted async dependency a job called has settled and its caller's continuation ran (a held gate does not count), with a deadline. The dependencies
 // (route, config, keychain/provider readiness gates, catalog fetch) are scripted endpoints.
 //
 //   node benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs --tree <dir>
 import { mock } from 'node:test';
-import { setImmediate as turn } from 'node:timers/promises';
 import { exact } from './lib/exact.mjs';
 import { DEADLINE_MS, realClearTimeout, realSetTimeout } from './lib/session-wire-harness.mjs';
 import { runSessionRecorder } from './lib/session-rec.mjs';
@@ -23,7 +22,7 @@ await runSessionRecorder(import.meta.url, {
   entry: 'Ran src/session-runtime/warmup-schedulers.mjs createWarmupSchedulers (with warmup/timer-arm.mjs, provider-warmups.mjs, catalog-warmup.mjs, statusline-usage-warmup.mjs) with the test file\'s scripted dependencies on node:test\'s mock clock (setTimeout) that the recorder advances only by recorded tick steps. Did not run the real provider registry, keychain, model catalog or statusline usage fetch.',
   replay: 'mixdog-core-domains ai_admin model_warmup.rs / statusline_warmup.rs (model_warmup_tests.rs, statusline_warmup_tests.rs): replay each case\'s steps on a virtual clock with the same scripted readiness gates and compare, after every step, calls, events, warms, catalog runs, timer slots and timers armed (delay) in order.',
   exclusions: [
-    'a yield step is one macrotask turn (the point where the previous step\'s promise chain has drained, as the test\'s await setImmediate()), awaited with a 10 s real-timer deadline; the test\'s own waits are the same single turns',
+    'a yield step waits on the event it stands for: every scripted async dependency a scheduler job called (awaitKeychainPrewarm, ensureProvidersReady, cachedProviderSetup, warmCatalogsInBackground) has settled and the caller\'s continuation after it has run (tracked two promise hops after the settle), so a job that calls a further dependency is waited on too; a dependency blocked on a gate the recorder has not yet resolved does not count. No event-loop turn is counted; 10 s real-timer deadline',
     'event meta ms (a measured elapsed time of the provider init, e.g. providers:init:ready) -> <elapsed ms>',
     'the closing-while-keychain-pending cases (85, 97) and the idle-loop cases are recorded as steps; no value is normalised',
     'the dependency call `warmProviderModelCache` is recorded as `warms` (its options), `warmCatalogsInBackground` as `catalogRuns`; bootProfile events as `events`',
@@ -51,9 +50,27 @@ await runSessionRecorder(import.meta.url, {
     const warms = [];
     const catalogRuns = [];
     const timers = {};
+    const gateOpen = { keychain: false, provider: false };
+    const pendingDeps = new Set();
+    const quietWaiters = new Set();
+    const poke = () => { for (const check of [...quietWaiters]) check(); };
+    // A tracked dependency: the same promise goes to the caller; the tracker settles two hops after it, i.e. after the caller's continuation.
+    const tracked = (fn, gate = null) => (...args) => {
+      const promise = fn(...args);
+      const entry = { held: () => gate !== null && !gateOpen[gate] };
+      pendingDeps.add(entry);
+      const finish = () => { pendingDeps.delete(entry); poke(); };
+      Promise.resolve(promise).then(() => Promise.resolve()).then(finish, () => Promise.resolve().then(finish));
+      return promise;
+    };
+    const quiet = (label) => withDeadline(new Promise((resolve) => {
+      const check = () => { if ([...pendingDeps].every((entry) => entry.held())) { quietWaiters.delete(check); resolve(); } };
+      quietWaiters.add(check);
+      check();
+    }), label);
     const overrides = {};
-    if (spec.keychainGate) overrides.awaitKeychainPrewarm = () => gates.keychain.promise;
-    if (spec.providerGate) overrides.ensureProvidersReady = () => gates.provider.promise;
+    if (spec.keychainGate) overrides.awaitKeychainPrewarm = tracked(() => gates.keychain.promise, 'keychain');
+    if (spec.providerGate) overrides.ensureProvidersReady = tracked(() => gates.provider.promise, 'provider');
     const schedulers = createWarmupSchedulers({
       timers,
       bootProfile: (name, meta) => events.push(meta ? [name, meta] : name),
@@ -66,17 +83,17 @@ await runSessionRecorder(import.meta.url, {
       getProviderModelsPromise: () => null,
       reloadFullConfig: () => { calls.push('reload'); },
       ensureConfigForRouteProvider: () => { calls.push('config'); },
-      awaitKeychainPrewarm: async () => {},
-      ensureProvidersReady: async () => { calls.push('providers'); },
+      awaitKeychainPrewarm: tracked(async () => {}),
+      ensureProvidersReady: tracked(async () => { calls.push('providers'); }),
       ensureProviderEnabled: (config) => config.providers,
       refreshStatuslineUsageSnapshot: (value) => { calls.push(['usage', value]); },
       warmProviderModelCache: (opts) => { warms.push(opts); },
-      cachedProviderSetup: async () => ({}),
-      warmCatalogsInBackground: async () => {
+      cachedProviderSetup: tracked(async () => ({})),
+      warmCatalogsInBackground: tracked(async () => {
         catalogRuns.push(world.outcome instanceof Error ? 'throws' : world.outcome ?? 'resolves undefined');
         if (world.outcome instanceof Error) throw world.outcome;
         return world.outcome;
-      },
+      }),
       isFirstTurnCompleted: () => spec.firstTurnCompleted ?? true,
       isCatalogRefreshPending: () => world.catalogPending,
       envFlag: () => false,
@@ -103,10 +120,10 @@ await runSessionRecorder(import.meta.url, {
         switch (step.op) {
           case 'call': schedulers[step.method](...(step.args ?? [])); break;
           case 'tick': mock.timers.tick(step.ms); break;
-          case 'yield': await withDeadline(turn(), `the event-loop turn after step ${rows.length}`); break;
+          case 'yield': await quiet(`every dependency call settled after step ${rows.length}`); break;
           case 'closeRuntime': world.closed = true; break;
-          case 'resolveGate': gates[step.gate].resolve(); break;
-          case 'rejectGate': gates[step.gate].reject(new Error(step.message)); break;
+          case 'resolveGate': gateOpen[step.gate] = true; gates[step.gate].resolve(); poke(); break;
+          case 'rejectGate': gateOpen[step.gate] = true; gates[step.gate].reject(new Error(step.message)); poke(); break;
           case 'setRoute': world.route = step.route; break;
           case 'setActiveTurnCount': world.active = step.count; break;
           case 'setCatalogRefreshPending': world.catalogPending = step.pending; break;
