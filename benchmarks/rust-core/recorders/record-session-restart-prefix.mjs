@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildPatchedTree } from './lib/patched-tree.mjs';
 import { cleanup, runSessionRecorder } from './lib/session-rec.mjs';
+import { markTmp } from './lib/tmp-mark.mjs';
 
 const PATCH = 'benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch';
 const PRELOAD = 'benchmarks/rust-core/recorders/lib/determinism-preload.mjs';
@@ -39,7 +40,7 @@ await runSessionRecorder(import.meta.url, {
   replay: 'The Rust core\'s restart path is the thread/resume + turn/start protocol (native/core/crates/mixdog-app-protocol methods.rs: thread/resume, turn/start, turn/interrupt) over mixdog-core-session recovery and the Anthropic request builder (mixdog-ai, the anthropic-oauth request body); the cache warmer is native/core/crates/mixdog-ai warmer (chain_tests.rs op rearm). Replay each scenario with the scripted provider steps (the script of the fixture: toolStep/textStep), restart the core at the recorded point (idle, in a tool run, request on the wire), and compare every request body block for block (odies), the prefix changes, the re-armed warmBody (null when killed mid-turn) and comparisons (derived by the test\'s own block walk). nvironment is an input: the system prompt\'s machine-derived environment text (cwd, shell tools, git state, cwd entries) as the recording machine produced it; the replay injects that text verbatim into the system prompt instead of computing its own.',
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs) for the recorder\'s own values; the child\'s output file is JSON the product script wrote (request bodies are already JSON), recorded as parsed',
   exclusions: [
-    'no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat',
+    'the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values of system[*].text of every recorded request body and of input.environment only (the system prompt\'s cwd/scratch/git lines name the fixed rec-restart-prefix dir under it); a replay injects input.environment with <TMP> replaced by its own temp dir. Otherwise no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat',
     'the system prompt\'s environment block (cwd under the fixed base dir in the OS temp dir, shell tools present/absent on PATH, git state, cwd entries) is the recording machine\'s: it is recorded as it was, and extracted whole into each case\'s input.environment for the replay to inject verbatim',
     'the kill phases are stopped with SIGKILL when READY is printed; their output file is the one the fixture wrote before READY (bodies and changes of the killed process)',
   ],
@@ -130,7 +131,9 @@ await runSessionRecorder(import.meta.url, {
     input: { phases: [s.name, 'resume'], language: 'ko', model: 'claude-opus-5-5', kill: s.beforeKilledOnReady ? 'SIGKILL when READY is printed' : 'none (exits after two turns)', environment: environmentOf(s.before.bodies[0]) },
     result: { before: s.before, after: s.after, comparisons: s.comparisons },
   }));
-  return { cases };
+  // Declared: the OS temp dir -> <TMP> in system-block texts of the request bodies and in input.environment only.
+  const tmpPath = (path) => (path.at(-1) === 'text' && path.at(-3) === 'system') || (path.at(-1) === 'environment' && path.at(-2) === 'input');
+  return { cases: markTmp(cases, tmpPath) };
 });
 cleanup(base);
 process.exit(0);

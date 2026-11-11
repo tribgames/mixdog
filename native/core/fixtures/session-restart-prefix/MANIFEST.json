@@ -2,16 +2,16 @@
   "command": "node benchmarks/rust-core/recorders/record-session-restart-prefix.mjs --tree <tree>",
   "entry": "Spawned the patched copy of the tree's src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs (the test's own scenario script, minus its 300 ms sleep: see patch) with node --import lib/determinism-preload.mjs as real child processes: phases idle/killtool/killrequest then resume, each on a fresh MIXDOG_DATA_DIR, killing the kill phases on the READY line (SIGKILL). Inside: real session-lifecycle createSession, ask-session askSession, turn-checkpoint, cache-warm request rebuild, anthropic-oauth buildRequestBody and anthropic-prefix-trace with a scripted provider (the fixture's fake send). The recorder waits on the READY line / the child's exit with a 120 s deadline per phase.",
   "exclusions": [
-    "no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat",
+    "the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values of system[*].text of every recorded request body and of input.environment only (the system prompt's cwd/scratch/git lines name the fixed rec-restart-prefix dir under it); a replay injects input.environment with <TMP> replaced by its own temp dir. Otherwise no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat",
     "the system prompt's environment block (cwd under the fixed base dir in the OS temp dir, shell tools present/absent on PATH, git state, cwd entries) is the recording machine's: it is recorded as it was, and extracted whole into each case's input.environment for the replay to inject verbatim",
     "the kill phases are stopped with SIGKILL when READY is printed; their output file is the one the fixture wrote before READY (bodies and changes of the killed process)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 897275,
+      "bytes": 894140,
       "path": "recording.json",
-      "sha256": "e95a91209d79ee28f814a357f1001386531037129d0b6145b5cb9e7b1d002092"
+      "sha256": "cf2612bdbd5a35bdf931a004a9207814fb332dd79688c01aeb102a024bcce676"
     }
   ],
   "inputs": [
@@ -38,6 +38,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
       "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "8334dff58ba82de81a53d40dec6d01e375f3733904968c148d8c47579645b4ba"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
@@ -67,10 +71,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-restart-prefix.mjs",
-  "recorderSha256": "6602ee9f5d6069e961c9e1fa252c902886a612201f64790f9a399f3e58a72b74",
+  "recorderSha256": "df099b3e638bafe18e3b28b69dce4d70c22b80d0a07e2ef3428cf4ac59f3fbff",
   "replay": "The Rust core's restart path is the thread/resume + turn/start protocol (native/core/crates/mixdog-app-protocol methods.rs: thread/resume, turn/start, turn/interrupt) over mixdog-core-session recovery and the Anthropic request builder (mixdog-ai, the anthropic-oauth request body); the cache warmer is native/core/crates/mixdog-ai warmer (chain_tests.rs op rearm). Replay each scenario with the scripted provider steps (the script of the fixture: toolStep/textStep), restart the core at the recorded point (idle, in a tool run, request on the wire), and compare every request body block for block (\bodies), the prefix changes, the re-armed warmBody (null when killed mid-turn) and comparisons (derived by the test's own block walk). \u001bnvironment is an input: the system prompt's machine-derived environment text (cwd, shell tools, git state, cwd entries) as the recording machine produced it; the replay injects that text verbatim into the system prompt instead of computing its own.",
   "set": "session-restart-prefix",
   "testFile": "src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs",
-  "totalBytes": 897275,
+  "totalBytes": 894140,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs) for the recorder's own values; the child's output file is JSON the product script wrote (request bodies are already JSON), recorded as parsed"
 }
