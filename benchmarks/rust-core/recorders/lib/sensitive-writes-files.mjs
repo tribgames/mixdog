@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-function walk(dir) {
+export function walk(dir) {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -15,17 +15,19 @@ function walk(dir) {
 
 /**
  * The byte patterns that spell `value` in a file: UTF-8 as typed; JSON-escaped (`JSON.stringify`, and with every
- * non-alphanumeric character as `\uXXXX`, as an HTML-safe writer escapes it); UTF-16LE (a SQLite text in a UTF-16 database);
- * base64 and base64url at each of the three byte alignments the value can have inside a longer encoded text (the
- * characters that depend on the neighbouring bytes are left out).
+ * non-alphanumeric character as `\uXXXX`, as an HTML-safe writer escapes it); UTF-16LE and UTF-16BE (a SQLite text in a
+ * UTF-16 database, a Windows wide string); base64 and base64url at each of the three byte alignments the value can have
+ * inside a longer encoded text (the characters that depend on the neighbouring bytes are left out).
  */
 export function spellings(value) {
   const bytes = Buffer.from(value, 'utf8');
+  const le = Buffer.from(value, 'utf16le');
   const out = [
     { encoding: 'utf8', bytes },
     { encoding: 'json', bytes: Buffer.from(JSON.stringify(value).slice(1, -1), 'utf8') },
     { encoding: 'json-unicode', bytes: Buffer.from([...value].map((c) => (/[A-Za-z0-9]/.test(c) ? c : `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)).join(''), 'utf8') },
-    { encoding: 'utf16le', bytes: Buffer.from(value, 'utf16le') },
+    { encoding: 'utf16le', bytes: le },
+    { encoding: 'utf16be', bytes: Buffer.from(le).swap16() },
   ];
   for (let lead = 0; lead < 3; lead += 1) {
     const encoded = Buffer.concat([Buffer.alloc(lead), bytes]).toString('base64').replace(/=+$/, '');
@@ -42,10 +44,11 @@ export function spellings(value) {
   return out.filter((s) => (seen.has(s.bytes.toString('latin1')) ? false : seen.add(s.bytes.toString('latin1'))));
 }
 
-/** Every place a file under `root` holds one of `values`: `{ file, offset, encoding, value }`, in file order. */
-export function scanSecrets(root, values) {
+/** Every place one of `files` (by default every file under `root`) holds one of `values`: `{ file, offset, encoding, value }`,
+ *  in file order, `file` relative to `root`. */
+export function scanSecrets(root, values, files = walk(root)) {
   const hits = [];
-  for (const file of walk(root)) {
+  for (const file of files) {
     const data = readFileSync(file);
     for (const value of values) {
       for (const { encoding, bytes } of spellings(value)) {

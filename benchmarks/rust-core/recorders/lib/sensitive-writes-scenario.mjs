@@ -37,13 +37,14 @@ export const REPLIES = [
 
 /**
  * What the desktop's browser answers, per command, in the bridge's form (Node: `{ ok, value | error }` over the discovery
- * bridge) — the core's host gets the same `value` or the same error.
+ * bridge) — the core's host gets the same `value` or the same error. The failed fill's error repeats the value it was given,
+ * as a page's validation message does, so the failure log's error line holds it unless it is redacted.
  */
 export function browserAnswer(command) {
   const input = command.input && typeof command.input === 'object' ? command.input : command;
   switch (command.action) {
     case 'fill':
-      return input.ref === 'e1' ? { ok: true, value: { text: 'Filled e1' } } : { ok: false, error: `no element ${input.ref} on the page` };
+      return input.ref === 'e1' ? { ok: true, value: { text: 'Filled e1' } } : { ok: false, error: `the field ${input.ref} refused "${input.text}"` };
     case 'secret_bind':
       return { ok: true, value: { origin: ORIGIN, form: 'password' } };
     case 'secret_input':
