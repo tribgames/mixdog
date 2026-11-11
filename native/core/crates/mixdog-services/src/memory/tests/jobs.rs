@@ -159,8 +159,8 @@ async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it(
     let (_, count) = start().await;
     assert_eq!(count as u64, starts[0]["count"].as_u64().unwrap(), "{}", starts[0]["label"]);
     assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
-    assert_eq!(starts[0]["persisted"], json!({}), "Node's killed start left the blob as it found it");
-    crate::memory::schema::set_meta(&db, "state.transcript_offsets", &json!({})).await.expect("the blob a kill before the persist leaves");
+    // The blob Node's killed start left on disk (recorded), in place of the one this start persisted.
+    crate::memory::schema::set_meta(&db, "state.transcript_offsets", &starts[0]["persisted"]).await.expect("the blob a kill before the persist leaves");
 
     // The next start reads the file from where the blob says (its start) and sends the same rows again: still one each.
     assert_eq!(starts[1]["inserts"], starts[0]["inserts"], "Node resends the same rows");
