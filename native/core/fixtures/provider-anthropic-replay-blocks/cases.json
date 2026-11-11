@@ -1,6 +1,7 @@
 {
   "set": "provider-anthropic-replay-blocks",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "empty-text-dropped",
@@ -41,7 +42,35 @@
         "drops": [
           "empty_text"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "separator-keeps-runs-apart",
@@ -98,7 +127,45 @@
           "empty_text",
           "merged_thinking"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "back-to-back-thinking-kept",
@@ -137,7 +204,33 @@
           }
         ],
         "drops": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "real-text-keeps-both-runs",
@@ -184,7 +277,37 @@
           }
         ],
         "drops": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": "mid"
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "redacted-thinking-run-rule",
@@ -224,7 +347,36 @@
           "empty_text",
           "merged_thinking"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "redacted_thinking",
+                "data": "opaque"
+              },
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "removals-reported",
@@ -257,7 +409,33 @@
           "empty_text",
           "merged_thinking"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              }
+            ],
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "entries-in-block-order",
@@ -325,7 +503,57 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayEntries",
+          "args": [
+            [
+              [
+                4,
+                {
+                  "type": "tool_use",
+                  "id": "toolu_1",
+                  "name": "read",
+                  "input": {
+                    "path": "a.txt"
+                  }
+                }
+              ],
+              [
+                0,
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "sig-a"
+                }
+              ],
+              [
+                3,
+                {
+                  "type": "text",
+                  "text": "answer"
+                }
+              ],
+              [
+                1,
+                {
+                  "type": "text",
+                  "text": ""
+                }
+              ],
+              [
+                2,
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "sig-b"
+                }
+              ]
+            ]
+          ]
+        }
+      ]
     },
     {
       "id": "flattened-thinking-projection",
@@ -362,7 +590,38 @@
             "signature": "sig-a"
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicThinkingRun",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              },
+              {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read",
+                "input": {
+                  "path": "a.txt"
+                }
+              }
+            ]
+          ]
+        }
+      ]
     },
     {
       "id": "idempotent",
@@ -398,7 +657,42 @@
             "signature": "sig-a"
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              },
+              {
+                "type": "text",
+                "text": ""
+              },
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-b"
+              }
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs.sanitizeAnthropicReplayBlocks",
+          "args": [
+            [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "sig-a"
+              }
+            ]
+          ]
+        }
+      ]
     }
   ]
 }
