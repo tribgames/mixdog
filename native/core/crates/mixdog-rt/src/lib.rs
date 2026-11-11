@@ -29,9 +29,24 @@ pub mod node_log;
 pub mod scoped;
 pub mod serial;
 pub mod ticker;
+pub mod time;
 pub mod tokens;
+#[cfg(feature = "virtual-clock")]
+pub mod virtual_clock;
+pub mod write_marks;
+
+/// A named core event a replay `wait`s for before it advances past real I/O (the replay clock's log; nothing on stderr).
+/// Nothing without the `virtual-clock` feature.
+#[inline]
+pub fn replay_event(name: &str) {
+    #[cfg(feature = "virtual-clock")]
+    virtual_clock::logged(name);
+    #[cfg(not(feature = "virtual-clock"))]
+    let _ = name;
+}
 
 pub use cancel::CancelSource;
+pub use write_marks::WriteMarks;
 pub use cancel::CancelView;
 pub use gate::Gate;
 pub use gate::GateCancelled;
@@ -65,6 +80,7 @@ pub use tokens::CpuInteractive;
 pub use tokens::DurabilityIo;
 pub use tokens::InLane;
 pub use tokens::InteractiveIo;
+pub use tokens::JudgeThread;
 pub use tokens::LaneToken;
 pub use tokens::LaneTokens;
 pub use tokens::MaintenanceIo;
@@ -168,11 +184,15 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    backend().handle(class).spawn(Instrumented {
+    let spawned = backend().handle(class).spawn(Instrumented {
         name,
         class,
         inner: Box::pin(fut),
-    })
+    });
+    // Row 14 of the replay's clock: the task is queued while its spawner still counts.
+    #[cfg(feature = "virtual-clock")]
+    virtual_clock::pause::point(|| format!("spawned {name}"));
+    spawned
 }
 
 struct Instrumented<F> {
@@ -188,6 +208,9 @@ impl<F: Future> Future for Instrumented<F> {
         let this = self.get_mut();
         let started = Instant::now();
         let out = this.inner.as_mut().poll(cx);
+        // Rows 2 and 3 of the replay's clock: what the poll woke is queued while its runtime is busy.
+        #[cfg(feature = "virtual-clock")]
+        virtual_clock::pause::point(|| format!("polled {}", this.name));
         backend().record_poll(this.name, this.class, started.elapsed());
         out
     }

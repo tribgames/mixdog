@@ -1199,7 +1199,7 @@ mod tests {
         let held = fs.locks.acquire([resolve_write(busy.as_path()).unwrap().key]);
         for i in 0..80 {
             let file = root.join(&format!("other{i}.txt"));
-            tokio::time::timeout(Duration::from_secs(5), fs.write(l.durability, put(&file, b"x", WritePrecondition::Unconditional)))
+            mixdog_rt::time::timeout(Duration::from_secs(5), fs.write(l.durability, put(&file, b"x", WritePrecondition::Unconditional)))
                 .await
                 .expect("a write to another file waited on the held one")
                 .unwrap();
@@ -1210,7 +1210,7 @@ mod tests {
             let key = resolve_write(busy.as_path()).unwrap().key;
             tokio::task::spawn_blocking(move || drop(locks.acquire([key])))
         };
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
         assert!(!waiting.is_finished(), "the same file must wait");
         drop(held);
         waiting.await.unwrap();

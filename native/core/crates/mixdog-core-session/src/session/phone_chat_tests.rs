@@ -93,7 +93,7 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = timer_fired.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(16)).await;
         flag.store(true, std::sync::atomic::Ordering::SeqCst);
     });
     let wake = tokio::sync::Notify::new();

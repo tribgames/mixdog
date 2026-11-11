@@ -109,6 +109,33 @@ pub struct TestCompaction {
     pub heir_asked: Mutex<Vec<(u64, bool)>>,
     /// `compact_for_heir` fails (the compactor threw).
     pub heir_fails: std::sync::atomic::AtomicBool,
+    /// Each `prune_offloads`: the thread and the transcripts it was given.
+    pub pruned: Mutex<Vec<(String, String)>>,
+    /// How many of its candidates each `prune_offloads` deleted, recorded before its `pruned` entry.
+    pub pruned_deleted: Mutex<Vec<usize>>,
+    /// The data dir whose `tool-results/<thread>` sidecars the host's own listing and prune
+    /// (`ToolResultArtifacts::prune_candidates`, `prune`) work on, and the clock's now (ms) they age at, as the host's
+    /// `parts.clock` (`manual_compaction.rs`). None lists nothing.
+    pub offloads: Mutex<Option<(std::path::PathBuf, u64)>>,
+    /// The next listing tells `.0` it arrived, then waits for `.1`.
+    pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// How many listings have read `offloads` (every prune's, an open's reconcile included).
+    pub listings: tokio::sync::watch::Sender<usize>,
+    /// How many listings have answered their candidates (past the gate).
+    pub listed: tokio::sync::watch::Sender<usize>,
+    /// A compaction that commits its result as the host's does (`HostManualCompaction::compact` commits through the
+    /// directory): `compact` answers what it answers instead of `result`.
+    pub commits: Mutex<Option<CommitWith>>,
+}
+
+/// What [`TestCompaction::commits`] runs for a thread.
+pub type CommitWith = Arc<dyn Fn(ThreadId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Value>, mixdog_core_api::CoreError>> + Send>> + Send + Sync>;
+
+/// The host's tool-result store of `thread` under the data dir `data`.
+pub fn offload_store(data: &std::path::Path, thread: &ThreadId) -> mixdog_core_run::run_host::artifact::ToolResultArtifacts {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    mixdog_core_run::run_host::artifact::ToolResultArtifacts::new(io, data, thread.as_str())
 }
 
 #[async_trait::async_trait]
@@ -120,17 +147,47 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         }
         Ok(lock(&self.heir_rows).clone())
     }
-    async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
         self.called.notify_waiters();
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
             hold.notified().await;
         }
-        Ok(lock(&self.result).clone())
+        let commits = lock(&self.commits).clone();
+        match commits {
+            Some(commit) => commit(thread.clone()).await,
+            None => Ok(lock(&self.result).clone()),
+        }
     }
     async fn post_compact(&self, _: &ThreadId, trigger: &str) {
         lock(&self.calls).push(format!("post {trigger}"));
+    }
+    async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        // Read before the gate: a test that holds the listing decides what it lists by then.
+        let offloads = lock(&self.offloads).clone();
+        self.listings.send_modify(|count| *count += 1);
+        let gate = lock(&self.listing_gate).take();
+        if let Some((arrived, release)) = gate {
+            arrived.notify_one();
+            release.notified().await;
+        }
+        let candidates = match offloads {
+            Some((data, _)) => offload_store(&data, thread).prune_candidates().await,
+            None => Vec::new(),
+        };
+        self.listed.send_modify(|count| *count += 1);
+        candidates
+    }
+    #[allow(clippy::disallowed_methods, reason = "test counts the sidecars the prune deleted")]
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: super::turn_ops::OffloadCopies) {
+        let offloads = lock(&self.offloads).clone();
+        let listed: Vec<std::path::PathBuf> = candidates.iter().filter(|path| path.exists()).cloned().collect();
+        if let Some((data, now)) = offloads {
+            offload_store(&data, thread).prune(candidates, transcripts.clone(), copies, now).await;
+        }
+        lock(&self.pruned_deleted).push(listed.iter().filter(|path| !path.exists()).count());
+        lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
     async fn rearm(&self, _: &ThreadId) {
         lock(&self.calls).push("rearm".into());
@@ -174,11 +231,19 @@ pub struct TestInherit {
     pub budget: Mutex<Option<u64>>,
     /// What a conversation of that many messages measures (`limit`, `used`, `compactable`), before `basis` answers.
     pub measured: Mutex<std::collections::HashMap<usize, (u64, u64, bool)>>,
+    /// The next measurement (an inheritance's, once the source's rows are copied and before the heir holds them)
+    /// tells `.0` it arrived, then waits for `.1`.
+    pub fit_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 #[async_trait::async_trait]
 impl super::inheritance::InheritanceFit for TestInherit {
     async fn basis(&self, target: &super::inheritance::InheritTarget, messages: &[Value]) -> Option<super::inheritance::FitBasis> {
+        let gate = lock(&self.fit_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            go.notified().await;
+        }
         lock(&self.asked).push((target.provider.clone(), target.model.clone(), target.selected_context_window, target.tools_of.clone(), messages.len()));
         let (limit, used, compactable) = lock(&self.measured).get(&messages.len()).copied().or(*lock(&self.basis))?;
         Some(super::inheritance::FitBasis { limit, used, compactable })
@@ -237,6 +302,8 @@ impl super::turn_ops::SideQuestions for TestSide {
     }
 }
 
+pub mod offload_replay;
+
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -250,10 +317,22 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
+    pub fail_after_write: Arc<AtomicBool>,
+    /// The next batch holding a record the predicate takes fails (`FailWhen`).
+    pub fail_when: FailWhen,
     /// The next read of a thread's model context fails.
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
+    /// The sessions whose log cannot be read (damaged on disk): reading their header or model context fails, and the
+    /// catalog holds them as not readable (`copies_of` fails).
+    pub damaged: Mutex<std::collections::BTreeSet<String>>,
+    /// The sessions whose log cannot be read although the catalog lists them as readable (their header and model
+    /// context reads fail; `copies_of` lists them as unknown).
+    pub unscannable: Mutex<std::collections::BTreeSet<String>>,
+    /// The scans of a transcript `record_offload_scan` stored: the session's record count then, and what it named.
+    pub scans: Mutex<HashMap<String, (i64, Vec<String>)>>,
     /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
     pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
     /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
@@ -261,6 +340,12 @@ pub struct MemStore {
     /// The next batch holding a `meta` record that sets `compaction` (a manual compaction's header) tells `.0` it arrived, then
     /// waits for `.1` before it becomes durable.
     pub header_gate: CommitGate,
+    /// Runs once, inline, as the next batch that sets `compaction` reaches the store and before it is written: what
+    /// happens to the session between a compaction's adoption and its save (Node's commit timing line). Holds nothing.
+    pub on_compaction: CompactionHook,
+    /// The next batch holding a `meta` record that sets `title` to `.0` tells `.1` it arrived, then waits for `.2` before it
+    /// becomes durable.
+    pub title_gate: TitleGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
     /// The record count of every batch that landed, in order: which records one group commit held.
@@ -268,6 +353,13 @@ pub struct MemStore {
 }
 
 impl MemStore {
+    /// Holds the next batch that sets the title to `title` until the returned sender says go; `.0` wakes when it arrives.
+    pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&self.title_gate) = Some((title.to_owned(), arrived.clone(), go.1));
+        (arrived, go.0)
+    }
+
     pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
         lock(&self.logs)
             .get(id)
@@ -278,75 +370,21 @@ impl MemStore {
     fn log(&self, id: &ThreadId) -> Log {
         lock(&self.logs).entry(id.clone()).or_default().clone()
     }
-}
 
-/// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
-type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
-
-struct MemLog {
-    log: Log,
-    fail_next: Arc<AtomicBool>,
-    commit_gate: CommitGate,
-    header_gate: CommitGate,
-    committed: Arc<tokio::sync::Notify>,
-    batches: Arc<Mutex<Vec<usize>>>,
-}
-
-impl SessionLog for MemLog {
-    fn commit(
-        &mut self,
-        _lane: &InLane<DurabilityIo>,
-        batch: &[CommitRecord],
-    ) -> Result<Vec<u64>, BarrierError> {
-        let gate = lock(&self.commit_gate).take();
-        if let Some((arrived, go)) = gate {
-            arrived.notify_one();
-            let _ = go.recv();
-        }
-        if self.fail_next.swap(false, Ordering::SeqCst) {
-            return Err(BarrierError::Failed {
-                io_kind: "test".into(),
-            });
-        }
-        let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
-        let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
-        if let Some((arrived, go)) = gate {
-            arrived.notify_one();
-            let _ = go.recv();
-        }
-        let mut log = lock(&self.log);
-        let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
-        let mut out = Vec::new();
-        for commit in batch {
-            log.push((next, (*commit.record).clone()));
-            out.push(next);
-            next += 1;
-        }
-        drop(log);
-        lock(&self.batches).push(batch.len());
-        self.committed.notify_waiters();
-        Ok(out)
+    /// The header of `id` as its records fold it, when it can be read.
+    pub fn stored_header(&self, id: &ThreadId) -> Option<Header> {
+        self.header_of(id).ok()
     }
 
-    fn retry(&mut self, _lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
-        Ok(())
-    }
-}
-
-impl ThreadStore for MemStore {
-    fn read_head(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError> {
-        self.head_reads.fetch_add(1, Ordering::SeqCst);
-        let records = self.records(id);
-        if records.is_empty() {
-            return Err(CoreError::ThreadNotFound {
-                thread_id: id.clone(),
-            });
-        }
-        Ok(HeadRead(Box::new(records)))
+    fn unreadable(id: &str) -> CoreError {
+        CoreError::Internal { incident_id: format!("session-store-copies: the session {id} cannot be read").into() }
     }
 
     /// The header of the session record, as `decode` takes it.
-    fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+    fn header_of(&self, id: &ThreadId) -> Result<Header, CoreError> {
+        if lock(&self.damaged).contains(id.as_str()) || lock(&self.unscannable).contains(id.as_str()) {
+            return Err(Self::unreadable(id.as_str()));
+        }
         let records = self.records(id);
         let Some((_, Record::Session(session))) = records.first() else {
             return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
@@ -367,6 +405,135 @@ impl ThreadStore for MemStore {
             }
         }
         Ok(header)
+    }
+}
+
+/// What [`MemStore::on_compaction`] runs.
+pub type CompactionHook = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
+/// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
+type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+/// Waits for the test to release `gate`, failing when it has not within ten seconds. The wait blocks the thread the
+/// gated lane job runs on (inline, the store's caller's: a runtime worker): a test that needs the session's actor to
+/// step while a batch is held uses [`MemStore::on_compaction`] instead, which holds nothing.
+fn wait_for_release(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    go.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{gate} was not released within 10s"));
+}
+
+/// What [`MemStore::title_gate`] holds.
+type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+/// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held: the inline
+/// test backend runs the commit on the durability task's worker, whose LIFO slot may hold the actor the previous ack
+/// just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
+fn wait_off_worker(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
+    if tokio::runtime::Handle::try_current().is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread) {
+        tokio::task::block_in_place(|| wait_for_release(go, gate));
+    } else {
+        wait_for_release(go, gate);
+    }
+}
+
+/// What [`MemStore::fail_when`] holds: the batch holding a record the predicate takes fails once, after its records are
+/// written when `.1`.
+pub type FailWhen = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, bool)>>>;
+
+struct MemLog {
+    log: Log,
+    fail_next: Arc<AtomicBool>,
+    fail_after_write: Arc<AtomicBool>,
+    fail_when: FailWhen,
+    commit_gate: CommitGate,
+    header_gate: CommitGate,
+    on_compaction: CompactionHook,
+    title_gate: TitleGate,
+    committed: Arc<tokio::sync::Notify>,
+    batches: Arc<Mutex<Vec<usize>>>,
+}
+
+impl SessionLog for MemLog {
+    fn commit(
+        &mut self,
+        _lane: &InLane<DurabilityIo>,
+        batch: &[CommitRecord],
+    ) -> Result<Vec<u64>, BarrierError> {
+        let gate = lock(&self.commit_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            wait_for_release(&go, "the commit gate");
+        }
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::Failed {
+                io_kind: "test".into(),
+            });
+        }
+        let failing = {
+            let mut when = lock(&self.fail_when);
+            let hit = when.as_ref().is_some_and(|(takes, _)| batch.iter().any(|commit| takes(&commit.record)));
+            if hit { when.take().map(|(_, after_write)| after_write) } else { None }
+        };
+        if failing == Some(false) {
+            return Err(BarrierError::Failed { io_kind: "test".into() });
+        }
+        if failing == Some(true) {
+            self.fail_after_write.store(true, Ordering::SeqCst);
+        }
+        let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
+        let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            wait_for_release(&go, "the header gate");
+        }
+        let hook = if sets_compaction { lock(&self.on_compaction).take() } else { None };
+        if let Some(hook) = hook {
+            hook();
+        }
+        let gate = {
+            let mut slot = lock(&self.title_gate);
+            let sets = |title: &str| batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.get("title").and_then(|t| t.as_str()) == Some(title)));
+            if slot.as_ref().is_some_and(|(title, _, _)| sets(title)) { slot.take() } else { None }
+        };
+        if let Some((_, arrived, go)) = gate {
+            arrived.notify_one();
+            wait_off_worker(&go, "the title gate");
+        }
+        let mut log = lock(&self.log);
+        let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
+        let mut out = Vec::new();
+        for commit in batch {
+            log.push((next, (*commit.record).clone()));
+            out.push(next);
+            next += 1;
+        }
+        drop(log);
+        lock(&self.batches).push(batch.len());
+        self.committed.notify_waiters();
+        if self.fail_after_write.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::Failed { io_kind: "test".into() });
+        }
+        Ok(out)
+    }
+
+    fn retry(&mut self, _lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
+        Ok(())
+    }
+}
+
+impl ThreadStore for MemStore {
+    fn read_head(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError> {
+        self.head_reads.fetch_add(1, Ordering::SeqCst);
+        let records = self.records(id);
+        if records.is_empty() {
+            return Err(CoreError::ThreadNotFound {
+                thread_id: id.clone(),
+            });
+        }
+        Ok(HeadRead(Box::new(records)))
+    }
+
+    fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+        self.header_of(id)
     }
 
     fn read_log_id(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
@@ -436,6 +603,71 @@ impl ThreadStore for MemStore {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    /// As the index's `offload_referencers`: every other thread not deleted whose set (its header's, else a current
+    /// scan's, else any earlier scan's) names `id`, and every one whose header holds no set without a scan at its
+    /// current length (a log the catalog lists but that cannot be read, `unscannable`, among them), in id order, or
+    /// only the first damaged session while one is; an error naming the first copy naming `id` this boot is still
+    /// making.
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        use mixdog_store::offload_sources as sets;
+        let damaged = lock(&self.damaged).first().cloned();
+        let answer = match damaged {
+            Some(damaged) => Ok(super::seams::OffloadCopies { unreadable: Some(damaged), ..Default::default() }),
+            None => {
+                let segment = sets::segment_key(&sets::safe_segment(id.as_str()));
+                let names = |sources: &[String]| sources.iter().any(|source| sets::segment_key(source) == segment);
+                let mut threads: Vec<ThreadId> = lock(&self.logs).keys().filter(|thread| *thread != id).cloned().collect();
+                threads.sort();
+                let mut found = super::seams::OffloadCopies::default();
+                let mut copying = None;
+                for thread in threads {
+                    let at = self.records(&thread).len() as i64;
+                    let scan = lock(&self.scans).get(thread.as_str()).cloned();
+                    let header = match self.header_of(&thread) {
+                        Ok(header) if mixdog_store::summary::is_deleted(&header) => continue,
+                        Ok(header) => header,
+                        Err(CoreError::ThreadNotFound { .. }) => continue,
+                        Err(_) => {
+                            found.unknown.push((thread.as_str().to_owned(), at));
+                            continue;
+                        }
+                    };
+                    // A set of earlier rules counts with the scan's (a set only grows), as the index keeps its rows.
+                    let held = sets::holds_set(&header);
+                    let mut sources = sets::sources(&header);
+                    if !held {
+                        sources.extend(scan.as_ref().map(|(_, sources)| sources.clone()).unwrap_or_default());
+                    }
+                    if !held && scan.as_ref().is_none_or(|(scanned, _)| *scanned != at) {
+                        found.unknown.push((thread.as_str().to_owned(), at));
+                    }
+                    if !names(&sources) {
+                        continue;
+                    }
+                    if let Some((source, _)) = sets::mark(&header).filter(|(_, boot)| boot == sets::boot()) {
+                        copying.get_or_insert((thread.as_str().to_owned(), source));
+                    }
+                    found.copies.push(thread.as_str().to_owned());
+                }
+                match copying {
+                    Some((heir, source)) => Err(CoreError::Internal { incident_id: format!("session-store-copies: the session {heir} is still inheriting the conversation of {source}").into() }),
+                    None => Ok(found),
+                }
+            }
+        };
+        Box::pin(async move { answer })
+    }
+
+    /// Stored when the session still has `ordinal` records and its header holds no set.
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let thread = ThreadId::from(session.to_owned());
+        let current = self.records(&thread).len() as i64 == ordinal && self.header_of(&thread).is_ok_and(|header| !mixdog_store::offload_sources::holds_set(&header));
+        if current {
+            lock(&self.scans).insert(session.to_owned(), (ordinal, sources));
+        }
+        Box::pin(async { Ok(()) })
+    }
+
     fn context_io(
         &self,
         _lane: &InLane<InteractiveIo>,
@@ -444,6 +676,9 @@ impl ThreadStore for MemStore {
     ) -> Result<ContextRead, CoreError> {
         if self.fail_context.swap(false, Ordering::SeqCst) {
             return Err(CoreError::Internal { incident_id: "context-read-failed".into() });
+        }
+        if lock(&self.damaged).contains(id.as_str()) {
+            return Err(Self::unreadable(id.as_str()));
         }
         Ok(ContextRead(Box::new(self.records(id))))
     }
@@ -455,33 +690,36 @@ impl ThreadStore for MemStore {
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
         let records = *read.0.downcast::<Vec<(u64, Record)>>().expect("MemStore context");
-        let mut out = Vec::new();
-        for (_, record) in records {
+        // Each row with the ordinal of the record that wrote it, so a rewind drops what it rewinds past.
+        let mut out: Vec<(u64, ItemId, Value)> = Vec::new();
+        for (ordinal, record) in records {
             match record {
                 Record::Compacted(compacted) => {
                     out = match compacted.replacement {
                         Slot::Inline(entries) => entries
                             .into_iter()
-                            .map(|e| (ItemId::from(e.iid), e.body))
+                            .map(|e| (ordinal, ItemId::from(e.iid), e.body))
                             .collect(),
                         _ => Vec::new(),
                     };
                 }
                 Record::Item(item) if item.model => {
                     if let Slot::Inline(body) = item.body {
-                        out.push((ItemId::from(item.iid.as_str().to_owned()), body));
+                        out.push((ordinal, ItemId::from(item.iid.as_str().to_owned()), body));
                     }
                 }
                 // An amended row reads as its amend body, as the real store's context rows do.
                 Record::Amend(amend) => {
-                    if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(iid, _)| iid.as_str() == amend.iid.as_str())) {
-                        row.1 = body;
+                    if let (Slot::Inline(body), Some(row)) = (amend.body, out.iter_mut().find(|(_, iid, _)| iid.as_str() == amend.iid.as_str())) {
+                        row.2 = body;
                     }
                 }
+                // A rewound row leaves the context, as it leaves the real store's.
+                Record::Rewind(rewind) => out.retain(|(o, _, _)| *o < rewind.to_ordinal),
                 _ => {}
             }
         }
-        Ok(ContextStep::Done(out))
+        Ok(ContextStep::Done(out.into_iter().map(|(_, iid, body)| (iid, body)).collect()))
     }
 
     fn open_log(
@@ -493,8 +731,12 @@ impl ThreadStore for MemStore {
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            fail_after_write: self.fail_after_write.clone(),
+            fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            on_compaction: self.on_compaction.clone(),
+            title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
             batches: self.batches.clone(),
         }))
@@ -509,13 +751,17 @@ impl ThreadStore for MemStore {
         let gate = lock(&self.create_gate).take();
         if let Some((arrived, go)) = gate {
             arrived.notify_one();
-            let _ = go.recv();
+            wait_for_release(&go, "the create gate");
         }
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            fail_after_write: self.fail_after_write.clone(),
+            fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            on_compaction: self.on_compaction.clone(),
+            title_gate: self.title_gate.clone(),
             committed: self.committed.clone(),
             batches: self.batches.clone(),
         };
@@ -655,6 +901,8 @@ impl ThreadStore for CallCounted {
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
+        fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;
@@ -894,7 +1142,7 @@ impl Feed for RecFeed {
         };
         if let Some((_, arrived, go)) = held {
             arrived.notify_one();
-            let _ = go.recv();
+            wait_for_release(&go, "the publish gate");
         }
         if let Some(log) = lock(&self.timeline).clone() {
             let mut shown = lock(&self.shown);
@@ -1239,7 +1487,7 @@ impl mixdog_core_goal::goal::GoalTimers for RigGoalTimers {
         drop(tokio::spawn(async move {
             tokio::select! {
                 () = stop.cancelled() => {}
-                () = tokio::time::sleep(delay) => callback(),
+                () = mixdog_rt::time::sleep(delay) => callback(),
             }
         }));
         mixdog_core_goal::goal::Timer::new(move || cancel.cancel())
@@ -1527,7 +1775,7 @@ impl super::CloseIngest for Closes {
         let (seen, id, delay, timeline) = (self.seen.clone(), id.clone(), *lock(&self.delay), lock(&self.timeline).clone());
         let ended = self.ended.clone();
         Box::pin(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             lock(&seen).push((id, messages));
             if let Some(log) = timeline {
                 lock(&log).push(json!({ "teardown": "done" }));
@@ -1615,7 +1863,8 @@ impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
     }
 }
 
-/// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`.
+/// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`,
+/// `offload-prune-blocked:<session>`.
 #[derive(Default)]
 pub struct TestNotices(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
 
@@ -1632,6 +1881,11 @@ impl super::notices::SessionNotices for TestNotices {
 
     fn save_failed(&self) {
         lock(&self.0).push("save-failed".to_owned());
+        self.1.notify_waiters();
+    }
+
+    fn offload_prune_blocked(&self, session: &str) {
+        lock(&self.0).push(format!("offload-prune-blocked:{session}"));
         self.1.notify_waiters();
     }
 }
@@ -1743,6 +1997,7 @@ impl Rig {
             sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
+            session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
             feeds: self.feeds.clone(),
             turn_admission: self.admissions.clone(),

@@ -33,7 +33,6 @@ use std::sync::MutexGuard;
 use std::sync::PoisonError;
 use std::sync::Weak;
 use std::time::Duration;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_rt::TaskClass;
@@ -673,7 +672,7 @@ impl SystemClock {
 
 impl Clock for SystemClock {
     fn now(&self) -> f64 {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
+        mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
     }
 
     fn set_timer(&self, ms: f64, run: Box<dyn FnOnce() + Send>) -> u64 {
@@ -683,7 +682,7 @@ impl Clock for SystemClock {
         let handle = tasks.0;
         let me = self.me.clone();
         let task = mixdog_rt::spawn("live-view-streams-timer", TaskClass::Work, async move {
-            tokio::time::sleep(Duration::from_millis(ms.max(0.0).ceil() as u64)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(ms.max(0.0).ceil() as u64)).await;
             if let Some(clock) = me.upgrade() {
                 clock.tasks.lock().unwrap_or_else(PoisonError::into_inner).1.remove(&handle);
             }

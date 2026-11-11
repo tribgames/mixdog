@@ -275,7 +275,7 @@ impl ProviderCatalog {
         // The deadline's instant is fixed before the listing can start (Node arms it synchronously, `CD:123-124`, and
         // runs the provider a microtask later, `:73-74`): another worker may run the listing at once, and its own
         // timer must never be due before this one.
-        let deadline = tokio::time::sleep(LIST_DEADLINE);
+        let deadline = mixdog_rt::time::sleep(LIST_DEADLINE);
         let flight = {
             let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
             match flights.latest.get(&provider) {
@@ -511,7 +511,7 @@ mod tests {
         async fn list_models(&self) -> Result<Vec<ListedRecord>, ProviderError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             match self.delay {
-                Some(delay) => tokio::time::sleep(delay).await,
+                Some(delay) => mixdog_rt::time::sleep(delay).await,
                 None => std::future::pending::<()>().await,
             }
             Ok(vec![ListedRecord::new("m")])
@@ -798,7 +798,7 @@ mod tests {
         let sources = [one];
         let refresh = catalog.refresh(&sources);
         let change = async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
             catalog.invalidate_accounts();
         };
         futures::future::join(refresh, change).await;

@@ -82,7 +82,9 @@ pub fn migrate(roots: &MigrationRoots) -> Complete {
 ///
 /// `node` is the recorded result of Node's `readSessionLog`. The store keeps the leading system message as the header's
 /// `promptBase` and every other message as one row (`request_system_corpus.rs` proves that for the corpus), so the
-/// expected header is Node's header with that key last, and the expected rows are Node's remaining messages, each row
+/// expected header is Node's header, then the reference set the migration gives a session Node stored without one
+/// (`mixdog_store::offload_sources`: these logs' transcripts name no session's sidecars, so the empty set under the
+/// current rules), then that key last, and the expected rows are Node's remaining messages, each row
 /// the message's own bytes (key order too) and its `prompt` the trimmed content of a user message. Nothing is left out: the
 /// header's every key, every row's every field this reading defines, and no run, queue entry, context or archive.
 pub fn assert_is_what_node_reads(session: &Folded, node: &Value) {
@@ -93,6 +95,9 @@ pub fn assert_is_what_node_reads(session: &Folded, node: &Value) {
     assert_ne!(rest.first().map(|m| &m["role"]), Some(&Value::from("system")), "exactly one system message");
 
     let mut header = node["header"].as_object().expect("Node's header").clone();
+    assert!(!header.contains_key(mixdog_store::offload_sources::SOURCES), "Node stored no reference set");
+    header.insert(mixdog_store::offload_sources::SOURCES.into(), Value::Array(Vec::new()));
+    header.insert(mixdog_store::offload_sources::SOURCES_RULES.into(), mixdog_store::offload_sources::RULES.into());
     header.insert("promptBase".into(), system["content"].clone());
     let have = serde_json::to_value(&session.header).expect("header");
     assert_eq!(serde_json::to_string(&have).expect("json"), serde_json::to_string(&header).expect("json"), "the header");

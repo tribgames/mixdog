@@ -69,7 +69,7 @@ async fn a_feed_waiting_on_a_blob_does_not_delay_another_feed() {
     conn.server_send(&json!({ "method": "thread/snapshot", "params": { "plain": 1 }, "feed": { "id": "t2", "epoch": "e1", "seq": 1 } }));
 
     let store = client.store();
-    tokio::time::timeout(Duration::from_secs(2), async {
+    mixdog_rt::time::timeout(Duration::from_secs(2), async {
         while store.thread("t2").is_none() {
             tokio::task::yield_now().await;
         }

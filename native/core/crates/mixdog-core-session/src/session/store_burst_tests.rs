@@ -191,7 +191,9 @@ async fn an_inheritance_whose_write_fails_answers_and_its_rows_land_with_the_nex
     directory.create_with_id(heir.clone(), header(route), json!({})).await.expect("create the heir");
     let opened = directory.open_handle(&source, &CallContext::internal("test")).await.expect("open the source");
     opened.request(inherited_append(conversation())).await.expect("the source's conversation");
-    rig.store.fail_next.store(true, SeqCst);
+    // The copy's own batch fails: the write before it, which stores the reference set and the copy mark, lands.
+    let copy = |record: &Record| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("inheritedFromSessionId")));
+    *lock(&rig.store.fail_when) = Some((Box::new(copy), false));
     let fork = CoreRequest {
         method: Method("thread/fork"),
         params: json!({ "threadId": source, "intoThreadId": heir, "opId": "op-inherit" }),
@@ -201,8 +203,11 @@ async fn an_inheritance_whose_write_fails_answers_and_its_rows_land_with_the_nex
     directory.request(fork).await.expect("the inheritance answers");
     assert_eq!(*lock(&rig.notices.0), ["save-failed"]);
     assert!(stored(&rig, &heir).is_empty());
+    let stored_header = rig.store.stored_header(&heir).expect("the heir's header");
+    assert!(mixdog_store::offload_sources::mark(&stored_header).is_some(), "the heir's stored header still holds the copy mark: {stored_header:?}");
     let handle = directory.open_handle(&heir, &CallContext::internal("test")).await.expect("open the heir");
     handle.request(header_patch(&handle, "next")).await.expect("the heir's next write");
+    assert!(mixdog_store::offload_sources::mark(&rig.store.stored_header(&heir).expect("the heir's header")).is_none(), "the mark went with the rows");
     assert_eq!(stored(&rig, &heir), expected());
     let header = handle.cell.header.load();
     assert_eq!(header.get("inheritedFromSessionId"), Some(&json!("sess_source")), "the inheritance's header keys went with the rows");

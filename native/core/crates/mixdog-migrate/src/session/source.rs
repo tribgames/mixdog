@@ -1279,6 +1279,9 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         None => (Vec::new(), Vec::new()),
     };
     let all: Vec<Value> = messages.iter().chain(turn_messages.iter()).cloned().collect();
+    // The sessions whose sidecars this one may name: a copy 1.4.5 made (a clear's fork) names no source, so its set is
+    // what its transcript names, stored once here for the prune's index.
+    mixdog_store::offload_sources::stamp(&mut header, id, &all);
     // The ids are stamped over 1.4.5's array, system messages included, so every row keeps its 1.4.5 id.
     let mut iids = message_iids(id, &all);
     let turn_iids = iids.split_off(messages.len());

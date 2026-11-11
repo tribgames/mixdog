@@ -53,7 +53,7 @@ impl Retry {
     /// Waits it out on the tokio clock; a cancel ends the cleanup.
     async fn wait(self, attempt: u32, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         tokio::select! {
-            _ = tokio::time::sleep(self.delay(attempt)) => Ok(()),
+            _ = mixdog_rt::time::sleep(self.delay(attempt)) => Ok(()),
             _ = cancel.cancelled() => Err(ScmFailure::Cancelled),
         }
     }
@@ -368,7 +368,7 @@ mod tests {
             let cancel = cancel.clone();
             async move { Retry::TURN.wait(7, &cancel).await }
         });
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(10)).await;
         cancel.cancel();
         assert!(matches!(waiting.await.unwrap(), Err(ScmFailure::Cancelled)));
     }

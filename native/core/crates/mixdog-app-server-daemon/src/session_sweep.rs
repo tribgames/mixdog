@@ -187,7 +187,7 @@ async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(&Swee
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
+    mixdog_rt::wall_clock!()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }

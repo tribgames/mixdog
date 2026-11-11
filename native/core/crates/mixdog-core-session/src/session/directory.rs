@@ -196,7 +196,7 @@ pub(crate) struct DirInner {
     pub(super) left: tokio::sync::Notify,
     /// A test's gate between the adoption's listing of the control threads and its writes: it tells `.0` it arrived, then
     /// waits for `.1`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) adoption_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
@@ -216,6 +216,40 @@ pub(crate) struct CreateSpec {
     pub settings: Option<super::actor::SettingsFollow>,
     /// The control start's hold on `id`: the create takes the id over from it, and is refused when the hold lost its slot.
     pub starting: Option<Starting>,
+}
+
+/// [`SessionDirectory::durability_settled`]: each thread loaded at the call with its stores' [`mixdog_rt::WriteMarks`] and
+/// the accepted count of each taken then — the thread's records, then its prompt-history appends.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone)]
+pub struct DurabilitySettling {
+    threads: Vec<(ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2])>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl DurabilitySettling {
+    /// How many threads were loaded at the call, once every store of each committed what it accepted before; an error naming
+    /// the thread and the store when one of those writes failed (a thread that ended first fails what it had not written).
+    pub fn wait(&self) -> impl std::future::Future<Output = Result<usize, String>> + Send + 'static {
+        let threads = self.threads.clone();
+        async move {
+            let waits = threads.iter().flat_map(|(id, marks)| {
+                marks.iter().map(move |(marks, mark)| async move { marks.reached(*mark).await.map_err(|error| format!("thread {}: {error}", id.as_str())) })
+            });
+            futures::future::try_join_all(waits).await?;
+            Ok(threads.len())
+        }
+    }
+
+    /// The thread and store of each write from before the call still neither committed nor failed.
+    pub fn pending(&self) -> Vec<String> {
+        self.threads
+            .iter()
+            .flat_map(|(id, marks)| {
+                marks.iter().filter(|(marks, mark)| marks.check(*mark).is_none()).map(move |(marks, _)| format!("thread {}: {}", id.as_str(), marks.store()))
+            })
+            .collect()
+    }
 }
 
 pub struct SessionDirectory {
@@ -302,7 +336,7 @@ impl SessionDirectory {
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             adoption_gate: Default::default(),
         });
         let me = Arc::downgrade(&inner);
@@ -351,7 +385,8 @@ impl SessionDirectory {
     }
 
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
         self.inner.gate()
     }
@@ -549,7 +584,8 @@ impl SessionDirectory {
     }
 
     /// Holds the next adoption between its listing and its writes ([`DirInner::adoption_gate`]).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn gate_adoption(&self, arrived: Arc<tokio::sync::Notify>, go: std::sync::mpsc::Receiver<()>) {
         *lock(&self.inner.adoption_gate) = Some((arrived, go));
     }
@@ -608,6 +644,27 @@ impl SessionDirectory {
             .collect();
         handles.sort_by_key(|handle| handle.loaded_seq);
         handles
+    }
+
+    /// Replay-only (the core's `replay/storesSettled` control): the positions of every thread loaded now, taken here, without
+    /// the actors — each one's durable records accepted ([`super::control::ControlCell::record_marks`]) and prompt-history
+    /// appends pushed ([`super::control::ControlCell::prompt_marks`]). [`DurabilitySettling::wait`] then waits for each to be
+    /// committed: what is accepted later neither holds nor hastens it, and a thread loaded later is not asked.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn durability_settled(&self) -> DurabilitySettling {
+        let threads = self
+            .loaded_handles()
+            .into_iter()
+            .map(|handle| {
+                let cell = &handle.cell;
+                let marks = [cell.record_marks.clone(), cell.prompt_marks.clone()].map(|marks| {
+                    let mark = marks.accepted();
+                    (marks, mark)
+                });
+                (handle.id.clone(), marks)
+            })
+            .collect();
+        DurabilitySettling { threads }
     }
 
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
@@ -728,7 +785,7 @@ impl SessionDirectory {
             && let Some(hook) = self.inner.owner_teardown.get()
         {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "agent teardown overran its deadline");
                 }
             }
@@ -737,7 +794,7 @@ impl SessionDirectory {
         // own session is closed with the stop's reason before the runtime stops.
         if let Some(hook) = self.inner.exit_close.get() {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "the session close at exit overran its deadline");
                 }
             }
@@ -773,7 +830,7 @@ impl SessionDirectory {
                 ingest.await;
             }
         }));
-        let _ = tokio::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
+        let _ = mixdog_rt::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
         // cleanup runs on, and what is left is the prune's and the startup reconcile's.
         self.inner.deps.snapshots.dispose();
@@ -1276,7 +1333,7 @@ impl DirInner {
             turn_listeners: Default::default(),
             agent_start: Default::default(),
             routine_starts: Default::default(),
-            grants: Default::default(),
+            grants: Arc::new(mixdog_tools::policy::SessionGrants::of(deps.session_grants.clone(), id.as_str())),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
@@ -1291,8 +1348,14 @@ impl DirInner {
             unacked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(test)]
+            ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
+            #[cfg(any(test, feature = "test-support"))]
+            record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -1361,6 +1424,13 @@ impl DirInner {
         };
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
+        // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
+        // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
+        // rows names what they name: it holds none, and its transcript is scanned.
+        if spec.base.is_none() && !mixdog_store::offload_sources::holds_set(&header) {
+            let held = mixdog_store::offload_sources::sources(&header);
+            mixdog_store::offload_sources::set_sources(&mut header, held);
+        }
         let log_id = uuid::Uuid::new_v4().simple().to_string()[..24].to_owned();
         let op = match &spec.op {
             Some(op) => Some(mixdog_store::schema::record::OpRef {
@@ -1774,7 +1844,7 @@ impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for Ses
     /// unloaded, its actor ended, its start abandoned) is skipped, and one that ends while it is synced ends after.
     fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId)) {
         let listed = self.controls();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some((arrived, go)) = lock(&self.inner.adoption_gate).take() {
             arrived.notify_one();
             go.recv().expect("the test lets the adoption go on");
