@@ -1,0 +1,59 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-core-file.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL (the test file's scripted db answers the two selects with fixed rows); case 91 (createCwdPlugins.loadCoreMemoryContext without the memory runtime): covered by mem/core/context_tests.rs the_block_matches_what_node_injects",
+    "runs": "refreshCoreMemoryFile, writeCoreMemoryFileSnapshot, readCoreMemoryFile, readSessionCoreMemoryPayload (core-memory-file.mjs) over a real temp data directory, with the real atomic-file writer and project-id resolver"
+  },
+  "exclusions": "case 91 is covered (mem/core/context_tests.rs) and not recorded again",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 13770,
+      "path": "golden.json",
+      "sha256": "85c37339858d7f7289f8b2fcaebd5bf1660a79b12d8097a5f800754ac044753d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "clock": "Date.now() fixed at clock.dateNowMs",
+    "temp data dir": "paths in the golden are relative to the data dir"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-core-file.mjs",
+  "recorderSha256": "d6712eb5a5d82f1ad3e2afc3b874d75cc37779ccd2e0b74b1b171e5b0922d888",
+  "replay": "mixdog-services memory: mem/core/snapshot.rs refresh / write (revision guard) / read and session_payload, over the same rows and a temp data dir; compares each result, the statements and the exact bytes of core-memory.json after each step",
+  "set": "memory-core-file",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 13770,
+  "uuidsNormalised": "golden.json: 6 random UUIDs, each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)"
+}
