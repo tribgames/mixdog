@@ -32,7 +32,7 @@ fn every_recorded_case_has_a_replay() {
     assert_case_count(&golden(SET), 1);
 }
 
-mod pg {
+pub(in crate::memory::replays) mod pg {
     use super::*;
     use crate::memory::core::action::{CoreContext, run};
     use crate::memory::core::list::{ListOptions, format, list};
@@ -42,7 +42,7 @@ mod pg {
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
     /// `<uuid-N>` labelling, as `core_file` does it.
-    fn label_uuids(value: &mut Exact, seen: &mut Vec<String>) {
+    pub(in crate::memory::replays) fn label_uuids(value: &mut Exact, seen: &mut Vec<String>) {
         let pattern =
             regex::Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").expect("uuid pattern");
         match value {
@@ -60,6 +60,10 @@ mod pg {
             }
             Exact::Array(items) => items.iter_mut().for_each(|item| label_uuids(item, seen)),
             Exact::Object(entries) => entries.iter_mut().for_each(|(_, item)| label_uuids(item, seen)),
+            Exact::Map(entries) => entries.iter_mut().for_each(|(key, item)| {
+                label_uuids(key, seen);
+                label_uuids(item, seen);
+            }),
             _ => {}
         }
     }
@@ -92,7 +96,7 @@ mod pg {
     }
 
     /// The stand-in's integer booleans at `injection_enabled` (see the header).
-    fn stand_in(value: &mut serde_json::Value) {
+    pub(in crate::memory::replays) fn stand_in(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(entries) => {
                 for (key, item) in entries.iter_mut() {
@@ -110,14 +114,14 @@ mod pg {
         }
     }
 
-    fn plain(json: &str) -> Exact {
+    pub(in crate::memory::replays) fn plain(json: &str) -> Exact {
         let mut value: serde_json::Value = serde_json::from_str(json).expect("reply field JSON");
         stand_in(&mut value);
         Exact::plain(&value)
     }
 
     /// The statements of the step and its `pg_advisory_xact_lock` count.
-    fn statements() -> (Exact, i64) {
+    pub(in crate::memory::replays) fn statements() -> (Exact, i64) {
         let log = crate::memory::core::index::STATEMENTS
             .with(|log| log.borrow_mut().replace(Vec::new()))
             .unwrap_or_default();
@@ -134,7 +138,7 @@ mod pg {
         (Exact::Array(list), reads)
     }
 
-    fn page_value(page: &crate::memory::core::list::Page) -> Exact {
+    pub(in crate::memory::replays) fn page_value(page: &crate::memory::core::list::Page) -> Exact {
         let mut entries = serde_json::to_value(&page.entries).expect("entries JSON");
         stand_in(&mut entries);
         let mut fields = vec![
@@ -220,26 +224,7 @@ mod pg {
                         let text = format(&page);
                         fields.push(("result", page_value(&page)));
                         fields.push(("formatted", string(text)));
-                        // The core's reader of a list is its structured result (see the header).
-                        let listed: Vec<Exact> = page
-                            .entries
-                            .iter()
-                            .map(|entry| {
-                                object(vec![
-                                    ("id", entry.id.map_or(Exact::Null, |id| int(id as i64))),
-                                    ("project_id", entry.project_id.clone().map_or(Exact::Null, string)),
-                                    ("summary", string(entry.summary.clone())),
-                                    ("index_revision", entry.index_revision.clone().map_or(Exact::Null, string)),
-                                ])
-                            })
-                            .collect();
-                        fields.push((
-                            "roundTrip",
-                            object(vec![
-                                ("listed", Exact::Array(listed)),
-                                ("rowCountListed", int(page.entries.len() as i64)),
-                            ]),
-                        ));
+                        fields.push(("roundTrip", round_trip(&page)));
                     }
                     Err(error) => fields.push((
                         "error",
@@ -261,37 +246,51 @@ mod pg {
             actual.push(value);
         }
         crate::memory::core::index::STATEMENTS.with(|log| *log.borrow_mut() = None);
-        // The recorded steps with `roundTrip` reduced to what the core's structured reader proves (see the header).
-        let expected = Exact::Array(
-            c.get("steps")
-                .as_array()
-                .iter()
-                .map(|step| match step {
-                    Exact::Object(entries) => Exact::Object(
-                        entries
-                            .iter()
-                            .map(|(key, value)| {
-                                if key != "roundTrip" {
-                                    return (key.clone(), value.clone());
-                                }
-                                let listed =
-                                    value.get("perEntry").as_array().iter().map(|e| e.get("listed").clone()).collect();
-                                (
-                                    key.clone(),
-                                    object(vec![
-                                        ("listed", Exact::Array(listed)),
-                                        ("rowCountListed", value.get("rowCount").get("listed").clone()),
-                                    ]),
-                                )
-                            })
-                            .collect(),
-                    ),
-                    other => other.clone(),
-                })
-                .collect(),
-        );
+        let expected = Exact::Array(c.get("steps").as_array().iter().map(recorded_round_trip).collect());
         let mut actual = Exact::Array(actual);
         label_uuids(&mut actual, &mut Vec::new());
         same(name, &expected, &actual);
+    }
+
+    /// What the core's reader of a list (its structured result) proves of each entry (see the header).
+    pub(in crate::memory::replays) fn round_trip(page: &crate::memory::core::list::Page) -> Exact {
+        let listed = page
+            .entries
+            .iter()
+            .map(|entry| {
+                object(vec![
+                    ("id", entry.id.map_or(Exact::Null, |id| int(id as i64))),
+                    ("project_id", entry.project_id.clone().map_or(Exact::Null, string)),
+                    ("summary", string(entry.summary.clone())),
+                    ("index_revision", entry.index_revision.clone().map_or(Exact::Null, string)),
+                ])
+            })
+            .collect();
+        object(vec![("listed", Exact::Array(listed)), ("rowCountListed", int(page.entries.len() as i64))])
+    }
+
+    /// A recorded step with `roundTrip` reduced to what `round_trip` proves.
+    pub(in crate::memory::replays) fn recorded_round_trip(step: &Exact) -> Exact {
+        match step {
+            Exact::Object(entries) => Exact::Object(
+                entries
+                    .iter()
+                    .map(|(key, value)| {
+                        if key != "roundTrip" {
+                            return (key.clone(), value.clone());
+                        }
+                        let listed = value.get("perEntry").as_array().iter().map(|e| e.get("listed").clone()).collect();
+                        (
+                            key.clone(),
+                            object(vec![
+                                ("listed", Exact::Array(listed)),
+                                ("rowCountListed", value.get("rowCount").get("listed").clone()),
+                            ]),
+                        )
+                    })
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
     }
 }

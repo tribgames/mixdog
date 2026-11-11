@@ -6,6 +6,7 @@ mod cache_retention;
 mod chunk_audit;
 mod chunk_quality_handoff;
 mod core_file;
+mod core_index;
 mod core_management;
 mod history_duplicates;
 mod hybrid_sql_exact;
