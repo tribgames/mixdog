@@ -149,7 +149,7 @@ mod on_virtual_clock {
     /// loop turn that made it (after every timer of that turn), in the order immediates were made; without one,
     /// `tokio::task::yield_now()`. Queued when made, not when first polled.
     pub fn immediate() -> Immediate {
-        Immediate(if virtual_clock::active() { Queued::Check(virtual_clock::immediate()) } else { Queued::Yield(Box::pin(tokio::task::yield_now())) })
+        Immediate(if virtual_clock::active() { Queued::Check(virtual_clock::immediate()) } else { Queued::Yield { yielded: false } })
     }
 
     /// Node's `setImmediate(f)` for an `f` a new task runs: await this first. On the replay's clock, [`immediate`]; without one,
@@ -164,7 +164,8 @@ mod on_virtual_clock {
 
     enum Queued {
         Check(Arc<Slot>),
-        Yield(Pin<Box<dyn Future<Output = ()> + Send>>),
+        /// `yield_now` without its allocation: pending once with the task woken, then ready.
+        Yield { yielded: bool },
         Ready,
     }
 
@@ -174,7 +175,12 @@ mod on_virtual_clock {
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
             match &mut self.get_mut().0 {
                 Queued::Check(slot) => slot.poll(cx),
-                Queued::Yield(yielding) => yielding.as_mut().poll(cx),
+                Queued::Yield { yielded: true } => Poll::Ready(()),
+                Queued::Yield { yielded } => {
+                    *yielded = true;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
                 Queued::Ready => Poll::Ready(()),
             }
         }
