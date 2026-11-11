@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1548563,
+      "bytes": 2766797,
       "path": "golden.json",
-      "sha256": "b6528f05bad637d73cf99bb0f2b9854bac4745fe76dee5c06a1f75de736769cf"
+      "sha256": "48ffdbeb2f82539f867b794598c7120f4dc6d716a76a32051dab6c3f4497db40"
     }
   ],
   "inputs": [
@@ -48,28 +48,30 @@
       "paths": [
         "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
         "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
-        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs"
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+        "src/runtime/agent/orchestrator/session/tool-result-offload.mjs"
       ],
-      "sha256": "181455f2a6ec6f1a64dfa0cd57b672c0ff9968b50a0f52a36be9286482214f8b"
+      "sha256": "c5c9b4e82cae60f317c7cb9367dabb46aedcb84b0d9b0865e0b656fdc48ffca1"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 3
+      "filesDifferingFromCommit": 5
     },
-    "srcSha256": "74f4bccc7f3c063541eb2f147340fe616647278c4039560c38d4f15bfec5e4f5",
+    "srcSha256": "e5c7ee2b880901b4a09e26f7c1f1173430b9d4a1ff4cbf973ab2533f6cf3ed44",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-offload-prune-order.mjs",
-  "recorderSha256": "7aca0efcbe27df88eb2d38c2a9ab61c26fae810f5d846b4e26e2aa425140a407",
+  "recorderSha256": "b326299e571bf4804402ca3653d6cea84d6a8855fb9b6a872668deb202b725e4",
   "set": "offload-prune-order",
   "tests": [
     "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)",
     "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs (pruneCompactedOffloads)",
     "src/runtime/agent/orchestrator/session/tool-result-offload.mjs (pruneOffloadSession)"
   ],
-  "totalBytes": 1548563
+  "totalBytes": 2766797
 }
