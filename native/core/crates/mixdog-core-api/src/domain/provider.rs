@@ -1079,10 +1079,12 @@ pub trait ModelStream: Send {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>>;
     fn delivery(&self) -> DeliveryState;
     /// Given once by the consumer, before the stream is polled. A stream whose `next` goes on to await something else once
-    /// the wire has delivered its terminal event (the usage ledger writing the completed row) calls `left` inside that
-    /// `next`, before the await: from then on a pending `next` is not a wait for the wire. Not calling it: a pending `next`
-    /// always waits for the wire.
-    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+    /// the send's wire has delivered its terminal event (the usage ledger writing the completed row, the key pool binding
+    /// the serving key) calls `left` inside that `next`, before the await: from then on a pending `next` is not a wait for
+    /// the wire. Required, with no default, so that every stream decides: a wrapper hands `left` to the stream it wraps,
+    /// a stream that produces attempts to each attempt's stream as it is created, and only a leaf whose `next` awaits
+    /// nothing after the wire's terminal event ignores it.
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>);
 }
 
 #[async_trait]

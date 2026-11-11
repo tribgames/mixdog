@@ -396,6 +396,8 @@ impl ModelStream for AccountedStream {
     }
 
     fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        // The stream it wraps may await after the wire too (the key pool binding its serving key).
+        self.inner.on_wire_left(Arc::clone(&left));
         self.wire_left = Some(left);
     }
 }

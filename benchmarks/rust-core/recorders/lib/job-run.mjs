@@ -16,8 +16,8 @@
 // The reports are always checked against the job's own accounting, whatever was left: the job's TotalProcesses at its end must be
 // the joins reported, and its ActiveProcesses read just after the program's exit must not exceed what the members' lifetimes give at
 // that instant (a member that started or ended while the count was read, or within one clock tick of it since process times are kept
-// at tick precision, counts on either side), plus the members it still lists after their exit was reported (a process is counted
-// while it is torn down). A disagreement means a report was lost,
+// at tick precision, counts on either side), plus the members whose exit was already reported (a process is counted while it is
+// torn down). A disagreement means a report was lost,
 // so membership at the program's exit is unknown: the report says so and `readJobReport` fails the run. The job is made with
 // KILL_ON_JOB_CLOSE, so ending the host (a caller's deadline, a failure) ends the whole tree.
 //
@@ -261,8 +261,8 @@ public static class JobRun {
       if (since.ElapsedMilliseconds > endDeadlineMs) throw new Exception("the job's reports did not run out within " + endDeadlineMs + " ms of the program's exit (" + joins + " joins reported)");
     }
     long before = Now();
-    // The list before the count: joins are reported, and a process leaves the job's list and count together (both are kept under
-    // the job's lock), so a member the count holds that the host did not count as alive was already listed.
+    // The list only names the members in the failure message: an exiting process can leave the list while the job still counts it.
+    long exitsBeforeCount = exits;
     long[] listedAtExit = Listed();
     long[] atExit = Accounting();
     long after = Now();
@@ -301,11 +301,13 @@ public static class JobRun {
     // does not hold: the job stops counting an exiting member before its exit time is recorded (a full recording counted 1 where the
     // lifetimes gave 2), so a member may look alive past the read and not be counted. Nor does the job stop counting a member when
     // it exits: it keeps listing and counting it while the process is torn down, after its exit report was posted and its handle
-    // signalled (a replay counted mixdogd 79.5 ms after its reported exit). Such a member was seen joining and leaving, so it is
-    // no lost report: a listed member whose exit report was read before the count adds to what the lifetimes give.
+    // signalled (a replay counted mixdogd 79.5 ms after its reported exit, and another counted it while the list no longer held
+    // it). Such a member was seen joining and leaving, so it is no lost report: every member whose exit report was read before the
+    // count adds to what the lifetimes give, listed or not. A lost join still shows: its member was never seen joining.
     long lingering = 0;
-    foreach (long pid in listedAtExit) {
-      if (joined.Contains(pid) && exitOrder.ContainsKey(pid) && !counted.Contains(pid)) lingering++;
+    foreach (long pid in joined) {
+      long order;
+      if (exitOrder.TryGetValue(pid, out order) && order <= exitsBeforeCount && !counted.Contains(pid)) lingering++;
     }
     if (atExit[1] > possibly + lingering) {
       List<string> held = new List<string>();
