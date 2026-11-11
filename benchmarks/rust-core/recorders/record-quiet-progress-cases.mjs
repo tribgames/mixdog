@@ -3,6 +3,7 @@
 // rows that carry a turn's progress (agent-pool-progress.mjs withTurnProgress), driven with the test's stamps.
 //   node benchmarks/rust-core/recorders/record-quiet-progress-cases.mjs --tree <export of b6f10295a with node_modules>
 import { openSet } from './lib/case-set.mjs';
+import { virtualTimers } from './lib/virtual-timers.mjs';
 
 const set = openSet('quiet-progress-cases', import.meta.url);
 const q = await set.load('src/runtime/shared/quiet-progress.mjs');
@@ -65,11 +66,50 @@ await set.run('running pool rows carry their turn progress, stage and warn point
   const decorated = withTurnProgress(rows, (sessionId) => (sessionId === 'run' ? entry : { stage: 'idle' }), isTurnInFlight);
   return { entry, rows, decorated, settledRowIsTheSameObject: decorated[1] === rows[1], workerWarnSeconds: resolveAgentStallThresholds('worker').warn };
 });
+const { startQuietWatch } = await set.load('src/tui/session/turn-quiet.mjs');
+await set.run('the lead turn\'s quiet watch reads each second, publishes a frozen quiet state once per change and stops with its turn', () => {
+  // turn.mjs:781 starts it for the lead turn; the turn stays current until `turnEndsAtMs`.
+  const virtual = virtualTimers();
+  const fixedNow = Date.now;
+  const t0 = fixedNow();
+  Date.now = () => t0 + virtual.elapsed();
+  try {
+    // What the runtime's `getTurnLiveness()` returns from each instant on (offsets from the start).
+    const livenessScript = [
+      { fromMs: 0, liveness: { stage: 'streaming', lastProgressAt: t0, lastStreamDeltaAt: t0 } },
+      { fromMs: 150_000, liveness: { stage: 'tool_running', lastProgressAt: t0 + 150_000, toolStartedAt: t0 + 150_000, currentTool: 'shell' } },
+      { fromMs: 500_000, liveness: { stage: 'streaming', lastProgressAt: t0 + 500_000, lastStreamDeltaAt: t0 + 500_000 } },
+    ];
+    const turnEndsAtMs = 700_000;
+    const reads = [];
+    const publications = [];
+    let state = { spinner: { mode: 'thinking' } };
+    startQuietWatch({
+      runtime: {
+        getTurnLiveness() {
+          const at = virtual.elapsed();
+          reads.push(at);
+          return livenessScript.filter((step) => step.fromMs <= at).at(-1).liveness;
+        },
+      },
+      getState: () => state,
+      set: (patch) => { publications.push({ atMs: virtual.elapsed(), quiet: patch.spinner.quiet }); state = { ...state, ...patch }; },
+      isCurrentTurn: () => virtual.elapsed() < turnEndsAtMs,
+    });
+    for (const ms of [125_000, 30_000, 300_000, 100_000, 150_000]) virtual.advance(ms);
+    return { startMs: t0, livenessScript, turnEndsAtMs, reads, publications, timers: { armed: virtual.armed, advances: virtual.advances, firedCount: virtual.fired.length, pending: virtual.pending() } };
+  } finally {
+    virtual.restore();
+    Date.now = fixedNow;
+  }
+});
 await set.finish({
   entry: { runs: 'shared/quiet-progress.mjs (quietProgress, quietWaitKind, quietProgressParts, quietProgressLabel, awaitingModelResponse, displayProgressStage, lastProgressAt), withTurnProgress over isTurnInFlight, resolveAgentStallThresholds', notRun: 'the pool listing itself: the rows and the entry lookup are the test\'s' },
   replay: {
     entry: 'The quiet state a turn publishes (Node tui/session/turn-quiet.mjs turnQuietState over shared/quiet-progress.mjs, run by the lead turn, turn.mjs:781) is the core\'s: mixdog-core-agents agents/quiet_progress.rs (quiet_progress, quiet_wait_kind, last_progress_at, awaiting_model_response, display_progress_stage, turn_quiet_state), published as spinner.quiet by mixdog-core run_host/quiet_watch.rs QuietWatch (started in factory.rs for an attended turn); the pool rows read the same stamps (pool_list.rs with_progress, the last step of AgentPool::list). The labels are the client\'s: the desktop renders spinner.quiet through src/tui/spinner-meta.mjs buildSpinnerMeta (quietProgressParts :78, quietProgressLabel :95; apps/desktop/src/renderer/transcript-status.tsx:24 and :528).',
     missingOnO1: [],
-    compare: 'Cases 0-4 in mixdog-core-agents agents/pool_list_quiet_replay.rs: each recorded input fed to the core, the core\'s values written to src/tui/quiet-progress-core.json; src/tui/quiet-progress-replay.test.mjs feeds the core\'s quiet states to buildSpinnerMeta and compares each case whole with this recording (one chain: recorded input -> core -> client -> recorded value).',
+    compare: 'Cases 0-4 in mixdog-core-agents agents/pool_list_quiet_replay.rs: each recorded input fed to the core, the core\'s values written to src/tui/quiet-progress-core.json (with the golden\'s sha256; the Rust test fails when the file differs from what the core gives); src/tui/quiet-progress-replay.test.mjs refuses a file of another golden, feeds the core\'s quiet states to buildSpinnerMeta and compares each case whole with this recording (one chain: recorded input -> core -> client -> recorded value). Case 5 in mixdog-core run_host/quiet_watch.rs (tests): the core\'s QuietWatch runs on a virtual clock moved only by timers.advances, reads the recorded livenessScript, and its reads, publications and stop are compared whole.',
+    timers: 'case 5: timers.advances are the only movements of the clock',
+    notCompared: { 'case 5 timers.armed, timers.firedCount': 'Node\'s one setInterval and its firings: the format of its timer. The core arms one wait per poll; what the polls did (reads, publications, nothing left armed) is compared whole' },
   },});
 process.exit(0);
