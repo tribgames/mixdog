@@ -6,13 +6,13 @@ const crates = 'native/core/crates/';
 const r = (path, line, name, methods) => ({ path: `${crates}${path}`, line, name, ...(methods ? { methods } : {}) });
 export const REPLAY_TARGETS = {
   'agent-home-cases': {
-    rust: [r('mixdog-core-base/src/rooms/ids.rs', 27, 'agent_home_session_id'), r('mixdog-core-base/src/rooms/ids.rs', 33, 'agent_id_of_home_session'), r('mixdog-store/src/agent_mode.rs', 28, 'agent_id_of_home_session'), r('mixdog-core-agents/src/agents/home_agent.rs', 88, 'home_agent')],
+    rust: [r('mixdog-core-base/src/rooms/ids.rs', 27, 'agent_home_session_id'), r('mixdog-core-base/src/rooms/ids.rs', 33, 'agent_id_of_home_session'), r('mixdog-store/src/agent_mode.rs', 28, 'agent_id_of_home_session'), r('mixdog-core-agents/src/agents/home_agent.rs', 88, 'home_agent'), r('mixdog-core/src/run_host/prompt_session.rs', 197, 'workspace_prompt_context'), r('mixdog-core/src/run_host/prompt_session.rs', 264, 'compose_session_prompt', 'builds the role fields (role rules, lead mode rules, identity context, agent mode rules, mixy rules, skip role catalog / persona) through role_fields :217, private')],
     notPublic: ['the scratch decision (isScratchSession) exists: mixdog-core-session/src/session/thread_switches.rs:999 `is_scratch`, pub(crate): a replay reaches it through the thread switch, not by a call', 'home_agent.rs:52 `decide` is private (the role prompt decision is reached through home_agent)'],
-    missing: ['the role prompt fields: no counterpart found'],
+    missing: [],
   },
   'agent-room-cases': {
-    rust: [r('mixdog-core-rooms/src/rooms/config.rs', 157, 'parse_room_ask'), r('mixdog-core-rooms/src/rooms/config.rs', 206, 'room_mention_of'), r('mixdog-core-rooms/src/rooms/row_message.rs', 228, 'room_row_message'), r('mixdog-core-rooms/src/rooms/turn_prompt.rs', 296, 'room_turn_prompt'), r('mixdog-core-rooms/src/rooms/exchange.rs', 302, 'run_room_exchange'), r('mixdog-core-rooms/src/rooms/supervisor.rs', 115, 'supervisor_prompt'), r('mixdog-core-rooms/src/rooms/supervisor.rs', 100, 'supervisor_rows'), r('mixdog-core-rooms/src/rooms/supervisor.rs', 300, 'parse_room_decision'), r('mixdog-core-rooms/src/rooms/turn_post.rs', 137, 'post_speech')],
-    missing: ['the supervisor completion request (room-supervisor-completion.mjs): maintainer.rs only cites it in a doc comment', 'the log intake (agent-room-delivery.mjs): no public function; post_speech is the nearest and is a different step'],
+    rust: [r('mixdog-core-rooms/src/rooms/config.rs', 157, 'parse_room_ask'), r('mixdog-core-rooms/src/rooms/config.rs', 206, 'room_mention_of'), r('mixdog-core-rooms/src/rooms/row_message.rs', 228, 'room_row_message'), r('mixdog-core-rooms/src/rooms/turn_prompt.rs', 296, 'room_turn_prompt'), r('mixdog-core-rooms/src/rooms/exchange.rs', 302, 'run_room_exchange'), r('mixdog-core-rooms/src/rooms/supervisor.rs', 115, 'supervisor_prompt'), r('mixdog-core-rooms/src/rooms/supervisor.rs', 100, 'supervisor_rows'), r('mixdog-core-rooms/src/rooms/supervisor.rs', 300, 'parse_room_decision'), r('mixdog-core-rooms/src/rooms/turn_post.rs', 137, 'post_speech'), r('mixdog-agent/src/one_shot.rs', 141, 'CallShape::room_supervisor', 'the supervisor completion call shape (room-supervisor-completion.mjs): no request kind, route effort or low, no 529 retry, no prompt cache; used by mixdog-core-rooms/src/rooms/maintainer.rs:56; `pub mod one_shot`, mixdog-agent/src/lib.rs:30'), r('mixdog-core/src/run_host/room_files.rs', 116, 'SessionFiles::take_in', 'impl RoomFiles for SessionFiles (room_files.rs:115; the trait is `pub trait RoomFiles` in mixdog-core-rooms/src/rooms/live.rs, `pub mod live`; `pub struct SessionFiles` :24, `pub mod room_files` run_host/mod.rs:156): the intake of a room speech row, its artifactsFrom taken in or rejected')],
+    missing: [],
   },
   'capture-size-cases': {
     notPublic: ['provider preparation of an image part: mixdog-ai/src/providers/anthropic/lowering.rs:134 `part_to_block` (private; `mod lowering` is private, providers/anthropic/mod.rs:19) passes the base64 image bytes through (:137), which is what the second case records; mixdog-agent/src/compact/image.rs:71 `target_dimensions` is image compaction, a different contract'],
@@ -31,9 +31,9 @@ export const REPLAY_TARGETS = {
     missing: ['the desktop service registry (init / versioned setVisibleSessions / releaseClient / unsubscribe and its frames): no Rust counterpart found'],
   },
   'error-presentation-cases': {
-    rust: [r('mixdog-ai/src/service/error_text.rs', 174, 'present_error_text'), r('mixdog-ai/src/service/error_text.rs', 346, 'safe_error_details')],
+    rust: [r('mixdog-ai/src/service/error_text.rs', 174, 'present_error_text'), r('mixdog-ai/src/service/error_text.rs', 346, 'safe_error_details'), r('mixdog-ai/src/retry/classify.rs', 142, 'kind_of', 'classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object')],
     notPublic: ['describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private', 'anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)'],
-    missing: ['providerErrorKind / DETERMINISTIC_KINDS: no function (doc references only)'],
+    missing: ['providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds'],
   },
   'git-launch-cases': {
     rust: [r('mixdog-scm/src/git_launch.rs', 119, 'resolve_layout'), r('mixdog-scm/src/git_launch.rs', 207, 'launch_environment'), r('mixdog-scm/src/git_launch.rs', 267, 'launch_for'), r('mixdog-scm/src/git_launch.rs', 287, 'git_command'), r('mixdog-scm/src/git_launch.rs', 295, 'forget_missing'), r('mixdog-scm/src/git.rs', 90, 'start_git')],
@@ -45,12 +45,15 @@ export const REPLAY_TARGETS = {
     notPublic: ['mixdog-scm/src/service.rs:452 `github_request` (the handler behind github/request) is private; the method table is its public door'],
   },
   'hook-ask-grants-cases': {
-    rust: [r('mixdog-tools/src/policy/gate.rs', 237, 'decide'), r('mixdog-tools/src/policy/session_grants.rs', 49, 'grant'), r('mixdog-tools/src/policy/session_grants.rs', 68, 'has'), r('mixdog-tools/src/policy/grants.rs', 158, 'set_mode'), r('mixdog-tools/src/policy/grants.rs', 321, 'GrantStore'), r('mixdog-tools/src/policy/card.rs', 59, 'build')],
-    missing: ['recordHumanDecision: no public function (the audit write is private, policy/pipeline.rs:587)', 'setAgentPermission: only a match arm in mixdog-core-agents/src/setup/agent_settings.rs:264'],
+    rust: [r('mixdog-tools/src/policy/gate.rs', 237, 'decide'), r('mixdog-tools/src/policy/session_grants.rs', 49, 'grant'), r('mixdog-tools/src/policy/session_grants.rs', 68, 'has'), r('mixdog-tools/src/policy/grants.rs', 158, 'set_mode'), r('mixdog-tools/src/policy/grants.rs', 321, 'GrantStore'), r('mixdog-tools/src/policy/grants.rs', 362, 'GrantStore::audit', 'reads the audit entries'), r('mixdog-tools/src/policy/card.rs', 59, 'build')],
+    protocolMethods: ['agent/setAgentPermission (setAgentPermission: mixdog-app-protocol/src/methods.rs:1025 AgentSetAgentPermission, inventory.rs:3162-3163; the handler is the match arm mixdog-core-agents/src/setup/agent_settings.rs:264, private)'],
+    notPublic: ['recordHumanDecision: the audit writes are private: mixdog-tools/src/policy/pipeline.rs:587 `audit`, mixdog-core/src/run_host/handoff_env.rs:92 `record_decision`, mixdog-app-server-daemon/src/held_requests.rs:305 `record_decision`'],
+    missing: [],
   },
   'session-grants-cases': {
-    rust: [r('mixdog-tools/src/policy/gate.rs', 237, 'decide'), r('mixdog-tools/src/policy/session_grants.rs', 49, 'grant'), r('mixdog-tools/src/policy/session_grants.rs', 68, 'has'), r('mixdog-tools/src/policy/grants.rs', 158, 'set_mode'), r('mixdog-tools/src/policy/grants.rs', 321, 'GrantStore')],
-    missing: ['recordHumanDecision: no public function (the audit write is private, policy/pipeline.rs:587)'],
+    rust: [r('mixdog-tools/src/policy/gate.rs', 237, 'decide'), r('mixdog-tools/src/policy/session_grants.rs', 49, 'grant'), r('mixdog-tools/src/policy/session_grants.rs', 68, 'has'), r('mixdog-tools/src/policy/grants.rs', 158, 'set_mode'), r('mixdog-tools/src/policy/grants.rs', 321, 'GrantStore'), r('mixdog-tools/src/policy/grants.rs', 362, 'GrantStore::audit', 'reads the audit entries')],
+    notPublic: ['recordHumanDecision: the audit writes are private: mixdog-tools/src/policy/pipeline.rs:587 `audit`, mixdog-core/src/run_host/handoff_env.rs:92 `record_decision`, mixdog-app-server-daemon/src/held_requests.rs:305 `record_decision`'],
+    missing: [],
   },
   'media-store-cases': {
     rust: [r('mixdog-services/src/media/store.rs', 317, 'list_assets'), r('mixdog-services/src/media/store.rs', 436, 'delete_assets'), r('mixdog-services/src/media/store.rs', 472, 'list_boards'), r('mixdog-services/src/media/store.rs', 498, 'create_board'), r('mixdog-services/src/media/store.rs', 523, 'delete_board')],
@@ -74,6 +77,7 @@ export const REPLAY_TARGETS = {
   },
   'project-recency-failure-cases': {
     rust: [r('mixdog-store/src/registry.rs', 282, 'add'), r('mixdog-store/src/registry.rs', 309, 'touch_selected'), r('mixdog-store/src/registry.rs', 335, 'remove'), r('mixdog-store/src/registry.rs', 354, 'rename')],
+    protocolMethods: ['startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222)'],
     notPublic: ['a recency write failure that does not stop the work exists for set_cwd: mixdog-core-session/src/session/thread_settings.rs:754 logs the touch_selected failure and continues (private trait-impl method :714; trait ProjectFolders :100 / touch_selected :110 is public)'],
     missing: ['startProjectTask / submitNewTask continuing when only the recency write fails: new_task.rs:531, :573 hold no recency code'],
   },
@@ -82,7 +86,8 @@ export const REPLAY_TARGETS = {
     missing: [],
   },
   'quiet-progress-cases': {
-    missing: ['the whole recording: no Rust code produces the quiet cue, its labels or the pool-row decoration (see replay.entry)'],
+    rust: [r('mixdog-core-agents/src/agents/pool_list.rs', 139, 'AgentPool', 'list (pool_list.rs:624) returns the pool rows decorated with progressAt, progressStage (model_thinking while a sent request awaits its headers), progressTool and stallWarnMs from the private with_progress (:785); re-exported by agents/mod.rs:50'), r('mixdog-agent/src/agent_tool/watchdog.rs', 123, 'stall_warn_ms')],
+    missing: ['the quiet cue and its labels (quietProgress / quietProgressParts / quietWaitKind, "quiet for 3m · running shell", the cue window and the freeze until the warn point): no Rust code; agent_tool/progress.rs:300 builds a different text ("tool possibly hung", task progress)'],
   },
   'remote-idle-state-cases': {
     rust: [r('mixdog-core-goal/src/goal/state.rs', 315, 'active_elapsed_ms'), r('mixdog-core-goal/src/goal/state.rs', 330, 'public_goal'), r('mixdog-core-goal/src/goal/state.rs', 361, 'goal_state_snapshot')],

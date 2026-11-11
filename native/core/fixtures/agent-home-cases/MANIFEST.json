@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,14 +66,12 @@
   "recorderSha256": "122a77e71f4025414cde7499c678cc77860444866f468cc887f788bf63ca41d4",
   "replay": {
     "compare": "mixdog-core-agents home_agent: compare agentHomeSessionId / agentIdOfHomeSession / isAgentHomeSessionId for each recorded input; the session id pattern; the role prompt fields and the scratch decision in mixdog-core-session",
-    "entry": "Drive these public items on o1: mixdog-core-base/src/rooms/ids.rs:27 agent_home_session_id; mixdog-core-base/src/rooms/ids.rs:33 agent_id_of_home_session; mixdog-store/src/agent_mode.rs:28 agent_id_of_home_session; mixdog-core-agents/src/agents/home_agent.rs:88 home_agent.",
+    "entry": "Drive these public items on o1: mixdog-core-base/src/rooms/ids.rs:27 agent_home_session_id; mixdog-core-base/src/rooms/ids.rs:33 agent_id_of_home_session; mixdog-store/src/agent_mode.rs:28 agent_id_of_home_session; mixdog-core-agents/src/agents/home_agent.rs:88 home_agent; mixdog-core/src/run_host/prompt_session.rs:197 workspace_prompt_context; mixdog-core/src/run_host/prompt_session.rs:264 compose_session_prompt (builds the role fields (role rules, lead mode rules, identity context, agent mode rules, mixy rules, skip role catalog / persona) through role_fields :217, private).",
     "existsButNotPublicOnO1": [
       "the scratch decision (isScratchSession) exists: mixdog-core-session/src/session/thread_switches.rs:999 `is_scratch`, pub(crate): a replay reaches it through the thread switch, not by a call",
       "home_agent.rs:52 `decide` is private (the role prompt decision is reached through home_agent)"
     ],
-    "missingOnO1": [
-      "the role prompt fields: no counterpart found"
-    ],
+    "missingOnO1": [],
     "normalised": {},
     "protocolMethods": [],
     "rustTargets": [
@@ -96,6 +94,17 @@
         "line": 88,
         "name": "home_agent",
         "path": "native/core/crates/mixdog-core-agents/src/agents/home_agent.rs"
+      },
+      {
+        "line": 197,
+        "name": "workspace_prompt_context",
+        "path": "native/core/crates/mixdog-core/src/run_host/prompt_session.rs"
+      },
+      {
+        "line": 264,
+        "methods": "builds the role fields (role rules, lead mode rules, identity context, agent mode rules, mixy rules, skip role catalog / persona) through role_fields :217, private",
+        "name": "compose_session_prompt",
+        "path": "native/core/crates/mixdog-core/src/run_host/prompt_session.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
