@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 447263,
+      "bytes": 452188,
       "path": "golden.json",
-      "sha256": "5e07a84eb1300c6984f76eb8046f791404334575f338e976a3f7046493785afb"
+      "sha256": "4c570c61c65f56c168b9f5d94218e3f0aac4f64e4c03ce890d7fb26ffac67552"
     }
   ],
   "inputs": [
@@ -17,11 +17,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-cases.mjs",
-      "sha256": "22c323e2242ddfc9b33030065cadbc03731d4e0c86293b2d1659bf5c350cd499"
+      "sha256": "6a3c5d499b133b91dc9c86340e3c99ea409df77fb53375e0788fd2431bb5c873"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "c049037ffb09f2ea1a5a6ed94e358a123dcd7d54631fa6deae56078395130892"
+      "sha256": "c4d82066ed107bc3bb6513df726d24df3b8c0093cae71fcd54a39213b1a4b1f0"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -49,6 +49,13 @@
       ],
       "field": "node.config.value.config.headers.*",
       "how": "each lone surrogate read as U+FFFD before comparing"
+    },
+    {
+      "cases": [
+        "lsp-code-action-diagnostic-lone"
+      ],
+      "field": "node.value.result.received",
+      "how": "each lone surrogate read as U+FFFD before comparing"
     }
   ],
   "product": {
@@ -69,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "a39a7a8b3c9cc89ad27acf5075635a3a1193ec29291258e0153f50a2c3227ddc",
+  "recorderSha256": "9f0ee9ea90228e59dac695146629f047c9ff3e328d9dec64f6aa2f674bdc40eb",
   "refusedByRule": {
     "cases": [
       {
@@ -92,7 +99,7 @@
             "available": true,
             "capabilities": {
               "callHierarchy": false,
-              "codeAction": false,
+              "codeAction": true,
               "codeActionKinds": [],
               "codeActionResolve": false,
               "codeLens": false,
@@ -173,7 +180,7 @@
             "available": true,
             "capabilities": {
               "callHierarchy": false,
-              "codeAction": false,
+              "codeAction": true,
               "codeActionKinds": [],
               "codeActionResolve": false,
               "codeLens": false,
@@ -247,7 +254,7 @@
             "available": true,
             "capabilities": {
               "callHierarchy": false,
-              "codeAction": false,
+              "codeAction": true,
               "codeActionKinds": [],
               "codeActionResolve": false,
               "codeLens": false,
@@ -313,5 +320,5 @@
     }
   ],
   "set": "lone-surrogate-wire",
-  "totalBytes": 447263
+  "totalBytes": 452188
 }

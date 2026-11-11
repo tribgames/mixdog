@@ -19,9 +19,11 @@ const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
 export async function replay({ exe, golden, only, startServer, buildWorld }) {
-  buildWorld();
+  const stubBin = buildWorld();
   const server = await startServer();
-  const core = await startCore(exe, join(WORLDS, 'core'), null);
+  // The echo stub first on PATH, so the core's `rust-analyzer` is the one Node's recording ran.
+  const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH');
+  const core = await startCore(exe, join(WORLDS, 'core'), null, true, { [pathKey]: `${stubBin};${process.env[pathKey]}` });
   let client = null;
   try {
     const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
@@ -74,14 +76,17 @@ export async function replay({ exe, golden, only, startServer, buildWorld }) {
       const sent = (log) => log.filter((request) => !(request.method === 'HEAD' && request.url === '/'));
       const answer = got.ok ? { ok: true, value: got.value } : { ok: false, error: got.error };
       let core = { node: answer, requests: sent(requests) };
-      let expected = { node: node.node, requests: sent(node.requests) };
+      // Node's value with each lone unit read as U+FFFD, as the core reads it (the manifest's normalisations).
+      const asRead = (value) => JSON.parse(JSON.stringify(value).replace(/\\ud[89a-f][0-9a-f]{2}/g, '\\ufffd'));
+      const received = (answer) => ({ ...answer, value: { ...answer.value, result: { received: asRead(answer.value.result.received) } } });
+      let expected = { node: entry.lone ? received(node.node) : node.node, requests: sent(node.requests) };
       if (entry.after) {
         // What a client reads after the call: the status, and the server's config (its header value's lone unit read as U+FFFD,
         // the manifest's normalisation).
         const status = await call('mcp/mcpStatus', {});
         const config = await call('mcp/getMcpServerConfig', { name: entry.after });
         core = { node: { answer, status, config }, requests: core.requests };
-        expected = { node: { ...node.node, config: JSON.parse(JSON.stringify(node.node.config).replace(/\\ud[89a-f][0-9a-f]{2}/g, '\\ufffd')) }, requests: expected.requests };
+        expected = { node: { ...node.node, config: asRead(node.node.config) }, requests: expected.requests };
       }
       if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: entry.name, node: expected, core });
     }

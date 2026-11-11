@@ -21,6 +21,11 @@ const header = { 'X-Token': `abc${HIGH}` };
 const provider = (extra) => ({ name: 'Lone', protocol: 'openai-chat', baseURL: `${ORIGIN}/v1`, auth: 'none', schemaVersion: 2, ...extra });
 const mcpServer = (name) => ({ name, type: 'http', url: `${ORIGIN}/mcp`, headers: header });
 const lsp = (method, params) => ({ projectPath: PROJECT, root: PROJECT, relPath: 'a.rs', languageId: 'rust', method, params });
+const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } };
+const codeAction = {
+  range,
+  context: { diagnostics: [{ range, severity: 2, message: `unused variable: \`x${HIGH}\``, source: 'rustc', code: 'unused_variables' }], triggerKind: 1 },
+};
 
 /** What the core's lone refusal of `field` (`<method>.params<pointer>`) is to its client: the JSON-RPC error (mixdog-app-server
  *  server.rs `lone_refusal`), as protocol-client's `ClientFailure` detail carries it. */
@@ -95,5 +100,14 @@ export const CASES = [
     node: { run: 'lsp', input: lsp('workspace/executeCommand', { command: `stub.run${HIGH}`, arguments: [] }) },
     core: { method: 'lsp/request', params: { projectPath: PROJECT, root: PROJECT, request: { relPath: 'a.rs', languageId: 'rust', method: 'workspace/executeCommand', params: { command: `stub.run${HIGH}`, arguments: [] } } } },
     refused: 'lsp/request.params/request/params/command',
+  },
+  // ── a code action request as the editor sends it (apps/desktop/src/renderer/editor-lsp-providers.ts: each marker's message,
+  //    source and code), for a diagnostic whose message quotes document text holding a lone unit: forwarded by both. `lone`:
+  //    Node's answer holds the unit the server read back, the core's U+FFFD (the manifest's normalisation) ──
+  {
+    name: 'lsp-code-action-diagnostic-lone',
+    node: { run: 'lsp', input: lsp('textDocument/codeAction', codeAction) },
+    core: { method: 'lsp/request', params: { projectPath: PROJECT, root: PROJECT, request: { relPath: 'a.rs', languageId: 'rust', method: 'textDocument/codeAction', params: codeAction } } },
+    lone: true,
   },
 ];

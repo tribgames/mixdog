@@ -680,7 +680,7 @@
             "codeLensResolve": false,
             "rename": true,
             "prepareRename": false,
-            "codeAction": false,
+            "codeAction": true,
             "codeActionResolve": false,
             "codeActionKinds": [],
             "formatting": false,
@@ -764,7 +764,7 @@
             "codeLensResolve": false,
             "rename": true,
             "prepareRename": false,
-            "codeAction": false,
+            "codeAction": true,
             "codeActionResolve": false,
             "codeActionKinds": [],
             "formatting": false,
@@ -842,7 +842,7 @@
             "codeLensResolve": false,
             "rename": true,
             "prepareRename": false,
-            "codeAction": false,
+            "codeAction": true,
             "codeActionResolve": false,
             "codeActionKinds": [],
             "formatting": false,
@@ -871,6 +871,146 @@
             "received": {
               "command": "stub.run\ud83d",
               "arguments": []
+            }
+          }
+        }
+      },
+      "requests": []
+    },
+    {
+      "name": "lsp-code-action-diagnostic-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "textDocument/codeAction",
+          "params": {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 4
+              }
+            },
+            "context": {
+              "diagnostics": [
+                {
+                  "range": {
+                    "start": {
+                      "line": 0,
+                      "character": 0
+                    },
+                    "end": {
+                      "line": 0,
+                      "character": 4
+                    }
+                  },
+                  "severity": 2,
+                  "message": "unused variable: `x\ud83d`",
+                  "source": "rustc",
+                  "code": "unused_variables"
+                }
+              ],
+              "triggerKind": 1
+            }
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"textDocument/codeAction\",\"params\":{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}},\"context\":{\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}},\"severity\":2,\"message\":\"unused variable: `x\\ud83d`\",\"source\":\"rustc\",\"code\":\"unused_variables\"}],\"triggerKind\":1}}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": false,
+            "completionResolve": false,
+            "completionTriggerCharacters": [],
+            "signatureHelp": false,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": false,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": false,
+            "onTypeFormattingTriggerCharacters": [],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": false,
+            "inlayHintResolve": false,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 4
+                }
+              },
+              "context": {
+                "diagnostics": [
+                  {
+                    "range": {
+                      "start": {
+                        "line": 0,
+                        "character": 0
+                      },
+                      "end": {
+                        "line": 0,
+                        "character": 4
+                      }
+                    },
+                    "severity": 2,
+                    "message": "unused variable: `x\ud83d`",
+                    "source": "rustc",
+                    "code": "unused_variables"
+                  }
+                ],
+                "triggerKind": 1
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
             }
           }
         }

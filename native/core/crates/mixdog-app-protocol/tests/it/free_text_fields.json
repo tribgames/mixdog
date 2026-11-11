@@ -4465,14 +4465,9 @@
    ]
   },
   {
-   "class": "refused",
-   "reason": "a language-server lookup key or command: a rename's new name (the identifier written into the code), a workspace-symbol query (matched against the server's symbols), a command (run by the server), a trigger or typed character, a completion item's label, sort and filter text, commit characters, a signature parameter's label (a range of its signature's label) and a call-hierarchy item's name. Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)",
+   "class": "free",
+   "reason": "Language-server params that carry document text, a message or a label, sent back as the editor holds them: a trigger or typed character (the character typed into the document), a completion item's label, sort and filter text and commit characters, an inlay hint's label parts, a signature parameter's label, and a diagnostic's source, message and related message (the shipped editor sends `marker.message` in every code action request, apps/desktop/src/renderer/editor-lsp-providers.ts, and a diagnostic may quote document text). Node forwards a lone unit as its JSON escape and the server reads it; the core forwards U+FFFD, the replacement glyph either way (decisions.md \"frame-lone-surrogate\"; recorded: native/core/fixtures/lone-surrogate-wire lsp-code-action-diagnostic-lone)",
    "fields": [
-    "request lsp/request /request/params/newName",
-    "request lsp/request /request/params/query",
-    "request lsp/request /request/params/command",
-    "request lsp/request /request/params/command/command",
-    "request lsp/request /request/params/label/*/command/command",
     "request lsp/request /request/params/context/triggerCharacter",
     "request lsp/request /request/params/ch",
     "request lsp/request /request/params/label",
@@ -4481,6 +4476,23 @@
     "request lsp/request /request/params/filterText",
     "request lsp/request /request/params/commitCharacters/*",
     "request lsp/request /request/params/context/activeSignatureHelp/signatures/*/parameters/*/label",
+    "request lsp/request /request/params/context/diagnostics/*/source",
+    "request lsp/request /request/params/context/diagnostics/*/message",
+    "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/message",
+    "request lsp/request /request/params/diagnostics/*/source",
+    "request lsp/request /request/params/diagnostics/*/message",
+    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/message"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "a language-server identifier or command: a rename's new name (the identifier written into the code), a workspace-symbol query (a symbol name matched against the server's identifiers), a command (run by the server) and a call-hierarchy item's name (the symbol it names). Node forwards a lone unit as its JSON escape to the server, which looks it up or runs it; read as U+FFFD it would name something else, so the request is refused (recorded: native/core/fixtures/lone-surrogate-wire lsp-rename-lone, lsp-workspace-symbol-lone, lsp-execute-command-lone)",
+   "fields": [
+    "request lsp/request /request/params/newName",
+    "request lsp/request /request/params/query",
+    "request lsp/request /request/params/command",
+    "request lsp/request /request/params/command/command",
+    "request lsp/request /request/params/label/*/command/command",
     "request lsp/request /request/params/item/name"
    ]
   },
@@ -4508,20 +4520,14 @@
   },
   {
    "class": "refused",
-   "reason": "a diagnostic the server published, sent back in a code action request (its code, source, message, related information and description link): the server matches it with its own diagnostics, so text that differs matches none",
+   "reason": "a diagnostic's code, its description link and its related information's location, sent back in a code action request: an identifier and URIs the server matches or resolves, never typed text",
    "fields": [
     "request lsp/request /request/params/context/diagnostics/*/code",
     "request lsp/request /request/params/context/diagnostics/*/codeDescription/href",
-    "request lsp/request /request/params/context/diagnostics/*/source",
-    "request lsp/request /request/params/context/diagnostics/*/message",
     "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/location/uri",
-    "request lsp/request /request/params/context/diagnostics/*/relatedInformation/*/message",
     "request lsp/request /request/params/diagnostics/*/code",
     "request lsp/request /request/params/diagnostics/*/codeDescription/href",
-    "request lsp/request /request/params/diagnostics/*/source",
-    "request lsp/request /request/params/diagnostics/*/message",
-    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/location/uri",
-    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/message"
+    "request lsp/request /request/params/diagnostics/*/relatedInformation/*/location/uri"
    ]
   },
   {

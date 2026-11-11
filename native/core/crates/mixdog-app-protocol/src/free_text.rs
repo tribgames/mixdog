@@ -165,10 +165,10 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Notification, "host/update/report", &["/state/message"]),
     (Kind::Answer, "host/update/command", &["/message"]),
     (Kind::Answer, "host/screen/displays", &["/*/label"]),
-    // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): only text the server shows or
-    // writes into a document as given. A rename's new name, a symbol query, a command, a trigger character, a URI, a token,
-    // a diagnostic and a server's own `data` are looked up, run or matched by the server: refused (recorded,
-    // native/core/fixtures/lone-surrogate-wire).
+    // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): document text, messages,
+    // labels, titles and other prose, forwarded as Node forwards them (a code action's diagnostic message included). A rename's
+    // new name, a symbol query, a command, a URI, a token, a diagnostic's code, a vocabulary word and a server's own `data`
+    // name or run something on the server: refused (recorded, native/core/fixtures/lone-surrogate-wire).
     (
         Kind::Request,
         "lsp/request",
@@ -201,6 +201,20 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
             "/request/params/context/activeSignatureHelp/signatures/*/documentation/value",
             "/request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation",
             "/request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/value",
+            "/request/params/context/triggerCharacter",
+            "/request/params/ch",
+            "/request/params/label",
+            "/request/params/label/*/value",
+            "/request/params/sortText",
+            "/request/params/filterText",
+            "/request/params/commitCharacters/*",
+            "/request/params/context/activeSignatureHelp/signatures/*/parameters/*/label",
+            "/request/params/context/diagnostics/*/source",
+            "/request/params/context/diagnostics/*/message",
+            "/request/params/context/diagnostics/*/relatedInformation/*/message",
+            "/request/params/diagnostics/*/source",
+            "/request/params/diagnostics/*/message",
+            "/request/params/diagnostics/*/relatedInformation/*/message",
         ],
     ),
     // A patch's text (file content), given to `git apply`.
@@ -322,5 +336,11 @@ mod tests {
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/headers/X-Token".into())]), Some("/input/headers/X-Token"));
         assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/newName")]), Some("/request/params/newName"));
         assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/textEdit/newText")]), None);
+        // A code action's diagnostic: its message is text, its code an identifier.
+        assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/context/diagnostics/0/message")]), None);
+        assert_eq!(
+            refused(Kind::Request, "lsp/request", &[text("/request/params/context/diagnostics/0/code")]),
+            Some("/request/params/context/diagnostics/0/code")
+        );
     }
 }
