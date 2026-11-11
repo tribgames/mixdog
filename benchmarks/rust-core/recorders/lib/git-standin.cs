@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 
 // A stand-in for git.exe that the recorder installs. Every start appends one JSON line to <exe>.log: the argv, the cwd and the
-// environment block as the process received it (hidden =X: entries left out). It answers from <exe>.answers (lines
+// environment block as the process received it, whole (hidden =X: entries included). It answers from <exe>.answers (lines
 // `<last argument or *>\t<exit code>\t<stdout>\t<stderr>`, \n and \t escaped; the stdout `$ENV` prints the environment block, one
 // NAME=value per line, as `env` does). With <exe>.wrapper (lines `SET NAME=value`, `PREPEND NAME=value`, `EXEC path`) it is the
 // launcher: it sets those variables and starts EXEC with the same arguments, relaying its output and exit code.
@@ -22,7 +22,7 @@ static class StandIn {
     while (true) {
       string entry = Marshal.PtrToStringUni(at);
       if (entry.Length == 0) break;
-      if (entry[0] != '=') list.Add(entry);
+      list.Add(entry);
       at = IntPtr.Add(at, (entry.Length + 1) * 2);
     }
     FreeEnvironmentStringsW(block);

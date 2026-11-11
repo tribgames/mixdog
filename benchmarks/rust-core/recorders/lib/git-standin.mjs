@@ -33,13 +33,3 @@ export function standinStarts(exe) {
   const log = `${exe}.log`;
   return existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [];
 }
-
-// Windows adds a few machine variables (HOMEDRIVE, LOGONSERVER, TEMP, USERNAME, ...) to any child, whatever env it is given.
-// Those the recorder did not give are written <machine>, in the recorded environment and in an echoed environment alike.
-export function maskMachineVariables(lines, given) {
-  const names = new Set(Object.keys(given).map((name) => name.toUpperCase()));
-  return lines.map((entry) => {
-    const eq = entry.indexOf('=');
-    return eq > 0 && !names.has(entry.slice(0, eq).toUpperCase()) ? `${entry.slice(0, eq)}=<machine>` : entry;
-  });
-}

@@ -417,14 +417,32 @@
           ]
         },
         "env": {
-          "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd",
-          "SystemRoot": "C:\\Windows"
+          "SystemRoot": "C:\\Windows",
+          "WINDIR": "C:\\Windows",
+          "SYSTEMDRIVE": "C:",
+          "HOMEDRIVE": "C:",
+          "HOMEPATH": "\\Users\\recorder",
+          "USERPROFILE": "C:\\Users\\recorder",
+          "USERNAME": "recorder",
+          "USERDOMAIN": "RECORDING",
+          "LOGONSERVER": "\\\\RECORDING",
+          "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
+          "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd"
         },
         "options": {
           "cwd": "<root>",
           "env": {
-            "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd",
-            "SystemRoot": "C:\\Windows"
+            "SystemRoot": "C:\\Windows",
+            "WINDIR": "C:\\Windows",
+            "SYSTEMDRIVE": "C:",
+            "HOMEDRIVE": "C:",
+            "HOMEPATH": "\\Users\\recorder",
+            "USERPROFILE": "C:\\Users\\recorder",
+            "USERNAME": "recorder",
+            "USERDOMAIN": "RECORDING",
+            "LOGONSERVER": "\\\\RECORDING",
+            "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
+            "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd"
           },
           "timeoutMs": 30000,
           "maxBytes": 1000000
@@ -464,19 +482,20 @@
               ],
               "cwd": "<root>",
               "env": [
-                "HOMEDRIVE=<machine>",
-                "HOMEPATH=<machine>",
-                "LOGONSERVER=<machine>",
+                "HOME=C:\\Users\\recorder",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
                 "MSYSTEM=MINGW64",
-                "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;\\bin;<root>\\Git\\cmd;<root>\\Git\\cmd",
+                "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;C:\\Users\\recorder\\bin;<root>\\Git\\cmd;<root>\\Git\\cmd",
                 "PLINK_PROTOCOL=ssh",
-                "SYSTEMDRIVE=<machine>",
+                "SYSTEMDRIVE=C:",
                 "SystemRoot=C:\\Windows",
-                "TEMP=<machine>",
-                "USERDOMAIN=<machine>",
-                "USERNAME=<machine>",
-                "USERPROFILE=<machine>",
-                "WINDIR=<machine>"
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
               ]
             }
           ]
@@ -534,9 +553,18 @@
           ]
         },
         "env": {
+          "SystemRoot": "C:\\Windows",
+          "WINDIR": "C:\\Windows",
+          "SYSTEMDRIVE": "C:",
+          "HOMEDRIVE": "C:",
+          "HOMEPATH": "\\Users\\recorder",
+          "USERPROFILE": "C:\\Users\\recorder",
+          "USERNAME": "recorder",
+          "USERDOMAIN": "RECORDING",
+          "LOGONSERVER": "\\\\RECORDING",
+          "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
           "PATH": "<root>\\Git\\cmd",
-          "HOME": "D:\\h",
-          "SystemRoot": "C:\\Windows"
+          "HOME": "D:\\h"
         },
         "args": [
           "-c",
@@ -545,9 +573,18 @@
         ],
         "command": "<root>\\Git\\mingw64\\bin\\git.exe",
         "launcherEnvironment": {
+          "SystemRoot": "C:\\Windows",
+          "WINDIR": "C:\\Windows",
+          "SYSTEMDRIVE": "C:",
+          "HOMEDRIVE": "C:",
+          "HOMEPATH": "\\Users\\recorder",
+          "USERPROFILE": "C:\\Users\\recorder",
+          "USERNAME": "recorder",
+          "USERDOMAIN": "RECORDING",
+          "LOGONSERVER": "\\\\RECORDING",
+          "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
           "PATH": "<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
           "HOME": "D:\\h",
-          "SystemRoot": "C:\\Windows",
           "MSYSTEM": "MINGW64",
           "PLINK_PROTOCOL": "ssh"
         },
@@ -556,11 +593,11 @@
           "signal": null,
           "output": [
             null,
-            "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+            "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
             ""
           ],
           "pid": "<pid>",
-          "stdout": "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+          "stdout": "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
           "stderr": ""
         },
         "direct": {
@@ -568,14 +605,16 @@
           "signal": null,
           "output": [
             null,
-            "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+            "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
             ""
           ],
           "pid": "<pid>",
-          "stdout": "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+          "stdout": "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
           "stderr": ""
         },
         "sameLines": true,
+        "onlyDirect": [],
+        "onlyLauncher": [],
         "standinStarts": {
           "launcher": [
             {
@@ -587,17 +626,17 @@
               "cwd": "<root>",
               "env": [
                 "HOME=D:\\h",
-                "HOMEDRIVE=<machine>",
-                "HOMEPATH=<machine>",
-                "LOGONSERVER=<machine>",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
                 "PATH=<root>\\Git\\cmd",
-                "SYSTEMDRIVE=<machine>",
+                "SYSTEMDRIVE=C:",
                 "SystemRoot=C:\\Windows",
-                "TEMP=<machine>",
-                "USERDOMAIN=<machine>",
-                "USERNAME=<machine>",
-                "USERPROFILE=<machine>",
-                "WINDIR=<machine>"
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
               ]
             }
           ],
@@ -611,19 +650,19 @@
               "cwd": "<root>",
               "env": [
                 "HOME=D:\\h",
-                "HOMEDRIVE=<machine>",
-                "HOMEPATH=<machine>",
-                "LOGONSERVER=<machine>",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
                 "MSYSTEM=MINGW64",
                 "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
                 "PLINK_PROTOCOL=ssh",
-                "SYSTEMDRIVE=<machine>",
+                "SYSTEMDRIVE=C:",
                 "SystemRoot=C:\\Windows",
-                "TEMP=<machine>",
-                "USERDOMAIN=<machine>",
-                "USERNAME=<machine>",
-                "USERPROFILE=<machine>",
-                "WINDIR=<machine>"
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
               ]
             },
             {
@@ -635,19 +674,19 @@
               "cwd": "<root>",
               "env": [
                 "HOME=D:\\h",
-                "HOMEDRIVE=<machine>",
-                "HOMEPATH=<machine>",
-                "LOGONSERVER=<machine>",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
                 "MSYSTEM=MINGW64",
                 "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
                 "PLINK_PROTOCOL=ssh",
-                "SYSTEMDRIVE=<machine>",
+                "SYSTEMDRIVE=C:",
                 "SystemRoot=C:\\Windows",
-                "TEMP=<machine>",
-                "USERDOMAIN=<machine>",
-                "USERNAME=<machine>",
-                "USERPROFILE=<machine>",
-                "WINDIR=<machine>"
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
               ]
             }
           ]

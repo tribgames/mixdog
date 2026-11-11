@@ -8,7 +8,7 @@
 // fallback) run Node's real launcher, startGit, runGitOffThread and its worker thread, spawnSync, against a controlled install the
 // recorder builds: a stand-in executable (lib/git-standin.cs, compiled with the .NET Framework's csc) that records its argv, cwd and
 // environment and answers from a script, as the real binary and as the launcher (cmd, bin). Windows adds a few machine variables to
-// every child; those not given are written <machine>.
+// every child that lacks them, so the recorder gives them all (BASE_ENV) and every environment is recorded and compared whole.
 //
 //   node benchmarks/rust-core/recorders/record-git-launch-cases.mjs --tree <export of b6f10295a with node_modules>
 import { spawnSync } from 'node:child_process';
@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
-import { installStandin, maskMachineVariables, standinStarts } from './lib/git-standin.mjs';
+import { installStandin, standinStarts } from './lib/git-standin.mjs';
 
 const set = openSet('git-launch-cases', import.meta.url);
 const { runGitOffThread } = await set.load('src/runtime/shared/git-runner.mjs');
@@ -51,24 +51,19 @@ function controlledInstall() {
   return {
     root,
     description: { files: INSTALL, realBinary: 'Git/mingw64/bin/git.exe: stand-in answering', answers, launchers: 'Git/cmd/git.exe and Git/bin/git.exe: stand-in launcher running', wrapper },
-    starts: (given) => ({
-      launcher: standinStarts(join(root, 'Git', 'cmd', 'git.exe')).map((start) => ({ ...start, env: maskMachineVariables(start.env, given) })),
-      real: standinStarts(real).map((start) => ({ ...start, env: maskMachineVariables(start.env, given) })),
-    }),
+    starts: () => ({ launcher: standinStarts(join(root, 'Git', 'cmd', 'git.exe')), real: standinStarts(real) }),
   };
 }
-// The variables the recorder gives a child, plus the two the launcher sets; any other the OS adds is <machine>.
-const masked = (given) => ({ ...given, MSYSTEM: '', PLINK_PROTOCOL: '' });
-const maskMachine = (result, given) => {
-  const text = (value) => (typeof value === 'string' ? maskMachineVariables(value.split('\n'), given).join('\n') : value);
-  return { ...result, pid: '<pid>', stdout: text(result.stdout), output: result.output.map(text) };
-};
-// runChildTimed's account of the spawn is a measurement of this run.
-const timingMask = (timing) => Object.fromEntries(Object.keys(timing ?? {}).map((key) => [key, '<ms>']));
-const maskTiming = (value) => ({ ...value, timing: timingMask(value.timing) });
-const maskErrorTiming = (error) => { if (error?.timing) error.timing = timingMask(error.timing); return error; };
-
-
+// The complete environment base of every started child. Windows adds these variables to any child that lacks them (HOMEDRIVE, HOMEPATH,
+// LOGONSERVER, SYSTEMDRIVE, TEMP, USERDOMAIN, USERNAME, USERPROFILE, WINDIR), with the values of the machine's user; giving all of them
+// leaves nothing machine-dependent in what the child receives, so the environments are recorded and compared as they are.
+const BASE_ENV = { SystemRoot: 'C:\\Windows', WINDIR: 'C:\\Windows', SYSTEMDRIVE: 'C:', HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\recorder', USERPROFILE: 'C:\\Users\\recorder', USERNAME: 'recorder', USERDOMAIN: 'RECORDING', LOGONSERVER: '\\\\RECORDING', TEMP: 'C:\\Users\\recorder\\AppData\\Local\\Temp' };
+// A spawned child's process id and the spawn timings are measurements of this run: they are recorded as text with a marker and declared
+// as normalised (the manifest lists the paths): pid:<n> becomes <pid>, ms:<n> becomes <ms>.
+const measured = (result) => ({ ...result, pid: `pid:${result.pid}` });
+const timingText = (timing) => Object.fromEntries(Object.entries(timing ?? {}).map(([key, value]) => [key, `ms:${value}`]));
+const maskTiming = (value) => ({ ...value, timing: timingText(value.timing) });
+const maskErrorTiming = (error) => { if (error?.timing) error.timing = timingText(error.timing); return error; };
 await set.run('Git for Windows launchers resolve to the real binary of their install', () => winOnly(() => {
   const root = tree(INSTALL);
   const launchers = ['cmd', 'bin'].map((launcher) => ({ pathValue: join(root, 'Git', launcher), launch: win(join(root, 'Git', launcher)) }));
@@ -162,13 +157,13 @@ await set.run('the git runner falls back to the git PATH names once the resolved
   // the controlled install and stays. The real runGitOffThread and its worker thread run the git child.
   const stale = tree(INSTALL);
   const fallback = controlledInstall();
-  const env = { PATH: `${join(stale, 'Git', 'cmd')}${delimiter}${join(fallback.root, 'Git', 'cmd')}`, SystemRoot: 'C:\\Windows' };
+  const env = { ...BASE_ENV, PATH: `${join(stale, 'Git', 'cmd')}${delimiter}${join(fallback.root, 'Git', 'cmd')}` };
   const options = { cwd: stale, env, timeoutMs: 30_000, maxBytes: 1_000_000 };
   const staleCommand = join(stale, 'Git', 'mingw64', 'bin', 'git.exe');
   const first = await runGitOffThread(['--version'], options).then((value) => ({ resolved: maskTiming(value) }), (error) => ({ rejected: maskErrorTiming(error) }));
   rmSync(join(stale, 'Git'), { recursive: true, force: true });
   const afterRemoval = await runGitOffThread(['--version'], options).then((value) => ({ resolved: maskTiming(value) }), (error) => ({ rejected: maskErrorTiming(error) }));
-  return { staleFiles: INSTALL, fallback: fallback.description, env, options, staleCommand, first, afterRemoval, standinStarts: fallback.starts(masked(env)) };
+  return { staleFiles: INSTALL, fallback: fallback.description, env, options, staleCommand, first, afterRemoval, standinStarts: fallback.starts() };
 }));
 await set.run('without a bypass the command and environment are unchanged', () => {
   const emptyDir = tree(['empty/']);
@@ -178,16 +173,18 @@ await set.run('without a bypass the command and environment are unchanged', () =
 });
 await set.run('the direct binary sees the environment the launcher would give it', () => winOnly(() => {
   const fallback = controlledInstall();
-  const env = { PATH: join(fallback.root, 'Git', 'cmd'), HOME: 'D:\\h', SystemRoot: 'C:\\Windows' };
+  const env = { ...BASE_ENV, PATH: join(fallback.root, 'Git', 'cmd'), HOME: 'D:\\h' };
   const args = ['-c', 'alias.dumpenv=!env', 'dumpenv'];
-  const run = (command, childEnv) => maskMachine(spawnSync(command, args, { encoding: 'utf8', windowsHide: true, cwd: fallback.root, env: childEnv }), masked(childEnv));
+  const run = (command, childEnv) => measured(spawnSync(command, args, { encoding: 'utf8', windowsHide: true, cwd: fallback.root, env: childEnv }));
   const viaLauncher = run('git', env);
   const direct = run(gitCommand(env), gitChildEnv(env));
   const lines = (output) => output.split('\n').filter(Boolean).sort();
+  const directLines = lines(direct.stdout);
+  const launcherLines = lines(viaLauncher.stdout);
   return {
     fallbackInstall: fallback.description, env, args, command: gitCommand(env), launcherEnvironment: gitChildEnv(env), viaLauncher, direct,
-    sameLines: JSON.stringify(lines(direct.stdout)) === JSON.stringify(lines(viaLauncher.stdout)),
-    standinStarts: fallback.starts(masked(gitChildEnv(env))),
+    sameLines: JSON.stringify(directLines) === JSON.stringify(launcherLines), onlyDirect: directLines.filter((l) => !launcherLines.includes(l)), onlyLauncher: launcherLines.filter((l) => !directLines.includes(l)),
+    standinStarts: fallback.starts(),
   };
 }));
 
@@ -196,6 +193,8 @@ await set.finish({
   replay: { entry: 'mixdog-scm git_launch.rs: rebuild each case\'s tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole', normalised: { tempRoots: 'every temp root is written <root> wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)' }, platform: 'recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere' },
   dataFiles: ['benchmarks/rust-core/recorders/lib/git-standin.cs'],
   replaceInText: roots.map((r) => [r, '<root>']),
+  replaceRegex: [[/^pid:\d+$/, '<pid>'], [/^ms:-?[\d.]+(e[+-]?\d+)?$/, '<ms>']],
+  normaliseReason: 'every temp root is written <root>; the process id of a spawned child (spawnSync result.pid) is a measurement of the run, written <pid>; the spawn timings of runChildTimed are written <ms>. Nothing else is normalised: every environment is recorded whole and compared raw.',
 });
 for (const r of roots) rmSync(r, { recursive: true, force: true });
 process.exit(0);
