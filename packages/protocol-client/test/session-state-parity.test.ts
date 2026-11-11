@@ -169,10 +169,12 @@ test('fold parity: recorded session-state frames reproduce DesktopSessionState f
     await settle();
 
     const got = sessionStateOf(client, 'lead') as O;
-    // Fields the engine starts with (initial-state.mjs, context-state.mjs `baseRouteState`) that the scripted daemon's snapshot omits
+    // Fields the engine starts with (initial-state.mjs, context-state.mjs `baseRouteState`, the route's `runtime.sessionProvider ?? null`) that the scripted daemon's snapshot omits
     // while they hold their initial value; `transcriptSpilled` comes with the first row (transcript-store.mjs).
     const expected: O = {
       streamingTail: null,
+      sessionProvider: null,
+      sessionModel: null,
       promptRestore: null,
       workspace: null,
       goal: null,
