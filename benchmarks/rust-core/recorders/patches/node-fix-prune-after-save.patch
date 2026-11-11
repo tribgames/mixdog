@@ -12,10 +12,10 @@ index 1ab166e..564e13e 100644
    updateSessionAiTitle,
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
 new file mode 100644
-index 0000000..86d03e0
+index 0000000..fff2255
 --- /dev/null
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
-@@ -0,0 +1,444 @@
+@@ -0,0 +1,538 @@
 +// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is stored: a
 +// process that stops before the save restarts from the stored transcript, which still names them, and a save that does
 +// not store it (dropped by a delete's fence, refused because another writer recorded after this copy, or failed)
@@ -24,14 +24,17 @@ index 0000000..86d03e0
 +// reconciles the session's tool-result directory with the stored transcript (and the clear forks it names), so a
 +// prune a close, a stopped process or an unreadable archive kept from finishing happens at the next resume. The copies
 +// of a conversation in other sessions (a clear's fork, an inheritance's heir, and their own copies) keep the sidecars
-+// they name, and a session this process let go while its prune ran is left to its next owner.
++// they name, and a session this process let go while its prune ran is left to its next owner. A copy is found from its
++// own record (`inheritedFromSessionId`, in the session catalog) as well as from its source's, it is read only once an
++// old sidecar the session itself does not keep remains, and one that cannot be read keeps everything. A reference is
++// text in the session's own records and its copies: a room row naming a sidecar keeps nothing.
 +//
 +// The point between the compaction and its save is the commit's timing line (`recordCompactionTiming`), written once
 +// the compacted transcript is adopted and before `compactSessionMessages` saves it.
 +import assert from 'node:assert/strict';
 +import { spawnSync } from 'node:child_process';
 +import { createHash } from 'node:crypto';
-+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
++import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 +import fsp from 'node:fs/promises';
 +import { syncBuiltinESMExports } from 'node:module';
 +import { tmpdir } from 'node:os';
@@ -52,6 +55,7 @@ index 0000000..86d03e0
 +  await runner._settleDeferredPrunesForTest?.();
 +};
 +const { createLifecycleApi } = await import('../../../../../session-runtime/lifecycle-api.mjs');
++const { appendRoomRows } = await import('../../../../../session-runtime/agent-room-delivery.mjs');
 +
 +// The prune's file system calls on a session's tool-result directory (`readdir`, `stat`, `readFile` of
 +// node:fs/promises), counted per call; `hold(path)` may make the listing wait.
@@ -168,6 +172,22 @@ index 0000000..86d03e0
 +  const result = await compact(seeded, () => manager.markSessionAskStart(seeded.sessionId));
 +  assert.equal(result.changed, true, JSON.stringify(result));
 +  assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray'], 'a session that is not idle is not pruned');
++}
++
++// What `run` writes to stderr.
++async function stderrOf(run) {
++  const write = process.stderr.write;
++  let text = '';
++  process.stderr.write = function (chunk, ...rest) {
++    text += String(chunk);
++    return write.call(this, chunk, ...rest);
++  };
++  try {
++    await run();
++  } finally {
++    process.stderr.write = write;
++  }
++  return text;
 +}
 +
 +// The session is resumed from its stored copy, and its reconcile has run.
@@ -384,6 +404,80 @@ index 0000000..86d03e0
 +    assert.deepEqual(left(seeded.files), ['named']);
 +  });
 +
++  test('a copy made before its source recorded it (an older heir, named in its own record only) keeps the sidecars it names', async () => {
++    const seeded = await plainSession('older', { named: 'named output', stray: 'stray output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    // What an inheritance stored before its source recorded its copies: the heir's own `inheritedFromSessionId`.
++    const heirId = `sess_prune_after_save_older_heir_${process.pid}`;
++    await saveSessionAsync({ id: heirId, provider: 'anthropic', model: 'fake-model', owner: 'agent', inheritedFromSessionId: seeded.sessionId, messages: loadSession(seeded.sessionId).messages, tools: [], generation: 0, closed: false });
++    await settleRecorder(heirId);
++    assert.ok(await manager.clearSessionMessages(seeded.sessionId, { fork: false }), 'cleared');
++    await settleRecorder(seeded.sessionId);
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++  });
++
++  test("a copy whose record cannot be read keeps every sidecar, and the skip says why", async () => {
++    const seeded = await plainSession('unreadable', { named: 'named output', stray: 'stray output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    const forkId = `sess_prune_after_save_unreadable_archive_${process.pid}`;
++    assert.ok(await manager.clearSessionMessages(seeded.sessionId, { archiveAs: forkId }), 'cleared');
++    await settleRecorder(forkId);
++    await settleRecorder(seeded.sessionId);
++    assert.equal(loadSession(forkId).inheritedFromSessionId, seeded.sessionId, "the clear's fork names its source in its own record");
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    const forkLog = join(dataDir, 'sessions', `${forkId}.log.jsonl`);
++    const stored = readFileSync(forkLog);
++    writeFileSync(forkLog, 'not a session log\n');
++    const logged = await stderrOf(() => resume(seeded.sessionId));
++    assert.deepEqual(left(seeded.files), ['named', 'stray'], 'nothing is deleted while a copy cannot be read');
++    assert.match(logged, new RegExp(`offload prune skipped \\(sess=${seeded.sessionId}\\): the session ${forkId} cannot be read`));
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    writeFileSync(forkLog, stored);
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++  });
++
++  test('the copies are read only once an old sidecar the session itself does not keep remains', async () => {
++    const seeded = await plainSession('lazy', { named: 'named output', young: 'young output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    utimesSync(seeded.files.young, new Date(), new Date());
++    // A copy of the conversation whose record cannot be read: reading it would skip the prune and say so.
++    const heirId = `sess_prune_after_save_lazy_heir_${process.pid}`;
++    await saveSessionAsync({ id: heirId, provider: 'anthropic', model: 'fake-model', owner: 'agent', inheritedFromSessionId: seeded.sessionId, messages: [{ role: 'user', content: 'hello' }], tools: [], generation: 0, closed: false });
++    await settleRecorder(heirId);
++    writeFileSync(join(dataDir, 'sessions', `${heirId}.log.jsonl`), 'not a session log\n');
++    let logged = await stderrOf(() => resume(seeded.sessionId));
++    assert.doesNotMatch(logged, /offload prune skipped/, 'nothing old is left unkept: no copy is read');
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    utimesSync(seeded.files.young, HOUR_AGO, HOUR_AGO);
++    logged = await stderrOf(() => resume(seeded.sessionId));
++    assert.match(logged, new RegExp(`offload prune skipped \\(sess=${seeded.sessionId}\\): the session ${heirId} cannot be read`));
++    assert.deepEqual(left(seeded.files), ['named', 'young']);
++    // An unreadable record anywhere in the store stops every prune: the later tests share this store.
++    rmSync(join(dataDir, 'sessions', `${heirId}.log.jsonl`));
++  });
++
++  test('a room row naming a sidecar keeps nothing: a room log is not a copy of the conversation', async () => {
++    const seeded = await plainSession('room', { named: 'named output', stray: 'stray output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    const roomLog = `sess_room_prunetest${process.pid}`;
++    await saveSessionAsync({ id: roomLog, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: [], tools: [], generation: 0, closed: false });
++    await appendRoomRows(roomLog, [{ id: 'row1', kind: 'speech', speaker: 'agent', text: `the stray result is at ${seeded.files.stray}` }]);
++    assert.match(JSON.stringify(loadSession(roomLog).messages), new RegExp(basename(seeded.files.stray)));
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++  });
++
 +  test('a session let go while its reconcile runs is left to its next owner', async () => {
 +    const seeded = await plainSession('owner', { named: 'named output', stray: 'stray output' }, (files) => [
 +      { role: 'user', content: `the result is at ${files.named}` },
@@ -461,10 +555,10 @@ index 0000000..86d03e0
 +  });
 +}
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-index 923faae..6d3e4fc 100644
+index 923faae..4e9477f 100644
 --- a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-@@ -17,9 +17,12 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
+@@ -17,9 +17,14 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
  import { positiveInt } from '../../../../shared/numbers.mjs';
  import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
  import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
@@ -473,11 +567,13 @@ index 923faae..6d3e4fc 100644
  import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
  import { pruneOffloadSession } from '../tool-result-offload.mjs';
 +import { loadSession } from '../store.mjs';
++import { loadSessionCopy } from '../store/load-session.mjs';
++import { scanStoredSessionSummaries } from '../store/listing.mjs';
 +import { sessionWriterHeldHere } from '../store/session-writer-claim.mjs';
  import { _getPendingMessagesForSession } from './pending-messages.mjs';
  import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
  import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
-@@ -466,20 +469,83 @@ async function compareTranscriptEncodings(before, after) {
+@@ -466,20 +471,115 @@ async function compareTranscriptEncodings(before, after) {
  }
  
  // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
@@ -489,9 +585,11 @@ index 923faae..6d3e4fc 100644
 +// transcript still names what the compaction dropped, and a process that
 +// stops restarts from it. The references are read when the deletes are
 +// decided, from the session as it is then (its live copy, or the stored one),
-+// its queue, and the stored transcripts of the copies of its conversation it
-+// names (`offloadForks`: a clear's fork, an inheritance's heir), and of their
-+// own copies: each names this session's sidecars. A session this process no
++// its queue, and (once a sidecar none of that keeps remains) the stored
++// transcripts of the copies of its conversation (`offloadCopies`), each of
++// which names this session's sidecars. A reference is text: a sidecar whose
++// path or file name occurs in any of these (or in an archive they reach) is
++// kept; text elsewhere (a room log, memory) keeps nothing. A session this process no
 +// longer holds (closed, or claimed by another process) is not pruned: its
 +// owner's next resume reconciles it.
 +// A prune a running turn stopped runs once the turn stops counting as in
@@ -539,19 +637,9 @@ index 923faae..6d3e4fc 100644
 +      sessionId,
 +      () => {
 +        const current = loadSession(sessionId);
-+        const lists = [current?.messages, current?.liveTurnMessages, _getPendingMessagesForSession(sessionId)];
-+        const seen = new Set([sessionId]);
-+        const forks = offloadForksOf(current);
-+        for (let i = 0; i < forks.length; i += 1) {
-+          if (seen.has(forks[i])) continue;
-+          seen.add(forks[i]);
-+          const fork = loadSession(forks[i]);
-+          lists.push(fork?.messages);
-+          forks.push(...offloadForksOf(fork));
-+        }
-+        return lists;
++        return [current?.messages, current?.liveTurnMessages, _getPendingMessagesForSession(sessionId)];
 +      },
-+      { owned: () => sessionWriterHeldHere(sessionId) }
++      { owned: () => sessionWriterHeldHere(sessionId), copies: () => offloadCopies(sessionId) }
 +    );
    } catch {
      /* best-effort */
@@ -559,6 +647,46 @@ index 923faae..6d3e4fc 100644
  }
  
 +const offloadForksOf = (session) => (Array.isArray(session?.offloadForks) ? session.offloadForks.filter((id) => typeof id === 'string' && id) : []);
++
++// The stored message lists of the copies of `sessionId`'s conversation, read
++// when the prune asks for them: the sessions whose own record names it as their
++// source (`inheritedFromSessionId`: an inheritance's heir, a clear's fork, found
++// in the session catalog, so a copy made before its source recorded it counts),
++// the ones its record names (`offloadForks`), and the copies of each of them.
++// A copy deleted since names nothing. A stored session whose record cannot be
++// read (whether it is a copy is unknown then), or a store that cannot be
++// listed, answers null: nothing is deleted, and the skip says why.
++async function offloadCopies(sessionId) {
++  const skipped = (why) => {
++    writeStderrBestEffort(`[session] offload prune skipped (sess=${sessionId}): ${why}\n`);
++    return null;
++  };
++  // The authoritative listing (storage rescanned, each unchanged file's row
++  // reused): the cached one may not list a copy another process stored.
++  let scan;
++  try {
++    scan = await scanStoredSessionSummaries();
++  } catch (error) {
++    scan = null;
++  }
++  if (!scan) return skipped('the session store could not be listed');
++  if (scan.unreadable.length) return skipped(`the session ${scan.unreadable[0]} cannot be read`);
++  const summaries = scan.rows;
++  const copiesOf = (id, session) => [...offloadForksOf(session), ...summaries.filter((row) => row?.inheritedFromSessionId === id).map((row) => row.id)];
++  const lists = [];
++  const seen = new Set([sessionId]);
++  const forks = copiesOf(sessionId, loadSession(sessionId));
++  for (let i = 0; i < forks.length; i += 1) {
++    if (seen.has(forks[i])) continue;
++    seen.add(forks[i]);
++    const { session: fork, from } = loadSessionCopy(forks[i]);
++    if (from === 'unreadable') return skipped(`the session ${forks[i]} cannot be read`);
++    if (!fork) continue;
++    lists.push(fork.messages);
++    forks.push(...copiesOf(forks[i], fork));
++  }
++  return lists;
++}
 +
 +/** `resumeSession`: the session's tool-result directory is reconciled with
 + *  what is stored now (idle only, as every prune). */
@@ -569,7 +697,7 @@ index 923faae..6d3e4fc 100644
  function summaryUsageRecord(usage) {
    if (!usage) return null;
    return {
-@@ -697,7 +763,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
+@@ -697,7 +797,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
    // change re-roots the system prompt now and needs no notice any more.
    if (changed) applyPendingWorkspaceReroot(session);
    if (changed) resetReadStateAfterCompaction(resolvedSessionId);
@@ -578,7 +706,7 @@ index 923faae..6d3e4fc 100644
    session.compaction = compactionRecord(plan, {
      stage: mode === 'auto' ? 'post_turn' : 'manual',
 diff --git a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
-index ca19c4c..9ee0779 100644
+index ca19c4c..38710d6 100644
 --- a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 @@ -10,8 +10,9 @@ import {
@@ -645,16 +773,20 @@ index ca19c4c..9ee0779 100644
      const fork = {
        ...session,
        id: forkId,
-@@ -244,6 +249,8 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
+@@ -244,6 +249,12 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
        ...clearedTokenAccounting(now),
      };
      delete fork.liveTurnMessages;
 +    // The forks of the source name the source's sidecars, not the fork's.
 +    delete fork.offloadForks;
++    // The fork names its source in its own record, as an inheritance's heir
++    // does (the spread copied the source's own source): the source's prune
++    // finds the copy from it in the session catalog (`offloadCopies`).
++    fork.inheritedFromSessionId = session.id;
      // The spread copied the source's environment: the fork names its own
      // scratch directory (its shell commands use it), not the source's.
      if (useOwnScratchEnvironment(fork)) {
-@@ -313,9 +320,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -313,9 +324,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
    const compact = clearOptions.compact === true && !archiveAs;
    const currentMessages = Array.isArray(session.messages) ? session.messages : [];
    const beforeMessageTokens = estimateMessagesTokens(currentMessages);
@@ -666,7 +798,7 @@ index ca19c4c..9ee0779 100644
    const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
    const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
    const now = Date.now();
-@@ -333,7 +340,11 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -333,7 +344,12 @@ export async function clearSessionMessages(sessionId, options = {}) {
    const summaryCarriedForward = keep.some(isCompactSummaryMessage);
    const keepCopy = clearOptions.fork !== false || Boolean(archiveAs);
    if (keepCopy && hasUserConversationMessage(messages) && !summaryCarriedForward) {
@@ -674,12 +806,13 @@ index ca19c4c..9ee0779 100644
 +    const forkId = archiveAs || mintSessionId();
 +    const fork = forkOutgoingTranscript(session, messages, now, archiveAs, forkId);
 +    // The fork's stored transcript names this session's sidecars: every prune
-+    // of this session reads it (`pruneCompactedOffloads`).
++    // of this session reads it (`offloadCopies`, which also finds it from the
++    // fork's own `inheritedFromSessionId` once the catalog lists it).
 +    session.offloadForks = [...(Array.isArray(session.offloadForks) ? session.offloadForks : []), forkId];
      if (archiveAs) await fork;
    }
  
-@@ -378,7 +389,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -378,7 +394,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
      invalidateContextUsageSnapshot(session);
    }
    session.updatedAt = now;
@@ -690,7 +823,7 @@ index ca19c4c..9ee0779 100644
    return session;
  }
  export async function compactSessionMessages(sessionId, options = {}) {
-@@ -413,9 +426,27 @@ export async function compactSessionMessages(sessionId, options = {}) {
+@@ -413,9 +431,27 @@ export async function compactSessionMessages(sessionId, options = {}) {
      session.lastContextTokensStaleAfterCompact = false;
    }
    session.updatedAt = Date.now();
@@ -741,18 +874,71 @@ index 5627bca..01889c5 100644
 +  reconcileOffloadsOnResume(sessionId);
    return session;
  }
+diff --git a/src/runtime/agent/orchestrator/session/store/listing.mjs b/src/runtime/agent/orchestrator/session/store/listing.mjs
+index 69eadbe..a8b731a 100644
+--- a/src/runtime/agent/orchestrator/session/store/listing.mjs
++++ b/src/runtime/agent/orchestrator/session/store/listing.mjs
+@@ -195,6 +195,17 @@ export async function listStoredSessionSummariesAsync(options = {}) {
+   return _overlayUnpersistedSummaryRows(scanned.rows, scanned.invalidStorageIds);
+ }
+ 
++/** The authoritative listing (listStoredSessionSummariesAsync with
++ *  `refreshFromStorage`) and the ids of the stored sessions it could not read
++ *  (`unreadable`: no row speaks for them); null when storage cannot be
++ *  enumerated. */
++export async function scanStoredSessionSummaries() {
++  _ensureSummaryCacheDataDir();
++  const scanned = await _storageRefresh();
++  if (!scanned) return null;
++  return { rows: _overlayUnpersistedSummaryRows(scanned.rows, scanned.invalidStorageIds), unreadable: [...scanned.invalidStorageIds] };
++}
++
+ // One storage refresh runs at a time (they share the per-file scan cache). A
+ // caller arriving while one runs may have written something that scan already
+ // passed, so it never joins it: it waits for the one refresh queued behind it,
+diff --git a/src/runtime/agent/orchestrator/session/store/load-session.mjs b/src/runtime/agent/orchestrator/session/store/load-session.mjs
+index b0d58a4..51efab7 100644
+--- a/src/runtime/agent/orchestrator/session/store/load-session.mjs
++++ b/src/runtime/agent/orchestrator/session/store/load-session.mjs
+@@ -63,6 +63,13 @@ export function resolveSessionCopy(id, memory, record) {
+ }
+ 
+ export function loadSession(id) {
++  return loadSessionCopy(id).session;
++}
++
++/** loadSession's answer `session` and where it came from (`from`, as
++ *  resolveSessionCopy names it: 'unreadable' for an existing record that
++ *  cannot be read, 'absent' for none). */
++export function loadSessionCopy(id) {
+   const memory = sessionMemoryCopies(id);
+   // An existing record owns this identity. It must read as this session's
+   // before fresher in-memory state is allowed to shadow it; the cache keeps
+@@ -73,7 +80,7 @@ export function loadSession(id) {
+   const { session, from } = resolveSessionCopy(id, memory, disk);
+   // The record (or its absence) outranks a live snapshot that no longer speaks for the id.
+   if ((from === 'record' || from === 'absent') && memory.live?.id === id) _liveSessions.delete(id);
+-  return session ? _ensureLifecycleFields(session) : null;
++  return { session: session ? _ensureLifecycleFields(session) : null, from };
+ }
+ 
+ // `status` of loadSession(id), for the agent-status pulse: it reads every
 diff --git a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-index f9f9973..f8efb0a 100644
+index f9f9973..f40bc73 100644
 --- a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
 +++ b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-@@ -509,35 +509,22 @@ registerSessionPurgeHook(clearOffloadSessionSync);
+@@ -509,52 +509,38 @@ registerSessionPurgeHook(clearOffloadSessionSync);
  // path match is conservative: if messages cannot be serialized, or a path is
  // mentioned anywhere in a message, retain the file rather than risk deleting
  // one that can still be read by the model.
 -export async function pruneOffloadSession(sessionId, getMessages) {
 +// `owned` says whether the session is still this caller's to prune: it is
 +// asked when the references are read and again before anything is deleted.
-+export async function pruneOffloadSession(sessionId, getMessages, { owned = () => true } = {}) {
++// `copies` answers the message lists of the copies of the conversation in
++// other sessions, which name these sidecars too; it is asked only once an old
++// sidecar the session itself does not keep remains, and its null (a copy that
++// cannot be read) deletes nothing.
++export async function pruneOffloadSession(sessionId, getMessages, { owned = () => true, copies = async () => [] } = {}) {
    if (!sessionId || typeof getMessages !== 'function') return;
    const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
    if (!existsSync(dir)) return;
@@ -785,11 +971,32 @@ index f9f9973..f8efb0a 100644
 -  // Only an old sidecar can be deleted. Without one, nothing below could have
 -  // any effect, so skip serializing the transcript and walking the archives.
 -  if (!candidates?.length) return;
-+  if (!candidates?.length || !owned()) return;
-   let serialized;
+-  let serialized;
++  if (!candidates?.length || !owned()) return;  let serialized;
    try {
      serialized = JSON.stringify(getMessages());
-@@ -566,6 +553,21 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+   } catch {
+     return;
+   }
+-  const haystack = process.platform === 'win32' ? serialized.toLowerCase() : serialized;
++  const fold = (text) => (process.platform === 'win32' ? text.toLowerCase() : text);
++  const haystack = fold(serialized);
+   // A sidecar whose path or name the transcript mentions is retained. Every
+   // name the walk below can reach from the transcript itself is such a
+   // mention, so only the unmentioned candidates depend on the archive graph.
+-  let unreferenced = candidates.filter(({ name, filePath }) => {
+-    const needles = [normalizeOutputPath(filePath), name];
+-    return !needles.some((needle) => {
+-      const value = process.platform === 'win32' ? needle.toLowerCase() : needle;
+-      return haystack.includes(value);
+-    });
+-  });
++  const unmentionedIn = (text) => ({ name, filePath }) => ![normalizeOutputPath(filePath), name].some((needle) => text.includes(fold(needle)));
++  let unreferenced = candidates.filter(unmentionedIn(haystack));
+   if (!unreferenced.length) return;
+   // Compact archives may themselves reference older archives or offloaded
+   // results. Keep the reachable graph, not just directly visible files. The
+@@ -566,6 +552,32 @@ export async function pruneOffloadSession(sessionId, getMessages) {
      return unreferenced.length > 0;
    };
    if (!retainReachable()) return;
@@ -808,10 +1015,21 @@ index f9f9973..f8efb0a 100644
 +    )
 +  ).filter(Boolean);
 +  if (!unreferenced.length) return;
++  const copied = await copies();
++  if (copied === null) return;
++  let copiedHaystack;
++  try {
++    copiedHaystack = fold(JSON.stringify(copied));
++  } catch {
++    return;
++  }
++  unreferenced = unreferenced.filter(unmentionedIn(copiedHaystack));
++  for (const name of copiedHaystack.match(/\b[a-f0-9]{64}\.txt\b/g) || []) reachable.add(name);
++  if (!retainReachable()) return;
    const pending = [...reachable];
    for (let i = 0; i < pending.length; i += 1) {
      let text;
-@@ -583,6 +585,7 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+@@ -583,6 +595,7 @@ export async function pruneOffloadSession(sessionId, getMessages) {
      }
      if (grew && !retainReachable()) return;
    }
