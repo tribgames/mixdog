@@ -10,6 +10,9 @@ const rec = await startRecording({
   set: 'provider-gemini-stream',
   entry: 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test\'s silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.',
   compare: 'Serve each case\'s `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.',
+  exclusions: [
+    "gemini-stream.test.mjs:118's `deferToolCalls: false` run (leaked-call-dispatched) is not recorded: no product caller of createGeminiTextLeakGuard passes false - `git grep -n \"createGeminiTextLeakGuard(\\|deferToolCalls\" b6f10295a -- src ':!*.test.mjs'` finds the two callers, antigravity-stream.mjs:80 (deferToolCalls: true, :85) and gemini-sdk-request.mjs:9 (deferToolCalls: true, :14); the default `false` (gemini-stream.mjs:331) is reached by tests only",
+  ],
   replay: "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
 });
 const { consumeGeminiRestStreamResponse, createGeminiTextLeakGuard } = await rec.P('agent/orchestrator/providers/gemini-stream.mjs');
@@ -60,10 +63,11 @@ for (const [label, chunks] of [
 ]) await run(`no-finish-${label}`, 69, chunks);
 await run('native-tool-chunks-replayable', 77, [{ candidates: [{ content: { parts: [partialPart] } }] }]);
 await run('visible-text-then-native-chunk', 94, [{ candidates: [{ content: { parts: [{ text: 'visible' }] } }] }, { candidates: [{ content: { parts: [partialPart] } }] }]);
-for (const deferToolCalls of [true, false]) {
+// Only the deferring guard: the test's `deferToolCalls: false` mode is one no product caller reaches (see the manifest exclusion).
+for (const deferToolCalls of [true]) {
   const leaked = '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>';
   const chunks = [{ candidates: [{ content: { parts: [{ text: leaked }] } }] }];
-  await run(`leaked-call-${deferToolCalls ? 'held-back' : 'dispatched'}`, 118, chunks, async (response) => {
+  await run('leaked-call-held-back', 118, chunks, async (response) => {
     const dispatched = [];
     const textLeakGuard = createGeminiTextLeakGuard({ knownToolNames: ['read'], onToolCall: (call) => dispatched.push(call), deferToolCalls });
     const out = await consume(response, { textLeakGuard });
