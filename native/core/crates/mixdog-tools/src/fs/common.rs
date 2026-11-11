@@ -231,18 +231,24 @@ pub(crate) enum PullEnd {
     Exhausted,
     Cancelled,
     Deadline,
+    /// The pull's own timer passed first ([`pull_until`]).
+    Timer,
 }
 
-/// Pulls `source` into `sink` until it ends, `sink` returns `false`, the call
-/// is cancelled or the deadline passes, then closes it: nothing of its
-/// producer runs once this returns, as Node ends its search child.
-pub(crate) async fn pull_all<T: Send>(
+/// [`pull_all`], ended also by `timer`.
+pub(crate) async fn pull_until<T: Send>(
     ctx: &ToolContext,
     source: &mut dyn EventSource<T>,
+    timer: impl Future<Output = ()>,
     mut sink: impl FnMut(T) -> bool,
 ) -> PullEnd {
+    let mut timer = std::pin::pin!(timer);
     let end = loop {
-        let next = guarded(ctx, "pull", source.next()).await;
+        let next = tokio::select! {
+            biased;
+            next = guarded(ctx, "pull", source.next()) => next,
+            () = &mut timer => break PullEnd::Timer,
+        };
         match next {
             Ok(Some(item)) => {
                 if !sink(item) {
@@ -254,8 +260,22 @@ pub(crate) async fn pull_all<T: Send>(
             Err(_) => break PullEnd::Deadline,
         }
     };
-    source.close().await;
+    let _ = guarded(ctx, "close", source.close()).await;
     end
+}
+
+/// Pulls `source` into `sink` until it ends, `sink` returns `false`, the call
+/// is cancelled or the deadline passes, then closes it within the same
+/// deadline and cancellation, as Node ends its search child. The source's
+/// `close` says what has ended when it returns; one the deadline or the
+/// cancellation cuts short is dropped, which stops its producer without
+/// waiting for it.
+pub(crate) async fn pull_all<T: Send>(
+    ctx: &ToolContext,
+    source: &mut dyn EventSource<T>,
+    sink: impl FnMut(T) -> bool,
+) -> PullEnd {
+    pull_until(ctx, source, std::future::pending(), sink).await
 }
 
 // ---- paths ----

@@ -1,4 +1,4 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (`on`, `stream`); the service never calls them on an async thread")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (`on`) or on a stream's own producer thread (`streamed`); the service never calls them on an async thread")]
 //! The real [`FileService`] (DS §4.2) for the agent tools and the tidy write host, over absolute
 //! paths on the local disk.
 //!
@@ -6,7 +6,10 @@
 //! rename into place with the Windows retry ladder, directory fsync, write *through* a leaf symlink,
 //! the target's mode kept. Batches are `apply_patch`'s rollback (`rollback-state.mjs`): a pre-image
 //! of every path, an in-place restore on failure. Walks and text search are ripgrep's own
-//! `ignore`/`grep` crates, which is what Node's resident search server runs.
+//! `ignore`/`grep` crates, which is what Node's resident search server runs. Their producers run
+//! on threads of their own rather than as lane jobs: a producer waits whenever its consumer's
+//! queue is full, mid-file included, and may sit in an OS call nothing can interrupt, neither of
+//! which a pooled lane job may do (its lease, its slot); see [`Streamed`].
 //!
 //! Project text saves (`projectFs/writeText`) are not this service: they keep the in-place rewrite
 //! and recovery journal of [`crate::fsops`].
@@ -64,9 +67,14 @@ use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
-use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
+#[cfg(feature = "replay-controls")]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 /// Node: `WINDOWS_RENAME_RETRY_BACKOFFS_MS`.
@@ -699,7 +707,8 @@ impl FileService for LocalFileService {
         .await?
     }
 
-    fn walk(&self, lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
+    /// The walker runs on its own thread, at most [`QUEUE`] entries ahead of the consumer (see [`Streamed`]).
+    fn walk(&self, _lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
         let root = request.root.as_path();
         let mut builder = WalkBuilder::new(root);
         builder.hidden(!request.include_hidden).sort_by_file_path(|a, b| a.cmp(b));
@@ -708,59 +717,79 @@ impl FileService for LocalFileService {
         }
         match overrides_for(root, Vec::new()) {
             Ok(overrides) => builder.overrides(overrides),
-            Err(error) => return pulled(lane, Failed(Some(invalid_pattern(&error, root)))),
+            Err(error) => return streamed(Box::new(Failed(invalid_pattern(&error, root))), Deadline::default()),
         };
         ignore_rules(&mut builder, request.respect_ignore);
         let prune: Vec<PathBuf> = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
         if !prune.is_empty() {
             builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
         }
-        // The walker reads directories only when a batch pulls it.
-        pulled(lane, Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs })
+        streamed(Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs }), Deadline::default())
     }
 
-    fn search_text(&self, lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    /// The search runs on its own thread, at most [`QUEUE`] matches ahead of the consumer (see [`Streamed`]).
+    fn search_text(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         let root = request.root.as_path();
-        // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
-        // A pattern that does not parse is reported with the parser's own text, as Node shows it.
-        let matcher = match RegexMatcherBuilder::new()
-            .case_insensitive(!request.case_sensitive)
-            .fixed_strings(!request.regex)
-            .multi_line(true)
-            .line_terminator(Some(b'\n'))
-            .build(&request.pattern)
-        {
-            Ok(m) => m,
-            Err(error) => {
-                let failed = FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone()));
-                return pulled(lane, Failed(Some(failed)));
-            }
-        };
         // ripgrep's rule: later globs win, so the excludes follow the includes.
         let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
         let overrides = match overrides_for(root, globs) {
             Ok(overrides) => overrides,
-            Err(error) => return pulled(lane, Failed(Some(invalid_pattern(&error, root)))),
+            Err(error) => return streamed(Box::new(Failed(invalid_pattern(&error, root))), Deadline::default()),
         };
         let mut builder = WalkBuilder::new(root);
-        builder.hidden(!request.include_hidden).overrides(overrides);
+        // Siblings in name order, depth first: the walk yields the files in `PathBuf` order, the order Node's server
+        // answers in, so each is searched as the walk reaches it.
+        builder.hidden(!request.include_hidden).overrides(overrides).sort_by_file_path(|a, b| a.cmp(b));
         ignore_rules(&mut builder, request.respect_ignore);
-        pulled(
-            lane,
-            Searching {
-                matcher,
-                searcher: SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(b'\x00')).build(),
-                walk: Some(builder.build()),
-                root: root.to_path_buf(),
-                files: Vec::new(),
-                next: 0,
-                pending: VecDeque::new(),
-                left: request.limit,
-                #[cfg(feature = "count-jobs")]
-                _live: probe::Live::new(root),
-            },
-        )
+        let walk_root = root.to_path_buf();
+        let listing: Listing = Box::new(builder.build().map(move |item| match item {
+            Ok(entry) => Ok(entry.file_type().is_some_and(|t| t.is_file()).then(|| entry.into_path())),
+            Err(error) => Err(walk_error(&error, &walk_root)),
+        }));
+        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+        search_over(&request, listing, open)
     }
+}
+
+/// `request`'s search of the files `listing` names, each read through `open`.
+fn search_over(request: &SearchRequest, listing: Listing, open: Opener) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
+    // A pattern that does not parse is reported with the parser's own text, as Node shows it.
+    let matcher = match RegexMatcherBuilder::new()
+        .case_insensitive(!request.case_sensitive)
+        .fixed_strings(!request.regex)
+        .multi_line(true)
+        .line_terminator(Some(b'\n'))
+        .build(&request.pattern)
+    {
+        Ok(m) => m,
+        Err(error) => {
+            let failed = FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone()));
+            return streamed(Box::new(Failed(failed)), Deadline::default());
+        }
+    };
+    let searching = Searching {
+        matcher,
+        searcher: SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(b'\x00')).build(),
+        listing,
+        open,
+        left: request.limit,
+        #[cfg(feature = "count-jobs")]
+        root: request.root.as_path().to_path_buf(),
+        #[cfg(feature = "count-jobs")]
+        _live: probe::Live::new(request.root.as_path()),
+    };
+    #[cfg(feature = "replay-controls")]
+    let after_files = match deadline_script::for_root(request.root.as_path()) {
+        Some(deadline_script::Script::Silent) => return streamed(Box::new(deadline_script::Silent { _search: Box::new(searching) }), Deadline::default()),
+        Some(deadline_script::Script::AfterFiles(n)) => Some(n),
+        None => None,
+    };
+    #[cfg(feature = "replay-controls")]
+    let deadline = Deadline { at: request.deadline, after_files };
+    #[cfg(not(feature = "replay-controls"))]
+    let deadline = Deadline { at: request.deadline };
+    streamed(Box::new(searching), deadline)
 }
 
 /// The request's globs, then the resident search server's implicit `.git` exclusions
@@ -795,14 +824,35 @@ fn walk_error(error: &ignore::Error, root: &Path) -> FsError {
     }
 }
 
+/// The match text a stream item keeps: the search server's printer clip (`--max-columns=500 --max-columns-preview`,
+/// grep-printer `write_exceeded_line`), whose mark the renderer adds. A line of 500 bytes or more keeps its first 500
+/// characters, so an item holds at most 2,000 bytes of text however long the line.
+const MAX_COLUMNS: usize = 500;
+
+/// A match line's text: `str::lines`, as the resident server does (only the terminator, `\n` or `\r\n`, goes), clipped
+/// at [`MAX_COLUMNS`]. Bytes past the clip are never decoded.
+fn match_text(bytes: &[u8]) -> String {
+    let line = bytes.strip_suffix(b"\n").map_or(bytes, |l| l.strip_suffix(b"\r").unwrap_or(l));
+    // 500 characters take at most 2,000 bytes; four more bytes show whether a 501st follows.
+    let head = &line[..line.len().min(MAX_COLUMNS * 4 + 4)];
+    let text = String::from_utf8_lossy(head);
+    if head.len() == line.len() && text.len() < MAX_COLUMNS {
+        return text.into_owned();
+    }
+    text.chars().take(MAX_COLUMNS).collect()
+}
+
 /// One line per match, like ripgrep's standard printer; the column is the first match's byte start. Stops the file
 /// when the request's match budget is spent or the stream is closed.
 struct Collect<'a> {
     matcher: &'a grep::regex::RegexMatcher,
     path: &'a AbsPath,
-    pending: &'a mut VecDeque<Result<SearchMatch, FsError>>,
+    out: &'a Out<SearchMatch>,
     left: &'a mut Option<usize>,
-    stop: &'a AtomicBool,
+    /// Matches queued from this file.
+    sent: usize,
+    /// The stream was closed under the sink.
+    closed: bool,
     #[cfg(feature = "count-jobs")]
     root: &'a Path,
 }
@@ -811,15 +861,17 @@ impl Sink for Collect<'_> {
     type Error = io::Error;
 
     fn matched(&mut self, _: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
-        if self.stop.load(Ordering::SeqCst) || *self.left == Some(0) {
+        if *self.left == Some(0) {
             return Ok(false);
         }
         let bytes = found.bytes();
         let column = self.matcher.find(bytes).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
-        // `str::lines`, as the resident server does: only the terminator (`\n` or `\r\n`) goes.
-        let text = String::from_utf8_lossy(bytes).lines().next().unwrap_or_default().to_owned();
         let line = found.line_number().unwrap_or(0);
-        self.pending.push_back(Ok(SearchMatch { path: self.path.clone(), line, column, text }));
+        if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text: match_text(bytes) })) {
+            self.closed = true;
+            return Ok(false);
+        }
+        self.sent += 1;
         #[cfg(feature = "count-jobs")]
         probe::found(self.root);
         if let Some(left) = self.left.as_mut() {
@@ -829,22 +881,110 @@ impl Sink for Collect<'_> {
     }
 }
 
-/// Items one pulled batch may produce: what a stream holds beyond what its consumer has taken.
-const BATCH: usize = 256;
+/// Items a stream holds ahead of its consumer, the capacity of its queue. A search item is one match: its path and at
+/// most 2,000 bytes of text ([`MAX_COLUMNS`]), so a full queue holds at most `QUEUE` × (2,000 bytes + one path) whatever
+/// the files hold; the producer waits while it is full.
+pub const QUEUE: usize = 256;
 
-/// A stream's producer, advanced one batch per lane job, only while the consumer awaits the next item.
+/// How long `close` waits for a stopped producer to end (Node's `CANCEL_GRACE_MS`, after which its client ends the
+/// search server).
+const CLOSE_GRACE: Duration = Duration::from_secs(1);
+
+/// The bytes one read of a searched file asks for: the stop and the deadline are checked before each, as Node's search
+/// server checks them before each read of its 64 KiB chunks (`serve_search/matching.rs`, `CancellableReader`).
+const READ_CHUNK: usize = 64 * 1024;
+
+static ABANDONED: AtomicU64 = AtomicU64::new(0);
+
+/// Stream producers [`EventSource::close`] stopped waiting for: threads held in a blocking OS call (a directory or file
+/// read on a dead network share) when the grace ran out. Each ends when its call returns; nothing waits for it.
+pub fn abandoned_producers() -> u64 {
+    ABANDONED.load(Ordering::SeqCst)
+}
+
+/// When a search's deadline passes.
+#[derive(Clone, Copy, Default)]
+struct Deadline {
+    /// The soft deadline ([`SearchRequest::deadline`]).
+    at: Option<Instant>,
+    /// A replay's scripted deadline ([`deadline_script`]): it passes once this many files with matches were searched,
+    /// or when the search ends, whichever comes first.
+    #[cfg(feature = "replay-controls")]
+    after_files: Option<usize>,
+}
+
+/// What a stream and its producer thread share.
+struct Control {
+    /// Set by `close` and by dropping the stream: the producer ends at its next check.
+    stop: AtomicBool,
+    deadline: Deadline,
+    /// Files searched that had matches (for [`Deadline::after_files`]).
+    #[cfg(feature = "replay-controls")]
+    files_with_lines: AtomicUsize,
+    /// The producer is inside one file's search. A deadline that passes now is reported by the file's next read; a read
+    /// that never returns leaves the stream unanswered, as Node's server, stuck in a file, never answers.
+    in_file: AtomicBool,
+}
+
+impl Control {
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+
+    fn expired(&self) -> bool {
+        #[cfg(feature = "replay-controls")]
+        if self.deadline.after_files.is_some_and(|n| self.files_with_lines.load(Ordering::SeqCst) >= n) {
+            return true;
+        }
+        self.deadline.at.is_some_and(|at| Instant::now() >= at)
+    }
+
+    /// The check after the search's last file (Node's `handle_content_search` checks its deadline once more).
+    fn expired_at_end(&self) -> bool {
+        #[cfg(feature = "replay-controls")]
+        if self.deadline.after_files.is_some() {
+            return true;
+        }
+        self.expired()
+    }
+
+    /// A searched file had matches.
+    fn file_with_lines(&self) {
+        #[cfg(feature = "replay-controls")]
+        self.files_with_lines.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// The producer's end of a stream.
+struct Out<T> {
+    tx: mpsc::Sender<Result<T, FsError>>,
+    ctl: Arc<Control>,
+}
+
+impl<T> Out<T> {
+    /// Queues `item`, waiting while the queue is full; `false` once the stream is stopped or gone.
+    fn send(&self, item: Result<T, FsError>) -> bool {
+        !self.ctl.stopped() && self.tx.blocking_send(item).is_ok()
+    }
+}
+
+fn timed_out(path: Option<AbsPath>) -> FsError {
+    FsError::new(FsErrorKind::TimedOut, path)
+}
+
+/// A stream's producer: runs on a thread of its own until it is done or stopped.
 trait Produce<T>: Send {
-    /// Appends at most `room` items to `out`; `false` once nothing more will come. Returns early once `stop` is set.
-    fn fill(&mut self, out: &mut Vec<Result<T, FsError>>, room: usize, stop: &AtomicBool) -> bool;
+    /// Sends every item through `out`; returns once done, once `out` refuses an item, or at a check that finds the
+    /// stream stopped.
+    fn run(self: Box<Self>, out: &Out<T>);
 }
 
 /// A stream that is one error.
-struct Failed(Option<FsError>);
+struct Failed(FsError);
 
 impl<T> Produce<T> for Failed {
-    fn fill(&mut self, out: &mut Vec<Result<T, FsError>>, _: usize, _: &AtomicBool) -> bool {
-        out.extend(self.0.take().map(Err));
-        false
+    fn run(self: Box<Self>, out: &Out<T>) {
+        out.send(Err(self.0));
     }
 }
 
@@ -855,167 +995,250 @@ struct Walking {
 }
 
 impl Produce<DirEntry> for Walking {
-    fn fill(&mut self, out: &mut Vec<Result<DirEntry, FsError>>, room: usize, stop: &AtomicBool) -> bool {
-        while out.len() < room {
-            if stop.load(Ordering::SeqCst) {
-                return false;
+    fn run(self: Box<Self>, out: &Out<DirEntry>) {
+        for item in self.walk {
+            if out.ctl.stopped() {
+                return;
             }
-            match self.walk.next() {
-                None => return false,
-                Some(Ok(entry)) if entry.depth() == 0 => {}
-                Some(Ok(entry)) => {
+            let sent = match item {
+                Ok(entry) if entry.depth() == 0 => true,
+                Ok(entry) => {
                     let Some(kind) = entry.file_type().map(entry_kind) else { continue };
                     if kind == EntryKind::Dir && !self.include_dirs {
                         continue;
                     }
                     let Some(path) = AbsPath::new(entry.into_path()) else { continue };
-                    out.push(Ok(DirEntry { path, kind }));
+                    out.send(Ok(DirEntry { path, kind }))
                 }
-                Some(Err(error)) => out.push(Err(walk_error(&error, &self.root))),
+                Err(error) => out.send(Err(walk_error(&error, &self.root))),
+            };
+            if !sent {
+                return;
             }
         }
-        true
     }
 }
 
-/// The text search: the walk first (Node sorts content results by path), then the files in order, each file's
-/// matches held until a batch takes them. It stops once the request's `limit` matches are found.
+/// The search's walk, one entry at a time: a file to search, another entry (`None`), or a walk error.
+type Listing = Box<dyn Iterator<Item = Result<Option<PathBuf>, FsError>> + Send>;
+/// Opens a file for its search.
+type Opener = Box<dyn Fn(&Path) -> io::Result<Box<dyn Read + Send>> + Send>;
+
+/// Why a searched file's read stopped short.
+#[derive(Debug)]
+enum Halt {
+    Stopped,
+    Deadline,
+}
+
+impl std::fmt::Display for Halt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Halt::Stopped => "search stopped",
+            Halt::Deadline => "search deadline passed",
+        })
+    }
+}
+
+impl std::error::Error for Halt {}
+
+fn halt_of(error: &io::Error) -> Option<&Halt> {
+    error.get_ref()?.downcast_ref::<Halt>()
+}
+
+/// A searched file, read at most [`READ_CHUNK`] bytes at a time, each read after a check of the stop and the deadline.
+struct Checked<'a> {
+    inner: Box<dyn Read + Send>,
+    ctl: &'a Control,
+}
+
+impl Read for Checked<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.ctl.stopped() {
+            return Err(io::Error::other(Halt::Stopped));
+        }
+        if self.ctl.expired() {
+            return Err(io::Error::other(Halt::Deadline));
+        }
+        let n = buf.len().min(READ_CHUNK);
+        self.inner.read(&mut buf[..n])
+    }
+}
+
+/// The text search, each file searched as the walk reaches it, in `PathBuf` order (the walk sorts siblings): Node's
+/// server answers in that order (`serve_search/search.rs`, `scan_operand`). Nothing of the tree is held beyond the
+/// walker's own state and one file's search; Node's server, which scans while its walk publishes, also holds the whole
+/// inventory, so this holds less. It stops once the request's `limit` matches are found, and checks the stop and the
+/// deadline before each entry of the walk and before every read of a file.
 struct Searching {
     matcher: grep::regex::RegexMatcher,
     searcher: Searcher,
-    walk: Option<ignore::Walk>,
-    root: PathBuf,
-    files: Vec<PathBuf>,
-    next: usize,
-    pending: VecDeque<Result<SearchMatch, FsError>>,
+    listing: Listing,
+    open: Opener,
     left: Option<usize>,
+    #[cfg(feature = "count-jobs")]
+    root: PathBuf,
     #[cfg(feature = "count-jobs")]
     _live: probe::Live,
 }
 
 impl Produce<SearchMatch> for Searching {
-    fn fill(&mut self, out: &mut Vec<Result<SearchMatch, FsError>>, room: usize, stop: &AtomicBool) -> bool {
-        if let Some(walk) = self.walk.as_mut() {
-            for item in walk {
-                if stop.load(Ordering::SeqCst) {
-                    return false;
+    fn run(mut self: Box<Self>, out: &Out<SearchMatch>) {
+        let ctl = &*out.ctl;
+        #[cfg(feature = "count-jobs")]
+        let root = self.root.clone();
+        let Searching { matcher, searcher, listing, open, left, .. } = &mut *self;
+        let matcher = &*matcher;
+        while *left != Some(0) {
+            if ctl.stopped() {
+                return;
+            }
+            if ctl.expired() {
+                out.send(Err(timed_out(None)));
+                return;
+            }
+            let file = match listing.next() {
+                None => break,
+                Some(Ok(Some(file))) => file,
+                Some(Ok(None)) => continue,
+                Some(Err(error)) => {
+                    if !out.send(Err(error)) {
+                        return;
+                    }
+                    continue;
                 }
-                match item {
-                    Ok(entry) if entry.file_type().is_some_and(|t| t.is_file()) => self.files.push(entry.into_path()),
-                    Ok(_) => {}
-                    Err(error) => self.pending.push_back(Err(walk_error(&error, &self.root))),
-                }
-            }
-            self.files.sort();
-            self.walk = None;
-        }
-        while out.len() < room {
-            if let Some(item) = self.pending.pop_front() {
-                out.push(item);
-                continue;
-            }
-            if stop.load(Ordering::SeqCst) || self.left == Some(0) || self.next >= self.files.len() {
-                return false;
-            }
-            let file = std::mem::take(&mut self.files[self.next]);
-            self.next += 1;
-            let Some(path) = AbsPath::new(&file) else { continue };
-            let mut sink = Collect {
-                matcher: &self.matcher,
-                path: &path,
-                pending: &mut self.pending,
-                left: &mut self.left,
-                stop,
-                #[cfg(feature = "count-jobs")]
-                root: &self.root,
             };
-            if let Err(e) = self.searcher.search_path(&self.matcher, &file, &mut sink) {
-                self.pending.push_back(Err(io_error(&e, &file)));
+            let Some(path) = AbsPath::new(&file) else { continue };
+            ctl.in_file.store(true, Ordering::SeqCst);
+            let searched = open(&file).and_then(|inner| {
+                let mut sink = Collect {
+                    matcher,
+                    path: &path,
+                    out,
+                    left,
+                    sent: 0,
+                    closed: false,
+                    #[cfg(feature = "count-jobs")]
+                    root: &root,
+                };
+                searcher.search_reader(matcher, Checked { inner, ctl }, &mut sink).map(|()| (sink.closed, sink.sent))
+            });
+            ctl.in_file.store(false, Ordering::SeqCst);
+            match searched {
+                Ok((true, _)) => return,
+                Ok((false, sent)) => {
+                    if sent > 0 {
+                        ctl.file_with_lines();
+                    }
+                }
+                Err(error) => match halt_of(&error) {
+                    Some(Halt::Stopped) => return,
+                    Some(Halt::Deadline) => {
+                        out.send(Err(timed_out(Some(path))));
+                        return;
+                    }
+                    None => {
+                        if !out.send(Err(io_error(&error, &file))) {
+                            return;
+                        }
+                    }
+                },
             }
         }
-        true
+        if ctl.expired_at_end() {
+            out.send(Err(timed_out(None)));
+        }
     }
 }
 
-type Shared<T> = Arc<Mutex<Option<Box<dyn Produce<T>>>>>;
-
-/// A pulled stream: each `next` on an empty buffer runs one lane job that advances the producer by at most [`BATCH`]
-/// items, so nothing is produced ahead of the consumer beyond one batch and nothing runs between pulls.
-struct Pulled<T> {
-    lane: MaintenanceIo,
-    producer: Shared<T>,
-    stop: Arc<AtomicBool>,
-    buffer: VecDeque<Result<T, FsError>>,
-    /// A batch job whose `next` was abandoned (a cancelled call) may still be running.
-    in_flight: bool,
-    done: bool,
+/// A stream fed by a producer thread through a queue of [`QUEUE`] items: the producer runs ahead of the consumer by at
+/// most that many and waits while the queue is full.
+///
+/// [`EventSource::close`] stops the producer and waits for its thread to end, at most [`CLOSE_GRACE`]: a producer
+/// checks the stop between entries, before every read of a file and at every item it queues, so it ends at once unless
+/// a blocking OS call holds it (a directory or file read on a dead network share), which nothing can interrupt. Such a
+/// thread is abandoned by design: counted ([`abandoned_producers`]), never awaited, it ends when its call returns.
+/// Dropping the stream stops the producer the same way without waiting for it.
+///
+/// With a deadline, the stream ends with a [`FsErrorKind::TimedOut`] item once it passes: from the producer at its next
+/// check, or at once while the producer is in the walk (its directory read may never return), as Node's server answers
+/// what it found when its walk outlives the deadline.
+struct Streamed<T> {
+    rx: Option<mpsc::Receiver<Result<T, FsError>>>,
+    ctl: Arc<Control>,
+    /// Ends when the producer's thread ends.
+    finished: Option<oneshot::Receiver<()>>,
+    /// The deadline passed while the producer was inside a file: that file's read reports it.
+    late: bool,
 }
 
-fn pulled<T: Send + 'static>(lane: MaintenanceIo, producer: impl Produce<T> + 'static) -> Box<dyn EventSource<Result<T, FsError>>> {
-    Box::new(Pulled {
-        lane,
-        producer: Arc::new(Mutex::new(Some(Box::new(producer)))),
-        stop: Arc::new(AtomicBool::new(false)),
-        buffer: VecDeque::new(),
-        in_flight: false,
-        done: false,
-    })
-}
-
-fn take_producer<T>(producer: &Shared<T>) -> Option<Box<dyn Produce<T>>> {
-    producer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+fn streamed<T: Send + 'static>(producer: Box<dyn Produce<T>>, deadline: Deadline) -> Box<dyn EventSource<Result<T, FsError>>> {
+    let (tx, rx) = mpsc::channel(QUEUE);
+    let ctl = Arc::new(Control {
+        stop: AtomicBool::new(false),
+        deadline,
+        #[cfg(feature = "replay-controls")]
+        files_with_lines: AtomicUsize::new(0),
+        in_file: AtomicBool::new(false),
+    });
+    let (done, finished) = oneshot::channel::<()>();
+    let out = Out { tx, ctl: ctl.clone() };
+    let spawned = std::thread::Builder::new().name("mixdog-fs-stream".into()).spawn(move || {
+        // Dropped when the thread ends, however it ends.
+        let _done = done;
+        producer.run(&out);
+    });
+    match spawned {
+        Ok(_) => Box::new(Streamed { rx: Some(rx), ctl, finished: Some(finished), late: false }),
+        Err(error) => {
+            let (tx, rx) = mpsc::channel(1);
+            let _ = tx.try_send(Err(FsError::new(FsErrorKind::Io { os_code: error.raw_os_error() }, None)));
+            Box::new(Streamed { rx: Some(rx), ctl, finished: None, late: false })
+        }
+    }
 }
 
 #[async_trait]
-impl<T: Send + 'static> EventSource<Result<T, FsError>> for Pulled<T> {
+impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
     async fn next(&mut self) -> Option<Result<T, FsError>> {
-        while self.buffer.is_empty() && !self.done {
-            let (producer, stop) = (self.producer.clone(), self.stop.clone());
-            self.in_flight = true;
-            let batch = on(self.lane, move || {
-                let mut slot = producer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                let mut out = Vec::new();
-                let more = slot.as_mut().is_some_and(|p| p.fill(&mut out, BATCH, &stop));
-                if !more {
-                    // The walker and its open directories are released on the lane.
-                    *slot = None;
+        let rx = self.rx.as_mut()?;
+        let item = match self.ctl.deadline.at.filter(|_| !self.late) {
+            Some(at) => tokio::select! {
+                biased;
+                item = rx.recv() => item,
+                () = tokio::time::sleep_until(at.into()) => {
+                    if self.ctl.in_file.load(Ordering::SeqCst) {
+                        self.late = true;
+                        rx.recv().await
+                    } else {
+                        self.ctl.stop.store(true, Ordering::SeqCst);
+                        Some(Err(timed_out(None)))
+                    }
                 }
-                (out, more)
-            })
-            .await;
-            self.in_flight = false;
-            match batch {
-                Ok((out, more)) => {
-                    self.buffer.extend(out);
-                    self.done = !more;
-                }
-                Err(error) => {
-                    self.buffer.push_back(Err(error));
-                    self.done = true;
-                }
-            }
+            },
+            None => rx.recv().await,
+        };
+        if matches!(item, None | Some(Err(FsError { kind: FsErrorKind::TimedOut, .. }))) {
+            self.rx = None;
         }
-        self.buffer.pop_front()
+        item
     }
 
-    /// Stops the producer and returns once no job of this stream runs and its walker is released.
     async fn close(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        self.done = true;
-        self.buffer.clear();
-        if self.in_flight {
-            // The abandoned batch holds the producer until it sees `stop`; taking it here waits for that.
-            let producer = self.producer.clone();
-            let _ = on(self.lane, move || drop(take_producer(&producer))).await;
-            self.in_flight = false;
+        self.ctl.stop.store(true, Ordering::SeqCst);
+        // A producer waiting on a full queue is released.
+        self.rx = None;
+        if let Some(finished) = self.finished.take()
+            && tokio::time::timeout(CLOSE_GRACE, finished).await.is_err()
+        {
+            ABANDONED.fetch_add(1, Ordering::SeqCst);
         }
-        drop(take_producer(&self.producer));
     }
 }
 
-impl<T> Drop for Pulled<T> {
+impl<T> Drop for Streamed<T> {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.ctl.stop.store(true, Ordering::SeqCst);
     }
 }
 
@@ -1046,6 +1269,12 @@ pub mod probe {
         with(root, |p| *p)
     }
 
+    /// The searches whose producer is alive, over every root under `scope`.
+    pub fn live_under(scope: &Path) -> u64 {
+        let roots = ROOTS.lock().unwrap_or_else(PoisonError::into_inner);
+        roots.as_ref().map_or(0, |roots| roots.iter().filter(|(root, _)| root.starts_with(scope)).map(|(_, p)| p.live).sum())
+    }
+
     pub(super) fn found(root: &Path) {
         with(root, |p| p.found += 1);
     }
@@ -1062,6 +1291,54 @@ pub mod probe {
     impl Drop for Live {
         fn drop(&mut self) {
             with(&self.0, |p| p.live -= 1);
+        }
+    }
+}
+
+/// Search deadlines a replay scripts instead of a clock, for the searches whose root lies under a scripted scope. The
+/// rest of the deadline's handling is the production one.
+#[cfg(feature = "replay-controls")]
+pub mod deadline_script {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum Script {
+        /// The soft deadline passes once this many files with matches were searched, or when the search ends (a
+        /// deadline that passed during its last file).
+        AfterFiles(usize),
+        /// The search never answers: it queues nothing and ends only when stopped (a server stuck past every deadline).
+        Silent,
+    }
+
+    static SCRIPTS: Mutex<Vec<(PathBuf, Script)>> = Mutex::new(Vec::new());
+
+    /// Scripts the searches under `scope` (`None` removes the script).
+    pub fn set(scope: &Path, script: Option<Script>) {
+        let mut scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
+        scripts.retain(|(s, _)| s != scope);
+        if let Some(script) = script {
+            scripts.push((scope.to_path_buf(), script));
+        }
+    }
+
+    pub(super) fn for_root(root: &Path) -> Option<Script> {
+        let scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
+        scripts.iter().find(|(scope, _)| root.starts_with(scope)).map(|(_, script)| *script)
+    }
+
+    /// A search that queues nothing and ends when stopped, holding the search it stands for until then.
+    pub(super) struct Silent {
+        pub(super) _search: Box<dyn Send>,
+    }
+
+    impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Silent {
+        fn run(self: Box<Self>, out: &super::Out<mixdog_core_api::domain::fs::SearchMatch>) {
+            while !out.ctl.stopped() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
         }
     }
 }
@@ -1406,6 +1683,7 @@ mod tests {
             include_hidden: true,
             respect_ignore: true,
             limit: None,
+            deadline: None,
         };
         let mut stream = fs.search_text(lanes().maintenance, request);
         let err = stream.next().await.unwrap().unwrap_err();
@@ -1433,6 +1711,7 @@ mod tests {
                 include_hidden: true,
                 respect_ignore: false,
                 limit: None,
+                deadline: None,
             };
             let mut s = fs.search_text(l.maintenance, request);
             async move {
@@ -1468,6 +1747,7 @@ mod tests {
             include_hidden: true,
             respect_ignore: true,
             limit: None,
+            deadline: None,
         };
         let mut s = fs.search_text(lanes().maintenance, request);
         let mut texts = Vec::new();
@@ -1524,11 +1804,183 @@ mod tests {
             include_hidden: true,
             respect_ignore: true,
             limit: None,
+            deadline: None,
         };
         let found = run(base.clone()).await;
         // ripgrep quits a file at its first NUL, so bin.rs reports nothing; skip/ is gitignored.
         assert_eq!(found, vec![("a.rs".into(), 1, 5, "let Needle = 1;".into()), ("a.rs".into(), 2, 1, "needle".into())]);
         let all = run(SearchRequest { respect_ignore: false, ..base }).await;
         assert!(all.iter().any(|m| m.0 == "c.rs") && all.iter().all(|m| m.0 != "bin.rs"));
+    }
+
+    fn needle_request(root: &AbsPath, deadline: Option<Instant>) -> SearchRequest {
+        SearchRequest {
+            root: root.clone(),
+            pattern: "needle".into(),
+            regex: false,
+            case_sensitive: true,
+            include_globs: Vec::new(),
+            exclude_globs: Vec::new(),
+            include_hidden: true,
+            respect_ignore: false,
+            limit: None,
+            deadline,
+        }
+    }
+
+    /// Waits until `f` holds, at most 10 s.
+    async fn eventually(mut f: impl FnMut() -> bool) -> bool {
+        let until = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < until {
+            if f() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        f()
+    }
+
+    /// `lines` lines of `b'x'`, 1 KiB each, read through a counter: a file of any size with no match.
+    struct Generated {
+        left: u64,
+        at: u64,
+        read: Arc<AtomicU64>,
+    }
+
+    impl Read for Generated {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
+            for (i, b) in buf[..n].iter_mut().enumerate() {
+                *b = if (self.at + i as u64) % 1024 == 1023 { b'\n' } else { b'x' };
+            }
+            self.at += n as u64;
+            self.left -= n as u64;
+            self.read.fetch_add(n as u64, Ordering::SeqCst);
+            Ok(n)
+        }
+    }
+
+    const GIB: u64 = 1 << 30;
+
+    /// One file of 1 GiB with no match, through the search's file seam.
+    fn one_gib_file(root: &AbsPath) -> (Listing, Opener, Arc<AtomicU64>) {
+        let read = Arc::new(AtomicU64::new(0));
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("big.txt").as_path().to_path_buf()))));
+        let counter = read.clone();
+        let open: Opener = Box::new(move |_| Ok(Box::new(Generated { left: GIB, at: 0, read: counter.clone() }) as Box<dyn Read + Send>));
+        (listing, open, read)
+    }
+
+    /// The memory a search holds ahead of its consumer is its queue: [`QUEUE`] matches, each at most `4 × MAX_COLUMNS`
+    /// (2,000) bytes of text however long its line, so at most 256 × 2,000 bytes = 512,000 bytes of text plus one path per
+    /// match. A consumer that stops reading without dropping the stream holds the producer there.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_consumer_that_stops_reading_holds_the_producer_at_its_queue() {
+        let (_dir, root) = root();
+        // 400 matching lines of 10,007 bytes each.
+        let line = format!("needle {}\n", "\u{e9}".repeat(5_000));
+        std::fs::write(root.join("a.txt").as_path(), line.repeat(400)).unwrap();
+        let fs = LocalFileService::new();
+        let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
+        assert!(stream.next().await.unwrap().is_ok());
+        let found = || probe::search(root.as_path()).found;
+        assert!(eventually(|| found() == QUEUE as u64 + 1).await, "found {}", found());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(found(), QUEUE as u64 + 1, "the producer waits while the queue is full");
+        let mut queued_bytes = 0;
+        for _ in 0..QUEUE {
+            let item = stream.next().await.unwrap().unwrap();
+            assert!(item.text.len() <= 4 * MAX_COLUMNS && item.text.chars().count() == MAX_COLUMNS, "{}", item.text.len());
+            queued_bytes += item.text.len();
+        }
+        assert!(queued_bytes <= QUEUE * 4 * MAX_COLUMNS, "{queued_bytes}");
+        let started = Instant::now();
+        stream.close().await;
+        assert!(started.elapsed() < CLOSE_GRACE, "{:?} found {}", started.elapsed(), found());
+        assert_eq!(probe::search(root.as_path()).live, 0, "close returns once the producer has ended");
+    }
+
+    /// A file of 1 GiB with no match is read in checked chunks: a stop or a deadline that arrives mid-file ends the
+    /// search at the next chunk.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stop_or_a_deadline_mid_file_ends_the_search_of_a_huge_file() {
+        let (_dir, root) = root();
+        let (listing, open, read) = one_gib_file(&root);
+        let mut stream = search_over(&needle_request(&root, None), listing, open);
+        assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
+        let started = Instant::now();
+        stream.close().await;
+        assert!(started.elapsed() < CLOSE_GRACE, "the stop is seen at the next read");
+        let at_close = read.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(read.load(Ordering::SeqCst), at_close, "nothing is read after close returns");
+        assert!(at_close < GIB);
+        assert_eq!(probe::search(root.as_path()).live, 0);
+
+        let (listing, open, read) = one_gib_file(&root);
+        let mut stream = search_over(&needle_request(&root, Some(Instant::now() + Duration::from_millis(100))), listing, open);
+        let err = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
+        assert_eq!(err.path.map(|p| p.as_path().to_path_buf()), Some(root.join("big.txt").as_path().to_path_buf()), "the cut file is named");
+        assert!(stream.next().await.is_none());
+        stream.close().await;
+        assert!(read.load(Ordering::SeqCst) < GIB);
+        assert_eq!(probe::search(root.as_path()).live, 0);
+
+        // Dropping the stream stops the producer without waiting for it: it ends at its next read.
+        let (listing, open, read) = one_gib_file(&root);
+        let stream = search_over(&needle_request(&root, None), listing, open);
+        assert!(eventually(|| read.load(Ordering::SeqCst) >= 16 << 20).await);
+        drop(stream);
+        assert!(eventually(|| probe::search(root.as_path()).live == 0).await);
+        assert!(read.load(Ordering::SeqCst) < GIB);
+    }
+
+    /// A directory read that never returns: the deadline answers at once, and `close` waits its grace and abandons the
+    /// thread (counted), which ends when the read returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_directory_read_that_never_returns_is_abandoned_after_the_grace() {
+        let (_dir, root) = root();
+        let (release, hung) = std::sync::mpsc::channel::<()>();
+        let hung = Mutex::new(hung);
+        let listing: Listing = Box::new(std::iter::from_fn(move || {
+            let _ = hung.lock().unwrap().recv();
+            None
+        }));
+        let open: Opener = Box::new(|_| unreachable!("no file is listed"));
+        let started = Instant::now();
+        let mut stream = search_over(&needle_request(&root, Some(started + Duration::from_millis(100))), listing, open);
+        let err = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(err.kind, FsErrorKind::TimedOut) && err.path.is_none(), "{err:?}");
+        assert!(started.elapsed() < Duration::from_secs(1), "the deadline does not wait for the walk");
+        let abandoned = abandoned_producers();
+        let closing = Instant::now();
+        stream.close().await;
+        assert!(closing.elapsed() >= CLOSE_GRACE && closing.elapsed() < CLOSE_GRACE * 3, "{:?}", closing.elapsed());
+        assert!(abandoned_producers() > abandoned);
+        assert_eq!(probe::search(root.as_path()).live, 1, "the abandoned thread is still in its read");
+        drop(release);
+        assert!(eventually(|| probe::search(root.as_path()).live == 0).await, "it ends once the read returns");
+    }
+
+    /// The native traversal over a real directory of 2,000 files: every file, in path order.
+    #[tokio::test]
+    async fn a_walk_lists_a_directory_of_two_thousand_files_in_path_order() {
+        let (_dir, root) = root();
+        let dir = root.join("many");
+        std::fs::create_dir(dir.as_path()).unwrap();
+        for i in 0..2_000 {
+            std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
+        }
+        let fs = LocalFileService::new();
+        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, prune: Vec::new() };
+        let mut walk = fs.walk(lanes().maintenance, request);
+        let mut names = Vec::new();
+        while let Some(entry) = walk.next().await {
+            names.push(entry.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
+        }
+        walk.close().await;
+        let expected: Vec<String> = (0..2_000).map(|i| format!("{i:04}.txt")).collect();
+        assert_eq!(names, expected);
     }
 }

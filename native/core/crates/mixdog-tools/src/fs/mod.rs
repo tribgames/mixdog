@@ -54,3 +54,4 @@ pub fn read_state_key(path: &std::path::Path) -> String {
 pub use search::FindTool;
 pub use search::GlobTool;
 pub use search::GrepTool;
+pub use search::SearchTimer;

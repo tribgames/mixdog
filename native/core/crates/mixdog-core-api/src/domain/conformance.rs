@@ -1122,6 +1122,7 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 include_hidden: false,
                 respect_ignore: false,
                 limit: None,
+                deadline: None,
             },
         )
         .as_mut(),
@@ -1144,6 +1145,7 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 include_hidden: false,
                 respect_ignore: false,
                 limit: None,
+                deadline: None,
             },
         )
         .as_mut(),
