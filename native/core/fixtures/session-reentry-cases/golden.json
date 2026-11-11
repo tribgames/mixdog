@@ -1,0 +1,1957 @@
+{
+  "cases": [
+    {
+      "case": "an evicted session delivers new prompts and replies (reopen first: true)",
+      "observed": {
+        "reopenBeforeSubmit": true,
+        "idleEvictMs": 100,
+        "evictSweepMs": 100,
+        "nowMs": 1800000000000,
+        "steps": [
+          {
+            "step": "first submitted",
+            "texts": [
+              "first",
+              "reply: first"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "2",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 2
+          },
+          {
+            "step": "old runtime advanced 12 rows (tick 20 ms each)",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "14",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 14,
+            "lastText": "old progress 11"
+          },
+          {
+            "step": "hidden, 10 s tick, evict sweep drained",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "14",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 0,
+            "storedReads": 0,
+            "updateCount": 14
+          },
+          {
+            "step": "reopened (stored view)",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11",
+              "persisted after leaving"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "15",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  },
+                  {
+                    "id": "14",
+                    "kind": "assistant",
+                    "text": "persisted after leaving"
+                  }
+                ],
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 0,
+            "storedReads": 0,
+            "updateCount": 15,
+            "lastText": "persisted after leaving"
+          },
+          {
+            "step": "cold refresh tick",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11",
+              "persisted after leaving",
+              "cold refresh"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "16",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  },
+                  {
+                    "id": "14",
+                    "kind": "assistant",
+                    "text": "persisted after leaving"
+                  },
+                  {
+                    "id": "15",
+                    "kind": "assistant",
+                    "text": "cold refresh"
+                  }
+                ],
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 0,
+            "storedReads": 1,
+            "updateCount": 16,
+            "lastText": "cold refresh"
+          },
+          {
+            "step": "next submitted",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11",
+              "persisted after leaving",
+              "cold refresh",
+              "next",
+              "reply: next"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  },
+                  {
+                    "id": "14",
+                    "kind": "assistant",
+                    "text": "persisted after leaving"
+                  },
+                  {
+                    "id": "15",
+                    "kind": "assistant",
+                    "text": "cold refresh"
+                  },
+                  {
+                    "id": "next",
+                    "kind": "user",
+                    "text": "next"
+                  },
+                  {
+                    "id": "next-reply",
+                    "kind": "assistant",
+                    "text": "reply: next"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "18",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 1,
+            "updateCount": 17,
+            "accepted": true,
+            "lastTwo": [
+              "next",
+              "reply: next"
+            ]
+          },
+          {
+            "step": "1 s tick after live publication",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11",
+              "persisted after leaving",
+              "cold refresh",
+              "next",
+              "reply: next"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  },
+                  {
+                    "id": "14",
+                    "kind": "assistant",
+                    "text": "persisted after leaving"
+                  },
+                  {
+                    "id": "15",
+                    "kind": "assistant",
+                    "text": "cold refresh"
+                  },
+                  {
+                    "id": "next",
+                    "kind": "user",
+                    "text": "next"
+                  },
+                  {
+                    "id": "next-reply",
+                    "kind": "assistant",
+                    "text": "reply: next"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "18",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 1,
+            "updateCount": 17,
+            "readsUnchanged": true
+          }
+        ]
+      }
+    },
+    {
+      "case": "an evicted session delivers new prompts and replies (reopen first: false)",
+      "observed": {
+        "reopenBeforeSubmit": false,
+        "idleEvictMs": 100,
+        "evictSweepMs": 100,
+        "nowMs": 1800000000000,
+        "steps": [
+          {
+            "step": "first submitted",
+            "texts": [
+              "first",
+              "reply: first"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "2",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 2
+          },
+          {
+            "step": "old runtime advanced 12 rows (tick 20 ms each)",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "14",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 14,
+            "lastText": "old progress 11"
+          },
+          {
+            "step": "hidden, 10 s tick, evict sweep drained",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "14",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 0,
+            "storedReads": 0,
+            "updateCount": 14
+          },
+          {
+            "step": "next submitted",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11",
+              "persisted after leaving",
+              "next",
+              "reply: next"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  },
+                  {
+                    "id": "14",
+                    "kind": "assistant",
+                    "text": "persisted after leaving"
+                  },
+                  {
+                    "id": "next",
+                    "kind": "user",
+                    "text": "next"
+                  },
+                  {
+                    "id": "next-reply",
+                    "kind": "assistant",
+                    "text": "reply: next"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "17",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 16,
+            "accepted": true,
+            "lastTwo": [
+              "next",
+              "reply: next"
+            ]
+          },
+          {
+            "step": "1 s tick after live publication",
+            "texts": [
+              "first",
+              "reply: first",
+              "old progress 0",
+              "old progress 1",
+              "old progress 2",
+              "old progress 3",
+              "old progress 4",
+              "old progress 5",
+              "old progress 6",
+              "old progress 7",
+              "old progress 8",
+              "old progress 9",
+              "old progress 10",
+              "old progress 11",
+              "persisted after leaving",
+              "next",
+              "reply: next"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "first",
+                    "kind": "user",
+                    "text": "first"
+                  },
+                  {
+                    "id": "first-reply",
+                    "kind": "assistant",
+                    "text": "reply: first"
+                  },
+                  {
+                    "id": "progress-0",
+                    "kind": "assistant",
+                    "text": "old progress 0"
+                  },
+                  {
+                    "id": "progress-1",
+                    "kind": "assistant",
+                    "text": "old progress 1"
+                  },
+                  {
+                    "id": "progress-2",
+                    "kind": "assistant",
+                    "text": "old progress 2"
+                  },
+                  {
+                    "id": "progress-3",
+                    "kind": "assistant",
+                    "text": "old progress 3"
+                  },
+                  {
+                    "id": "progress-4",
+                    "kind": "assistant",
+                    "text": "old progress 4"
+                  },
+                  {
+                    "id": "progress-5",
+                    "kind": "assistant",
+                    "text": "old progress 5"
+                  },
+                  {
+                    "id": "progress-6",
+                    "kind": "assistant",
+                    "text": "old progress 6"
+                  },
+                  {
+                    "id": "progress-7",
+                    "kind": "assistant",
+                    "text": "old progress 7"
+                  },
+                  {
+                    "id": "progress-8",
+                    "kind": "assistant",
+                    "text": "old progress 8"
+                  },
+                  {
+                    "id": "progress-9",
+                    "kind": "assistant",
+                    "text": "old progress 9"
+                  },
+                  {
+                    "id": "progress-10",
+                    "kind": "assistant",
+                    "text": "old progress 10"
+                  },
+                  {
+                    "id": "progress-11",
+                    "kind": "assistant",
+                    "text": "old progress 11"
+                  },
+                  {
+                    "id": "14",
+                    "kind": "assistant",
+                    "text": "persisted after leaving"
+                  },
+                  {
+                    "id": "next",
+                    "kind": "user",
+                    "text": "next"
+                  },
+                  {
+                    "id": "next-reply",
+                    "kind": "assistant",
+                    "text": "reply: next"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "17",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 16,
+            "readsUnchanged": true
+          }
+        ]
+      }
+    },
+    {
+      "case": "a delayed stored reply cannot overwrite a newly materialized turn",
+      "observed": {
+        "steps": [
+          {
+            "step": "opened with a stored answer",
+            "texts": [
+              "stored answer"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "1",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "stored answer"
+                  }
+                ],
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 0,
+            "storedReads": 0,
+            "updateCount": 1
+          },
+          {
+            "step": "prefetch read held",
+            "texts": [
+              "stored answer"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "1",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "stored answer"
+                  }
+                ],
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 0,
+            "storedReads": 1,
+            "updateCount": 1
+          },
+          {
+            "step": "new turn submitted while the read is held",
+            "texts": [
+              "stored answer",
+              "new turn",
+              "reply: new turn"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "stored answer"
+                  },
+                  {
+                    "id": "new-turn",
+                    "kind": "user",
+                    "text": "new turn"
+                  },
+                  {
+                    "id": "new-turn-reply",
+                    "kind": "assistant",
+                    "text": "reply: new turn"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "3",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 1,
+            "updateCount": 2
+          },
+          {
+            "step": "read released",
+            "texts": [
+              "stored answer",
+              "new turn",
+              "reply: new turn"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "stored answer"
+                  },
+                  {
+                    "id": "new-turn",
+                    "kind": "user",
+                    "text": "new turn"
+                  },
+                  {
+                    "id": "new-turn-reply",
+                    "kind": "assistant",
+                    "text": "reply: new turn"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "3",
+                "transcriptHasOlder": false,
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                }
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 1,
+            "storedReads": 2,
+            "updateCount": 3,
+            "lastTwo": [
+              "new turn",
+              "reply: new turn"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "cold refresh ticks do not stack reads while that session is still loading",
+      "observed": {
+        "steps": [
+          {
+            "step": "1 s tick, read held, 5 s more ticks",
+            "texts": [
+              "stored answer"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "1",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "stored answer"
+                  }
+                ],
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 0,
+            "storedReads": 1,
+            "updateCount": 1,
+            "readsSinceOpen": 1
+          },
+          {
+            "step": "read settled, 1 s tick",
+            "texts": [
+              "stored answer"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "1",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "stored answer"
+                  }
+                ],
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "replay"
+            },
+            "serviceSize": 0,
+            "storedReads": 1,
+            "updateCount": 1,
+            "readsSinceOpen": 1
+          }
+        ]
+      }
+    },
+    {
+      "case": "read tracing measures a held host read and propagates its correlation without changing the result",
+      "observed": {
+        "performanceNowWhileHeld": 0,
+        "performanceNowAtRelease": 321,
+        "recordsWhileHeld": [
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-start",
+            "atMs": 1800000000000
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-read-start",
+            "atMs": 1800000000000
+          }
+        ],
+        "result": true,
+        "records": [
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-start",
+            "atMs": 1800000000000
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-read-start",
+            "atMs": 1800000000000
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-read-result",
+            "atMs": 1800000000000,
+            "durationMs": 321
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-projected",
+            "atMs": 1800000000000,
+            "elapsedMs": 321,
+            "itemCount": 1
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-1",
+            "stage": "host-published",
+            "atMs": 1800000000000,
+            "elapsedMs": 321
+          }
+        ],
+        "lastUpdate": {
+          "sessionId": "reentered_session",
+          "snapshot": {
+            "sessionId": "reentered_session",
+            "queued": [],
+            "busy": false,
+            "projectionStamp": "1",
+            "items": [
+              {
+                "id": "0",
+                "kind": "assistant",
+                "text": "private saved answer"
+              }
+            ],
+            "remoteEnabled": false,
+            "remoteSessionId": null,
+            "shellJobs": {
+              "count": 0,
+              "elapsedLabel": "",
+              "jobs": [],
+              "finished": []
+            },
+            "hostShellJobs": {
+              "count": 0,
+              "elapsedLabel": "",
+              "jobs": [],
+              "finished": []
+            }
+          },
+          "frameSource": "replay",
+          "readTraceId": "read-host-1"
+        },
+        "texts": [
+          "private saved answer"
+        ],
+        "steps": [
+          {
+            "step": "prefetch finished",
+            "texts": [
+              "private saved answer"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "1",
+                "items": [
+                  {
+                    "id": "0",
+                    "kind": "assistant",
+                    "text": "private saved answer"
+                  }
+                ],
+                "remoteEnabled": false,
+                "remoteSessionId": null,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                }
+              },
+              "frameSource": "replay",
+              "readTraceId": "read-host-1"
+            },
+            "serviceSize": 0,
+            "storedReads": 1,
+            "updateCount": 1
+          }
+        ]
+      }
+    },
+    {
+      "case": "a traced host read preserves its original rejection",
+      "observed": {
+        "outcome": {
+          "rejected": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "private read failure",
+            "props": {}
+          },
+          "sameErrorObject": true
+        },
+        "records": [
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-failure",
+            "stage": "host-start",
+            "atMs": 1800000000000
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-failure",
+            "stage": "host-read-start",
+            "atMs": 1800000000000
+          },
+          {
+            "kind": "transcript-read",
+            "sessionId": "reentered_session",
+            "traceId": "read-host-failure",
+            "stage": "host-failed",
+            "atMs": 1800000000000,
+            "elapsedMs": 0
+          }
+        ]
+      }
+    },
+    {
+      "case": "a replayed submission id joins the original instead of double-submitting",
+      "observed": {
+        "both": [
+          true,
+          true
+        ],
+        "again": true,
+        "onceCount": 1,
+        "texts": [
+          "once",
+          "reply: once"
+        ],
+        "steps": [
+          {
+            "step": "after replays",
+            "texts": [
+              "once",
+              "reply: once"
+            ],
+            "lastUpdate": {
+              "sessionId": "reentered_session",
+              "snapshot": {
+                "sessionId": "reentered_session",
+                "items": [
+                  {
+                    "id": "retry-id",
+                    "kind": "user",
+                    "text": "once"
+                  },
+                  {
+                    "id": "retry-id-reply",
+                    "kind": "assistant",
+                    "text": "reply: once"
+                  }
+                ],
+                "queued": [],
+                "busy": false,
+                "projectionStamp": "2",
+                "transcriptHasOlder": false,
+                "shellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "hostShellJobs": {
+                  "count": 0,
+                  "elapsedLabel": "",
+                  "jobs": [],
+                  "finished": []
+                },
+                "remoteEnabled": false,
+                "remoteSessionId": null
+              },
+              "frameSource": "live"
+            },
+            "serviceSize": 1,
+            "storedReads": 0,
+            "updateCount": 2
+          }
+        ]
+      }
+    }
+  ]
+}
