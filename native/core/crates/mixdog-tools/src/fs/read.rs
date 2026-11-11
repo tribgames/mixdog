@@ -2325,11 +2325,15 @@ fn split_glob(raw: &str) -> (String, String) {
 }
 
 /// Node's `Buffer.from(text, 'base64')`: the standard and URL-safe alphabets, every other character (line breaks
-/// included) skipped, decoding ended by the first `=`; a trailing lone sextet carries no byte.
+/// included) skipped, decoding ended by the first `=`; a trailing lone sextet carries no byte. Node reads the string's
+/// UTF-16 code units through their low byte (nbytes `Base64Decode` over `uint16_t`), so `Ł` (U+0141) counts as `A` and
+/// `丽` (U+4E3D) as `=`; an astral character is a surrogate pair, whose high half (0xD8xx-0xDBxx) has a low byte of its
+/// own, `=` for U+1F600's 0xD83D.
 fn node_base64(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() * 3 / 4);
     let (mut acc, mut bits) = (0u32, 0u32);
-    for b in text.bytes() {
+    for unit in text.encode_utf16() {
+        let b = unit as u8;
         let v = match b {
             b'A'..=b'Z' => b - b'A',
             b'a'..=b'z' => b - b'a' + 26,
