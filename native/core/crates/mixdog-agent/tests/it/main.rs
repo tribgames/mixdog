@@ -25,6 +25,7 @@ mod nested;
 mod policy_gate;
 mod preset_node_cases;
 mod reconcile_node_cases;
+mod views_node_cases;
 mod result_kind;
 mod run_loop;
 mod settings_service;
