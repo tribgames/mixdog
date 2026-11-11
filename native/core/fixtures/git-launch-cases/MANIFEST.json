@@ -6,7 +6,7 @@
     "runs": "src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) over trees of empty files in a temp folder",
     "standIn": {
       "build": "csc.exe of the .NET Framework 4 (C:/Windows/Microsoft.NET/Framework64/v4.0.30319), one build per run",
-      "sha256": "see recorder provenance dataFiles",
+      "sha256": "listed with the recorder inputs of this manifest (benchmarks/rust-core/recorders/lib/git-standin.cs)",
       "source": "benchmarks/rust-core/recorders/lib/git-standin.cs"
     }
   },
@@ -31,6 +31,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
       "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/git-standin.cs",
+      "sha256": "079d476a5577c77dde2c06ec241649e93d75bcf6cbe3b180e8c5cd40b1eb06cb"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.mjs",
@@ -141,7 +145,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-git-launch-cases.mjs",
-  "recorderSha256": "e539d8232877030ed604dd8f5d070a355abf0ceeaa12816a1d090d00819a6862",
+  "recorderSha256": "0a99c97ad12176060cbe7fa63bf26e36918639ba20373697c52cc1ccc1de3363",
   "replay": {
     "compare": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole",
     "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:267 launch_for; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git_launch.rs:295 forget_missing; mixdog-scm/src/git.rs:90 start_git.",
