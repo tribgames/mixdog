@@ -1,6 +1,7 @@
 {
   "set": "provider-openrouter",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "claude-messages-openrouter-key-inclusive-usage",
@@ -12,11 +13,17 @@
         "result": {
           "content": "ok",
           "model": "anthropic/claude-opus-4.8",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "end_turn",
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -51,34 +58,133 @@
           }
         }
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "sessionId": "s1"
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "310"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "310"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 200,
@@ -100,18 +206,48 @@
             "method": "GET",
             "origin": "https://openrouter.ai",
             "path": "/api/v1/models",
-            "headers": {
-              "host": "openrouter.ai",
-              "connection": "keep-alive",
-              "authorization": "Bearer or-key",
-              "http-referer": "https://github.com/tribgames/mixdog",
-              "x-openrouter-title": "mixdog",
-              "accept": "*/*",
-              "accept-language": "*",
-              "sec-fetch-mode": "cors",
-              "user-agent": "node",
-              "accept-encoding": "gzip, deflate"
-            },
+            "headers": [
+              [
+                "host",
+                "openrouter.ai"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "Authorization",
+                "Bearer or-key"
+              ],
+              [
+                "HTTP-Referer",
+                "https://github.com/tribgames/mixdog"
+              ],
+              [
+                "X-OpenRouter-Title",
+                "mixdog"
+              ],
+              [
+                "accept",
+                "*/*"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
             "body": "",
             "reply": {
               "status": 200,
@@ -123,15 +259,36 @@
             "method": "GET",
             "origin": "https://raw.githubusercontent.com",
             "path": "/BerriAI/litellm/main/model_prices_and_context_window.json",
-            "headers": {
-              "host": "raw.githubusercontent.com",
-              "connection": "keep-alive",
-              "accept": "*/*",
-              "accept-language": "*",
-              "sec-fetch-mode": "cors",
-              "user-agent": "node",
-              "accept-encoding": "gzip, deflate"
-            },
+            "headers": [
+              [
+                "host",
+                "raw.githubusercontent.com"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "accept",
+                "*/*"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
             "body": "",
             "reply": {
               "status": 404,
@@ -143,15 +300,36 @@
             "method": "GET",
             "origin": "https://models.dev",
             "path": "/api.json",
-            "headers": {
-              "host": "models.dev",
-              "connection": "keep-alive",
-              "accept": "*/*",
-              "accept-language": "*",
-              "sec-fetch-mode": "cors",
-              "user-agent": "node",
-              "accept-encoding": "gzip, deflate"
-            },
+            "headers": [
+              [
+                "host",
+                "models.dev"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "accept",
+                "*/*"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
             "body": "",
             "reply": {
               "status": 404,
@@ -182,11 +360,17 @@
         "sent": {
           "content": "ok",
           "model": "~anthropic/claude-opus-latest",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "end_turn",
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -222,39 +406,164 @@
         },
         "aliasTarget": "anthropic/claude-opus-5.5",
         "cachedAliasTarget": "anthropic/claude-opus-5.5",
+        "targetAliasTarget": {
+          "$exact": "undefined"
+        },
         "capabilityModels": [
           "claude-haiku-4.5",
           "claude-opus-5.5"
         ]
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#listModels",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "~anthropic/claude-opus-latest",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "effort": "high"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#getCachedModelInfo",
+          "args": [
+            "~anthropic/claude-opus-latest"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.openRouterCapabilityModel",
+          "args": [
+            "anthropic/claude-haiku-4.5:batch"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.openRouterCapabilityModel",
+          "args": [
+            "~anthropic/claude-opus-latest",
+            "anthropic/claude-opus-5.5"
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "348"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "348"
+            ]
+          ],
           "body": "{\"model\":\"~anthropic/claude-opus-latest\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"output_config\":{\"effort\":\"high\"},\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 200,
@@ -274,11 +583,17 @@
         "result": {
           "content": "ok",
           "model": "anthropic/claude-sonnet-5",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "end_turn",
           "hasThinkingContent": false,
           "contentBlockTypes": [
             "text_delta"
           ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
           "assistantBlocks": [
             {
               "type": "text",
@@ -313,34 +628,131 @@
           }
         }
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-sonnet-5",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "310"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "310"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 401,
@@ -352,29 +764,92 @@
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-rotated",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "310"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-rotated"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "310"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 200,
@@ -390,70 +865,187 @@
       "input": {},
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "Connection error.",
-          "type": null,
           "cause": {
+            "$exact": "error",
             "name": "Error",
-            "message": "[openrouter] refusing to follow a redirect from openrouter.ai"
+            "message": "[openrouter] refusing to follow a redirect from openrouter.ai",
+            "props": {}
           },
-          "initialResponseError": true,
-          "streamOutcome": {
-            "version": 1,
-            "provider": "anthropic",
-            "transport": "sse",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": false,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": false,
-            "userAbort": false,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": false,
-            "sideEffectDispatched": false,
-            "replayUnsafe": false,
-            "replaySafe": true,
-            "successEligible": false
+          "props": {
+            "status": {
+              "$exact": "undefined"
+            },
+            "headers": {
+              "$exact": "undefined"
+            },
+            "requestID": {
+              "$exact": "undefined"
+            },
+            "workspaceID": {
+              "$exact": "undefined"
+            },
+            "error": {
+              "$exact": "undefined"
+            },
+            "type": null,
+            "initialResponseError": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "anthropic",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
           }
         },
         "causeMessage": "[openrouter] refusing to follow a redirect from openrouter.ai"
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-sonnet-5",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "310"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "310"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 307,
@@ -473,7 +1065,16 @@
         "gpt": {
           "content": "ok",
           "model": "openai/gpt-6.1-sol",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": null,
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
           "providerReplay": {
             "version": 1,
             "provider": "compat-responses:openrouter",
@@ -522,27 +1123,84 @@
             "method": "POST",
             "origin": "https://openrouter.ai",
             "path": "/api/v1/responses",
-            "headers": {
-              "host": "openrouter.ai",
-              "connection": "keep-alive",
-              "accept": "application/json",
-              "user-agent": "OpenAI/JS 6.49.0",
-              "x-stainless-retry-count": "0",
-              "x-stainless-lang": "js",
-              "x-stainless-package-version": "6.49.0",
-              "x-stainless-os": "Windows",
-              "x-stainless-arch": "x64",
-              "x-stainless-runtime": "node",
-              "x-stainless-runtime-version": "v22.20.0",
-              "authorization": "Bearer or-key",
-              "http-referer": "https://github.com/tribgames/mixdog",
-              "x-openrouter-title": "mixdog",
-              "content-type": "application/json",
-              "accept-language": "*",
-              "sec-fetch-mode": "cors",
-              "accept-encoding": "gzip, deflate",
-              "content-length": "378"
-            },
+            "headers": [
+              [
+                "host",
+                "openrouter.ai"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer or-key"
+              ],
+              [
+                "http-referer",
+                "https://github.com/tribgames/mixdog"
+              ],
+              [
+                "x-openrouter-title",
+                "mixdog"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "378"
+              ]
+            ],
             "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}},\"strict\":false}],\"parallel_tool_calls\":true,\"reasoning\":{\"enabled\":true,\"effort\":\"high\"}}",
             "reply": {
               "status": 200,
@@ -552,32 +1210,199 @@
           }
         ]
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openai/gpt-6.1-sol",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "effort": "low",
+              "openRouterReasoningEffort": "high"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "~openai/gpt-sol-latest",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "openRouterReasoningEffort": "none"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openai/o3",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openrouter/auto",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "effort": "medium"
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/responses",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "367"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "367"
+            ]
+          ],
           "body": "{\"model\":\"~openai/gpt-sol-latest\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}},\"strict\":false}],\"parallel_tool_calls\":true,\"reasoning\":{\"enabled\":false}}",
           "reply": {
             "status": 200,
@@ -589,27 +1414,84 @@
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/responses",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "324"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "324"
+            ]
+          ],
           "body": "{\"model\":\"openai/o3\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}},\"strict\":false}],\"parallel_tool_calls\":true}",
           "reply": {
             "status": 200,
@@ -621,27 +1503,84 @@
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/chat/completions",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "304"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "304"
+            ]
+          ],
           "body": "{\"model\":\"openrouter/auto\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"reasoning\":{\"enabled\":true,\"effort\":\"medium\"},\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 200,
@@ -663,32 +1602,130 @@
         }
       },
       "result": {},
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "wireRoute": {
+                "provider": "openrouter",
+                "model": "anthropic/claude-opus-4.8",
+                "wire": "chat",
+                "source": "legacy"
+              }
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/chat/completions",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "267"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "267"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 200,
@@ -707,32 +1744,126 @@
         }
       },
       "result": {},
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false,
+              "modelWires": {
+                "anthropic/claude-opus-4.8": "chat"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/chat/completions",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "267"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "267"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 200,
@@ -749,220 +1880,30 @@
       "result": {
         "auth": {
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "openrouter:responses stream response.failed: Invalid credentials",
-            "providerErrorCode": "authentication_error",
-            "providerError": {
-              "code": "authentication_error",
-              "message": "Invalid credentials",
-              "error_type": "authentication",
-              "native_code": "server_error"
-            },
-            "providerWireError": true,
             "code": "authentication_error",
-            "partialContent": "",
-            "pendingToolUse": false,
-            "streamOutcome": {
-              "version": 1,
-              "provider": "openai-compat-responses",
-              "transport": "sse",
-              "terminalObserved": false,
-              "continuation": true,
-              "declaredContinuation": false,
-              "textEmitted": false,
-              "textObservedChars": 0,
-              "reasoningEmitted": false,
-              "toolCallsStarted": false,
-              "toolCallsComplete": 0,
-              "toolCallsDispatched": 0,
-              "dispatchAmbiguous": false,
-              "pendingToolInput": false,
-              "userAbort": false,
-              "stallObserved": false,
-              "truncatedStream": false,
-              "visibleOutput": false,
-              "observedOutput": false,
-              "sideEffectDispatched": false,
-              "replayUnsafe": false,
-              "replaySafe": true,
-              "successEligible": false
-            }
-          }
-        },
-        "authKind": {
-          "kind": "auth",
-          "code": "authentication_error",
-          "status": 0,
-          "retryAfterMs": null,
-          "resetAt": null
-        },
-        "authRequests": 1,
-        "overflow": {
-          "error": {
-            "name": "Error",
-            "message": "openrouter:responses stream response.failed: too long",
-            "providerErrorCode": "context_length_exceeded",
-            "providerError": {
-              "code": "context_length_exceeded",
-              "message": "too long",
-              "error_type": "context_length_exceeded",
-              "native_code": "invalid_prompt"
-            },
-            "providerWireError": true,
-            "code": "context_length_exceeded",
-            "partialContent": "",
-            "pendingToolUse": false,
-            "streamOutcome": {
-              "version": 1,
-              "provider": "openai-compat-responses",
-              "transport": "sse",
-              "terminalObserved": false,
-              "continuation": true,
-              "declaredContinuation": false,
-              "textEmitted": false,
-              "textObservedChars": 0,
-              "reasoningEmitted": false,
-              "toolCallsStarted": false,
-              "toolCallsComplete": 0,
-              "toolCallsDispatched": 0,
-              "dispatchAmbiguous": false,
-              "pendingToolInput": false,
-              "userAbort": false,
-              "stallObserved": false,
-              "truncatedStream": false,
-              "visibleOutput": false,
-              "observedOutput": false,
-              "sideEffectDispatched": false,
-              "replayUnsafe": false,
-              "replaySafe": true,
-              "successEligible": false
-            }
-          }
-        },
-        "overflowKind": {
-          "kind": "context_overflow",
-          "code": "context_length_exceeded",
-          "status": 0,
-          "retryAfterMs": null,
-          "resetAt": null
-        },
-        "overflowIsContextOverflow": true,
-        "overflowRequests": 1
-      },
-      "requests": [
-        {
-          "method": "POST",
-          "origin": "https://openrouter.ai",
-          "path": "/api/v1/responses",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "333"
-          },
-          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}},\"strict\":false}],\"parallel_tool_calls\":true}",
-          "reply": {
-            "status": 200,
-            "contentType": "text/event-stream",
-            "body": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_f\",\"status\":\"failed\",\"error\":{\"code\":\"invalid_prompt\",\"message\":\"too long\"},\"error_type\":\"context_length_exceeded\"}}\n\n"
-          }
-        }
-      ]
-    },
-    {
-      "id": "canonical-error-type-outranks-native-code-http",
-      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:268",
-      "input": {},
-      "result": {
-        "out": [
-          {
-            "model": "openrouter/auto",
-            "error": {
-              "name": "Error",
-              "message": "400 too long",
-              "status": 400,
-              "headers": {},
-              "requestID": null,
-              "error": {
-                "code": "invalid_prompt",
-                "message": "too long",
-                "metadata": {
-                  "error_type": "context_length_exceeded"
-                }
+            "props": {
+              "providerErrorCode": "authentication_error",
+              "providerError": {
+                "code": "authentication_error",
+                "message": "Invalid credentials",
+                "error_type": "authentication",
+                "native_code": "server_error"
               },
-              "code": "invalid_prompt"
-            },
-            "kind": {
-              "kind": "context_overflow",
-              "code": "context_length_exceeded",
-              "status": 400,
-              "retryAfterMs": null,
-              "resetAt": null
-            },
-            "isContextOverflow": true
-          },
-          {
-            "model": "openrouter/auto",
-            "error": {
-              "name": "Error",
-              "message": "400 too long",
-              "status": 400,
-              "headers": {},
-              "requestID": null,
-              "error": {
-                "code": "invalid_prompt",
-                "message": "too long",
-                "error_type": "context_length_exceeded"
+              "providerWireError": true,
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
               },
-              "code": "invalid_prompt"
-            },
-            "kind": {
-              "kind": "context_overflow",
-              "code": "context_length_exceeded",
-              "status": 400,
-              "retryAfterMs": null,
-              "resetAt": null
-            },
-            "isContextOverflow": true
-          },
-          {
-            "model": "anthropic/claude-opus-4.8",
-            "error": {
-              "name": "Error",
-              "message": "400 {\"error\":{\"type\":\"invalid_prompt\",\"message\":\"too long\",\"error_type\":\"context_length_exceeded\"}}",
-              "status": 400,
-              "headers": {},
-              "requestID": null,
-              "workspaceID": null,
-              "error": {
-                "error": {
-                  "type": "invalid_prompt",
-                  "message": "too long",
-                  "error_type": "context_length_exceeded"
-                }
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
               },
-              "type": "invalid_prompt",
-              "httpStatus": 400,
-              "code": "invalid_prompt",
-              "initialResponseError": true,
               "streamOutcome": {
                 "version": 1,
-                "provider": "anthropic",
+                "provider": "openai-compat-responses",
                 "transport": "sse",
                 "terminalObserved": false,
                 "continuation": true,
@@ -984,6 +1925,589 @@
                 "replayUnsafe": false,
                 "replaySafe": true,
                 "successEligible": false
+              }
+            }
+          }
+        },
+        "authKind": {
+          "kind": "auth",
+          "code": "authentication_error",
+          "status": 0,
+          "retryAfterMs": null,
+          "resetAt": null
+        },
+        "authRequests": 1,
+        "overflow": {
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "openrouter:responses stream response.failed: too long",
+            "code": "context_length_exceeded",
+            "props": {
+              "providerErrorCode": "context_length_exceeded",
+              "providerError": {
+                "code": "context_length_exceeded",
+                "message": "too long",
+                "error_type": "context_length_exceeded",
+                "native_code": "invalid_prompt"
+              },
+              "providerWireError": true,
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
+              },
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-compat-responses",
+                "transport": "sse",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          }
+        },
+        "overflowKind": {
+          "kind": "context_overflow",
+          "code": "context_length_exceeded",
+          "status": 0,
+          "retryAfterMs": null,
+          "resetAt": null
+        },
+        "overflowIsContextOverflow": true,
+        "overflowRequests": 1
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openai/gpt-6.1-sol",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openai/gpt-6.1-sol",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "openrouter:responses stream response.failed: Invalid credentials",
+              "code": "authentication_error",
+              "props": {
+                "providerErrorCode": "authentication_error",
+                "providerError": {
+                  "code": "authentication_error",
+                  "message": "Invalid credentials",
+                  "error_type": "authentication",
+                  "native_code": "server_error"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "openrouter:responses stream response.failed: too long",
+              "code": "context_length_exceeded",
+              "props": {
+                "providerErrorCode": "context_length_exceeded",
+                "providerError": {
+                  "code": "context_length_exceeded",
+                  "message": "too long",
+                  "error_type": "context_length_exceeded",
+                  "native_code": "invalid_prompt"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classification.mjs.isContextOverflowError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "openrouter:responses stream response.failed: too long",
+              "code": "context_length_exceeded",
+              "props": {
+                "providerErrorCode": "context_length_exceeded",
+                "providerError": {
+                  "code": "context_length_exceeded",
+                  "message": "too long",
+                  "error_type": "context_length_exceeded",
+                  "native_code": "invalid_prompt"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/responses",
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "333"
+            ]
+          ],
+          "body": "{\"model\":\"openai/gpt-6.1-sol\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}},\"strict\":false}],\"parallel_tool_calls\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_f\",\"status\":\"failed\",\"error\":{\"code\":\"invalid_prompt\",\"message\":\"too long\"},\"error_type\":\"context_length_exceeded\"}}\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "canonical-error-type-outranks-native-code-http",
+      "source": "src/runtime/agent/orchestrator/providers/openrouter.test.mjs:268",
+      "input": {},
+      "result": {
+        "out": [
+          {
+            "model": "openrouter/auto",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "error": {
+                  "code": "invalid_prompt",
+                  "message": "too long",
+                  "metadata": {
+                    "error_type": "context_length_exceeded"
+                  }
+                },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": {
+                  "$exact": "undefined"
+                }
+              }
+            },
+            "kind": {
+              "kind": "context_overflow",
+              "code": "context_length_exceeded",
+              "status": 400,
+              "retryAfterMs": null,
+              "resetAt": null
+            },
+            "isContextOverflow": true
+          },
+          {
+            "model": "openrouter/auto",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "error": {
+                  "code": "invalid_prompt",
+                  "message": "too long",
+                  "error_type": "context_length_exceeded"
+                },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": {
+                  "$exact": "undefined"
+                }
+              }
+            },
+            "kind": {
+              "kind": "context_overflow",
+              "code": "context_length_exceeded",
+              "status": 400,
+              "retryAfterMs": null,
+              "resetAt": null
+            },
+            "isContextOverflow": true
+          },
+          {
+            "model": "anthropic/claude-opus-4.8",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 {\"error\":{\"type\":\"invalid_prompt\",\"message\":\"too long\",\"error_type\":\"context_length_exceeded\"}}",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "workspaceID": null,
+                "error": {
+                  "error": {
+                    "type": "invalid_prompt",
+                    "message": "too long",
+                    "error_type": "context_length_exceeded"
+                  }
+                },
+                "type": "invalid_prompt",
+                "httpStatus": 400,
+                "initialResponseError": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "anthropic",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
               }
             },
             "kind": {
@@ -1007,32 +2531,577 @@
           "isContextOverflow": true
         }
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openrouter/auto",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "error": {
+                  "code": "invalid_prompt",
+                  "message": "too long",
+                  "metadata": {
+                    "error_type": "context_length_exceeded"
+                  }
+                },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classification.mjs.isContextOverflowError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "error": {
+                  "code": "invalid_prompt",
+                  "message": "too long",
+                  "metadata": {
+                    "error_type": "context_length_exceeded"
+                  }
+                },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "openrouter/auto",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "error": {
+                  "code": "invalid_prompt",
+                  "message": "too long",
+                  "error_type": "context_length_exceeded"
+                },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classification.mjs.isContextOverflowError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "error": {
+                  "code": "invalid_prompt",
+                  "message": "too long",
+                  "error_type": "context_length_exceeded"
+                },
+                "param": {
+                  "$exact": "undefined"
+                },
+                "type": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 {\"error\":{\"type\":\"invalid_prompt\",\"message\":\"too long\",\"error_type\":\"context_length_exceeded\"}}",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "workspaceID": null,
+                "error": {
+                  "error": {
+                    "type": "invalid_prompt",
+                    "message": "too long",
+                    "error_type": "context_length_exceeded"
+                  }
+                },
+                "type": "invalid_prompt",
+                "httpStatus": 400,
+                "initialResponseError": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "anthropic",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classification.mjs.isContextOverflowError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "400 {\"error\":{\"type\":\"invalid_prompt\",\"message\":\"too long\",\"error_type\":\"context_length_exceeded\"}}",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "headers": {
+                  "headers": [
+                    [
+                      "connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "content-type",
+                      "application/json"
+                    ],
+                    [
+                      "date",
+                      "Thu, 01 Jan 2026 00:00:00 GMT"
+                    ],
+                    [
+                      "keep-alive",
+                      "timeout=5"
+                    ],
+                    [
+                      "transfer-encoding",
+                      "chunked"
+                    ]
+                  ]
+                },
+                "requestID": null,
+                "workspaceID": null,
+                "error": {
+                  "error": {
+                    "type": "invalid_prompt",
+                    "message": "too long",
+                    "error_type": "context_length_exceeded"
+                  }
+                },
+                "type": "invalid_prompt",
+                "httpStatus": 400,
+                "initialResponseError": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "anthropic",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "error": {
+                  "code": "invalid_prompt",
+                  "error_type": "context_length_exceeded"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classification.mjs.isContextOverflowError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "too long",
+              "code": "invalid_prompt",
+              "props": {
+                "status": 400,
+                "error": {
+                  "code": "invalid_prompt",
+                  "error_type": "context_length_exceeded"
+                }
+              }
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/chat/completions",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "257"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "257"
+            ]
+          ],
           "body": "{\"model\":\"openrouter/auto\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 400,
@@ -1044,27 +3113,84 @@
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/chat/completions",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "257"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "http-referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "x-openrouter-title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "257"
+            ]
+          ],
           "body": "{\"model\":\"openrouter/auto\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 400,
@@ -1076,29 +3202,92 @@
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "310"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "310"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 400,
@@ -1126,29 +3315,92 @@
                 "method": "POST",
                 "origin": "https://openrouter.ai",
                 "path": "/api/v1/messages",
-                "headers": {
-                  "host": "openrouter.ai",
-                  "connection": "keep-alive",
-                  "accept": "application/json",
-                  "user-agent": "Anthropic/JS 0.137.0",
-                  "x-stainless-retry-count": "0",
-                  "x-stainless-timeout": "600",
-                  "x-stainless-lang": "js",
-                  "x-stainless-package-version": "0.137.0",
-                  "x-stainless-os": "Windows",
-                  "x-stainless-arch": "x64",
-                  "x-stainless-runtime": "node",
-                  "x-stainless-runtime-version": "v22.20.0",
-                  "anthropic-version": "2023-06-01",
-                  "authorization": "Bearer or-key",
-                  "http-referer": "https://github.com/tribgames/mixdog",
-                  "x-openrouter-title": "mixdog",
-                  "content-type": "application/json",
-                  "accept-language": "*",
-                  "sec-fetch-mode": "cors",
-                  "accept-encoding": "gzip, deflate",
-                  "content-length": "279"
-                },
+                "headers": [
+                  [
+                    "host",
+                    "openrouter.ai"
+                  ],
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "Accept",
+                    "application/json"
+                  ],
+                  [
+                    "User-Agent",
+                    "Anthropic/JS 0.137.0"
+                  ],
+                  [
+                    "X-Stainless-Retry-Count",
+                    "0"
+                  ],
+                  [
+                    "X-Stainless-Timeout",
+                    "600"
+                  ],
+                  [
+                    "X-Stainless-Lang",
+                    "js"
+                  ],
+                  [
+                    "X-Stainless-Package-Version",
+                    "0.137.0"
+                  ],
+                  [
+                    "X-Stainless-OS",
+                    "Windows"
+                  ],
+                  [
+                    "X-Stainless-Arch",
+                    "x64"
+                  ],
+                  [
+                    "X-Stainless-Runtime",
+                    "node"
+                  ],
+                  [
+                    "X-Stainless-Runtime-Version",
+                    "v22.20.0"
+                  ],
+                  [
+                    "anthropic-version",
+                    "2023-06-01"
+                  ],
+                  [
+                    "authorization",
+                    "Bearer or-key"
+                  ],
+                  [
+                    "HTTP-Referer",
+                    "https://github.com/tribgames/mixdog"
+                  ],
+                  [
+                    "X-OpenRouter-Title",
+                    "mixdog"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "accept-language",
+                    "*"
+                  ],
+                  [
+                    "sec-fetch-mode",
+                    "cors"
+                  ],
+                  [
+                    "accept-encoding",
+                    "gzip, deflate"
+                  ],
+                  [
+                    "content-length",
+                    "279"
+                  ]
+                ],
                 "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"stream\":true}",
                 "reply": {
                   "status": 200,
@@ -1170,29 +3422,92 @@
                 "method": "POST",
                 "origin": "https://openrouter.ai",
                 "path": "/api/v1/messages",
-                "headers": {
-                  "host": "openrouter.ai",
-                  "connection": "keep-alive",
-                  "accept": "application/json",
-                  "user-agent": "Anthropic/JS 0.137.0",
-                  "x-stainless-retry-count": "0",
-                  "x-stainless-timeout": "600",
-                  "x-stainless-lang": "js",
-                  "x-stainless-package-version": "0.137.0",
-                  "x-stainless-os": "Windows",
-                  "x-stainless-arch": "x64",
-                  "x-stainless-runtime": "node",
-                  "x-stainless-runtime-version": "v22.20.0",
-                  "anthropic-version": "2023-06-01",
-                  "authorization": "Bearer or-key",
-                  "http-referer": "https://github.com/tribgames/mixdog",
-                  "x-openrouter-title": "mixdog",
-                  "content-type": "application/json",
-                  "accept-language": "*",
-                  "sec-fetch-mode": "cors",
-                  "accept-encoding": "gzip, deflate",
-                  "content-length": "343"
-                },
+                "headers": [
+                  [
+                    "host",
+                    "openrouter.ai"
+                  ],
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "Accept",
+                    "application/json"
+                  ],
+                  [
+                    "User-Agent",
+                    "Anthropic/JS 0.137.0"
+                  ],
+                  [
+                    "X-Stainless-Retry-Count",
+                    "0"
+                  ],
+                  [
+                    "X-Stainless-Timeout",
+                    "600"
+                  ],
+                  [
+                    "X-Stainless-Lang",
+                    "js"
+                  ],
+                  [
+                    "X-Stainless-Package-Version",
+                    "0.137.0"
+                  ],
+                  [
+                    "X-Stainless-OS",
+                    "Windows"
+                  ],
+                  [
+                    "X-Stainless-Arch",
+                    "x64"
+                  ],
+                  [
+                    "X-Stainless-Runtime",
+                    "node"
+                  ],
+                  [
+                    "X-Stainless-Runtime-Version",
+                    "v22.20.0"
+                  ],
+                  [
+                    "anthropic-version",
+                    "2023-06-01"
+                  ],
+                  [
+                    "authorization",
+                    "Bearer or-key"
+                  ],
+                  [
+                    "HTTP-Referer",
+                    "https://github.com/tribgames/mixdog"
+                  ],
+                  [
+                    "X-OpenRouter-Title",
+                    "mixdog"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "accept-language",
+                    "*"
+                  ],
+                  [
+                    "sec-fetch-mode",
+                    "cors"
+                  ],
+                  [
+                    "accept-encoding",
+                    "gzip, deflate"
+                  ],
+                  [
+                    "content-length",
+                    "343"
+                  ]
+                ],
                 "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"output_config\":{\"effort\":\"low\"},\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
                 "reply": {
                   "status": 200,
@@ -1210,29 +3525,92 @@
                 "method": "POST",
                 "origin": "https://openrouter.ai",
                 "path": "/api/v1/messages",
-                "headers": {
-                  "host": "openrouter.ai",
-                  "connection": "keep-alive",
-                  "accept": "application/json",
-                  "user-agent": "Anthropic/JS 0.137.0",
-                  "x-stainless-retry-count": "0",
-                  "x-stainless-timeout": "600",
-                  "x-stainless-lang": "js",
-                  "x-stainless-package-version": "0.137.0",
-                  "x-stainless-os": "Windows",
-                  "x-stainless-arch": "x64",
-                  "x-stainless-runtime": "node",
-                  "x-stainless-runtime-version": "v22.20.0",
-                  "anthropic-version": "2023-06-01",
-                  "authorization": "Bearer or-key",
-                  "http-referer": "https://github.com/tribgames/mixdog",
-                  "x-openrouter-title": "mixdog",
-                  "content-type": "application/json",
-                  "accept-language": "*",
-                  "sec-fetch-mode": "cors",
-                  "accept-encoding": "gzip, deflate",
-                  "content-length": "343"
-                },
+                "headers": [
+                  [
+                    "host",
+                    "openrouter.ai"
+                  ],
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "Accept",
+                    "application/json"
+                  ],
+                  [
+                    "User-Agent",
+                    "Anthropic/JS 0.137.0"
+                  ],
+                  [
+                    "X-Stainless-Retry-Count",
+                    "0"
+                  ],
+                  [
+                    "X-Stainless-Timeout",
+                    "600"
+                  ],
+                  [
+                    "X-Stainless-Lang",
+                    "js"
+                  ],
+                  [
+                    "X-Stainless-Package-Version",
+                    "0.137.0"
+                  ],
+                  [
+                    "X-Stainless-OS",
+                    "Windows"
+                  ],
+                  [
+                    "X-Stainless-Arch",
+                    "x64"
+                  ],
+                  [
+                    "X-Stainless-Runtime",
+                    "node"
+                  ],
+                  [
+                    "X-Stainless-Runtime-Version",
+                    "v22.20.0"
+                  ],
+                  [
+                    "anthropic-version",
+                    "2023-06-01"
+                  ],
+                  [
+                    "authorization",
+                    "Bearer or-key"
+                  ],
+                  [
+                    "HTTP-Referer",
+                    "https://github.com/tribgames/mixdog"
+                  ],
+                  [
+                    "X-OpenRouter-Title",
+                    "mixdog"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "accept-language",
+                    "*"
+                  ],
+                  [
+                    "sec-fetch-mode",
+                    "cors"
+                  ],
+                  [
+                    "accept-encoding",
+                    "gzip, deflate"
+                  ],
+                  [
+                    "content-length",
+                    "343"
+                  ]
+                ],
                 "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"output_config\":{\"effort\":\"low\"},\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
                 "reply": {
                   "status": 200,
@@ -1252,29 +3630,92 @@
                 "method": "POST",
                 "origin": "https://openrouter.ai",
                 "path": "/api/v1/messages",
-                "headers": {
-                  "host": "openrouter.ai",
-                  "connection": "keep-alive",
-                  "accept": "application/json",
-                  "user-agent": "Anthropic/JS 0.137.0",
-                  "x-stainless-retry-count": "0",
-                  "x-stainless-timeout": "600",
-                  "x-stainless-lang": "js",
-                  "x-stainless-package-version": "0.137.0",
-                  "x-stainless-os": "Windows",
-                  "x-stainless-arch": "x64",
-                  "x-stainless-runtime": "node",
-                  "x-stainless-runtime-version": "v22.20.0",
-                  "anthropic-version": "2023-06-01",
-                  "authorization": "Bearer or-key",
-                  "http-referer": "https://github.com/tribgames/mixdog",
-                  "x-openrouter-title": "mixdog",
-                  "content-type": "application/json",
-                  "accept-language": "*",
-                  "sec-fetch-mode": "cors",
-                  "accept-encoding": "gzip, deflate",
-                  "content-length": "346"
-                },
+                "headers": [
+                  [
+                    "host",
+                    "openrouter.ai"
+                  ],
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "Accept",
+                    "application/json"
+                  ],
+                  [
+                    "User-Agent",
+                    "Anthropic/JS 0.137.0"
+                  ],
+                  [
+                    "X-Stainless-Retry-Count",
+                    "0"
+                  ],
+                  [
+                    "X-Stainless-Timeout",
+                    "600"
+                  ],
+                  [
+                    "X-Stainless-Lang",
+                    "js"
+                  ],
+                  [
+                    "X-Stainless-Package-Version",
+                    "0.137.0"
+                  ],
+                  [
+                    "X-Stainless-OS",
+                    "Windows"
+                  ],
+                  [
+                    "X-Stainless-Arch",
+                    "x64"
+                  ],
+                  [
+                    "X-Stainless-Runtime",
+                    "node"
+                  ],
+                  [
+                    "X-Stainless-Runtime-Version",
+                    "v22.20.0"
+                  ],
+                  [
+                    "anthropic-version",
+                    "2023-06-01"
+                  ],
+                  [
+                    "authorization",
+                    "Bearer or-key"
+                  ],
+                  [
+                    "HTTP-Referer",
+                    "https://github.com/tribgames/mixdog"
+                  ],
+                  [
+                    "X-OpenRouter-Title",
+                    "mixdog"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "accept-language",
+                    "*"
+                  ],
+                  [
+                    "sec-fetch-mode",
+                    "cors"
+                  ],
+                  [
+                    "accept-encoding",
+                    "gzip, deflate"
+                  ],
+                  [
+                    "content-length",
+                    "346"
+                  ]
+                ],
                 "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"output_config\":{\"effort\":\"medium\"},\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
                 "reply": {
                   "status": 200,
@@ -1286,34 +3727,227 @@
           }
         ]
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "effort": "high",
+              "openRouterReasoningEffort": "none"
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "effort": "high",
+              "openRouterReasoningEffort": "low"
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "or-key",
+              "preconnect": false,
+              "reasoningEffort": "low"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-opus-4.8",
+            [
+              {
+                "name": "read",
+                "description": "read a file",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            {
+              "effort": "medium"
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "https://openrouter.ai",
           "path": "/api/v1/messages",
-          "headers": {
-            "host": "openrouter.ai",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "Anthropic/JS 0.137.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-timeout": "600",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "0.137.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "anthropic-version": "2023-06-01",
-            "authorization": "Bearer or-key",
-            "http-referer": "https://github.com/tribgames/mixdog",
-            "x-openrouter-title": "mixdog",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "346"
-          },
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "Windows"
+            ],
+            [
+              "X-Stainless-Arch",
+              "x64"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "v22.20.0"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer or-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "346"
+            ]
+          ],
           "body": "{\"model\":\"anthropic/claude-opus-4.8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\",\"properties\":{}}}],\"output_config\":{\"effort\":\"medium\"},\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
           "reply": {
             "status": 200,
@@ -1341,7 +3975,82 @@
           "billing",
           "auth"
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.normalizeGatewayErrorDetail",
+          "args": [
+            {
+              "code": "server_error",
+              "message": "m"
+            },
+            {
+              "error_type": "provider_overloaded"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.normalizeGatewayErrorDetail",
+          "args": [
+            {
+              "code": "server_error"
+            },
+            {
+              "error_type": "unmapped"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.normalizeGatewayErrorDetail",
+          "args": [
+            {
+              "code": "server_error"
+            },
+            null
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "status": 400,
+              "error": {
+                "type": "error",
+                "error": {
+                  "type": "invalid_request_error",
+                  "error_type": "context_length_exceeded"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "error": {
+                "code": 429,
+                "message": "x",
+                "metadata": {
+                  "error_type": "payment_required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.providerErrorKind",
+          "args": [
+            {
+              "status": 500,
+              "error": {
+                "type": "api_error",
+                "error_type": "authentication"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "messages-usage-cost-inclusive-input",
@@ -1399,7 +4108,157 @@
           }
         },
         "failureCarriesSameUsageObject": true
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse-turn/turn-state.mjs.createAnthropicTurnState",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse-turn/turn-state.mjs.updateTurnUsage",
+          "args": [
+            {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "raw": null
+            },
+            {
+              "input_tokens": 9,
+              "cache_read_input_tokens": 100,
+              "cache_creation_input_tokens": 5
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse-turn/turn-state.mjs.updateTurnUsage",
+          "args": [
+            {
+              "inputTokens": 9,
+              "outputTokens": 0,
+              "cachedTokens": 100,
+              "cacheWriteTokens": 5,
+              "raw": {
+                "input_tokens": 9,
+                "cache_read_input_tokens": 100,
+                "cache_creation_input_tokens": 5
+              },
+              "promptTokens": 114
+            },
+            {
+              "output_tokens": 4,
+              "cost": "0.25"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-turn-result.mjs.buildAnthropicTurnResult",
+          "args": [
+            {
+              "content": "ok",
+              "usage": {
+                "inputTokens": 9,
+                "outputTokens": 4,
+                "cachedTokens": 100,
+                "cacheWriteTokens": 5,
+                "raw": {
+                  "input_tokens": 9,
+                  "cache_read_input_tokens": 100,
+                  "cache_creation_input_tokens": 5,
+                  "output_tokens": 4,
+                  "cost": "0.25"
+                },
+                "promptTokens": 114,
+                "costUsd": 0.25
+              }
+            },
+            {
+              "provider": "openrouter",
+              "useModel": "anthropic/claude-sonnet-5",
+              "opts": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse-turn/turn-state.mjs.createAnthropicTurnState",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse-turn/turn-state.mjs.updateTurnUsage",
+          "args": [
+            {
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "raw": null
+            },
+            {
+              "input_tokens": 1,
+              "cost": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-sse-turn/turn-state.mjs.updateTurnUsage",
+          "args": [
+            {
+              "inputTokens": 1,
+              "outputTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "raw": {
+                "input_tokens": 1,
+                "cost": ""
+              },
+              "promptTokens": 1
+            },
+            {
+              "output_tokens": 1,
+              "cost": -1
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/llm/usage-context.mjs.withUsageContext",
+          "args": [
+            {},
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/inclusive-usage.mjs.withInclusiveUsage",
+          "args": [
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/llm/usage-context.mjs.noteAbandonedUsage",
+          "args": [
+            {
+              "inputTokens": 9,
+              "outputTokens": 4,
+              "cachedTokens": 100,
+              "cacheWriteTokens": 5,
+              "raw": {
+                "input_tokens": 9,
+                "cache_read_input_tokens": 100,
+                "cache_creation_input_tokens": 5,
+                "output_tokens": 4,
+                "cost": "0.25"
+              },
+              "promptTokens": 114,
+              "costUsd": 0.25
+            },
+            "anthropic/claude-sonnet-5"
+          ]
+        }
+      ]
     }
   ]
 }
