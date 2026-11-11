@@ -23,6 +23,17 @@ const pairs = (raw) => {
 };
 const payload = (data, isBinary) => (isBinary ? { binary: true, bytesHex: Buffer.from(data).toString('hex') } : { text: Buffer.from(data).toString('utf8') });
 
+// The deadline of a socket write (real timer, above).
+const WRITE_DEADLINE_MS = 10_000;
+const written = (socket, chunk) => new Promise((resolve, reject) => {
+  const timer = realSetTimeout(() => reject(new Error(`recorder: ws world: a refusal body write was not flushed within ${WRITE_DEADLINE_MS} ms`)), WRITE_DEADLINE_MS);
+  socket.write(chunk, (error) => {
+    realClearTimeout(timer);
+    if (error) reject(error);
+    else resolve();
+  });
+});
+
 export async function startWsWorld({ tree }) {
   const { WebSocketServer } = createRequire(join(tree, 'package.json'))('ws');
   const world = { trace: [], dials: [], script: {}, conns: [] };
@@ -84,12 +95,9 @@ export async function startWsWorld({ tree }) {
       const head1 = `HTTP/1.1 ${refusal.status} ${refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? ''}`;
       note({ event: 'upgrade-refused', status: refusal.status, statusText: refusal.statusText ?? http.STATUS_CODES[refusal.status] ?? '', headers: refusal.headers ?? [], bodyChunks });
       socket.write(`${[head1, ...headerLines, `content-length: ${Buffer.byteLength(body)}`, 'connection: close'].join('\r\n')}\r\n\r\n`);
-      // Each chunk is its own write, one event-loop turn apart, so the client reads them as separate data events.
+      // Each chunk is its own write; the next one is written when the previous write has been handed to the kernel (the write callback), with a deadline, so the client reads them as separate data events.
       (async () => {
-        for (const chunk of bodyChunks) {
-          socket.write(chunk);
-          await new Promise((resolve) => setImmediate(resolve));
-        }
+        for (const chunk of bodyChunks) await written(socket, chunk);
         socket.end();
       })();
       return;
