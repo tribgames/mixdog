@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,6 +67,7 @@
   "replay": {
     "compare": "mixdog-app-protocol method table: compare the recorded read action set and configure action set with the Rust method table, and the lane each action is sent on",
     "entry": "Drive these public items on o1: mixdog-app-protocol/src/inventory.rs:1115-1145: prefetchSession -> thread/read, readTranscriptHistory -> thread/items/list, setVisibleSessions -> thread/resume, submitToSession -> turn/start.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the lane each action is sent on: not shown in the method table"
     ],
