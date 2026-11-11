@@ -692,6 +692,10 @@ const SCENARIOS = [
       'clip/g.ts': `hit ${'e\u0301'.repeat(300)} zed\nhit ${'\u{1F44D}\u{1F3FD}'.repeat(200)} zed\nhit ${'g'.repeat(600)}\n`,
       'clip/crlf.ts': `hit ${'a'.repeat(495)}\r\nhit ${'b'.repeat(494)}\r\nhit ${'c'.repeat(600)}\r\nhit crlf short\r\n`,
       'clip/nonl.ts': `ctx ${'k'.repeat(600)}\nhit ${'h'.repeat(496)}`,
+      // Lines over 64 KiB: the printer's preview is cut at 500 grapheme clusters and never by bytes, so of clusters of a
+      // letter with 70 combining marks (141 bytes each) the first line's `zed`, at cluster 475 and byte 66,275, is in
+      // its preview, where several patterns' attribution finds it.
+      'wide/w.ts': `hit ${('e' + '\u0301'.repeat(70)).repeat(470)} zed ${('e' + '\u0301'.repeat(70)).repeat(100)}\nhit ${'w'.repeat(70_000)}\n`,
     };
     const mtimes = {};
     for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
@@ -748,6 +752,8 @@ const SCENARIOS = [
         ...both({ pattern: ['hit', 'zed'], context: 0 }, ['clip', 'edge'], 'clip'),
         ...both({ pattern: 'hit', context: 1 }, ['clip', 'edge'], 'clip'),
         ...both({ pattern: 'hit', context: 1 }, ['long', 'edge'], 'long'),
+        ...both({ pattern: 'hit', context: 0 }, ['wide', 'edge'], 'wide'),
+        ...both({ pattern: ['zed', 'www'], context: 0 }, ['wide', 'edge'], 'wide'),
         ...both({ pattern: ['hit', 'pad'] }),
         ...both({ pattern: ['hit', 'pad'], context: 0, limit: 5 }),
         ...both({ pattern: ['edge', 'middle'] }, ['edge', 'm'], 'edge'),
