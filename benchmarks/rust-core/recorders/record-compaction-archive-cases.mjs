@@ -89,6 +89,7 @@ function summaryProvider(onSend = null) {
     async send(messages) {
       sentLog.push(JSON.stringify(messages));
       onSend?.();
+      // The Node test's own scripted provider yields one turn here (compaction-archive.test.mjs:115); it is part of the recorded input, not a wait of the recorder.
       await new Promise((resolve) => setImmediate(resolve));
       return { content: SUMMARY };
     },

@@ -247,7 +247,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs",
-  "recorderSha256": "fd28ba4903dba187179c96dca3cef70ed7170b5a255aed6cf34652918837eec3",
+  "recorderSha256": "9327d40db70903b113fbad5fb2695a76da266562bf5b53e5348f672561d79c0d",
   "replay": {
     "entry": "mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
     "faults": "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
