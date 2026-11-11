@@ -55,7 +55,37 @@ pub(crate) fn assert_case_count(golden: &Exact, count: usize) {
 
 #[track_caller]
 pub(crate) fn same(what: &str, expected: &Exact, actual: &Exact) {
-    assert!(expected == actual, "{what}\n  Node: {expected:?}\n  Rust: {actual:?}");
+    if expected != actual {
+        let (path, want, got) = first_difference(expected, actual, String::new());
+        panic!("{what}\n  first difference at {path}\n    Node: {want:?}\n    Rust: {got:?}\n  Node: {expected:?}\n  Rust: {actual:?}");
+    }
+}
+
+/// The path of the first place two values differ, and the two values there.
+fn first_difference(expected: &Exact, actual: &Exact, path: String) -> (String, Exact, Exact) {
+    match (expected, actual) {
+        (Exact::Array(a), Exact::Array(b)) => {
+            for (i, (x, y)) in a.iter().zip(b).enumerate() {
+                if x != y {
+                    return first_difference(x, y, format!("{path}[{i}]"));
+                }
+            }
+            (format!("{path}.length"), Exact::from(a.len() as f64), Exact::from(b.len() as f64))
+        }
+        (Exact::Object(a), Exact::Object(b)) => {
+            for (i, ((ka, x), (kb, y))) in a.iter().zip(b).enumerate() {
+                if ka != kb {
+                    return (format!("{path} key #{i}"), string(ka.clone()), string(kb.clone()));
+                }
+                if x != y {
+                    return first_difference(x, y, format!("{path}.{ka}"));
+                }
+            }
+            let keys = |o: &[(String, Exact)]| Exact::Array(o.iter().map(|(k, _)| string(k.clone())).collect());
+            (format!("{path} keys"), keys(a), keys(b))
+        }
+        _ => (path, expected.clone(), actual.clone()),
+    }
 }
 
 pub(crate) fn string(value: impl Into<String>) -> Exact {

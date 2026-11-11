@@ -71,9 +71,19 @@ impl CoreMemoryContext {
     /// none). Empty when opted out, when there is no usable snapshot, and on any read failure.
     pub async fn load(&self, cwd: &str, agent_id: &str) -> String {
         if (self.opted_out)() {
+            boot_profile("core-memory:skipped", None);
             return String::new();
         }
+        let started = std::time::Instant::now();
+        let text = self.read(cwd, agent_id).await;
+        // `finally { bootProfile('core-memory:done', { ms }) }` (`core-memory-context.mjs:68`).
+        boot_profile("core-memory:done", Some(started.elapsed().as_secs_f64() * 1000.0));
+        text
+    }
+
+    async fn read(&self, cwd: &str, agent_id: &str) -> String {
         let Some(snapshot) = snapshot::read(self.lane, &self.data_dir).await else {
+            boot_profile("core-memory:file-missing", None);
             return String::new();
         };
         let Ok(project_id) = resolve_project_scope(self.lane, Some(cwd), None).await else {
@@ -82,6 +92,26 @@ impl CoreMemoryContext {
         let payload = snapshot::session_payload(&snapshot, project_id.as_deref(), agent_id);
         format_core_memory_lines(&payload.user_lines)
     }
+}
+
+/// `bootProfile(event, detail)`: a debug trace, as the daemon's other boot-profile points (`prewarm_world.rs`).
+fn boot_profile(event: &'static str, ms: Option<f64>) {
+    match ms {
+        Some(ms) => tracing::debug!(event, ms = format!("{ms:.1}"), "boot profile"),
+        None => tracing::debug!(event, "boot profile"),
+    }
+    #[cfg(test)]
+    BOOT_PROFILE.with(|seen| {
+        if let Some(seen) = seen.borrow_mut().as_mut() {
+            seen.push((event, ms));
+        }
+    });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The boot-profile calls of this thread, while a test collects them.
+    pub(crate) static BOOT_PROFILE: std::cell::RefCell<Option<Vec<(&'static str, Option<f64>)>>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
