@@ -20,6 +20,8 @@ pub mod quota_history;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture_fs;
 #[cfg(test)]
+mod mixy_presence_replay_tests;
+#[cfg(test)]
 mod process_tests;
 #[cfg(test)]
 #[cfg(test)]

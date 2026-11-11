@@ -9,6 +9,8 @@ pub mod rows;
 pub mod store;
 
 #[cfg(test)]
+mod rename_timers_replay_tests;
+#[cfg(test)]
 mod tests;
 
 pub use durable::StateScheduleStore;
