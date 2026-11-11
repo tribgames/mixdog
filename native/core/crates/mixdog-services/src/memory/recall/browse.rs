@@ -919,13 +919,15 @@ pub async fn recall_core_rows(db: &Db, clock: &Clock, query_text: &str, options:
     let rows = query_pg(
         db,
         &format!(
-            "SELECT id, element, summary, category, project_id, created_at, updated_at,
+            "
+      SELECT id, element, summary, category, project_id, created_at, updated_at,
              ({hit_expr}) AS hit_count
       FROM core_entries
       WHERE {}
         AND (status IS NULL OR status = 'active')
       ORDER BY hit_count DESC, updated_at DESC, id ASC
-      LIMIT ${}",
+      LIMIT ${}
+    ",
             where_clauses.join(" AND "),
             params.len()
         ),

@@ -8,7 +8,8 @@
 //! the stored rows (read back through the core's row decoder) with the recorded annotations (`retrievalScore`, `rrf`,
 //! `_retrievalEvidence`), and logs each call's query and options in Node's shape (`options_seen`). Every other
 //! statement runs on the database, which answers the browse as the scripted `db.query` does and holds no core
-//! entries (Node's scripted answer to that statement is empty); the statements' SQL text is not compared.
+//! entries (Node's scripted answer to that statement is empty). The statements the recall sends, observed at its send
+//! point (`recall::store`, test builds), are compared with the recorded `db.query` calls: text and params, in order.
 
 use mixdog_testkit::Exact;
 
@@ -65,7 +66,7 @@ mod pg {
     use crate::memory::recall::hybrid::SearchOptions;
     use crate::memory::recall::row::Row;
     use crate::memory::recall::SEARCH_SEAM;
-    use crate::memory::replays::pg::{insert_entries, memory_db, recall};
+    use crate::memory::replays::pg::{insert_entries, memory_db, param, read_path, recall};
 
     const ANNOTATIONS: [&str; 3] = ["retrievalScore", "rrf", "_retrievalEvidence"];
 
@@ -144,10 +145,16 @@ mod pg {
             let args = step.get("args").to_plain().expect("JSON args");
             let what = format!("{name}: step {at} {args}");
             searches.borrow_mut().clear();
-            let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), recall.recall(&args))
-                .await
-                .unwrap_or_else(|_| panic!("{what}: did not settle within 60 s"));
+            let (outcome, statements, _) = read_path(tokio::time::timeout(std::time::Duration::from_secs(60), recall.recall(&args))).await;
+            let outcome = outcome.unwrap_or_else(|_| panic!("{what}: did not settle within 60 s"));
             same(&format!("{what}: searches"), step.get("searches"), &Exact::Array(searches.borrow().clone()));
+            let sent = Exact::Array(
+                statements
+                    .iter()
+                    .map(|(sql, params)| object(vec![("sql", string(sql.clone())), ("params", Exact::Array(params.iter().map(param).collect()))]))
+                    .collect(),
+            );
+            same(&format!("{what}: statements"), step.get("statements"), &sent);
             same(&what, step.get("result"), &object(vec![("text", string(outcome.text))]));
         }
         SEARCH_SEAM.with(|s| *s.borrow_mut() = None);
