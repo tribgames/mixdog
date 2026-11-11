@@ -1332,6 +1332,10 @@ pub(crate) fn stepped_dfa(
     use regex_automata::hybrid::dfa;
     use regex_automata::nfa::thompson;
     use regex_automata::util::syntax::Config as SyntaxConfig;
+    #[cfg(all(feature = "std", feature = "probe"))]
+    if crate::interrupt::probe::no_lazy_dfa() {
+        return None;
+    }
     let utf8 = matches!(options.bytes_mode, BytesMode::Unicode);
     let mut nfa_config = thompson::Config::new()
         .utf8(utf8)

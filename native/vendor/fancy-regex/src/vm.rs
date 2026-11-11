@@ -456,7 +456,14 @@ pub(crate) fn is_match_stepped(stepped: &Stepped, meta: &Regex, input: &Input<'_
     match search_fwd_stepped(stepped, input, &mut steps) {
         Stepping::Found(_) => Ok(true),
         Stepping::Missed => Ok(false),
-        Stepping::Unable => Ok(meta.is_match(input.clone())),
+        Stepping::Unable => {
+            let found = meta.is_match(input.clone());
+            if steps.take((input.end() - input.start()) as u64) && steps.read_now() {
+                Ok(found)
+            } else {
+                Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded))
+            }
+        }
         Stepping::Stopped => Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded)),
     }
 }
@@ -1829,7 +1836,10 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                         ix = end;
                     } else {
                         // No groups, so we can use faster methods
-                        match inner.search_half(&input) {
+                        let found = inner.search_half(&input);
+                        take!(input.end() - ix);
+                        read_now!();
+                        match found {
                             Some(m) => ix = m.offset(),
                             _ => break 'fail,
                         }
@@ -1853,7 +1863,12 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     let delegate_matches_here = match search_fwd_stepped(&delegate.stepped, &input, &mut steps) {
                         Stepping::Found(_) => true,
                         Stepping::Missed => false,
-                        Stepping::Unable => delegate.inner.search_half(&input).is_some(),
+                        Stepping::Unable => {
+                            let found = delegate.inner.search_half(&input).is_some();
+                            take!(input.end() - ix);
+                            read_now!();
+                            found
+                        }
                         Stepping::Stopped => {
                             return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded))
                         }
