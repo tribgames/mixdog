@@ -139,6 +139,12 @@ impl mixdog_ai::providers::local::LocalRuntime for NoRuntime {
         error.message = "[local-provider] runtime is not installed".into();
         Err(error)
     }
+    async fn begin(&self, _: &str) -> Result<Box<dyn mixdog_ai::providers::local::Inference>, mixdog_core_api::domain::provider::ProviderError> {
+        unreachable!("these worlds never send to mixdog-local")
+    }
+    fn installed_now(&self) -> Option<Vec<Value>> {
+        Some(Vec::new())
+    }
 }
 
 pub(crate) struct World {

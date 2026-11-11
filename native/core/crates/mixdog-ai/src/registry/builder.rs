@@ -1289,7 +1289,14 @@ impl DefaultProviderBuilder {
             }
             // `registry.mjs`: `MixdogLocalProvider`, constructed with no endpoint; the server starts on a send.
             "mixdog-local" => match &self.env.local {
-                Some(runtime) => Ok(Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()))),
+                Some(runtime) => {
+                    // The installed models are read once now, so `getCachedModelInfo` has its answer from the moment the
+                    // provider exists (Node reads the disk on every call); a failed read leaves it a miss until the next.
+                    let _ = runtime.installed().await;
+                    let built = Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()));
+                    self.declare(name, built.clone());
+                    Ok(built)
+                }
                 None => Err("mixdog-local needs the managed local runtime, which this host does not have".into()),
             },
             other => Err(format!("unknown enabled provider: {other}")),
@@ -1314,11 +1321,8 @@ impl ProviderBuilder for DefaultProviderBuilder {
     /// inherited; verified at `b6f10295a` under `src/runtime/agent/orchestrator/providers/`): `custom-*`
     /// (`custom-provider.mjs:109`), the compat family whose profile says so (`openai-compat.mjs:280`; `WireGatewayProvider`,
     /// `wire-gateway.mjs:166`, for deepseek and openrouter), `cursor-oauth` / `cursor-api` (`cursor.mjs:601`),
-    /// `devin-oauth` (`devin.mjs:316`). `mixdog-local` also has it at `b6f10295a` (`mixdog-local.mjs:91`, registered when
-    /// `providers['mixdog-local'].enabled`, `registry.mjs:199`, `config.mjs:144`) and is reachable through `lookupModelMeta`
-    /// there, but it is EXCLUDED here: Node reads the installed models synchronously from disk, which the managed
-    /// runtime offers the registry only asynchronously (`InstalledModels`), so the memo answers its unmarked fallback
-    /// where Node answers the installed model's row. `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
+    /// `devin-oauth` (`devin.mjs:316`), `mixdog-local` (`mixdog-local.mjs:91`: the installed model's row, which the managed
+    /// runtime keeps current for a synchronous read, `LocalRuntime::installed_now`). `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
     /// `antigravity-oauth`, `grok-oauth`, `mimo-oauth` and `command-code-oauth` define none.
     fn cached_model_info(&self, name: &str) -> Option<Arc<dyn CachedModelInfo>> {
         self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(name).cloned()

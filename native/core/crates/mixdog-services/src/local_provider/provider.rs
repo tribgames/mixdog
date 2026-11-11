@@ -102,6 +102,22 @@ pub struct LocalProvider {
     platform_key: String,
     signal: ChangeSignal,
     tool_settings: std::sync::OnceLock<std::sync::Weak<dyn ToolSettings>>,
+    /// The installed models as last read, for `getCachedModelInfo`, which Node answers synchronously from disk: every change
+    /// the signal announces reads them again ([`keep_installed`]).
+    installed: tokio::sync::watch::Sender<Option<Vec<Value>>>,
+}
+
+/// Re-reads the installed models at start and after every tick of the change signal (installations, deletions, registrations,
+/// context settings), for as long as the provider lives.
+async fn keep_installed(catalog: Arc<Catalog>, mut ticks: tokio::sync::watch::Receiver<u64>, out: tokio::sync::watch::Sender<Option<Vec<Value>>>) {
+    loop {
+        if let Ok(rows) = catalog.installed_models().await {
+            out.send_replace(Some(rows));
+        }
+        if ticks.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 /// `getToolModuleSettings()`: what Node's local-provider settings methods answer after a change.
@@ -140,6 +156,10 @@ impl LocalProvider {
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));
         let queue = RequestQueue::with_signal(Arc::new(ServerUnloader(server.clone())), parts.idle_ttl_seconds.unwrap_or(DEFAULT_LOCAL_IDLE_TTL_SECONDS), None, signal.clone());
         let hf = HuggingFaceCatalog::new(parts.hf_http, catalog.registry.clone());
+        let (installed, _) = tokio::sync::watch::channel(None);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(keep_installed(catalog.clone(), signal.subscribe(), installed.clone()));
+        }
         Arc::new(Self {
             catalog,
             installs: Arc::new(Installations::with_signal(signal.clone())),
@@ -153,7 +173,18 @@ impl LocalProvider {
             platform_key: parts.platform_key.unwrap_or_else(|| host_platform_key().to_owned()),
             signal,
             tool_settings: std::sync::OnceLock::new(),
+            installed,
         })
+    }
+
+    /// The installed models as of the last read (`None` before the first), and a handle to watch them change.
+    pub fn installed_rows(&self) -> tokio::sync::watch::Receiver<Option<Vec<Value>>> {
+        self.installed.subscribe()
+    }
+
+    /// Records a listing the caller just read as the installed models.
+    pub(super) fn note_installed(&self, rows: &[Value]) {
+        self.installed.send_replace(Some(rows.to_vec()));
     }
 
     /// Attaches the owner of the tool-module settings (the first one stays).

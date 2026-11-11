@@ -1,0 +1,114 @@
+{
+  "cases": 5,
+  "command": "node benchmarks/rust-core/recorders/record-local-send-queue.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the inner OpenAI-compatible send is scripted and ensureServer is injected, as mixdog-local.test.mjs does: no server starts, no request is sent",
+    "runs": "MixdogLocalProvider.send (mixdog-local.mjs:46) over the real runLocalProviderRequest queue (local-provider/server.mjs, request-queue.mjs) and the real beginLocalInference (model-state.mjs:32); getCachedModelInfo (mixdog-local.mjs:91) over the real installedLocalProviderModels"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 13000,
+      "path": "golden.json",
+      "sha256": "ff1dcb6410aafbf7e81bb02a98359a2adda432bbde56549aa6cb164044c0a8be"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "328447ed2c094b8abc839f44612c61353568502315cc575feaa176c354d5e945"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-local-send-queue.mjs",
+  "recorderSha256": "d217a4bec04b5e8d6d9820b1b4797e7ee5733d83cb9ec5c106f522319bcc701f",
+  "replay": {
+    "compare": "mixdog-services local_provider tests: RegisteredAdapter (mixdog-ai providers/local) over the real LocalProvider (ManagedRuntime) with the same scripts as a scripted wire, on a paused clock; compare the measured state whole (the `at` stamp and the failure text excepted) and what reached the wire while the first send held the slot",
+    "declaredExclusions": [
+      {
+        "keys": [
+          "at"
+        ],
+        "reason": "the wall-clock stamp of a finished inference (new Date().toISOString(), the recorded fixed instant); Rust stamps the real time, so the replay checks it is an ISO-8601 instant"
+      },
+      {
+        "case": "a failed send is measured as failed and its error is rethrown",
+        "keys": [
+          "error",
+          "threw"
+        ],
+        "reason": "the text is the scripted error of Node (boom); the Rust failure is a transport fault of the scripted wire with its own text, which the replay compares to the error the send returned, and is limited to 1024 characters"
+      }
+    ],
+    "entry": "Drive these public items on o1: mixdog-ai/src/providers/local/mod.rs:150 RegisteredAdapter::new; mixdog-services/src/local_provider/installed_models.rs:40 ManagedRuntime.",
+    "existsButNotPublicOnO1": [],
+    "inputs": {
+      "clock": "performance.now is virtual (advance steps only); the Rust replay runs on a paused tokio clock and advances it by the same amounts",
+      "ensureServer": "injected: a fixed endpoint, no server start"
+    },
+    "missingOnO1": [],
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 150,
+        "name": "RegisteredAdapter::new",
+        "path": "native/core/crates/mixdog-ai/src/providers/local/mod.rs"
+      },
+      {
+        "line": 40,
+        "name": "ManagedRuntime",
+        "path": "native/core/crates/mixdog-services/src/local_provider/installed_models.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "local-send-queue",
+  "totalBytes": 13000,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
