@@ -135,7 +135,7 @@ await run('custom-provider-save-remove-refresh-like-credentials', 131, {}, async
   out.reloadedByReadOnlyOps = calls.some(([name]) => name === 'reload');
   return out;
 });
-await run('usage-only-credentials-skip-admission-cooldowns', 172, { op: 'saveOpenAIUsageSessionKey', args: ['usage-1'] }, async () => ({ result: await fixture().saveOpenAIUsageSessionKey('usage-1') }));
+await run('usage-only-credentials-skip-admission-cooldowns', 164, { op: 'saveOpenAIUsageSessionKey', args: ['usage-1'] }, async () => ({ result: await fixture().saveOpenAIUsageSessionKey('usage-1') }));
 await run('begin-oauth-login-wraps-callback-and-code-completion', 180, { op: 'beginOAuthProviderLogin', args: ['oauth', { openBrowser: false }] }, async () => {
   const api = fixture();
   const login = await api.beginOAuthProviderLogin('oauth', { openBrowser: false });
@@ -174,7 +174,7 @@ await run('switching-selected-account-releases-cooldowns-prefetches-usage', 215,
   out.afterRemoveTouchedCooldownsOrUsage = calls.some(([name]) => name === 'resetCooldowns' || name === 'usage');
   return out;
 });
-await run('provider-setup-quick-snapshot-then-forced', 234, {}, async () => {
+await run('provider-setup-quick-snapshot-then-forced', 219, {}, async () => {
   const api = fixture({ isKeychainPrewarmReady: () => false });
   const out = { quick: await api.getProviderSetup(), firstCall: calls[0] };
   await until(() => calls.at(-1)?.[0] === 'setup' && Object.keys(calls.at(-1)[1]).length === 0, 'the authoritative setup');
