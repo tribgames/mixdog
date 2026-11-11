@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 53697,
+      "bytes": 58780,
       "path": "golden.json",
-      "sha256": "399b3b2db8c85b4d59b79b05d57fbc3267fe9ebf495ae1c43535516152a3f45b"
+      "sha256": "809b73a2de3839a45b6b6941d9aaa2049e0ebc99d58a4f8ec976945adb5719d4"
     }
   ],
   "inputs": [
@@ -43,9 +43,13 @@
   "nodeVersion": "v22.20.0",
   "normalised": {
     "paths": [
+      "$.cases[2].observed.results[0].projected.projectionStamp",
+      "$.cases[2].observed.results[1].projected.projectionStamp",
+      "$.cases[2].observed.results[2].projected.projectionStamp",
+      "$.cases[2].observed.results[3].projected.projectionStamp",
       "$.cases[4].observed.exact.projectionStamp"
     ],
-    "reason": "the temp data dir is written <data>; a projection stamp starts with the transcript worker epoch (a per-run number), written <epoch>"
+    "reason": "the temp data dir is written <data>; a projection stamp starts with the transcript worker epoch (a per-run number), written <epoch>; a projection stamp without a fingerprint is <process id>:<clock>:<counter>, the process id written <pid>"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -65,7 +69,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-summary-visibility-cases.mjs",
-  "recorderSha256": "38063103cfcd051fb36d9b782c8d0fd35aa2c62a7ccf2823ff48b9eea1b567e5",
+  "recorderSha256": "3a079acad3bae2a86b8a5b891b498a9cf74197cb87127bc68e54bc356b4e3c97",
   "replay": {
     "compare": "mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages",
     "entry": "Drive these public items on o1: mixdog-store/src/summary.rs:78 is_root_lead_session; mixdog-store/src/summary.rs:88 session_visibility; mixdog-store/src/sqlite/lead.rs:65 is_lead_visible_row; mixdog-store/src/sqlite/lead.rs:120 lead_page_of.",
@@ -99,6 +103,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "store-summary-visibility-cases",
-  "totalBytes": 53697,
+  "totalBytes": 58780,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

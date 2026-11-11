@@ -142,12 +142,47 @@
               "closed": true,
               "generation": 1
             },
-            "messages": [
-              {
-                "role": "user",
-                "content": "prompt for projection_user_false"
-              }
-            ]
+            "projected": {
+              "sessionId": "projection_user_false",
+              "projectionStamp": "<pid>:mywpiww0:1",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "prompt for projection_user_false"
+                }
+              ],
+              "items": [
+                {
+                  "kind": "user",
+                  "id": "hist_projection_user_false_0_1",
+                  "text": "prompt for projection_user_false"
+                }
+              ],
+              "transcriptHasOlder": false,
+              "provider": "",
+              "model": "",
+              "effort": "",
+              "fast": false,
+              "modelParameters": {},
+              "cwd": "",
+              "desktopSession": null,
+              "workflow": null,
+              "todo": null,
+              "stats": {
+                "currentContextTokens": null,
+                "currentEstimatedContextTokens": 0,
+                "currentContextSource": "pending",
+                "currentContextUpdatedAt": null,
+                "usageReadout": null
+              },
+              "contextWindow": 0,
+              "rawContextWindow": 0,
+              "effectiveContextWindowPercent": 0,
+              "displayContextWindow": 0,
+              "compactBoundaryTokens": 0,
+              "autoCompactTokenLimit": 0,
+              "preparedContextProjection": true
+            }
           },
           {
             "marked": false,
@@ -169,12 +204,47 @@
               "closed": true,
               "generation": 1
             },
-            "messages": [
-              {
-                "role": "user",
-                "content": "prompt for projection_agent_false"
-              }
-            ]
+            "projected": {
+              "sessionId": "projection_agent_false",
+              "projectionStamp": "<pid>:mywpiww0:2",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "prompt for projection_agent_false"
+                }
+              ],
+              "items": [
+                {
+                  "kind": "user",
+                  "id": "hist_projection_agent_false_0_1",
+                  "text": "prompt for projection_agent_false"
+                }
+              ],
+              "transcriptHasOlder": false,
+              "provider": "",
+              "model": "",
+              "effort": "",
+              "fast": false,
+              "modelParameters": {},
+              "cwd": "",
+              "desktopSession": null,
+              "workflow": null,
+              "todo": null,
+              "stats": {
+                "currentContextTokens": null,
+                "currentEstimatedContextTokens": 0,
+                "currentContextSource": "pending",
+                "currentContextUpdatedAt": null,
+                "usageReadout": null
+              },
+              "contextWindow": 0,
+              "rawContextWindow": 0,
+              "effectiveContextWindowPercent": 0,
+              "displayContextWindow": 0,
+              "compactBoundaryTokens": 0,
+              "autoCompactTokenLimit": 0,
+              "preparedContextProjection": true
+            }
           },
           {
             "marked": true,
@@ -199,12 +269,47 @@
                 "turnToken": "projection_user_true"
               }
             },
-            "messages": [
-              {
-                "role": "user",
-                "content": "checkpoint prompt"
-              }
-            ]
+            "projected": {
+              "sessionId": "projection_user_true",
+              "projectionStamp": "<pid>:mywpiww0:3",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "checkpoint prompt"
+                }
+              ],
+              "items": [
+                {
+                  "kind": "user",
+                  "id": "hist_projection_user_true_0_1",
+                  "text": "checkpoint prompt"
+                }
+              ],
+              "transcriptHasOlder": false,
+              "provider": "",
+              "model": "",
+              "effort": "",
+              "fast": false,
+              "modelParameters": {},
+              "cwd": "",
+              "desktopSession": null,
+              "workflow": null,
+              "todo": null,
+              "stats": {
+                "currentContextTokens": null,
+                "currentEstimatedContextTokens": 0,
+                "currentContextSource": "pending",
+                "currentContextUpdatedAt": null,
+                "usageReadout": null
+              },
+              "contextWindow": 0,
+              "rawContextWindow": 0,
+              "effectiveContextWindowPercent": 0,
+              "displayContextWindow": 0,
+              "compactBoundaryTokens": 0,
+              "autoCompactTokenLimit": 0,
+              "preparedContextProjection": true
+            }
           },
           {
             "marked": true,
@@ -229,12 +334,47 @@
                 "turnToken": "projection_agent_true"
               }
             },
-            "messages": [
-              {
-                "role": "user",
-                "content": "checkpoint prompt"
-              }
-            ]
+            "projected": {
+              "sessionId": "projection_agent_true",
+              "projectionStamp": "<pid>:mywpiww0:4",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "checkpoint prompt"
+                }
+              ],
+              "items": [
+                {
+                  "kind": "user",
+                  "id": "hist_projection_agent_true_0_1",
+                  "text": "checkpoint prompt"
+                }
+              ],
+              "transcriptHasOlder": false,
+              "provider": "",
+              "model": "",
+              "effort": "",
+              "fast": false,
+              "modelParameters": {},
+              "cwd": "",
+              "desktopSession": null,
+              "workflow": null,
+              "todo": null,
+              "stats": {
+                "currentContextTokens": null,
+                "currentEstimatedContextTokens": 0,
+                "currentContextSource": "pending",
+                "currentContextUpdatedAt": null,
+                "usageReadout": null
+              },
+              "contextWindow": 0,
+              "rawContextWindow": 0,
+              "effectiveContextWindowPercent": 0,
+              "displayContextWindow": 0,
+              "compactBoundaryTokens": 0,
+              "autoCompactTokenLimit": 0,
+              "preparedContextProjection": true
+            }
           }
         ]
       }
