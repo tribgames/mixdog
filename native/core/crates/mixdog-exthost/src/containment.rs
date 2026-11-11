@@ -14,7 +14,8 @@ pub(crate) struct Containment {
 
 impl Containment {
     /// Puts `child` (just spawned, from [`spawn_command`](crate::process::spawn_command)) under
-    /// containment.
+    /// containment. On Windows the child was created suspended: it joins its job before it runs a
+    /// single instruction and is resumed here, so nothing it starts is outside the job.
     pub(crate) fn attach(child: &tokio::process::Child) -> std::io::Result<Self> {
         Ok(Self { os: os::attach(child)? })
     }
@@ -65,6 +66,12 @@ mod os {
     use windows_sys::Win32::System::JobObjects::SetInformationJobObject;
     use windows_sys::Win32::System::JobObjects::TerminateJobObject;
 
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        /// Resumes every thread of a process created suspended (the same export mixdog-spawn resumes its children with).
+        fn NtResumeProcess(process: HANDLE) -> i32;
+    }
+
     /// The job handle as an integer so the owner is `Send + Sync`.
     pub(super) struct Handle(usize);
 
@@ -90,6 +97,13 @@ mod os {
                 let error = std::io::Error::last_os_error();
                 CloseHandle(job);
                 return Err(error);
+            }
+            let status = NtResumeProcess(process as HANDLE);
+            if status < 0 {
+                CloseHandle(job);
+                return Err(std::io::Error::other(format!(
+                    "the suspended process could not be resumed (NTSTATUS 0x{status:08x})"
+                )));
             }
             Ok(Handle(job as usize))
         }

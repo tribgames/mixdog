@@ -68,7 +68,7 @@ fn shell_command(file: &str, args: &[String]) -> Command {
 
 /// Starts the server the way Node's SDK does ([`cross_spawn`]); a failed start reads as Node's
 /// `spawn <command> <code>`.
-fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Result<Child, TransportError> {
+fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Result<(Child, Containment), TransportError> {
     let (shown, mut process) = match cross_spawn::parse(lane, command, args, cwd, env) {
         Launch::Direct { shown, program, args } => {
             let mut process = Command::new(program);
@@ -89,13 +89,23 @@ fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&st
     }
     #[cfg(unix)]
     process.process_group(0);
+    // CREATE_NO_WINDOW | CREATE_SUSPENDED: the child joins its job before it runs (`Containment::attach`).
     #[cfg(windows)]
-    process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    process.spawn().map_err(|source| TransportError::Spawn {
-        file: shown,
+    process.creation_flags(0x0800_0000 | 0x0000_0004);
+    let spawn_error = |source: std::io::Error| TransportError::Spawn {
+        file: shown.clone(),
         code: crate::uv_error::error_code(&source).unwrap_or("UNKNOWN"),
         source,
-    })
+    };
+    let mut child = process.spawn().map_err(&spawn_error)?;
+    // A tree that cannot be contained is not started: the server would outlive its kill.
+    match Containment::attach(&child) {
+        Ok(containment) => Ok((child, containment)),
+        Err(source) => {
+            let _ = child.start_kill();
+            Err(spawn_error(source))
+        }
+    }
 }
 
 fn push_tail(tail: &Mutex<String>, chunk: &str) {
@@ -129,9 +139,8 @@ impl StdioTransport {
                 start(lane, &command, &args, cwd.as_deref(), &env)
             })
             .map_err(|_| TransportError::LaneFull)?;
-        let mut child = job.await.map_err(|_| TransportError::Closed)??;
-
-        let containment = Containment::attach(&child).ok();
+        let (mut child, containment) = job.await.map_err(|_| TransportError::Closed)??;
+        let containment = Some(containment);
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();

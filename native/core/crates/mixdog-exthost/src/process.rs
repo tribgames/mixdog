@@ -77,7 +77,8 @@ fn worker_command(program: &Path, args: &[OsString], envs: &[(&str, &str)]) -> C
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    // CREATE_NO_WINDOW | CREATE_SUSPENDED: `Containment::attach` resumes the child once it is in its job.
+    command.creation_flags(0x0800_0000 | 0x0000_0004);
     #[cfg(unix)]
     command.process_group(0);
     command
