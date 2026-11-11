@@ -1,0 +1,64 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "a real database: db.query is a scripted endpoint that records statements; the last prune call (no options) uses the default cap from the environment",
+    "runs": "resolveEmbeddingCacheMaxRows and pruneEmbeddingCache (embedding-cache-retention.mjs)"
+  },
+  "exclusions": "none",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 15520,
+      "path": "golden.json",
+      "sha256": "8a87c49b3ce862d7ae15529b4dbebecd4ac242c0191d4091409d0a5a38b77733"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "none": "no run-dependent value"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs",
+  "recorderSha256": "d034295574613ffdfc9990e8b1f558b22cd38e899f3079fd0233ad67ab6665c5",
+  "replay": "public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). NODE BUG recorded as is: resolveEmbeddingCacheMaxRows('0.5') returns 0 (a positive fraction floors to 0, which wipes the cache); fix proposed in D:\\mixdog-build\\tmp\\node-patches\\node-fix-embedding-cache-max-rows.patch",
+  "rustWork": "The recorded pruning results (rows deleted, rows kept, cap resolution) have no public observation in Rust: the public flush (mixdog-services memory/ingest/embed_flush.rs:114 RawEmbedFlush::flush, which calls prune at :341 with cache_max_rows :80, private) returns only attempted/embedded, and a pruning error becomes a log line, not a result. Work for the Rust side before a replay can compare these recordings: surface the prune outcome (rows deleted / error) in the flush result or another public observation, or compare through the entries/cache table rows after a flush and declare the swallowed error as not observable",
+  "set": "memory-embedding-cache-retention",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 15520,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

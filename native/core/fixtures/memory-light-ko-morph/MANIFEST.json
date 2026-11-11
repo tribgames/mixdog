@@ -1,0 +1,63 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-light-ko-morph.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the SQL that consumes the prefix query",
+    "runs": "stripLightKoreanParticle, normalizeLightKoreanToken, lightKoMorphStems (light-ko-morph.mjs) and tokenizeRecallQuery, buildFtsPrefixQuery (memory-text-utils.mjs)"
+  },
+  "exclusions": "the last case holds extra probes the test file does not run",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 19812,
+      "path": "golden.json",
+      "sha256": "d852c770788abde8008f824f63211ae26784864e0451ccf67e17ad9aa2a9db1a"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "none": "no run-dependent value"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-light-ko-morph.mjs",
+  "recorderSha256": "8a8a6e14064ba4a7df7cc54d29810aee82554179b4e4a14a0727d987b7507c49",
+  "replay": "mixdog-services memory/ko_morph.rs: pub fn strip_light_korean_particle (:61), pub fn normalize_light_korean_token (:90); memory/query_terms.rs: pub fn build_fts_prefix_query (:164), called by recall/hybrid.rs:297 for queries of at least 3 UTF-16 units. A replay compares each recorded token and query result exactly",
+  "set": "memory-light-ko-morph",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 19812,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

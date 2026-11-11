@@ -435,13 +435,16 @@ fn first_party_server_replay_heads_still_hold() {
     for (name, config) in configs {
         let key = format!("first-party/{name}/server-replay");
         let expected = node_expectation(&heads, &key);
+        // The public API derives its key from the prefix (`buildStableProviderPromptCacheKey`); the Codex route's is the
+        // namespace the oracle's request named.
         let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
-        let req = request(
+        let mut req = request(
             "gpt-5.5",
             server_search_history("openai-responses"),
             vec![],
-            Some(&cache),
+            (name == "openai-oauth").then_some(cache.as_str()),
         );
+        public_capture_session(name, &mut req);
         same(&build(&config, &req).map, &expected, &key);
     }
 }
@@ -453,6 +456,14 @@ fn downgrade_replay_drops_server_search_where_verbatim_keeps_it() {
     let req = request("m", server_search_history("compat-responses:x"), vec![], None);
     let body = body_of(&profile, &BuildInputs::new(&req));
     assert!(!serde_json::to_string(&body).unwrap().contains("tool_search"));
+}
+
+/// The session Node's capture sent the public API's bodies under (`captureFirstParty`,
+/// openai-compat-responses-parity.fixtures.mjs:164: `sessionId: 'sess-1'`), which its prompt cache key hashes.
+fn public_capture_session(name: &str, request: &mut ModelRequest) {
+    if name == "openai" {
+        request.options.session_id = Some("sess-1".into());
+    }
 }
 
 // ---- first-party heads that need the contract's native call types ---------
@@ -483,7 +494,9 @@ fn first_party_native_oauth_and_own_search_heads_hold() {
             let key = format!("first-party/{name}/{label}");
             let expected = node_expectation(&heads, &key);
             let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
-            let req = request("gpt-5.5", history, vec![], Some(&cache));
+            // The public API derives its key from the prefix; the Codex route's is the namespace the oracle named.
+            let mut req = request("gpt-5.5", history, vec![], (name == "openai-oauth").then_some(cache.as_str()));
+            public_capture_session(name, &mut req);
             same(&build(&config, &req).map, &expected, &key);
         }
     }

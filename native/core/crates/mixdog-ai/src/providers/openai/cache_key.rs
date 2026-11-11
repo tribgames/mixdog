@@ -123,9 +123,15 @@ pub fn codex_prompt_cache_key(options: &RequestOptions, var: &dyn Fn(&str) -> Op
         }
         return fit(if session.is_empty() { explicit } else { session }, &namespace);
     }
+    prefix_key("openai-oauth", &namespace, options, prefix, if shared_scope || shared_key { "" } else { session })
+}
+
+/// The namespace and a hash of the prefix (the second half of `buildStableProviderPromptCacheKey`), `session` empty
+/// for a key shared across sessions.
+fn prefix_key(provider: &str, namespace: &str, options: &RequestOptions, prefix: &Prefix<'_>, session: &str) -> String {
     // The default lane (no shard setting) leaves the lane fields out of the seed.
     let seed = json!({
-        "provider": "openai-oauth",
+        "provider": provider,
         "model": clean(Some(prefix.model)),
         "instructions": clean(Some(prefix.instructions)),
         "tools": summarize_tools(prefix.tools),
@@ -135,12 +141,23 @@ pub fn codex_prompt_cache_key(options: &RequestOptions, var: &dyn Fn(&str) -> Op
         "parallelToolCalls": true,
         "cacheLaneSlot": Value::Null,
         "cacheLaneShards": Value::Null,
-        "session": if shared_scope || shared_key || session.is_empty() { Value::Null } else { json!(session) },
+        "session": if session.is_empty() { Value::Null } else { json!(session) },
     });
     let digest = Sha256::digest(mixdog_js::json_stringify_sorted(&seed).as_bytes());
     let hash: String = digest.iter().map(|b| format!("{b:02x}")).take(9).collect();
     let head: String = namespace.chars().take((LIMIT - hash.len() - 1).max(1)).collect();
     format!("{head}-{hash}")
+}
+
+/// The public API's `prompt_cache_key` (`buildStableProviderPromptCacheKey('openai', opts, prefix)`): the named key (else
+/// `mixdog-openai`) as the namespace, and a hash of the prefix and the session (none under the shared scope or
+/// `MIXDOG_OAI_CACHE_KEY_SHARED=1`).
+pub fn public_prompt_cache_key(options: &RequestOptions, var: &dyn Fn(&str) -> Option<String>, prefix: &Prefix<'_>) -> String {
+    let named = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty());
+    let namespace = normalize(named.unwrap_or("mixdog-openai"));
+    let shared = options.prompt_cache_scope.as_deref() == Some("shared") || var("MIXDOG_OAI_CACHE_KEY_SHARED").as_deref() == Some("1");
+    let session = clean(options.session_id.as_deref());
+    prefix_key("openai", &namespace, options, prefix, if shared { "" } else { session })
 }
 
 /// The process environment, for the callers that have no injected one.
