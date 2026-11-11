@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2509,
+      "bytes": 2702,
       "path": "golden.json",
-      "sha256": "5af812c1383b6334ae88ac11cd3fc5bc5b8f5986124e3a9a4260c8570ec986fa"
+      "sha256": "26f773b588794ed6bc48ff7ed3623ef6a9ace08604868096e23a2cd414419e95"
     }
   ],
   "inputs": [
@@ -37,7 +37,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-warm-standby.mjs",
-  "recorderSha256": "2923598768a976b9e0e3dd351ab8aa17012c70dd81a75476870ad3749866d6ec",
+  "recorderSha256": "ea3b5766576a6e0995be048e5236fb59de6cefa8c84004cad538ca06b4a3e318",
   "set": "shell-warm-standby",
-  "totalBytes": 2509
+  "totalBytes": 2702
 }

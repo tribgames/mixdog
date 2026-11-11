@@ -4,8 +4,8 @@
 // apostrophe), runs in it and sees its folder for PowerShell and for .NET and the session's TEMP, and sets a global;
 // the call after that runs in the next standby and does not see that global (a standby runs one command, then exits);
 // a call from another folder does not use the standby parked for the first (its environment differs) and runs cold.
-// Commands of 1 MiB, 1 MiB + 1 byte, and one that fits under 1 MiB until the hand-off prelude is put in front of it,
-// run whole, cold and warm. A variable of the recorder's own environment changed after a standby was parked reaches
+// Commands of 1 MiB, 1 MiB + 1 byte, one that fits under 1 MiB until the hand-off prelude is put in front of it, and
+// 5 MiB, run whole, cold and warm. A variable of the recorder's own environment changed after a standby was parked reaches
 // the next command, which does not take that standby.
 // Each call is `executeBuiltinTool('shell', input, ws)` through the native spawn server; before each warm call the
 // recorder waits until a standby is parked, as a model's pace allows. The Rust replay makes the same calls.
@@ -74,6 +74,8 @@ const CALLS = [
   { ws: 'B', parked: true, size: 1048577 },
   // Taken: the hand-off prelude (three scratch variables, at least 60 bytes each, and the folder) pushes it past 1 MiB.
   { ws: 'B', parked: true, size: 1048576 - 128 },
+  // Five times the helper's input queue, taken: Node hands the helper any length.
+  { ws: 'B', parked: true, size: 5 * 1048576 },
   { ws: 'B', parked: true, setAfterPark: 'claimed', command: 'Write-Output "env|$env:MIXDOG_STANDBY_PROBE"' },
 ];
 // Each command also prints its process id last, which tells whether it ran in the parked standby; the line is cut from

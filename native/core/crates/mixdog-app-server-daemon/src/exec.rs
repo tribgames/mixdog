@@ -480,8 +480,8 @@ mod tests {
     /// Node b6f10295a by `record-shell-warm-standby.mjs`): a command taken by the parked standby runs in its folder (one
     /// whose name needs the Base64 hand-off) for PowerShell and .NET with its session's TEMP, and the next command, in the
     /// next standby, does not see the global it set; a command from another folder (another environment) does not take
-    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte (cold), and one the hand-off prelude pushes past
-    /// 1 MiB (warm) run whole, past the helper's 1 MiB input queue. A variable of this process's environment changed
+    /// the standby and runs cold. Commands of 1 MiB, 1 MiB + 1 byte (cold), one the hand-off prelude pushes past 1 MiB
+    /// and one of 5 MiB (warm) run whole, past the helper's 1 MiB input queue. A variable of this process's environment changed
     /// after a standby was parked reaches the next command, which does not take that standby. Whether each command ran
     /// in the parked standby is told, as Node's recording tells it, by the process id it prints last. Each standby runs
     /// one command, and shutdown ends the parked one.
@@ -571,6 +571,63 @@ mod tests {
         }
         times.sort_by(f64::total_cmp);
         println!("pwsh call latency ms: median {:.0} (min {:.0}, max {:.0})", (times[9] + times[10]) / 2.0, times[0], times[19]);
+    }
+
+    /// The time and the memory a 50 MiB PowerShell command takes through the shell tool: the call's duration and how
+    /// far it raised this process's peak working set and peak committed memory (`K32GetProcessMemoryInfo`) over a warm-up
+    /// call's. A measurement, run on request: `-- --ignored pwsh_50_mib_command --nocapture`.
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "a measurement, not a check"]
+    async fn pwsh_50_mib_command() {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Counters {
+            cb: u32,
+            page_faults: u32,
+            peak_working_set: usize,
+            working_set: usize,
+            quota_peak_paged: usize,
+            quota_paged: usize,
+            quota_peak_nonpaged: usize,
+            quota_nonpaged: usize,
+            pagefile: usize,
+            peak_pagefile: usize,
+        }
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn K32GetProcessMemoryInfo(process: isize, counters: *mut Counters, cb: u32) -> i32;
+        }
+        let peaks = || {
+            let mut c = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Counters::default() };
+            // SAFETY: `c` is a PROCESS_MEMORY_COUNTERS of the size given; the pseudo-handle needs no closing.
+            assert_ne!(unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) }, 0);
+            (c.peak_working_set, c.peak_pagefile)
+        };
+        let rig = rig().await;
+        assert!(rig.run("warm", "Write-Output hi").await.contains("hi"));
+        let size = 50 * 1024 * 1024;
+        let head = "$null = $PSScriptRoot; $s = '";
+        let tail = "'; Write-Output ('len|' + $s.Length)";
+        let command = format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()));
+        let (ws, commit) = peaks();
+        let start = std::time::Instant::now();
+        let ran = rig.run("big", &command).await;
+        let took = start.elapsed();
+        drop(command);
+        let (ws_after, commit_after) = peaks();
+        assert!(ran.contains(&format!("len|{}", size - head.len() - tail.len())), "{}", &ran[..ran.len().min(400)]);
+        let mib = |bytes: usize| bytes as f64 / 1048576.0;
+        println!(
+            "50 MiB command: {:.1} s; peak working set {:.0} -> {:.0} MiB (+{:.0}), peak commit {:.0} -> {:.0} MiB (+{:.0})",
+            took.as_secs_f64(),
+            mib(ws),
+            mib(ws_after),
+            mib(ws_after - ws),
+            mib(commit),
+            mib(commit_after),
+            mib(commit_after - commit)
+        );
     }
 
     /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.

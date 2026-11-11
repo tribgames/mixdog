@@ -86,6 +86,16 @@
     {
       "ws": "B",
       "parked": true,
+      "taken": true,
+      "input": {
+        "size": 5242880
+      },
+      "text": "[exit code: 0]\n\nlen|5242790",
+      "isError": false
+    },
+    {
+      "ws": "B",
+      "parked": true,
       "taken": false,
       "setAfterPark": {
         "MIXDOG_STANDBY_PROBE": "claimed"
