@@ -56,8 +56,8 @@ await rec.run('function-calling-mode-default-env-and-tool-choice', `${SRC}:42`, 
 
 const claudeRequest = (toolList, model = 'claude-sonnet-4-6', opts = {}) => {
   const warnings = [];
-  const { request } = buildAntigravityRequest(messages, model, toolList, { onToolExcluded: (exclusion) => warnings.push(exclusion.message), ...opts }, 'proj');
-  return { request, warnings, declarations: request.tools?.at(-1)?.functionDeclarations ?? [] };
+  const { request } = buildAntigravityRequest(messages, model, toolList, { onToolExcluded: (exclusion) => warnings.push(exclusion), ...opts }, 'proj');
+  return { request, warnings, declarations: request.tools?.at(-1)?.functionDeclarations };
 };
 const claudeDeclarations = (toolList, model) => claudeRequest(toolList, model).declarations;
 const realToolsByName = new Map([...BUILTIN_TOOLS, TOOL_SEARCH_TOOL, ...CODE_GRAPH_TOOL_DEFS, ...COMPUTER_TOOL_DEFS].map((tool) => [tool.name, tool]));

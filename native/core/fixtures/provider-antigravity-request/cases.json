@@ -13932,8 +13932,20 @@
           }
         },
         "warnings": [
-          "[antigravity] Claude tool \"badtype\" (tools[1]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
-          "[antigravity] Claude tool \"missing\" (tools[3]) excluded: invalid input schema at \"/properties/value/$ref\": unresolvable $ref \"#/$defs/Absent\""
+          {
+            "name": "badtype",
+            "index": 1,
+            "pointer": "/properties/a/type",
+            "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+            "message": "[antigravity] Claude tool \"badtype\" (tools[1]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+          },
+          {
+            "name": "missing",
+            "index": 3,
+            "pointer": "/properties/value/$ref",
+            "reason": "unresolvable $ref \"#/$defs/Absent\"",
+            "message": "[antigravity] Claude tool \"missing\" (tools[3]) excluded: invalid input schema at \"/properties/value/$ref\": unresolvable $ref \"#/$defs/Absent\""
+          }
         ]
       },
       "calls": [
@@ -14034,57 +14046,129 @@
       "input": {},
       "result": {
         "allOf": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/allOf\": Anthropic input_schema does not allow a root \"allOf\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/allOf",
+              "reason": "Anthropic input_schema does not allow a root \"allOf\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/allOf\": Anthropic input_schema does not allow a root \"allOf\""
+            }
           ]
         },
         "anyOf": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/anyOf\": Anthropic input_schema does not allow a root \"anyOf\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/anyOf",
+              "reason": "Anthropic input_schema does not allow a root \"anyOf\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/anyOf\": Anthropic input_schema does not allow a root \"anyOf\""
+            }
           ]
         },
         "oneOf": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/oneOf\": Anthropic input_schema does not allow a root \"oneOf\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/oneOf",
+              "reason": "Anthropic input_schema does not allow a root \"oneOf\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/oneOf\": Anthropic input_schema does not allow a root \"oneOf\""
+            }
           ]
         },
         "not": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/not\": Anthropic input_schema does not allow a root \"not\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/not",
+              "reason": "Anthropic input_schema does not allow a root \"not\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/not\": Anthropic input_schema does not allow a root \"not\""
+            }
           ]
         },
         "rootAnyOfNoType": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/type",
+              "reason": "Anthropic input_schema root must have type \"object\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+            }
           ]
         },
         "stringRoot": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/type",
+              "reason": "Anthropic input_schema root must have type \"object\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+            }
           ]
         },
         "refRoot": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/type",
+              "reason": "Anthropic input_schema root must have type \"object\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/type\": Anthropic input_schema root must have type \"object\""
+            }
           ]
         },
         "undefinedSchema": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/",
+              "reason": "the input schema must be a JSON object schema",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+            }
           ]
         },
         "trueSchema": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/",
+              "reason": "the input schema must be a JSON object schema",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/\": the input schema must be a JSON object schema"
+            }
           ]
         }
       },
@@ -14425,27 +14509,59 @@
       "input": {},
       "result": {
         "duplicateRequired": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/required\": not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/required",
+              "reason": "not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/required\": not a valid JSON Schema 2020-12 schema: must NOT have duplicate items (items ## 1 and 0 are identical)"
+            }
           ]
         },
         "bogusType": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/properties/a/type",
+              "reason": "not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/type\": not a valid JSON Schema 2020-12 schema: must be equal to one of the allowed values"
+            }
           ]
         },
         "remoteRef": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/$ref\": unresolvable $ref \"https://example.invalid/a.json\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/properties/a/$ref",
+              "reason": "unresolvable $ref \"https://example.invalid/a.json\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/$ref\": unresolvable $ref \"https://example.invalid/a.json\""
+            }
           ]
         },
         "draft07TupleBoth": {
-          "declarations": [],
+          "declarations": {
+            "$exact": "undefined"
+          },
           "warnings": [
-            "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/items\": tuple \"items\" array conflicts with \"prefixItems\""
+            {
+              "name": "t",
+              "index": 0,
+              "pointer": "/properties/a/items",
+              "reason": "tuple \"items\" array conflicts with \"prefixItems\"",
+              "message": "[antigravity] Claude tool \"t\" (tools[0]) excluded: invalid input schema at \"/properties/a/items\": tuple \"items\" array conflicts with \"prefixItems\""
+            }
           ]
         }
       },
@@ -14607,7 +14723,13 @@
       "input": {},
       "result": {
         "warnings": [
-          "[antigravity] Claude tool \"bad\" (tools[0]) excluded: invalid input schema at \"/anyOf\": not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+          {
+            "name": "bad",
+            "index": 0,
+            "pointer": "/anyOf",
+            "reason": "not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items",
+            "message": "[antigravity] Claude tool \"bad\" (tools[0]) excluded: invalid input schema at \"/anyOf\": not a valid JSON Schema 2020-12 schema: must NOT have fewer than 1 items"
+          }
         ],
         "tools": {
           "$exact": "undefined"
