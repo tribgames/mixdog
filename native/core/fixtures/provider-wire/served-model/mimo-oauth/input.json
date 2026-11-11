@@ -1,5 +1,15 @@
 {
   "provider": "mimo-oauth",
+  "config": {
+    "preconnect": false
+  },
+  "credential": {
+    "file": "mimo-oauth.json",
+    "document": {
+      "apiKey": "fixture-key",
+      "uid": "u1"
+    }
+  },
   "model": "mimo-fixture",
   "messages": [
     {
@@ -12,5 +22,14 @@
     }
   ],
   "tools": null,
-  "opts": {}
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

@@ -1,5 +1,18 @@
 {
   "provider": "opencode-go-oauth",
+  "config": {
+    "preconnect": false
+  },
+  "credential": {
+    "file": "opencode-go-oauth.json",
+    "document": {
+      "access_token": "fixture-access-token",
+      "refresh_token": "fixture-refresh-token",
+      "expires_at": 4000000000000,
+      "account_id": "acct-fixture",
+      "email": "fixture@example.invalid"
+    }
+  },
   "model": "go-fixture",
   "messages": [
     {
@@ -12,5 +25,16 @@
     }
   ],
   "tools": null,
-  "opts": {}
+  "opts": {
+    "sessionId": "fixture-session"
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

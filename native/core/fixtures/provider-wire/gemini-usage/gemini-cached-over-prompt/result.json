@@ -29,5 +29,27 @@
       "promptTokens": 100
     }
   },
-  "dispatchedToolCalls": []
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer "
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "is 42."
+    }
+  ]
 }

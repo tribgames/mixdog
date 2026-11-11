@@ -1,5 +1,16 @@
 {
   "provider": "command-code-oauth",
+  "config": {
+    "preconnect": false
+  },
+  "credential": {
+    "file": "command-code-oauth.json",
+    "document": {
+      "apiKey": "fixture-key",
+      "userId": "u1",
+      "userName": "fixture"
+    }
+  },
   "model": "cc-fixture",
   "messages": [
     {
@@ -12,5 +23,14 @@
     }
   ],
   "tools": null,
-  "opts": {}
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

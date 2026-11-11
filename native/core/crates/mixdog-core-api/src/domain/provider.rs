@@ -688,6 +688,9 @@ pub enum StreamEvent {
     /// onto the turn by `assistantEchoFields`): Anthropic's `anthropicFallbacks`, which the usage ledger also reads to
     /// book the answer as substituted. The last one stands.
     ProviderMetadata(JsonValue),
+    /// The id the provider gave the response (Node result `responseId`: OpenAI's HTTP/SSE Responses route), which the
+    /// usage ledger books the send under. Folds into nothing else.
+    ResponseId(String),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder

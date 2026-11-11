@@ -186,39 +186,61 @@ const sequence = (...replies) => {
 };
 
 // ---- providers ------------------------------------------------------------------------
-// Every credential file exists before any provider module reads one (a store that once found none keeps that answer).
-cred('openai-oauth.json', oauthDoc);
-cred('anthropic-oauth-credentials.json', { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } });
-cred('antigravity-oauth.json', { ...oauthDoc, project_id: 'fixture-project' });
-cred('grok-oauth.json', oauthDoc);
-cred('mimo-oauth.json', { apiKey: 'fixture-key', uid: 'u1' });
-cred('command-code-oauth.json', { apiKey: 'fixture-key', userId: 'u1', userName: 'fixture' });
-cred('muse-code-oauth.json', { accessToken: 'fixture-access-token', apiKey: 'fixture-key', accountId: 'acct-fixture', email: 'fixture@example.invalid' });
-cred('opencode-go-oauth.json', oauthDoc);
-const compat = async (name, config = {}) => new (await P('openai-compat.mjs')).OpenAICompatProvider(name, { apiKey: 'fixture-key', preconnect: false, ...config });
-const PROVIDERS = {
-  openai: async () => new (await P('openai-ws.mjs')).OpenAIDirectProvider({ apiKey: 'fixture-key' }),
-  'openai-oauth': async () => new (await P('openai-oauth.mjs')).OpenAIOAuthProvider({}),
-  anthropic: async () => new (await P('anthropic.mjs')).AnthropicProvider({ apiKey: 'fixture-key' }),
-  'anthropic-oauth': async () => new (await P('anthropic-oauth.mjs')).AnthropicOAuthProvider({}),
-  gemini: async () => new (await P('gemini.mjs')).GeminiProvider({ apiKey: 'fixture-key' }),
-  'vertex-ai-express': async () => new (await P('vertex-ai.mjs')).VertexAIProvider({ authMode: 'api-key', apiKey: 'fixture-key' }),
-  'vertex-ai-adc': async () => {
-    const file = join(dataDir, 'adc.json');
-    writeFileSync(file, j({ type: 'authorized_user', client_id: 'fixture-client', client_secret: 'fixture-secret', refresh_token: 'fixture-refresh-token' }));
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = file;
-    return new (await P('vertex-ai.mjs')).VertexAIProvider({ authMode: 'adc', projectId: 'fixture-project', location: 'global' });
-  },
-  'antigravity-oauth': async () => new (await P('antigravity-oauth.mjs')).AntigravityOAuthProvider({}),
-  'grok-oauth': async () => new (await P('grok-oauth.mjs')).GrokOAuthProvider({}),
+// Every credential file exists before any provider module reads one (a store that once found none keeps that answer). Each
+// scenario's input.json names its provider's file and document, and the configuration the provider was built with.
+const CREDENTIALS = {
+  'openai-oauth': ['openai-oauth.json', oauthDoc],
+  'anthropic-oauth': ['anthropic-oauth-credentials.json', { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } }],
+  'antigravity-oauth': ['antigravity-oauth.json', { ...oauthDoc, project_id: 'fixture-project' }],
+  'grok-oauth': ['grok-oauth.json', oauthDoc],
+  'mimo-oauth': ['mimo-oauth.json', { apiKey: 'fixture-key', uid: 'u1' }],
+  'command-code-oauth': ['command-code-oauth.json', { apiKey: 'fixture-key', userId: 'u1', userName: 'fixture' }],
+  'muse-code-oauth': ['muse-code-oauth.json', { accessToken: 'fixture-access-token', apiKey: 'fixture-key', accountId: 'acct-fixture', email: 'fixture@example.invalid' }],
+  'opencode-go-oauth': ['opencode-go-oauth.json', oauthDoc],
+  // gcloud's login, named by GOOGLE_APPLICATION_CREDENTIALS.
+  'vertex-ai-adc': ['adc.json', { type: 'authorized_user', client_id: 'fixture-client', client_secret: 'fixture-secret', refresh_token: 'fixture-refresh-token' }],
+};
+for (const [file, doc] of Object.values(CREDENTIALS)) cred(file, doc);
+const CONFIGS = {
+  openai: { apiKey: 'fixture-key' },
+  'openai-oauth': {},
+  anthropic: { apiKey: 'fixture-key' },
+  'anthropic-oauth': {},
+  gemini: { apiKey: 'fixture-key' },
+  'vertex-ai-express': { authMode: 'api-key', apiKey: 'fixture-key' },
+  'vertex-ai-adc': { authMode: 'adc', projectId: 'fixture-project', location: 'global' },
+  'antigravity-oauth': {},
+  'grok-oauth': {},
   // xAI's Chat Completions mode (its default is Responses).
-  xai: () => compat('xai', { apiMode: 'chat' }),
+  xai: { apiKey: 'fixture-key', preconnect: false, apiMode: 'chat' },
+  deepseek: { apiKey: 'fixture-key', preconnect: false },
+  openrouter: { apiKey: 'fixture-key', preconnect: false },
+  'mimo-oauth': { preconnect: false },
+  'command-code-oauth': { preconnect: false },
+  'muse-code-oauth': { preconnect: false },
+  'opencode-go-oauth': { preconnect: false },
+};
+const compat = async (name) => new (await P('openai-compat.mjs')).OpenAICompatProvider(name, CONFIGS[name]);
+const PROVIDERS = {
+  openai: async () => new (await P('openai-ws.mjs')).OpenAIDirectProvider(CONFIGS.openai),
+  'openai-oauth': async () => new (await P('openai-oauth.mjs')).OpenAIOAuthProvider(CONFIGS['openai-oauth']),
+  anthropic: async () => new (await P('anthropic.mjs')).AnthropicProvider(CONFIGS.anthropic),
+  'anthropic-oauth': async () => new (await P('anthropic-oauth.mjs')).AnthropicOAuthProvider(CONFIGS['anthropic-oauth']),
+  gemini: async () => new (await P('gemini.mjs')).GeminiProvider(CONFIGS.gemini),
+  'vertex-ai-express': async () => new (await P('vertex-ai.mjs')).VertexAIProvider(CONFIGS['vertex-ai-express']),
+  'vertex-ai-adc': async () => {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = join(dataDir, CREDENTIALS['vertex-ai-adc'][0]);
+    return new (await P('vertex-ai.mjs')).VertexAIProvider(CONFIGS['vertex-ai-adc']);
+  },
+  'antigravity-oauth': async () => new (await P('antigravity-oauth.mjs')).AntigravityOAuthProvider(CONFIGS['antigravity-oauth']),
+  'grok-oauth': async () => new (await P('grok-oauth.mjs')).GrokOAuthProvider(CONFIGS['grok-oauth']),
+  xai: () => compat('xai'),
   deepseek: () => compat('deepseek'),
   openrouter: () => compat('openrouter'),
-  'mimo-oauth': async () => new (await P('mimo-oauth.mjs')).MimoOAuthProvider({ preconnect: false }),
-  'command-code-oauth': async () => new (await P('command-code-oauth.mjs')).CommandCodeOAuthProvider({ preconnect: false }),
-  'muse-code-oauth': async () => new (await P('muse-code-oauth.mjs')).MuseCodeOAuthProvider({ preconnect: false }),
-  'opencode-go-oauth': async () => new (await P('opencode-go-oauth.mjs')).OpenCodeGoOAuthProvider({ preconnect: false }),
+  'mimo-oauth': async () => new (await P('mimo-oauth.mjs')).MimoOAuthProvider(CONFIGS['mimo-oauth']),
+  'command-code-oauth': async () => new (await P('command-code-oauth.mjs')).CommandCodeOAuthProvider(CONFIGS['command-code-oauth']),
+  'muse-code-oauth': async () => new (await P('muse-code-oauth.mjs')).MuseCodeOAuthProvider(CONFIGS['muse-code-oauth']),
+  'opencode-go-oauth': async () => new (await P('opencode-go-oauth.mjs')).OpenCodeGoOAuthProvider(CONFIGS['opencode-go-oauth']),
 };
 
 // ---- scenarios ------------------------------------------------------------------------
@@ -312,8 +334,9 @@ for (const [provider, model, reply] of SERVED) {
     messages: claudeTurn,
     tools: null,
     // xAI's x-grok-conv-id falls back to the process id without a session (openai-compat-xai.mjs:59): a fixed session
-    // keeps it the same from run to run.
-    opts: provider === 'xai' ? { sessionId: 'fixture-session' } : {},
+    // keeps it the same from run to run; OpenCode Go's x-opencode-session is the session id, else a randomUUID
+    // (opencode-go.mjs:132-134): a fixed session lets its value be compared.
+    opts: provider === 'xai' || provider === 'opencode-go-oauth' ? { sessionId: 'fixture-session' } : {},
     script: () => router(sequence(ok(reply({ prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 }, `${model}-served`))), [model]),
   });
 }
@@ -552,6 +575,8 @@ for (const s of selected) {
   delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
   rows = [];
   const dispatched = [];
+  const events = [];
+  let callbackNames = [];
   let result;
   await hub.run({ http: s.script() }, async () => {
     const provider = await PROVIDERS[s.provider]();
@@ -567,7 +592,29 @@ for (const s of selected) {
       };
     }
     const ac = new AbortController();
-    const opts = { ...structuredClone(s.opts), signal: ac.signal, onToolCall: (c) => dispatched.push({ id: c.id, name: c.name, arguments: c.arguments }) };
+    // Every callback the caller passes, in the order the provider calls them. A hosted search passes only onStageChange
+    // and onStreamDelta (native-web-search.mjs:76-77); a turn of the loop passes the stream callbacks of
+    // ask-turn-loop-options.mjs:113-236, where an onStreamDelta with no kind is 'semantic' (:232).
+    const callbacks = {
+      onToolCall: (c) => {
+        dispatched.push({ id: c.id, name: c.name, arguments: c.arguments });
+        events.push({ on: 'toolCall', id: c.id, name: c.name, arguments: c.arguments });
+      },
+      onStageChange: (stage, detail) => {
+        if (stage === 'notice') events.push({ on: 'notice', tone: detail?.tone ?? null, message: detail?.message ?? null });
+      },
+      onStreamDelta: (kind = 'semantic') => events.push({ on: 'streamDelta', kind }),
+      ...(s.group === 'hosted-search'
+        ? {}
+        : {
+            onTextDelta: (text) => events.push({ on: 'textDelta', text }),
+            onTextReset: (detail) => events.push({ on: 'textReset', ...detail }),
+            onReasoningDelta: (text) => events.push({ on: 'reasoningDelta', text }),
+            onStreamItemStart: (detail) => events.push({ on: 'itemStart', ...detail }),
+          }),
+    };
+    callbackNames = Object.keys(callbacks);
+    const opts = { ...structuredClone(s.opts), signal: ac.signal, ...callbacks };
     const messages = structuredClone(s.messages);
     const send = (o) => provider.send(messages, s.model, s.tools ?? undefined, o);
     try {
@@ -581,9 +628,19 @@ for (const s of selected) {
     await Promise.all(background);
   }, id);
   const dir = join(stage, s.group, s.name);
-  writeJson(join(dir, 'input.json'), { provider: s.provider, model: s.model, messages: s.messages, tools: s.tools, opts: s.opts });
+  const credential = CREDENTIALS[s.provider];
+  writeJson(join(dir, 'input.json'), {
+    provider: s.provider,
+    config: CONFIGS[s.provider],
+    ...(credential ? { credential: { file: credential[0], document: credential[1] } } : {}),
+    model: s.model,
+    messages: s.messages,
+    tools: s.tools,
+    opts: s.opts,
+    callbacks: callbackNames,
+  });
   writeJson(join(dir, 'exchange.json'), { records: hub.records.map((r) => ({ ...r })), determinism: hub.lastDeterminism });
-  writeJson(join(dir, 'result.json'), { ...result, dispatchedToolCalls: dispatched, ...(s.accounted ? { rows: rows.map(view) } : {}) });
+  writeJson(join(dir, 'result.json'), { ...result, dispatchedToolCalls: dispatched, events, ...(s.accounted ? { rows: rows.map(view) } : {}) });
   console.log(`recorded ${id}`);
 }
 
@@ -594,12 +651,27 @@ writeSetManifest(stage, {
   identity,
   extra: {
     exclusions: [
-      'request headers: the replays compare the request line and body bytes; header order and client headers are the socket-level checks (mixdog-core wire_parity_tests)',
-      'requestId of an Antigravity body: agent-<randomUUID> drawn per send',
-      'GET /v1/models of an Anthropic send: a background catalog read, not part of the turn',
-      'usage.promptTokens: the neutral usage has no such field; the ledger derives the prompt from the counts compared',
-      'ledger ttftMs: no Rust adapter reports where generation starts in its stream yet (Completed.generation_ms is unset)',
-      'HTTP status of a scripted refusal: the script (vertex-maas group) states it; records keep the body served',
+      'request header values x-stainless-runtime-version, x-stainless-os, x-stainless-arch: the Node running the product and its host, not the recorder; their place in the head is compared',
+      'request header value x-grok-req-id: randomUUID() per request; its place in the head is compared',
+      'request headers of a send Node makes through the OpenAI or Anthropic JS SDK (its head carries x-stainless-lang): the SDK\'s own headers (x-stainless-*, its user-agent) and the order it merges the head in belong to the client library, which the core does not embed (gaps-providers.md row 37); every other header and value is compared, duplicates kept',
+      'credential header values (authorization, x-api-key, x-goog-api-key, ...): redacted by lib/headers.mjs to the scheme word; a token minted during the send is checked against the token grant\'s recorded answer',
+      'requestId of an Antigravity body: agent-<randomUUID> drawn per send; its presence is compared',
+      'GET requests (catalog listings such as /v1/models, client-version lookups): reads beside the send, which the core makes from its catalog services outside the send',
+      'HEAD preconnect of the core\'s socket warm-up: a raw undici.request in Node, which the hub (a fetch redirect) never sees',
+      'result generationMs and ledger ttftMs: no Rust adapter reports where generation starts in its stream yet (Completed.generation_ms is unset)',
+      'result hasThinkingContent, contentBlockTypes: Anthropic\'s summary of its blocks for the empty-turn trace, derived from the replay blocks compared',
+      'result assistantBlocks: the same list as providerReplay.items (checked equal), which is compared',
+      'result providerState.<owner>.updatedAt: the wall clock when the state was taken (Date.now pinned to START here, the system clock in the core); its presence is compared',
+      'result requestServiceTier: stamped by Node\'s accounting on the result; the core keeps it in the ledger row, compared where the scenario is accounted',
+      'usage.promptTokens, usage.totalTokens: Node\'s sums of the compared counts; usage.raw keeps the provider\'s own',
+      'usage.serverToolUse: Anthropic\'s copy of usage.raw.server_tool_use (compared in raw), read by no Node code',
+      'stopReason null and an absent usage.cacheWriteTokens read as no stop reason and 0 (Node\'s readers use || 0)',
+      'stream callback onStreamDelta(\'transport\'): raised per network read, its count follows the socket\'s chunking',
+      'core item starts of a plain text or reasoning block: Node reports a started item only for a client tool call or a phased message (send-callbacks.mjs reportStreamItemStart and its callers), so those are compared and the core\'s other openings are not callbacks',
+      'stream callback placement of a delta\'s kind report (before or after the delta, by path): compared as one with its delta',
+      'Codex identity (installation id, user agent OS, beta features): the recording machine\'s, given to the replay as the recorder had it',
+      'served-model/muse-code-oauth on the core: sent through the Responses engine (as Node, which sends Muse Code over Responses only), not the builder this branch has, which still routes it to Chat; that route is the gateway registry\'s (branch provider-gateways)',
+      'HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude groups) states it; records keep the body served',
     ],
     ...recordingProvenance(RECORDER, [
     'benchmarks/rust-core/recorders/lib/common.mjs',

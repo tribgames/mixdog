@@ -5,9 +5,14 @@
 //! Node's whole result ([`node_result`]), which leaves out only the fields the manifest's exclusions name.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::ItemKind;
 use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::Phase;
+use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
@@ -24,18 +29,6 @@ pub(crate) struct Recorded {
     pub input: Value,
     pub exchange: Value,
     pub result: Value,
-}
-
-impl Recorded {
-    /// The POSTs the provider made to `path_part`, in order (token grants and catalog reads excluded by the filter).
-    pub fn posts(&self, path_part: &str) -> Vec<&Value> {
-        self.exchange["records"]
-            .as_array()
-            .expect("records")
-            .iter()
-            .filter(|r| r["method"] == "POST" && r["path"].as_str().is_some_and(|p| p.contains(path_part)))
-            .collect()
-    }
 }
 
 fn root() -> PathBuf {
@@ -146,33 +139,21 @@ fn stop_text(stop: &StopReason) -> String {
     }
 }
 
-/// A provider state with each slot's `updatedAt` (the wall clock at the send's end) left out.
-fn without_clock(mut state: Value) -> Value {
-    for slot in state.as_object_mut().into_iter().flat_map(|m| m.values_mut()) {
-        if let Some(slot) = slot.as_object_mut() {
-            slot.shift_remove("updatedAt");
-        }
-    }
-    state
-}
-
 fn call_json(call: &ToolCall) -> Value {
     json!({ "id": call.id, "name": call.name, "arguments": call.arguments })
 }
 
-/// Node's whole recorded result (`ok` and the calls dispatched live), with only the fields no core event carries left
-/// out; each is one of the manifest's exclusions:
-/// - `generationMs`: the answering stream's generation window, a wall-clock reading (as the ledger's `ttftMs`);
-/// - `hasThinkingContent`, `contentBlockTypes`: Anthropic's stream summary for the empty-turn trace
-///   (ask-turn-commit.mjs:65-66); the events compared carry the blocks themselves;
+/// Node's whole recorded result (`ok` and the calls dispatched live), with only the fields the core has no counterpart
+/// of left out, each declared in the manifest's exclusions (`fixtures/provider-wire/MANIFEST.json`):
+/// - `generationMs`: where generation started in the stream, which no Rust adapter reports yet (as the ledger's `ttftMs`);
+/// - `hasThinkingContent`, `contentBlockTypes`: Anthropic's summary of its blocks for the empty-turn trace
+///   (ask-turn-commit.mjs:65-66), derived from the blocks the compared replay carries;
 /// - `assistantBlocks`: Anthropic's block list, which Node also returns as `providerReplay.items`
 ///   (turn-outcome.mjs:156-157): checked equal to it here, and the replay is compared;
-/// - `requestServiceTier`: stamped on the result by the accounting (`record`, usage-accounting.mjs:107), compared in
-///   the ledger row;
-/// - `responseId`: the Responses id, read by the ledger and the WebSocket chain, carried by no event of an HTTP send;
-/// - `usage.promptTokens`, `usage.totalTokens`: sums of the compared counts (`raw` keeps the provider's own);
+/// - `requestServiceTier`: stamped on the result object by Node's accounting (usage-accounting.mjs:98); the core's
+///   accounting keeps it in the ledger row, compared where the scenario is accounted;
+/// - `usage.promptTokens`, `usage.totalTokens`: Node's sums of the compared counts (`raw` keeps the provider's own);
 /// - `usage.serverToolUse`: Anthropic's copy of `raw.server_tool_use` (compared in `raw`), which no Node code reads;
-/// - `providerState.<slot>.updatedAt`: the wall clock at the send's end, on both sides;
 /// - `stopReason: null` reads as no stop reason, and an absent `usage.cacheWriteTokens` as 0 (Node's readers use
 ///   `|| 0`).
 pub(crate) fn node_result(result: &Value) -> Value {
@@ -181,14 +162,11 @@ pub(crate) fn node_result(result: &Value) -> Value {
     if let Some(blocks) = map.shift_remove("assistantBlocks") {
         assert_eq!(Some(&blocks), map.get("providerReplay").and_then(|r| r.get("items")), "Node returns its blocks twice");
     }
-    for key in ["generationMs", "hasThinkingContent", "contentBlockTypes", "requestServiceTier", "responseId"] {
+    for key in ["generationMs", "hasThinkingContent", "contentBlockTypes", "requestServiceTier"] {
         map.shift_remove(key);
     }
     if map.get("stopReason").is_some_and(Value::is_null) {
         map.shift_remove("stopReason");
-    }
-    if let Some(state) = map.shift_remove("providerState") {
-        map.insert("providerState".into(), without_clock(state));
     }
     if let Some(usage) = map.get_mut("usage").and_then(Value::as_object_mut) {
         usage.shift_remove("promptTokens");
@@ -203,8 +181,8 @@ pub(crate) fn node_result(result: &Value) -> Value {
 /// replaces it), the model (`ServedModel`, else `requested`), the stop reason, pricing model, usage, replay envelope,
 /// provider state and metadata, the citations and search calls in the order they came, the returned and the live
 /// calls. A provider-native block other than a search call is one of the replay's blocks (checked here); the live
-/// progress events (`ItemStart`, `Progress`, `ChunkProgress`, the tool-call start and argument deltas, keepalives,
-/// reasoning deltas) are Node's stream callbacks, which its result does not keep.
+/// events (`ItemStart`, `Progress`, `ChunkProgress`, notices, the deltas) are Node's stream callbacks, which its result
+/// does not keep: [`core_events`] compares them with the callbacks Node made, in order.
 pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
     let mut ok = Map::new();
     let mut content = String::new();
@@ -236,10 +214,13 @@ pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
                 ok.insert("thinkingBlocks".into(), blocks.clone());
             }
             StreamEvent::ProviderState(state) => {
-                ok.insert("providerState".into(), without_clock(state.to_json()));
+                ok.insert("providerState".into(), state.to_json());
             }
             StreamEvent::ProviderMetadata(metadata) => {
                 ok.insert("providerMetadata".into(), metadata.clone());
+            }
+            StreamEvent::ResponseId(id) => {
+                ok.insert("responseId".into(), json!(id));
             }
             StreamEvent::Usage(usage) => {
                 let mut out = Map::new();
@@ -267,8 +248,9 @@ pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
                     ok.insert("pricingModel".into(), json!(pricing));
                 }
             }
-            StreamEvent::Refusal(_) | StreamEvent::Notice { .. } => panic!("no recording has {event:?}"),
-            StreamEvent::ItemStart { .. }
+            StreamEvent::Refusal(_) => panic!("no recording has {event:?}"),
+            StreamEvent::Notice { .. }
+            | StreamEvent::ItemStart { .. }
             | StreamEvent::ToolCallStart { .. }
             | StreamEvent::ToolCallArgsDelta { .. }
             | StreamEvent::ReasoningDelta(_)
@@ -323,9 +305,472 @@ fn differences(path: &str, core: &Value, node: &Value, out: &mut Vec<String>) {
 
 /// The whole-result comparison of `name`: every difference is named by its JSON pointer.
 pub(crate) fn assert_same_result(core: &Value, node: &Value, name: &str) {
+    // A provider state's `updatedAt` is the wall clock when the state was taken (the recorder pins Node's `Date.now`
+    // to its START, the core reads the system clock): compared for presence, declared in the manifest.
+    let stamped = |value: &Value| {
+        let mut value = value.clone();
+        if let Some(states) = value.pointer_mut("/ok/providerState").and_then(Value::as_object_mut) {
+            for state in states.values_mut().filter_map(Value::as_object_mut) {
+                if let Some(at) = state.get_mut("updatedAt") {
+                    assert!(at.is_u64(), "{name}: updatedAt is a time: {at}");
+                    *at = json!("<wall clock>");
+                }
+            }
+        }
+        value
+    };
+    let (core, node) = (&stamped(core), &stamped(node));
     let mut out = Vec::new();
     differences("", core, node, &mut out);
     assert!(out.is_empty(), "{name}: the result differs from Node's\n{}", out.join("\n"));
+}
+
+fn stream_delta(kind: &str) -> Value {
+    json!({ "on": "streamDelta", "kind": kind })
+}
+
+/// The callbacks Node made during the send (`result.json` `events`), as the core's events make them: the callbacks the
+/// caller passed (`input.json` `callbacks`) and nothing else, in order. A text or reasoning delta also reports its kind
+/// (`onStreamDelta('text')`) unless the stream announced its chunks ([`StreamEvent::progress_kinds`]); a chunk's kind is
+/// `ChunkProgress` and a semantic step `Progress`; a dispatched call is `onToolCall`, a notice `onStageChange('notice')`.
+pub(crate) fn core_events(events: &[StreamEvent], callbacks: &Value) -> Vec<Value> {
+    let passed = |name: &str| callbacks.as_array().expect("callbacks").iter().any(|c| c == name);
+    let mut out = Vec::new();
+    let mut chunked = false;
+    for event in events {
+        match event {
+            StreamEvent::ChunkProgress(kind) => {
+                chunked = true;
+                if let Some(kind) = kind {
+                    out.push(stream_delta(kind.name()));
+                }
+            }
+            StreamEvent::Progress(kind) => out.push(stream_delta(kind.name())),
+            StreamEvent::ProviderKeepalive => out.push(stream_delta("keepalive")),
+            StreamEvent::TextDelta(text) => {
+                if passed("onTextDelta") {
+                    out.push(json!({ "on": "textDelta", "text": text }));
+                }
+                if !chunked {
+                    out.push(stream_delta("text"));
+                }
+            }
+            StreamEvent::ReasoningDelta(text) => {
+                if passed("onReasoningDelta") {
+                    out.push(json!({ "on": "reasoningDelta", "text": text }));
+                }
+                if !chunked {
+                    out.push(stream_delta("reasoning"));
+                }
+            }
+            StreamEvent::ToolCallDone(call) => {
+                out.push(json!({ "on": "toolCall", "id": call.id, "name": call.name, "arguments": call.arguments }));
+            }
+            // Node reports a started item only for a client tool call or a phased message (`reportStreamItemStart`,
+            // send-callbacks.mjs:20, its callers); the opening of a plain text or reasoning block it does not.
+            StreamEvent::ItemStart { kind, phase }
+                if passed("onStreamItemStart") && (matches!(kind, ItemKind::Tool) || phase.is_some()) =>
+            {
+                let mut detail = json!({ "on": "itemStart", "kind": match kind {
+                    ItemKind::Text => "text",
+                    ItemKind::Reasoning => "reasoning",
+                    ItemKind::Tool => "tool",
+                } });
+                if let Some(phase) = phase {
+                    detail["phase"] = json!(match phase {
+                        Phase::Commentary => "commentary",
+                        Phase::FinalAnswer => "final_answer",
+                    });
+                }
+                out.push(detail);
+            }
+            StreamEvent::Notice { message, warn } => {
+                out.push(json!({ "on": "notice", "tone": if *warn { "warn" } else { "info" }, "message": message }));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A callback sequence in the form both sides are compared in (declared in the manifest): `onStreamDelta('transport')`,
+/// which Node raises per network read (its count follows the socket's chunking), is left out; and the kind a text or
+/// reasoning delta reports, raised by Node right before or right after that delta depending on the path (Anthropic
+/// relays it after the text, the compatible streams before), is one with its delta (`reported`).
+fn canonical_events(events: &[Value]) -> Vec<Value> {
+    let mut list: Vec<Value> = events.iter().filter(|e| !(e["on"] == "streamDelta" && e["kind"] == "transport")).cloned().collect();
+    let mut i = 0;
+    while i < list.len() {
+        let kind = match list[i]["on"].as_str() {
+            Some("textDelta") => "text",
+            Some("reasoningDelta") => "reasoning",
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let reports = |e: &Value| e["on"] == "streamDelta" && e["kind"] == kind;
+        if i > 0 && reports(&list[i - 1]) {
+            list.remove(i - 1);
+            i -= 1;
+            list[i]["reported"] = json!(true);
+        } else if i + 1 < list.len() && reports(&list[i + 1]) {
+            list.remove(i + 1);
+            list[i]["reported"] = json!(true);
+        }
+        i += 1;
+    }
+    list
+}
+
+/// The callbacks the core's events make equal Node's, in recorded order.
+pub(crate) fn assert_same_events(events: &[StreamEvent], recorded: &Recorded, name: &str) {
+    let core = canonical_events(&core_events(events, &recorded.input["callbacks"]));
+    let node = canonical_events(recorded.result["events"].as_array().expect("events"));
+    assert_eq!(Value::Array(core), Value::Array(node), "{name}: the stream callbacks differ from Node's");
+}
+
+/// Header values that cannot be equal, each declared in the manifest: their place in the head is compared, not their
+/// value. The OpenAI client's `x-stainless-runtime-version` is the Node that runs the product (the desktop's Electron),
+/// not the recorder's; `x-stainless-os` and `x-stainless-arch` are the host's platform; `x-grok-req-id` is a
+/// `randomUUID()` per request.
+const UNEQUAL_HEADERS: [&str; 4] = ["x-stainless-runtime-version", "x-stainless-os", "x-stainless-arch", "x-grok-req-id"];
+
+/// The recorder's normalization of a header (`lib/headers.mjs` `cleanHeaders`), applied to the core's head as to
+/// Node's: a credential's value is its scheme word only, and a request id drawn per request is its shape.
+fn clean_header(name: &str, value: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    let credential = matches!(
+        lower.as_str(),
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie" | "x-api-key" | "api-key" | "x-goog-api-key"
+    ) || ["token", "secret", "password", "credential"].iter().any(|word| lower.contains(word));
+    if credential {
+        let scheme = ["Bearer", "Basic", "Digest", "Token"].into_iter().find(|scheme| {
+            value.len() > scheme.len() + 1
+                && value[..scheme.len()].eq_ignore_ascii_case(scheme)
+                && value[scheme.len()..].starts_with(char::is_whitespace)
+                && !value[scheme.len()..].trim_start().is_empty()
+        });
+        return match scheme {
+            Some(_) => format!("{} <redacted>", &value[..value.find(char::is_whitespace).unwrap_or(0)]),
+            None => "<redacted>".to_owned(),
+        };
+    }
+    let random_id = ["request", "trace", "span", "correlation", "client"]
+        .iter()
+        .any(|word| lower.ends_with(&format!("{word}-id")) || lower.ends_with(&format!("{word}id")));
+    let hex = |s: &str| s.chars().all(|c| c.is_ascii_hexdigit());
+    if random_id && value.len() == 32 && hex(value) {
+        return "<random:hex32>".to_owned();
+    }
+    let groups: Vec<&str> = value.split('-').collect();
+    if random_id && groups.iter().map(|g| g.len()).eq([8, 4, 4, 4, 12]) && groups.iter().all(|g| hex(g)) {
+        return "<random:uuid>".to_owned();
+    }
+    value.to_owned()
+}
+
+/// The head the core's transport writes for `wire` (`node_http::head`, as Node's `fetch` writes it) on the recorder's
+/// loopback socket, an `http:` one (so `fetch` offers that scheme's encodings): every header in order, the name as the
+/// hub records it (lower case), the value cleaned as the recorder cleans it.
+fn sent_head(wire: &WireRequest) -> Vec<(String, String)> {
+    let mut url = url::Url::parse(&wire.url).expect("url");
+    url.set_scheme("http").expect("an http(s) url");
+    let (head, _) = crate::transport::node_http::head(wire, &url, crate::transport::node_http::Writer::Fetch);
+    let text: String = head.iter().map(|b| *b as char).collect();
+    text.split("\r\n")
+        .skip(1)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let (name, value) = line.split_once(": ").expect("a header line");
+            (name.to_ascii_lowercase(), clean_header(name, value))
+        })
+        .collect()
+}
+
+fn recorded_head(record: &Value) -> Vec<(String, String)> {
+    record["rawHeaderOrder"]
+        .as_array()
+        .expect("rawHeaderOrder")
+        .iter()
+        .map(|name| {
+            let name = name.as_str().expect("name");
+            (name.to_owned(), record["headers"][name].as_str().expect("a header value").to_owned())
+        })
+        .collect()
+}
+
+/// One request compared whole with Node's: the method, the URL, every header in order (only the values of
+/// [`UNEQUAL_HEADERS`] aside), and the body's bytes (with `drawn`, the top-level body fields drawn per send, compared
+/// for presence only).
+pub(crate) fn assert_same_request(sent: &WireRequest, record: &Value, drawn: &[&str], name: &str) {
+    assert_eq!(sent.method, record["method"].as_str().expect("method"), "{name}: method");
+    assert_eq!(sent.url, format!("{}{}", record["origin"].as_str().expect("origin"), record["path"].as_str().expect("path")), "{name}: url");
+    let unequal = |(n, v): (String, String)| if UNEQUAL_HEADERS.contains(&n.as_str()) { (n, "<not compared>".to_owned()) } else { (n, v) };
+    let mut core: Vec<_> = sent_head(sent).into_iter().map(unequal).collect();
+    let mut node: Vec<_> = recorded_head(record).into_iter().map(unequal).collect();
+    // A request Node sent through the OpenAI or Anthropic JS SDK (its head carries `x-stainless-lang`): the SDK's own
+    // headers (`x-stainless-*`, its `user-agent`, which replaces fetch's) and the order it merges the head in are the
+    // client library's, which the core does not embed (gaps-providers.md row 37); declared in the manifest. Every
+    // other header and its value is compared, duplicates kept.
+    if node.iter().any(|(n, _)| n == "x-stainless-lang") {
+        let sdk = |(n, _): &(String, String)| n.starts_with("x-stainless-") || n == "user-agent";
+        core.retain(|h| !sdk(h));
+        node.retain(|h| !sdk(h));
+        core.sort();
+        node.sort();
+    }
+    assert_eq!(core, node, "{name}: headers");
+    let body = String::from_utf8(sent.body.clone()).expect("a text body");
+    let node_body = record["bodyText"].as_str().unwrap_or_default();
+    if drawn.is_empty() {
+        assert_eq!(body, node_body, "{name}: body bytes");
+    } else {
+        let without = |text: &str| {
+            let mut value: Value = serde_json::from_str(text).expect("a JSON body");
+            for key in drawn {
+                assert!(value.as_object_mut().expect("an object body").shift_remove(*key).is_some(), "{name}: the body has no {key}");
+            }
+            value
+        };
+        assert_eq!(without(&body), without(node_body), "{name}: body");
+    }
+}
+
+/// The requests compared, declared in the manifest: the reads a provider makes beside its send (catalog listings,
+/// client-version lookups, price tables: every `GET` of these recordings) are left out on both sides, the core's catalog
+/// and client-version services making them outside the send.
+fn sent_by_the_send(method: &str) -> bool {
+    method != "GET"
+}
+
+/// Every request the core sent, compared whole and in order with the ones Node's send made.
+pub(crate) fn assert_same_requests(sent: &[WireRequest], recorded: &Recorded, drawn: &[&str], name: &str) {
+    let sent: Vec<&WireRequest> = sent.iter().filter(|r| sent_by_the_send(&r.method)).collect();
+    let node: Vec<&Value> =
+        recorded.exchange["records"].as_array().expect("records").iter().filter(|r| sent_by_the_send(r["method"].as_str().unwrap_or_default())).collect();
+    assert_eq!(sent.len(), node.len(), "{name}: requests: core {:?}", sent.iter().map(|r| format!("{} {}", r.method, r.url)).collect::<Vec<_>>());
+    for (i, (got, want)) in sent.iter().zip(node).enumerate() {
+        assert_same_request(got, want, drawn, &format!("{name} #{i}"));
+    }
+}
+
+/// The bearer a request carries is the token the last token grant before it answered (the recorder redacts credential
+/// values: a minted token is checked against the grant's recorded answer instead).
+pub(crate) fn assert_minted_bearer(sent: &[WireRequest], recorded: &Recorded, name: &str) {
+    let node = recorded.exchange["records"].as_array().expect("records").iter().filter(|r| sent_by_the_send(r["method"].as_str().unwrap_or_default()));
+    let mut minted: Option<String> = None;
+    for (i, (request, record)) in sent.iter().filter(|r| sent_by_the_send(&r.method)).zip(node).enumerate() {
+        let bearer = request.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("authorization")).map(|(_, v)| v.clone());
+        if request.url.ends_with("/token") {
+            assert_eq!(bearer, None, "{name} #{i}: a token grant carries no bearer");
+            let answer: Value = serde_json::from_str(record["served"].as_str().expect("served")).expect("a token answer");
+            minted = Some(answer["access_token"].as_str().expect("access_token").to_owned());
+            continue;
+        }
+        let token = minted.clone().unwrap_or_else(|| panic!("{name} #{i}: a request before any token grant"));
+        assert_eq!(bearer, Some(format!("Bearer {token}")), "{name} #{i}: the bearer is the last minted token");
+    }
+}
+
+/// The recorder's hub: each request is answered with the recorded answer to the first unanswered record of the same
+/// method and URL (`served`), with the status the scenario's script gave it (200 unless `refuse` names the n-th such
+/// request), and kept.
+pub(crate) struct Hub {
+    records: Mutex<Vec<Option<Value>>>,
+    refusals: Mutex<Vec<(String, u16, Vec<(String, String)>)>>,
+    pub sent: Mutex<Vec<WireRequest>>,
+}
+
+impl Hub {
+    pub fn new(recorded: &Recorded) -> Arc<Self> {
+        Arc::new(Self {
+            records: Mutex::new(recorded.exchange["records"].as_array().expect("records").iter().cloned().map(Some).collect()),
+            refusals: Mutex::default(),
+            sent: Mutex::default(),
+        })
+    }
+
+    /// The first request whose path ends with `path_end` is answered with `status` and `headers` (the scenario's script).
+    pub fn refuse_first(self: Arc<Self>, path_end: &str, status: u16, headers: Vec<(String, String)>) -> Arc<Self> {
+        self.refusals.lock().unwrap().push((path_end.to_owned(), status, headers));
+        self
+    }
+
+    pub fn sent(&self) -> Vec<WireRequest> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+struct Served(Option<bytes::Bytes>);
+
+#[async_trait::async_trait]
+impl crate::transport::BodyStream for Served {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        self.0.take().map(Ok)
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::transport::HttpSend for Hub {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _: crate::transport::Exchange,
+    ) -> Result<crate::transport::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+        // The socket warm-up (`preconnect`, http-agent.mjs:496-527) is a raw `undici.request`, which the recorder's hub
+        // (a `fetch` redirect) never sees: answered, and not one of the send's requests (declared in the manifest).
+        if request.method == "HEAD" {
+            return Ok(crate::transport::HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Served(None)) });
+        }
+        let record = {
+            let mut records = self.records.lock().unwrap();
+            let at = records
+                .iter()
+                .position(|r| {
+                    r.as_ref().is_some_and(|r| {
+                        r["method"] == request.method.as_str()
+                            && request.url == format!("{}{}", r["origin"].as_str().unwrap_or_default(), r["path"].as_str().unwrap_or_default())
+                    })
+                })
+                .unwrap_or_else(|| panic!("Node made no request {} {}", request.method, request.url));
+            records[at].take().expect("record")
+        };
+        let path = record["path"].as_str().unwrap_or_default().to_owned();
+        self.sent.lock().unwrap().push(request);
+        let (status, headers) = {
+            let mut refusals = self.refusals.lock().unwrap();
+            match refusals.iter().position(|(end, _, _)| path.ends_with(end.as_str())) {
+                Some(at) => {
+                    let (_, status, headers) = refusals.remove(at);
+                    (status, headers)
+                }
+                None => (200, Vec::new()),
+            }
+        };
+        let body = bytes::Bytes::from(record["served"].as_str().unwrap_or_default().to_owned());
+        Ok(crate::transport::HttpResponse { status, headers, body: Box::new(Served(Some(body))) })
+    }
+}
+
+/// What the recorder's provider read beside its configuration: the Anthropic catalog's capabilities, the Google model
+/// traits, the OpenAI model facts, and the machine's Codex identity (declared in the manifest).
+pub(crate) struct Inputs {
+    pub caps: crate::providers::anthropic::CapsLookup,
+    pub traits: Arc<dyn crate::providers::google::traits::ModelTraits>,
+    pub facts: Arc<dyn crate::providers::openai::config::ModelFactsSource>,
+    pub codex: crate::providers::openai::config::CodexIdentity,
+}
+
+impl Default for Inputs {
+    fn default() -> Self {
+        Self {
+            caps: Arc::new(|_| None),
+            traits: Arc::new(crate::providers::google::traits::CatalogGoogleTraits(Vec::new())),
+            facts: Arc::new(crate::providers::openai::config::NoFacts),
+            codex: crate::providers::openai::config::CodexIdentity {
+                installation_id: String::new(),
+                user_agent: String::new().into(),
+                version: String::new().into(),
+                beta_features: String::new(),
+            },
+        }
+    }
+}
+
+struct ScenarioEnv(std::collections::HashMap<String, String>);
+
+impl crate::registry::keys::Environment for ScenarioEnv {
+    fn var(&self, name: &str) -> Option<String> {
+        self.0.get(name).cloned()
+    }
+}
+
+/// The provider the recorder built (`input.json` `provider`, `config`, `credential`), built by the production builder
+/// (`DefaultProviderBuilder::build`) over the hub, in a data directory holding the recorded credential file and with the
+/// recorder's environment (`MIXDOG_OAI_TRANSPORT=http`; gcloud's login named by `GOOGLE_APPLICATION_CREDENTIALS`).
+pub(crate) async fn built(
+    recorded: &Recorded,
+    hub: Arc<Hub>,
+    inputs: Inputs,
+) -> (Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, tempfile::TempDir) {
+    use crate::registry::builder::BuilderEnv;
+    use crate::registry::builder::DefaultProviderBuilder;
+    use crate::registry::providers::ProviderBuilder;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let input = &recorded.input;
+    let mut env = std::collections::HashMap::from([("MIXDOG_OAI_TRANSPORT".to_owned(), "http".to_owned())]);
+    if let Some(credential) = input.get("credential") {
+        let path = dir.path().join(credential["file"].as_str().expect("file"));
+        #[allow(clippy::disallowed_methods, reason = "test-only write of the recorded credential file")]
+        std::fs::write(&path, serde_json::to_vec(&credential["document"]).expect("json")).expect("credential file");
+        if credential["file"] == "adc.json" {
+            env.insert("GOOGLE_APPLICATION_CREDENTIALS".to_owned(), path.display().to_string());
+        }
+    }
+    let env: Arc<dyn crate::registry::keys::Environment> = Arc::new(ScenarioEnv(env));
+    let tokens = mixdog_rt::testing::tokens();
+    let io = crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let link = Arc::new(crate::transport::ReqwestLink::new(&crate::transport::KeepaliveSchedule::SPEC, false).expect("link"));
+    let builder = DefaultProviderBuilder::new(BuilderEnv {
+        http: hub,
+        bidi: link,
+        dial: Arc::new(crate::transport::KeepaliveDialer::new(crate::transport::KeepaliveSchedule::SPEC)),
+        keys: crate::registry::keys::ApiKeyStore::new(Arc::new(crate::registry::keys::MemoryVault::default()), env.clone(), false),
+        accounts: crate::accounts::AccountStore::new(dir.path().to_path_buf(), io.clone()),
+        anthropic_caps: inputs.caps,
+        google_traits: inputs.traits,
+        openai_facts: inputs.facts,
+        openai_context: Arc::new(crate::providers::openai::adapter::SessionContext::new()),
+        codex_identity: inputs.codex,
+        pace: Arc::new(crate::oauth::pace::FakePace::default()),
+        gzip_lane: tokens.cpu_bulk,
+        client_version: String::new(),
+        client_versions: None,
+        grok_client_version: None,
+        cursor_client_version: None,
+        antigravity_client_version: "2.19.1".into(),
+        listing: crate::catalog::ListingLookup::new(),
+        env,
+        home_dir: dir.path().to_path_buf(),
+        io,
+        gated_off: Arc::new(|_| false),
+    });
+    let provider = input["provider"].as_str().expect("provider");
+    let name = provider.strip_suffix("-adc").or_else(|| provider.strip_suffix("-express")).unwrap_or(provider);
+    let adapter = builder.build(name, &input["config"]).await.unwrap_or_else(|e| panic!("{provider}: {e}"));
+    (adapter, dir)
+}
+
+/// Every event of one attempt.
+pub(crate) async fn attempt(
+    adapter: &dyn mixdog_core_api::domain::provider::ProviderAdapter,
+    request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+) -> Result<Vec<StreamEvent>, mixdog_core_api::domain::provider::ProviderError> {
+    let mut stream = adapter.attempt(request).await?;
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event?);
+    }
+    Ok(events)
+}
+
+/// Node's send arguments as the request the core's loop makes of them: the messages, the tools, and the options Node's
+/// send read (`sessionId`, `effort`, `sourceType`).
+pub(crate) fn request_of(recorded: &Recorded) -> mixdog_core_api::domain::provider::ModelRequest {
+    let input = &recorded.input;
+    let opts = &input["opts"];
+    mixdog_core_api::domain::provider::ModelRequest {
+        model: input["model"].as_str().expect("model").to_owned(),
+        messages: input["messages"].as_array().expect("messages").iter().map(message).collect(),
+        tools: tools(&input["tools"]),
+        options: mixdog_core_api::domain::provider::RequestOptions {
+            session_id: opts["sessionId"].as_str().map(str::to_owned),
+            effort: opts["effort"].as_str().map(str::to_owned),
+            source_type: opts["sourceType"].as_str().map(str::to_owned),
+            ..Default::default()
+        },
+    }
 }
 
 pub(crate) fn tools(node: &Value) -> Vec<ToolDefinition> {

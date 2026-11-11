@@ -298,7 +298,7 @@ impl CompatResponsesCodec {
         out
     }
 
-    fn headers(&self) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest) -> Vec<(String, String)> {
         let mut headers: Vec<(String, String)> = Vec::new();
         if !self.is_socket() {
             headers.push(("content-type".into(), "application/json".into()));
@@ -311,6 +311,7 @@ impl CompatResponsesCodec {
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
         );
         headers.extend(self.config.extra_headers.iter().cloned());
+        headers.extend(super::session_header(&self.profile, request));
         headers
     }
 
@@ -380,7 +381,7 @@ impl WireCodec for CompatResponsesCodec {
             transport: self.transport,
             method: method.into(),
             url,
-            headers: self.headers(),
+            headers: self.headers(request),
             // A JSON object always serializes.
             body: serde_json::to_vec(&body).unwrap_or_default(),
         })

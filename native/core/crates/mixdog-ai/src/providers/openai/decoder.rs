@@ -1166,6 +1166,13 @@ impl ResponsesDecoder {
             );
             out.push(StreamEvent::ProviderState(with_slot(report.prior.as_ref(), &report.spec, slot)));
         }
+        // The HTTP/SSE collector returns the response's id (`responseId: state.responseId || undefined`,
+        // response-outcome.mjs:87), the first one the stream named.
+        if self.collector() == Collector::HttpSse
+            && let Some(id) = self.outcome.response_id.clone().or_else(|| Some(str_of(response, "id").to_owned())).filter(|id| !id.is_empty())
+        {
+            out.push(StreamEvent::ResponseId(id));
+        }
         let stop = if self.refusals.seen() {
             out.push(StreamEvent::Refusal(self.refusals.text()));
             Some(StopReason::Refusal)

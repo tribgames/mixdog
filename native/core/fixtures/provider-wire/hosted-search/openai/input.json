@@ -1,5 +1,8 @@
 {
   "provider": "openai",
+  "config": {
+    "apiKey": "fixture-key"
+  },
   "model": "gpt-5.2",
   "messages": [
     {
@@ -35,5 +38,10 @@
     "toolChoice": "required",
     "fast": false,
     "modelParameters": {}
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
 }

@@ -634,6 +634,8 @@ pub enum ProxyEvent {
     ServedModel { model: String },
     /// Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).
     ProviderMetadata { value: JsonValue },
+    /// The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).
+    ResponseId { id: String },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {

@@ -407,8 +407,14 @@ impl GoogleCodec {
                 )
             }
             Target::Antigravity { origin, project, client_version } => {
+                // antigravity-oauth.mjs:166-172: the bearer leads the head (its slot, filled where the request is
+                // authorized), and a Claude model gets the interleaved-thinking beta.
+                headers.insert(0, ("authorization".into(), String::new()));
                 headers.push(("accept".into(), "text/event-stream".into()));
                 headers.push(("user-agent".into(), antigravity_user_agent(&client_version.get())));
+                if super::request::antigravity_claude(&id) {
+                    headers.push(("anthropic-beta".into(), "interleaved-thinking-2025-05-14".into()));
+                }
                 let contents = inner["contents"].as_array().cloned().unwrap_or_default();
                 inner["sessionId"] = json!(session_id(&contents));
                 (

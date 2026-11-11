@@ -1,5 +1,8 @@
 {
   "provider": "anthropic",
+  "config": {
+    "apiKey": "fixture-key"
+  },
   "model": "claude-sonnet-4-6",
   "messages": [
     {
@@ -32,5 +35,10 @@
     "toolChoice": "required",
     "fast": false,
     "modelParameters": {}
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
 }

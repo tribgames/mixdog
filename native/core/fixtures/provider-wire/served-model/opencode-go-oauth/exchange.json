@@ -47,7 +47,7 @@
         "authorization": "Bearer <redacted>",
         "user-agent": "mixdog",
         "content-type": "application/json",
-        "x-opencode-session": "c00d63cc-39ae-4c98-9c49-809cb9ddd64e",
+        "x-opencode-session": "fixture-session",
         "accept-language": "*",
         "sec-fetch-mode": "cors",
         "accept-encoding": "gzip, deflate",
@@ -95,15 +95,7 @@
       "algorithm": "mulberry32 bytes",
       "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
       "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
-      "samples": [
-        {
-          "kind": "randomUUID",
-          "bytes": 16,
-          "hex": "c00d63cc39aedc981c49809cb9ddd64e",
-          "site": "src/runtime/agent/orchestrator/providers/opencode-go.mjs#OpenCodeGoOAuthEngine.send",
-          "n": 1
-        }
-      ]
+      "samples": []
     },
     "retrySleeps": [],
     "otherProductTimerSites": [

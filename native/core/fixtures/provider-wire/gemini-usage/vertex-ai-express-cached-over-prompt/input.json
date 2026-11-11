@@ -1,5 +1,9 @@
 {
   "provider": "vertex-ai-express",
+  "config": {
+    "authMode": "api-key",
+    "apiKey": "fixture-key"
+  },
   "model": "gemini-2.5-pro",
   "messages": [
     {
@@ -12,5 +16,14 @@
     }
   ],
   "tools": null,
-  "opts": {}
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

@@ -1,5 +1,16 @@
 {
   "provider": "grok-oauth",
+  "config": {},
+  "credential": {
+    "file": "grok-oauth.json",
+    "document": {
+      "access_token": "fixture-access-token",
+      "refresh_token": "fixture-refresh-token",
+      "expires_at": 4000000000000,
+      "account_id": "acct-fixture",
+      "email": "fixture@example.invalid"
+    }
+  },
   "model": "grok-4",
   "messages": [
     {
@@ -32,5 +43,10 @@
     "toolChoice": "required",
     "fast": false,
     "modelParameters": {}
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
 }

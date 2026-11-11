@@ -311,6 +311,8 @@ impl AnthropicCodec {
         let content_type = if self.flavor == Flavor::OAuth { "Content-Type" } else { "content-type" };
         headers.push((content_type.to_owned(), "application/json".to_owned()));
         if self.flavor == Flavor::ApiKey {
+            // The Anthropic SDK client Node sends this route through asks for JSON (fixtures/provider-wire/hosted-search/anthropic).
+            headers.push(("accept".to_owned(), "application/json".to_owned()));
             layer_extra_headers(&mut headers, &self.config.extra_headers);
         }
         Ok(Plain {
