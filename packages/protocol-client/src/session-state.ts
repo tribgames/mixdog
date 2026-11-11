@@ -264,27 +264,36 @@ export const approvalSurface = surfaceOf;
 export function desktopSessionState(fold: SessionFold, requests: readonly ServerRequest[], hostShellJobs?: Json): DesktopSessionState {
   // The transcript window is the TUI store's (`createInitialSessionState`): the core keeps the whole log (no spill, no paged view, no
   // archive range: decisions.md, the `transcriptArchive` row), so these hold the store's idle values; `lastTurn` is only ever cleared and
-  // `themeEpoch` is the TUI process's theme counter.
+  // `themeEpoch` is the TUI process's theme counter. The store's first draft has no `streamingPartial` (turn-stream.mjs sets it while
+  // a line streams) and no `transcriptSpilled`: transcript-store.mjs publishes it with the first row pushed or swapped in, as the
+  // unspilled `{ epoch: 0, rows: 0 }` here, since the core never spills.
+  // The one-field sections the store always holds, null while unset: `promptRestore` and `agentScope` (initial-state.mjs), `workspace`,
+  // `goal`, `quotaResume` and `todo` (context-state.mjs `baseRouteState`, republished whole by every pass).
   const out: Obj = {
+    promptRestore: null,
+    workspace: null,
+    goal: null,
+    quotaResume: null,
+    todo: null,
+    agentScope: null,
     ...fold.fields,
     sessionId: fold.sessionId,
     items: transcriptOf(fold.items),
     structureRevision: fold.structureRevision,
     streamingTail: null,
-    streamingPartial: null,
     promptHistoryList: [],
     transcriptViewItems: null,
     transcriptViewRevision: 0,
     transcriptHistoryBefore: false,
     transcriptHistoryAfter: false,
     transcriptArchive: null,
-    transcriptSpilled: { epoch: 0, rows: 0 },
     lastTurn: null,
     themeEpoch: 0,
     ...fold.fields,
     toolApproval: null,
     toolApprovalsWaiting: 0,
   };
+  if (fold.items.length) out.transcriptSpilled = { epoch: 0, rows: 0 };
   if (hostShellJobs !== undefined) out.hostShellJobs = hostShellJobs;
   if (fold.live) Object.assign(out, liveFields(fold.live));
   const pending = requests
