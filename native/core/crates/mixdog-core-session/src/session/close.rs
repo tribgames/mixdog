@@ -394,49 +394,34 @@ mod tests {
         value.as_object().cloned().expect("an object")
     }
 
-    const TWIN: &str = include_str!("../../../../fixtures/session-lifecycle/twin.json");
-    const LIFECYCLE_KEYS: [&str; 9] = ["generation", "updatedAt", "detachedReason", "ownerClosedAt", "closed", "closedReason", "status", "cancelStatus", "cancelledAt"];
-
-    /// The clock of recorded call window `step` (0 is the session's creation, step `n` its `n`th barrier).
-    fn clock_of(step: i64) -> i64 {
-        1000 * (step + 1)
-    }
-
-    /// A recorded lifecycle header with its `{ "step": n }` stamps read as the clock of that call.
-    fn resolved(recorded: &Value) -> Map<String, Value> {
-        recorded
-            .as_object()
-            .expect("a lifecycle")
-            .iter()
-            .map(|(key, value)| (key.clone(), value.get("step").and_then(Value::as_i64).map_or_else(|| value.clone(), |step| json!(clock_of(step)))))
-            .collect()
-    }
-
-    fn lifecycle(header: &Map<String, Value>) -> Map<String, Value> {
-        LIFECYCLE_KEYS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect()
+    /// Node's recording of the session store's barriers and save fence, read when the test runs (4.4 MB: every step
+    /// holds the whole stored header, system prompt included).
+    fn twin() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-lifecycle/twin.json");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("twin.json")).expect("twin.json")
     }
 
     /// Node's recorded barriers (`bumpSessionGenerationAttempt`, `markSessionClosedAttempt`) over the real session
-    /// store: each step leaves the lifecycle header the Rust fields make from the same header and clock.
+    /// store: each step leaves the whole stored header the Rust fields make from the same header and clock.
     #[test]
     fn the_barriers_leave_what_node_recorded() {
-        let twin: Value = serde_json::from_str(TWIN).expect("twin.json");
+        let twin = twin();
         let cases = twin["barriers"].as_array().expect("barriers");
         assert_eq!(cases.len(), 7);
         for case in cases {
             let name = case["name"].as_str().expect("name");
             let steps = case["steps"].as_array().expect("steps");
-            let mut header = resolved(&steps[0]["before"]);
+            let mut header = obj(steps[0]["before"].clone());
             for (index, step) in steps.iter().enumerate() {
-                let now = clock_of(index as i64 + 1);
+                let now = step["clock"].as_i64().expect("clock");
                 let (reason, op) = (step["reason"].as_str().expect("reason"), step["op"].as_str().expect("op"));
-                assert_eq!(lifecycle(&header), resolved(&step["before"]), "{name} step {index}: the header the step starts from");
+                assert_eq!(header, obj(step["before"].clone()), "{name} step {index}: the header the step starts from");
                 let fields = match op {
                     "detach" => detach_fields(&header, reason, step["ownerClose"] == json!(true), now),
                     _ => tombstone(&header, reason, now),
                 };
                 header.extend(fields);
-                assert_eq!(lifecycle(&header), resolved(&step["after"]), "{name} step {index} ({op} {reason})");
+                assert_eq!(header, obj(step["after"].clone()), "{name} step {index} ({op} {reason})");
                 assert_eq!(header["generation"], step["generation"], "{name} step {index}: the generation the barrier resolves");
             }
         }
@@ -445,7 +430,7 @@ mod tests {
     /// `_dropsAgainst` over Node's recorded saves: the same record and expected generation drop or land alike.
     #[test]
     fn a_stale_save_is_refused_as_node_refuses_it() {
-        let twin: Value = serde_json::from_str(TWIN).expect("twin.json");
+        let twin = twin();
         let cases = twin["fence"].as_array().expect("fence");
         assert_eq!(cases.len(), 16);
         let mut refused = 0;
