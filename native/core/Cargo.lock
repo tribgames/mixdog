@@ -3881,9 +3881,11 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "bytes",
+ "futures",
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
+ "mixdog-app-server-transport",
  "mixdog-core-api",
  "mixdog-core-base",
  "mixdog-core-config",
@@ -3903,6 +3905,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
 ]
 
