@@ -193,18 +193,39 @@ scan (§3.2) to the end of the file with `expected` = its ordinal.
 
 A write of more than one record frame is a group: a marker frame, then the member frames.
 The marker is a frame by §2 whose ordinal is its first member's and which takes no ordinal
-of its own; its payload is `#group <count> <bytes>` (`count` 8 and `bytes` 16 lowercase hex
-digits): the member frames that follow and the bytes they take. A record payload starts with
-`{`, so no record is a marker. The forward scan, on a committed marker: if fewer than
-`bytes` bytes follow it up to `W`, the tail is torn at the marker (§3.4: the group is dropped
-whole, as a torn frame); otherwise it reads the members, and a torn frame among them is torn
-at the marker too. Members that end elsewhere than at `bytes`, a count that does not match,
-a marker inside a group, or a payload starting `#group ` that is not a marker are
-`framing` damage. A leading `checkpoint` (§6.1) is written before the marker, outside the
-group; a closing `checkpoint` of a write over `DURABILITY_WINDOW_BYTES` is its last member.
-Logs written before groups have no markers: every frame reads as before, so no version
-change is needed for reading them; a reader without this section cannot read a log with
-groups.
+of its own; its payload is `#group <count> <bytes> <sha256>` (8, 16 and 64 lowercase hex
+digits; `count` ≥ 2): how many member frames follow, how many bytes they take, and the
+SHA-256 of exactly those bytes. The digest binds the members to their marker: bytes of any
+other write (stale bytes after a truncation that did not last, another group's frames) cannot
+complete a group. A record payload starts with `{`, so no record is a marker.
+
+The forward scan, on a committed marker, decides the group whole before it returns any
+member:
+- if fewer than `bytes` bytes follow the marker up to `W`, the write was cut: the tail is torn
+  at the marker (§3.4: truncated by the next open-for-append; nothing of the group is kept);
+- otherwise the members must be exactly the bytes the marker names (length and SHA-256), each a
+  whole frame by §3.2 inside them with the next ordinal, none a marker, a `checkpoint` or a
+  `session`, and exactly `count` of them; any failure is corruption at the marker (§3.4: the
+  session opens read-only from there, nothing after it is truncated or returned, the only repair
+  is `session.repair`) — the same policy as a damaged frame, wherever the group is in the log.
+A payload starting `#group ` that is not a marker is `framing` damage.
+
+No anchor is ever inside a group: the writer places the leading `checkpoint` (§6.1) before the
+marker, and writes no checkpoint inside or after a group in the same write. A group larger
+than the window therefore leaves the newest anchor further than `REVERSE_SCAN_MAX` from the end
+until the next write places one (`since_anchor` is past `CHECKPOINT_EVERY`); an open in between
+reads the newest file whole (§6.3), validating every group. The reverse scan (§3.5) passes over a
+candidate anchor that lies inside the extent of a marker line it can see before it (only stale
+bytes put one there) and goes on before that marker.
+
+Logs written before groups have no markers: every frame reads as before, no version change.
+A reader built before this section (o1) reads a log with groups without misreading it: the
+marker is a well-formed frame to it, so it returns the marker as the frame of its ordinal, the
+first member then fails the ordinal check (`ordinal` damage at the member), and the marker's
+payload is no record (§5.1: damage of the record layer at the marker). Such a session opens
+read-only as damaged at its first group after its newest anchor; rows before stay pageable;
+positioned reads of members of groups before the anchor read as before
+(`store_tests::an_old_reader_never_misreads_a_log_with_groups`).
 
 ## 4. Blobs
 

@@ -48,41 +48,67 @@ pub const MAX_FRAME_LEN: usize = MAX_FRAME_PAYLOAD + FRAME_OVERHEAD;
 /// First bytes of a group marker's payload (FORMAT.md §3.6). A write of more than one record frame
 /// is a group: one marker frame, then its member frames. The marker carries the ordinal of its
 /// first member and takes none of its own; its payload, covered by the frame's CRC, is
-/// `#group <count, 8 hex> <bytes, 16 hex>`: how many member frames follow and how many bytes they
-/// take. A reader accepts the members only when all `bytes` are written; otherwise the group is a
-/// torn tail from the marker on. A record payload is a JSON object (`{`), so no record is a
-/// marker, and a log with no markers (every log written before groups) reads as before.
+/// `#group <count, 8 hex> <bytes, 16 hex> <sha256, 64 hex>`: how many member frames follow, how
+/// many bytes they take, and the SHA-256 of exactly those bytes. The digest binds the members to
+/// this marker: bytes of any other write (stale bytes after a truncation, another group's frames)
+/// cannot complete the group. A record payload is a JSON object (`{`), so no record is a marker,
+/// and a log with no markers (every log written before groups) reads as before.
 pub const GROUP_MARKER: &[u8] = b"#group ";
 /// Length of a group marker's payload.
-pub const GROUP_MARKER_LEN: usize = GROUP_MARKER.len() + 8 + 1 + 16;
+pub const GROUP_MARKER_LEN: usize = GROUP_MARKER.len() + 8 + 1 + 16 + 1 + 64;
 
-/// The marker payload of a group of `count` member frames taking `bytes` bytes.
-pub fn group_marker(count: u64, bytes: u64) -> Vec<u8> {
-    format!("#group {count:08x} {bytes:016x}").into_bytes()
+/// A parsed group marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupMarker {
+    pub count: u64,
+    pub bytes: u64,
+    pub sha256: [u8; 32],
 }
 
-/// `(count, bytes)` of a marker payload; `None` for a record payload. `Err` for a payload that
-/// starts as a marker and is not one.
-pub fn parse_group_marker(payload: &[u8]) -> Result<Option<(u64, u64)>, CorruptCause> {
+/// The marker payload of the group whose member frames are `members` (their bytes, in order).
+pub fn group_marker(count: u64, members: &[u8]) -> Vec<u8> {
+    use sha2::Digest;
+    let digest: [u8; 32] = sha2::Sha256::digest(members).into();
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    format!("#group {count:08x} {:016x} {hex}", members.len()).into_bytes()
+}
+
+/// Whether `members` are the bytes `marker` names (length and SHA-256).
+pub fn group_matches(marker: &GroupMarker, members: &[u8]) -> bool {
+    use sha2::Digest;
+    members.len() as u64 == marker.bytes && <[u8; 32]>::from(sha2::Sha256::digest(members)) == marker.sha256
+}
+
+/// The marker a payload is; `None` for a record payload. `Err` for a payload that starts as a
+/// marker and is not one.
+pub fn parse_group_marker(payload: &[u8]) -> Result<Option<GroupMarker>, CorruptCause> {
     if !payload.starts_with(GROUP_MARKER) {
         return Ok(None);
     }
-    let hex = |digits: &[u8]| std::str::from_utf8(digits).ok().and_then(|text| u64::from_str_radix(text, 16).ok());
+    let lower_hex = |digits: &[u8]| digits.iter().all(|&b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    let hex = |digits: &[u8]| if lower_hex(digits) { std::str::from_utf8(digits).ok().and_then(|text| u64::from_str_radix(text, 16).ok()) } else { None };
     let rest = &payload[GROUP_MARKER.len()..];
-    match (payload.len() == GROUP_MARKER_LEN, rest.get(8)) {
-        (true, Some(b' ')) => match (hex(&rest[..8]), hex(&rest[9..])) {
-            (Some(count), Some(bytes)) if count > 0 => Ok(Some((count, bytes))),
-            _ => Err(CorruptCause::Framing),
-        },
-        _ => Err(CorruptCause::Framing),
+    if payload.len() != GROUP_MARKER_LEN || rest[8] != b' ' || rest[25] != b' ' || !lower_hex(&rest[26..]) {
+        return Err(CorruptCause::Framing);
     }
+    let (Some(count), Some(bytes)) = (hex(&rest[..8]), hex(&rest[9..25])) else {
+        return Err(CorruptCause::Framing);
+    };
+    if count < 2 {
+        return Err(CorruptCause::Framing);
+    }
+    let mut sha256 = [0u8; 32];
+    for (i, byte) in sha256.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(std::str::from_utf8(&rest[26 + 2 * i..28 + 2 * i]).expect("hex digits"), 16).expect("hex digits");
+    }
+    Ok(Some(GroupMarker { count, bytes, sha256 }))
 }
 
 /// Bytes of frames after which the writer starts the next batch with a `checkpoint`.
 pub const CHECKPOINT_EVERY: u64 = 1024 * 1024;
-/// Bytes of frames a session may have written but not yet acknowledged (RL §6.2 window);
-/// the most one write batch holds without a closing `checkpoint` (a larger one, one request's
-/// whole unit, ends with one so the reader bound below still holds).
+/// Bytes of frames a session may have written but not yet acknowledged (RL §6.2 window). A
+/// group (one request's whole unit) may be larger; the reader bound below then holds again from
+/// the next write, whose leading `checkpoint` is due (§6.3).
 pub const DURABILITY_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 /// Reader bound (FORMAT.md §6.3): the bytes from the start of the newest committed
 /// `checkpoint` (or `session`) frame of the newest log file to its end are fewer.

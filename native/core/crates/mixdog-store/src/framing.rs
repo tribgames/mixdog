@@ -2,7 +2,7 @@
 //! classification and the §3.5 reverse scan. Pure functions over bytes; the callers do
 //! the I/O.
 
-use crate::crc32c::crc32c;
+pub use crate::crc32c::crc32c;
 use crate::schema::frame::*;
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -126,96 +126,128 @@ pub struct Scan {
     pub end: ScanEnd,
 }
 
-/// Forward scan (FORMAT.md §3.2) of `buf`, which runs to end of file, from frame start
+/// Forward scan (FORMAT.md §3.2, §3.6) of `buf`, which runs to end of file, from frame start
 /// `start` with `expected` the ordinal due there. `base` is the file offset of `buf[0]`
-/// and is added to the offsets in the returned `ScanEnd`.
+/// and is added to the offsets in the returned `ScanEnd`. A group is validated whole (its marker,
+/// its members' bytes against the marker's length and SHA-256, every member frame, their count)
+/// before any member is returned: a group whose bytes run past the written end is a torn tail at
+/// its marker; any other failure is damage at its marker. No member of a group that fails is
+/// returned.
 pub fn scan(buf: &[u8], base: u64, start: usize, expected: u64) -> Scan {
     let written = written_end(buf);
     let mut frames = Vec::new();
     let mut p = start;
     let mut expected = expected;
-    // The group being read: its members end at buffer offset `end`, `due` of them still to come; a torn tail inside it is
-    // torn from its marker (`marker`, file offset), and the members read so far (from `frames[kept..]`) go with it.
-    struct Group {
-        end: usize,
-        due: u64,
-        marker: u64,
-        kept: usize,
-    }
-    let mut group: Option<Group> = None;
     loop {
-        if let Some(g) = &group {
-            if p == g.end && g.due == 0 {
-                group = None;
-            } else if p >= g.end || g.due == 0 {
-                return Scan { frames, end: ScanEnd::Corrupt { offset: base + p as u64, ordinal: expected, cause: CorruptCause::Framing } };
-            }
-        }
         let at = base + p as u64;
         let corrupt = |cause, ordinal| ScanEnd::Corrupt {
             offset: at,
             ordinal,
             cause,
         };
-        let torn = |mut frames: Vec<Committed>, group: &Option<Group>| match group {
-            Some(g) => {
-                frames.truncate(g.kept);
-                Scan { frames, end: ScanEnd::Torn { offset: g.marker } }
-            }
-            None => Scan { frames, end: ScanEnd::Torn { offset: at } },
-        };
         if p == buf.len() {
             return Scan { frames, end: ScanEnd::Clean };
         }
-        if written <= p {
-            return torn(frames, &group);
-        }
-        let h = &buf[p..written.min(p + HEADER_LEN)];
-        let len = match check_header(h, expected) {
-            Err(cause) => return Scan { frames, end: corrupt(cause, expected) },
-            Ok(None) => return torn(frames, &group),
-            Ok(Some(len)) => len,
+        let len = match read_frame(buf, written, p, expected) {
+            Frame::Torn => return Scan { frames, end: ScanEnd::Torn { offset: at } },
+            Frame::Corrupt(cause) => return Scan { frames, end: corrupt(cause, expected) },
+            Frame::Committed(len) => len,
         };
-        let payload_end = p + HEADER_LEN + len;
-        if payload_end > written {
-            return torn(frames, &group);
-        }
-        let crc = hex_value(&h[CRC_AT..CRC_AT + CRC_DIGITS]) as u32;
-        if crc32c(&buf[p + HEADER_LEN..payload_end]) != crc {
-            return Scan { frames, end: corrupt(CorruptCause::Crc, expected) };
-        }
-        if payload_end == written {
-            return torn(frames, &group);
-        }
-        if buf[payload_end] != TERMINATOR {
-            return Scan { frames, end: corrupt(CorruptCause::Framing, expected) };
-        }
-        match parse_group_marker(&buf[p + HEADER_LEN..payload_end]) {
+        let next = p + len + FRAME_OVERHEAD;
+        match parse_group_marker(&buf[p + HEADER_LEN..p + HEADER_LEN + len]) {
             Err(cause) => return Scan { frames, end: corrupt(cause, expected) },
-            // A group marker: its members are accepted only when every byte of them is written; otherwise the group,
-            // marker included, is the torn tail.
-            Ok(Some((count, bytes))) => {
-                if group.is_some() {
-                    return Scan { frames, end: corrupt(CorruptCause::Framing, expected) };
-                }
-                let members = payload_end + 1;
-                let end = members.saturating_add(bytes as usize);
-                if end > written {
-                    return Scan { frames, end: ScanEnd::Torn { offset: at } };
-                }
-                group = Some(Group { end, due: count, marker: at, kept: frames.len() });
-                p = members;
-                continue;
+            Ok(None) => {
+                frames.push(Committed { ordinal: expected, start: p, len });
+                p = next;
+                expected += 1;
             }
-            Ok(None) => {}
+            Ok(Some(marker)) => {
+                let end = match usize::try_from(marker.bytes).ok().and_then(|bytes| next.checked_add(bytes)) {
+                    Some(end) if end <= written => end,
+                    // The group's bytes are not all written: the write was cut, the group is the torn tail.
+                    _ => return Scan { frames, end: ScanEnd::Torn { offset: at } },
+                };
+                match group_members(buf, next, end, &marker, expected) {
+                    Ok(members) => {
+                        expected += members.len() as u64;
+                        frames.extend(members);
+                        p = end;
+                    }
+                    Err(cause) => return Scan { frames, end: corrupt(cause, expected) },
+                }
+            }
         }
-        frames.push(Committed { ordinal: expected, start: p, len });
-        if let Some(g) = group.as_mut() {
-            g.due -= 1;
-        }
-        p = payload_end + 1;
-        expected += 1;
     }
+}
+
+/// How one frame at `p` reads (§3.2 rules over the bytes up to `written`).
+enum Frame {
+    Committed(usize),
+    Torn,
+    Corrupt(CorruptCause),
+}
+
+fn read_frame(buf: &[u8], written: usize, p: usize, expected: u64) -> Frame {
+    if written <= p {
+        return Frame::Torn;
+    }
+    let h = &buf[p..written.min(p + HEADER_LEN)];
+    let len = match check_header(h, expected) {
+        Err(cause) => return Frame::Corrupt(cause),
+        Ok(None) => return Frame::Torn,
+        Ok(Some(len)) => len,
+    };
+    let payload_end = p + HEADER_LEN + len;
+    if payload_end > written {
+        return Frame::Torn;
+    }
+    let crc = hex_value(&h[CRC_AT..CRC_AT + CRC_DIGITS]) as u32;
+    if crc32c(&buf[p + HEADER_LEN..payload_end]) != crc {
+        return Frame::Corrupt(CorruptCause::Crc);
+    }
+    if payload_end == written {
+        return Frame::Torn;
+    }
+    if buf[payload_end] != TERMINATOR {
+        return Frame::Corrupt(CorruptCause::Framing);
+    }
+    Frame::Committed(len)
+}
+
+/// The member frames of the group whose marker is `marker` and whose members are `buf[start..end]`, the first due at
+/// `expected`, all of them or the cause the group fails: bytes other than the marker names, a member that is not a whole
+/// frame inside the group, a member that is itself a marker or an anchor (`checkpoint`/`session`: no anchor is ever
+/// inside a group), or a count other than the marker's.
+fn group_members(buf: &[u8], start: usize, end: usize, marker: &GroupMarker, expected: u64) -> Result<Vec<Committed>, CorruptCause> {
+    if !group_matches(marker, &buf[start..end]) {
+        return Err(CorruptCause::Framing);
+    }
+    let group = &buf[..end];
+    let mut members = Vec::new();
+    let mut q = start;
+    let mut ordinal = expected;
+    while q < end {
+        let len = match read_frame(group, end, q, ordinal) {
+            Frame::Committed(len) => len,
+            Frame::Torn => return Err(CorruptCause::Framing),
+            Frame::Corrupt(cause) => return Err(cause),
+        };
+        let payload = &group[q + HEADER_LEN..q + HEADER_LEN + len];
+        if !matches!(parse_group_marker(payload), Ok(None)) || is_anchor(payload) {
+            return Err(CorruptCause::Framing);
+        }
+        members.push(Committed { ordinal, start: q, len });
+        q += len + FRAME_OVERHEAD;
+        ordinal += 1;
+    }
+    if members.len() as u64 != marker.count {
+        return Err(CorruptCause::Framing);
+    }
+    Ok(members)
+}
+
+fn is_anchor(payload: &[u8]) -> bool {
+    payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#)
 }
 
 /// Checks one complete frame read by position (`buf` = exactly the frame) and returns its
@@ -260,18 +292,46 @@ pub fn reverse_scan(buf: &[u8], buf_is_file_start: bool) -> Option<Anchor> {
         end = buf[..end].iter().rposition(|&b| b == TERMINATOR).map_or(0, |i| i + 1);
     }
     while end > 0 {
-        let line_end = end; // one past the LF
-        let start = buf[..line_end - 1]
-            .iter()
-            .rposition(|&b| b == TERMINATOR)
-            .map(|i| i + 1);
-        let start = match start {
-            Some(s) => s,
-            None if buf_is_file_start => 0,
-            None => return None,
-        };
-        if let Some(anchor) = anchor_at(&buf[start..line_end], start) {
-            return Some(anchor);
+        let start = line_start(buf, end, buf_is_file_start)?;
+        if let Some(anchor) = anchor_at(&buf[start..end], start) {
+            // An anchor inside the extent of a group marker before it is never the writer's (§3.6): the search goes on
+            // before that marker, whose group the forward scan then validates.
+            match covering_marker(buf, start, buf_is_file_start) {
+                Some(marker) => {
+                    end = marker;
+                    continue;
+                }
+                None => return Some(anchor),
+            }
+        }
+        end = start;
+    }
+    None
+}
+
+/// Start of the line that ends (LF included) at `end`; `None` when it may be cut by the window.
+fn line_start(buf: &[u8], end: usize, buf_is_file_start: bool) -> Option<usize> {
+    match buf[..end - 1].iter().rposition(|&b| b == TERMINATOR) {
+        Some(i) => Some(i + 1),
+        None if buf_is_file_start => Some(0),
+        None => None,
+    }
+}
+
+/// The start of a group marker line before `at` within `buf` whose members' extent holds `at`.
+fn covering_marker(buf: &[u8], at: usize, buf_is_file_start: bool) -> Option<usize> {
+    let mut end = at;
+    while end > 0 {
+        let start = line_start(buf, end, buf_is_file_start)?;
+        let line = &buf[start..end];
+        if line.len() >= FRAME_OVERHEAD && line[ORDINAL_AT..ORDINAL_AT + ORDINAL_DIGITS].iter().all(|&b| is_hex(b)) {
+            let ordinal = hex_value(&line[ORDINAL_AT..ORDINAL_AT + ORDINAL_DIGITS]);
+            if let Ok(payload) = check_frame(line, ordinal)
+                && let Ok(Some(marker)) = parse_group_marker(payload)
+                && (at as u64) < end as u64 + marker.bytes
+            {
+                return Some(start);
+            }
         }
         end = start;
     }
@@ -288,8 +348,7 @@ fn anchor_at(line: &[u8], start: usize) -> Option<Anchor> {
     }
     let ordinal = hex_value(ordinal_digits);
     let payload = check_frame(line, ordinal).ok()?;
-    (payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#))
-        .then_some(Anchor { start, ordinal })
+    is_anchor(payload).then_some(Anchor { start, ordinal })
 }
 
 #[cfg(test)]
