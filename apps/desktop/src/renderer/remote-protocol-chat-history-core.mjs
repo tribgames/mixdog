@@ -156,7 +156,8 @@ export function alignHistory(node, core) {
 }
 
 /** Runs one case against the core binary `bin`; returns `{ name, pass, failure?, core: log }`. */
-export async function replayCase(name, { bin, harness, deadlineMs = 120_000, seeded = async () => undefined }) {
+export async function replayCase(name, { bin, harness, deadlineMs = 120_000, seeded = async () => undefined, booting = async () => () => undefined }) {
+  let endBoot = () => undefined;
   const c = ABORT_CASES.find((x) => x.name === name);
   if (!c) throw new Error(`no case ${JSON.stringify(name)}`);
   const recording = nodeHistory(name);
@@ -229,7 +230,9 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     writeFileSync(join(project, PROJECT_FILE.name), PROJECT_FILE.text);
     writeFileSync(join(project, ASKED_PROJECT_FILE.name), ASKED_PROJECT_FILE.text);
     writeFileSync(join(paths.dataDir, 'hooks.json'), JSON.stringify(HOOK_RULES));
-    provider = await deadline.race(startAbortProvider({ gated: true }), 'the model endpoint to listen');
+    // A model listing is answered when asked: it reaches the model catalog (its fields are hw-phone-worktree-args's), not the turn, and
+    // the core lists on its own cadence (Node listed again after deleteSession, at 10 s of running-runtime-turn; the core does not).
+    provider = await deadline.race(startAbortProvider({ gated: true, answered: (key) => key.startsWith('GET /v1/models') }), 'the model endpoint to listen');
     writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
     seedPgRuntime(paths.dataDir);
     hasSeeded = true;
@@ -269,6 +272,13 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       clockSocket.write(`${command}\n`);
       return deadline.race(reply.promise, `the core's clock to answer ${command}`).then((line) => Number(/^now (\d+)$/.exec(line)?.[1]));
     };
+    // One core boots at a time, up to its PostgreSQL listening: side-by-side cores scanning the same ports (cluster.rs DEFAULT_PORT,
+    // PORT_SPAN) took one port twice, and the loser's cluster was started again when a turn needed it, its readiness polls then waiting
+    // on a clock that moves only with Node's inputs (a hang no user meets: theirs runs).
+    // Each earlier case ends its turn by its own deadline; this case's deadline starts once its turn has come.
+    endBoot = await booting();
+    deadline.clear();
+    deadline = createDeadline(deadlineMs, message);
     core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}` }), cwd: paths.envRoot });
     await deadline.race(clockLine.promise, 'the core to connect to the replay clock (a mixdogd built with --features virtual-clock)');
     const daemonDoc = () => {
@@ -282,11 +292,22 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     const served = latch();
     // daemon.json is read on its folder's events and on the data folder's (daemon.log's ready line is written after daemon.json): an event
     // whose read met the file mid-write, or one the OS dropped under many side-by-side cases, is followed by another.
-    const check = () => { const d = daemonDoc(); if (d) served.resolve(d); };
+    // pg.log's last start: ready, or failed (the case fails with it rather than wait on the turn that would start it again).
+    const pgListening = latch();
+    const pgStart = () => {
+      const file = join(paths.dataDir, 'pg.log');
+      const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      const last = text.slice(text.lastIndexOf('starting PostgreSQL'));
+      if (/database system is ready to accept connections/.test(last)) pgListening.resolve();
+      else if (/FATAL: {2}could not create any TCP\/IP sockets/.test(last)) pgListening.reject(new Error(`${name}: the core's PostgreSQL could not listen:\n${last}`));
+    };
+    const check = () => { const d = daemonDoc(); if (d) served.resolve(d); pgStart(); };
     const watchers = [watch(paths.runtimeRoot, check), watch(paths.dataDir, check)];
     watcher = { close: () => { for (const w of watchers) w.close(); } };
     check();
     const doc = await deadline.race(served.promise, 'the core to serve');
+    await deadline.race(pgListening.promise, "the core's PostgreSQL to listen");
+    endBoot();
     const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
     // Frozen once the core serves, as Node's clocks froze once its host was attached; from here it moves with Node's recorded moves.
     const frozenAt = await clock('freeze');
@@ -404,7 +425,7 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       if (!isPhone(input)) {
         // Node's connection warm-up (http-agent.mjs:504-539 `preconnect`): a HEAD whose answer is dumped and whose failure is ignored, so
         // nothing of it reaches the state; the core keeps no such warm-up and has no request to release.
-        if (kindOf(input.key).startsWith('HEAD / ')) continue;
+        if (kindOf(input.key).startsWith('HEAD / ') || kindOf(input.key).startsWith('GET /v1/models')) continue;
         await until(() => provider.release(kindOf(input.key)), `the core to ask the model endpoint for ${kindOf(input.key)} (Node's write ${input.step})`);
         continue;
       }
@@ -432,7 +453,9 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     }
     await owe(compared, `the core to publish as many entries as Node's ${compared.length}`);
     // The core's state behind one more round trip is still Node's last.
-    await deadline.race(submitter.client.call('thread/read', { threadId, window: { lastItems: 1 } }), 'the round trip after the case');
+    // (A deleted thread has nothing to read: the round trip is a listing then.)
+    const deleted = node.inputs.some((i) => i.input === 'host.deleteSession');
+    await deadline.race(deleted ? submitter.client.call('thread/list', { limit: 1 }) : submitter.client.call('thread/read', { threadId, window: { lastItems: 1 } }), 'the round trip after the case');
     const lastNode = compared.findLast((h) => h.kind === 'state');
     const lastCore = log.findLast((e) => e.kind === 'state');
     const after = allDifferences(lastNode.value, lastCore.value).map((d) => ({ entry: 'after the last input', kind: 'state', ...d }));
@@ -447,6 +470,8 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   } finally {
     // A case that failed before seeding still lets the others past the barrier.
     if (!hasSeeded) void seeded();
+    // A case that failed while booting lets the next core boot.
+    endBoot();
     deadline.clear();
     const ending = createDeadline(60_000, () => `ending the world of ${name}; core pid ${core?.pid}`);
     try {
@@ -487,7 +512,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   let left = names.length;
   const all = Promise.withResolvers();
   const seeded = () => { left -= 1; if (left === 0) all.resolve(); return all.promise; };
-  const results = await Promise.all(names.map((name) => replayCase(name, { bin, harness, seeded })));
+  // The boot turn: resolves with the function that ends it once every earlier case's has ended.
+  let booted = Promise.resolve();
+  const booting = () => {
+    const turn = Promise.withResolvers();
+    const before = booted;
+    booted = turn.promise;
+    return before.then(() => () => turn.resolve());
+  };
+  const results = await Promise.all(names.map((name) => replayCase(name, { bin, harness, seeded, booting })));
   const out = process.env.HISTORY_CORE_OUT;
   if (out) writeFileSync(out, `${JSON.stringify({ binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), builtFrom: built, results }, null, 1)}\n`);
   const brief = (v) => (JSON.stringify(v) ?? 'absent').slice(0, 300);

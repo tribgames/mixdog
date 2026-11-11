@@ -19,8 +19,8 @@ export const kindOf = (key) => key.replace(/ \d+ [0-9a-f]{64}$/, '');
 const textOf = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => p?.text ?? '').join('\n') : '');
 
 /** `gated`: nothing is written until the caller releases it (`releaseNext`, one write at a time, the history recorder's barrier between
- *  inputs); otherwise every write goes out as soon as the request is read. */
-export async function startAbortProvider({ gated = false } = {}) {
+ *  inputs); otherwise every write goes out as soon as the request is read. `answered`: of a gated endpoint, the keys written at once. */
+export async function startAbortProvider({ gated = false, answered = () => false } = {}) {
   const requests = [];
   const listeners = new Set();
   // The writes not yet released, per request (gated only), and the requests by their key in arrival order of the key.
@@ -28,7 +28,7 @@ export async function startAbortProvider({ gated = false } = {}) {
   // Told (after the handler has queued its writes) that a request is waiting.
   const waiters = new Set();
   const gate = (entry, res) => {
-    if (!gated) return res;
+    if (!gated || answered(entry.key)) return res;
     const steps = [];
     entry.steps = steps;
     queued.push(entry);
