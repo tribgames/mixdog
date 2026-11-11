@@ -154,7 +154,7 @@
               "text": "abc"
             },
             "after": {
-              "undefined": true
+              "$exact": "undefined"
             },
             "desktop": null,
             "daemon": null
@@ -1316,13 +1316,44 @@
             }
           }
         ],
-        "tailText": "one\n",
-        "streamingPartial": {
-          "id": "tail",
-          "from": 4,
-          "text": "tw"
+        "received": {
+          "busy": true,
+          "streamingPartial": {
+            "id": "tail",
+            "from": 4,
+            "text": "tw"
+          },
+          "items": [
+            {
+              "id": "user",
+              "kind": "user",
+              "text": "input"
+            }
+          ],
+          "streamingTail": {
+            "id": "tail",
+            "kind": "assistant",
+            "streaming": true,
+            "text": "one\n"
+          }
         },
-        "settledHasStreamingPartial": false
+        "settled": {
+          "busy": false,
+          "items": [
+            {
+              "id": "user",
+              "kind": "user",
+              "text": "input"
+            },
+            {
+              "id": "tail",
+              "kind": "assistant",
+              "text": "one\ntwo",
+              "streaming": false
+            }
+          ],
+          "streamingTail": null
+        }
       }
     },
     {
@@ -1333,8 +1364,22 @@
         "publishes": 100,
         "packets": 7,
         "bytes": 1440,
-        "receivedTailEqualsLastText": true,
-        "finalTail": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
+        "received": {
+          "busy": true,
+          "items": [
+            {
+              "id": "user",
+              "kind": "user",
+              "text": "input"
+            }
+          ],
+          "streamingTail": {
+            "id": "tail",
+            "kind": "assistant",
+            "text": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 "
+          }
+        },
+        "text": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
         "sent": [
           {
             "atMs": 0,
