@@ -1,0 +1,59 @@
+{
+  "cases": 1,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-mcp-oauth-control-session-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no network, no real MCP server or browser",
+    "runs": "desktop SessionHostTransport.invokeControlResult -> standalone session-service.mjs createSessionService -> session-runtime/resource-api.mjs createResourceApi (the sign-in registry is real); the MCP client is fake"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1815,
+      "path": "golden.json",
+      "sha256": "240d0c3b40750ece4b0b4887bbf736e4d979735c7185bcdb6223d5df16d5c798"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "db4c434c9e5db314d766b0efecf3bc81d4a267abdb4eaf23e524bfa5b829a0d2"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mcp-oauth-control-session-cases.mjs",
+  "recorderSha256": "b43c06151740b944e99631828214e4b79f92b8b9f4954edb0c675832a57b11b0",
+  "replay": {
+    "entry": "mixdog-app-server / mixdog-mcp: the sign-in flow keeps its pending/complete state across control-session replacement; compare each result with the flow id and session ids abstracted",
+    "normalised": {
+      "flowId": "generated; named <flow>"
+    }
+  },
+  "set": "mcp-oauth-control-session-cases",
+  "totalBytes": 1815
+}

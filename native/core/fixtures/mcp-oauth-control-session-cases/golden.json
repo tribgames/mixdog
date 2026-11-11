@@ -1,0 +1,63 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a remote sign-in survives the control session being replaced between begin, status polls and the paste",
+      "observed": {
+        "authUrl": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256",
+        "callback": "http://127.0.0.1:9/oauth/callback?code=c&state=s",
+        "signOut": {
+          "servers": [
+            {
+              "connected": false,
+              "error": null
+            }
+          ],
+          "revoked": false
+        },
+        "begun": {
+          "state": "pending",
+          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256",
+          "flowId": "<flow>"
+        },
+        "statusRead": {
+          "value": {
+            "servers": []
+          }
+        },
+        "controlSessionReplaced": true,
+        "runtimesAfterFailedRead": 2,
+        "statusAfterReplace": {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "browser",
+          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+        },
+        "invalidPaste": {
+          "threw": {
+            "name": "Error",
+            "message": "The pasted sign-in URL is invalid."
+          }
+        },
+        "statusAfterInvalidPaste": {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "browser",
+          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+        },
+        "runtimesAfterInvalidPaste": 3,
+        "correctedPaste": {
+          "flowId": "<flow>",
+          "state": "complete"
+        },
+        "finalStatus": {
+          "flowId": "<flow>",
+          "state": "complete"
+        }
+      }
+    }
+  ]
+}
