@@ -1173,7 +1173,7 @@
     },
     {
       "id": "reconnect-stage-names-failure-and-counts-down-advised-wait",
-      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:180",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:181",
       "input": {
         "create": {
           "auth": {
@@ -1499,7 +1499,7 @@
     },
     {
       "id": "safe-retry-error-code-keeps-only-known-codes",
-      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:284",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:272",
       "input": {
         "known": [
           "rate_limit_exceeded",
@@ -1896,7 +1896,7 @@
     },
     {
       "id": "token-refresh-timeout-classifies-as-auth",
-      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:354",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:345",
       "input": {},
       "result": {
         "reasonClass": "auth",
