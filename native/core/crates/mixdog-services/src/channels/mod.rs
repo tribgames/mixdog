@@ -5,6 +5,7 @@
 pub mod admin;
 pub mod bridge;
 pub mod call;
+pub mod config_watch;
 pub mod intent;
 pub mod ports;
 pub mod routines_db;

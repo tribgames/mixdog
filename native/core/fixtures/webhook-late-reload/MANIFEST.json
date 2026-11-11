@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4607,
+      "bytes": 6156,
       "path": "golden.json",
-      "sha256": "8f56b0196f4884e2b297bf70414625ee6f81a13bec5210f77c5739b832de29ae"
+      "sha256": "bc09d2707144a61e54d0d6d2a9e385d436b42ef69f68ef3cace657a467364f81"
     }
   ],
   "inputs": [
@@ -45,7 +45,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-webhook-late-reload.mjs",
-  "recorderSha256": "60ebb6f3b86150ce74ed6fbcd116f07db97241cde7e8292007679d5603d57882",
+  "recorderSha256": "0ae6022502b2e33d4e26c93fea2f8fc498bb99f11a5b2688cddf18e2969e8cff",
   "set": "webhook-late-reload",
-  "totalBytes": 4607
+  "totalBytes": 6156
 }

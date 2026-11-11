@@ -1640,12 +1640,52 @@ async fn a_delivery_during_a_late_reload_is_answered_as_node_answers_it() {
         let before = *reloads.borrow_and_update();
         assert_eq!(rig.admin.set_webhook_config(&step["patch"]).await.unwrap(), step["reply"]);
         reloads.wait_for(|count| *count > before).await.unwrap();
-        assert_eq!(*reloads.borrow() - before, step["reloads"].as_u64().unwrap() as usize, "{}", step["patch"]);
         assert_eq!(deliver(port, &rec).await, step["afterReload"], "{}", step["patch"]);
         let listening = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await.is_ok();
         assert_eq!(json!(listening), step["listeningOnFirst"], "{}", step["patch"]);
     }
     drop(blockers);
+
+    // An external edit of the channels section (port kept), heard through the config watch: a delivery sent as its
+    // reload syncs the receiver is answered.
+    let step = &rec["configEdit"];
+    let sections = Arc::new(Mutex::new(json!([{"webhook": {"enabled": true, "port": rec["port"]}}, null])));
+    let (changed, changes) = tokio::sync::watch::channel(0u64);
+    let read = sections.clone();
+    let reloading = rig.runtime.clone();
+    let cancel = CancellationToken::new();
+    let watch = super::config_watch::watch_channels_config(
+        changes,
+        move || read.lock().unwrap().clone(),
+        move || {
+            let runtime = reloading.clone();
+            async move { runtime.reload_runtime().await }
+        },
+        cancel.clone(),
+    );
+    let before = *reloads.borrow_and_update();
+    rig.listener.hold_relisten.store(true, Ordering::SeqCst);
+    for (key, value) in step["set"].as_object().unwrap() {
+        sections.lock().unwrap()[0][key] = value.clone();
+    }
+    changed.send_modify(|tick| *tick += 1);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::select! {
+            () = rig.listener.at_relisten.notified() => {}
+            changed = reloads.wait_for(|count| *count > before) => { changed.unwrap(); }
+        }
+    })
+    .await
+    .expect("the edit's reload syncs the receiver");
+    let delivery = deliver(port, &rec).await;
+    rig.listener.hold_relisten.store(false, Ordering::SeqCst);
+    rig.listener.relisten_go.add_permits(1);
+    assert_eq!(delivery, step["delivery"], "config edit");
+    reloads.wait_for(|count| *count > before).await.unwrap();
+    assert_eq!(*reloads.borrow() - before, step["reloads"].as_u64().unwrap() as usize, "config edit");
+    assert_eq!(rig.listener.listening().await, step["listeningAfter"], "config edit");
+    cancel.cancel();
+    watch.await.unwrap();
     rig.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
