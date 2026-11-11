@@ -3,7 +3,7 @@
   "entry": "Ran the real session store (store.mjs loadSession, saveSessionAsync, drainSessionStore; store/lifecycle-barriers.mjs bumpSessionGenerationAttempt and markSessionClosedAttempt) and manager/session-lifecycle.mjs createSession on a temp MIXDOG_DATA_DIR. The fence barriers run in a second Node process (this recorder with --child, node --import lib/determinism-preload-other-process.mjs, 120 s deadline). Did not run a turn (the provider throws if asked).",
   "exclusions": [
     "no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process",
-    "the stored sessions hold the system prompt, which names this machine's scratch path under the fixed temp dir rec-session-lifecycle and its environment facts: recorded as written, the recording machine's",
+    "the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext only (the stored system prompt). The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine's and stays as written",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0)",
@@ -12,9 +12,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4479178,
+      "bytes": 4471698,
       "path": "twin.json",
-      "sha256": "ccb993b890054cdf01493f408df8b0033a5bb248e621cc7dd6e00658a54a84d3"
+      "sha256": "200fdb0504545d12af1fa4e47a476f4f47d646d32c32582267281a48c614e4aa"
     }
   ],
   "inputs": [
@@ -41,6 +41,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
       "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "8334dff58ba82de81a53d40dec6d01e375f3733904968c148d8c47579645b4ba"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -61,10 +65,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-lifecycle.mjs",
-  "recorderSha256": "9b87d539a6b8fb319db6f64312dae0b6c6e9942f5637a2772026a66284053f51",
+  "recorderSha256": "6770b81b6ec8947b41330b6949474d27ba57165357450fa93346d21e1d63d441",
   "replay": "mixdog-core-session close.rs `the_barriers_leave_what_node_recorded` and `a_stale_save_is_refused_as_node_refuses_it` (tests in native/core/crates/mixdog-core-session/src/session/close.rs, which include this twin.json): detach_fields / tombstone / drops_against over the recorded steps. barriers[].steps[].before/after and fence[].recorded are the nine lifecycle keys those tests read; beforeFull/afterFull, late, recordedFull and storedAfter are the whole stored sessions for a replay that drives the store (thread/delete and the close barriers of the Rust SessionDirectory) and compares whole records.",
   "set": "session-lifecycle",
   "testFile": "src/runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs (no test file: a golden twin of the barriers)",
-  "totalBytes": 4479178,
+  "totalBytes": 4471698,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

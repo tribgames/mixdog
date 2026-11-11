@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { exact } from './lib/exact.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
+import { markTmp } from './lib/tmp-mark.mjs';
 import { DETERMINISM, clock, installDeterminism } from './lib/session-wire-harness.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -153,7 +154,9 @@ await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
 });
 
 const PRELOADS = ['benchmarks/rust-core/recorders/lib/determinism-preload.mjs', 'benchmarks/rust-core/recorders/lib/determinism-preload-other-process.mjs'];
-writeJson(join(stage, 'twin.json'), { clock: { rule: 'Date.now() = 1000 * (step + 1): the session\'s creation is step 0, its nth barrier step n', fenceChildren: 1_700_000_000_000 }, barriers, fence });
+// Declared: the temp root in the stored system prompt (a message's content, bpNEnvironmentContext) -> <TMP>.
+const tmpPath = (path) => path.at(-1) === 'content' && path.at(-3) === 'messages' || /^bp\d+EnvironmentContext$/.test(path.at(-1));
+writeJson(join(stage, 'twin.json'), markTmp({ clock: { rule: 'Date.now() = 1000 * (step + 1): the session\'s creation is step 0, its nth barrier step n', fenceChildren: 1_700_000_000_000 }, barriers, fence }, tmpPath));
 writeSetManifest(stage, {
   set: 'session-lifecycle',
   recorder: 'benchmarks/rust-core/recorders/record-session-lifecycle.mjs',
@@ -167,7 +170,7 @@ writeSetManifest(stage, {
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
       'no value is normalised; timestamps are the virtual clock (see twin.json clock) in the parent and 1700000000000 in the child process',
-      'the stored sessions hold the system prompt, which names this machine\'s scratch path under the fixed temp dir rec-session-lifecycle and its environment facts: recorded as written, the recording machine\'s',
+      'the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values at barriers/fence ... messages[*].content and bpNEnvironmentContext only (the stored system prompt). The rest of the prompt (scratch dir name under rec-session-lifecycle, environment facts) is the recording machine\'s and stays as written',
       ...DETERMINISM,
     ],
   },
