@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12056,
+      "bytes": 12915,
       "path": "golden.json",
-      "sha256": "a37eed0032b6af736cb2afc288dbb256e4125a8055671142dcf1b7e78d59112e"
+      "sha256": "af8d08f5b1f899417a60747e006dbf5296754f2577e47aad2c0a556ed17bed52"
     }
   ],
   "inputs": [
@@ -45,12 +45,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs",
-  "recorderSha256": "b76e3978616422c4e9b88edc3cc88ebe0c8e973b0b5ca1f6d55fb0d730c93af8",
+  "recorderSha256": "d05153704b0542e1ebd9f345c7b9f7f9670486893a9c48dd40586191ed04e3d4",
   "set": "mcp-cwd-scope",
   "syntheticInputs": [
     "the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`",
     "the scopes: `saveConfig({ extensionScopes })` into the sandbox profile",
     "the session: a plain object as createSession leaves it, its surface built by `applyDeferredToolSurface(session, \"lead\", [], { provider })`; its cwd is moved in place between steps"
   ],
-  "totalBytes": 12056
+  "totalBytes": 12915
 }

@@ -856,7 +856,7 @@ fn fold_golden() -> Value {
 }
 
 /// A recorded session as a thread's header: its leading system messages are the header's prompt blocks.
-fn header_of(session: &Value) -> Header {
+pub(crate) fn header_of(session: &Value) -> Header {
     let mut header = session.as_object().expect("session").clone();
     let messages = header.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
     header.insert("bp3EnvSplit".into(), Value::Bool(true));
@@ -1515,71 +1515,33 @@ async fn a_headless_exec_session_offers_and_refuses_what_node_did_in_each_mode()
     }
 }
 
-/// The connected servers of `fixtures/mcp-cwd-scope`, each kept for a folder as the registry keeps it
-/// (`McpHub::tools_for_cwd`): the server's own scope intersected with its owning plugin's.
-struct ScopedRegistry {
-    scopes: mixdog_mcp::scopes::ExtensionScopes,
-    servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)>,
-}
-impl SessionMcp for ScopedRegistry {
-    fn tools(&self, _: Option<&str>, cwd: &Path) -> Vec<Arc<dyn Tool>> {
-        self.servers
-            .iter()
-            .filter(|(server, plugin, _)| self.scopes.mcp_server_allowed_for_cwd(server, plugin.as_deref(), cwd))
-            .flat_map(|(_, _, tools)| tools.iter().cloned())
-            .collect()
-    }
-}
-
-/// Node's tool call once the session's cwd has moved out of a plugin's project scope and back
-/// (`fixtures/mcp-cwd-scope`): the refresh every call starts with takes the MCP snapshot for the cwd as it is
-/// now, and a connector tool outside it is refused before the server is called, on a native session as on a
-/// bridge one; a session with no deferred provider mode keeps no snapshot, so its calls run. Both call routes
-/// (a direct call and `call_tool`'s nested one) refresh and then ask `deferred_call_refusal`.
-#[tokio::test]
-async fn an_mcp_call_after_the_cwd_left_its_plugins_scope_follows_node() {
-    let g = golden();
-    let root = std::env::temp_dir().join("mcp-cwd-scope");
-    let escaped = serde_json::to_string(&root.to_string_lossy()).expect("path");
-    let text = include_str!("../../../../../fixtures/mcp-cwd-scope/golden.json").replace("<SANDBOX>", &escaped[1..escaped.len() - 1]);
-    let rec = mixdog_js::fixture_tools::parse_golden(&text).expect("mcp cwd scope golden");
-    let scopes = mixdog_mcp::scopes::ExtensionScopes::from_config(&rec["extensionScopes"]);
-    let servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)> = rec["registry"]
-        .as_array()
-        .expect("registry")
-        .iter()
-        .map(|entry| {
-            let server = entry["server"].as_str().expect("server").to_owned();
-            let tools = entry["tools"]
-                .as_array()
-                .expect("tools")
-                .iter()
-                .map(|doc| {
-                    let mut doc = doc.clone();
-                    doc["name"] = json!(format!("mcp__{server}__{}", doc["name"].as_str().expect("name")));
-                    stub(&doc)
-                })
-                .collect();
-            (server, entry["pluginId"].as_str().map(str::to_owned), tools)
-        })
-        .collect();
-    let registry: Arc<dyn SessionMcp> = Arc::new(ScopedRegistry { scopes, servers });
-    let thread = ThreadId::from("t1");
-    let mut steps = 0;
-    for case in rec["cases"].as_array().expect("cases") {
-        let label = case["name"].as_str().expect("name");
-        let rig = rig(&g, Setup { header: header_of(&case["before"]), session_mcp: Some(registry.clone()), ..setup("full") });
-        for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
-            rig.threads.header.lock().unwrap().insert("cwd".into(), step["cwd"].clone());
-            rig.host.refresh_mcp(&thread).await.expect("refresh");
-            let header = rig.threads.header.lock().unwrap().clone();
-            assert_eq!(header.get("deferredMcpToolNames").unwrap_or(&Value::Null), &step["mcpNames"], "{label} step {n}: the MCP snapshot");
-            let name = step["call"].as_str().expect("call");
-            let refusal = SessionSurface::from_header(&header, Vec::new()).deferred_call_refusal(name, &ToolAnnotations::default());
-            let node = step["ran"].as_array().expect("ran").is_empty().then(|| step["result"].as_str().expect("result").to_owned());
-            assert_eq!(refusal, node, "{label} step {n}: the call to {name}");
-            steps += 1;
-        }
-    }
-    assert_eq!(steps, 12);
+/// A Lead surface host over a real thread store, for a turn test that runs the host's turn settings (the MCP fold and
+/// the refresh every call starts with) against live threads: the golden pool, no gates, no skills, a fixed clock.
+pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn ThreadMessages>, mcp: Arc<dyn SessionMcp>) -> LeadSurfaceHost {
+    let pool = pool_of(&golden());
+    let standalone = internal_tools(&pool).iter().map(tool_doc).collect();
+    LeadSurfaceHost::new(SurfaceSources {
+        mode: "full".into(),
+        tool_host: Arc::new(Bridge(node_bridge())),
+        pool,
+        agent_tools: HashSet::from(["agent"]),
+        mcp,
+        scopes: Arc::new(Scopes::default()),
+        cwd: "/work".into(),
+        routes: Arc::new(Routes(json!({ "provider": "anthropic", "model": "claude-opus-4-6" }).as_object().expect("route").clone())),
+        feature_denied: Arc::new(Gates(Vec::new())),
+        orchestration_mode: Arc::new(|| "balanced".to_owned()),
+        skills: Arc::new(NoSkills),
+        connectors: Arc::new(Connectors(Mutex::default())),
+        hidden_agent: Arc::new(|_| false),
+        prompt: Arc::new(FakePrompt(Mutex::default())),
+        clock: Arc::new(Fixed),
+        threads,
+        messages,
+        live: Arc::new(Live(false)),
+        workflow: Arc::new(Workflow { denied: Vec::new(), standalone, summary: json!({ "id": "default" }), orchestration: "balanced".into() }),
+        config_revision: Arc::new(|| 0),
+        surface_generation: SurfaceGeneration::default(),
+    })
+    .expect("a pool whose git and task have their agent definitions")
 }

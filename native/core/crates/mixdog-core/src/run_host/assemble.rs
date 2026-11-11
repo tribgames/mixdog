@@ -269,6 +269,16 @@ fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
     Ok(Path::new(cwd).to_path_buf())
 }
 
+/// The registry's connected-server tools (`isMcpTool`, `mcp__…`), which a non-bridge session's call reaches
+/// by name though its request did not carry them; a built-in it did not offer stays unknown.
+struct McpOnly(Arc<dyn ToolResolver>);
+
+impl ToolResolver for McpOnly {
+    fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
+        if name.starts_with("mcp__") { self.0.resolve(scope, name) } else { None }
+    }
+}
+
 /// What a request of a thread is made of, the same for the turn that sends it and for the rebuild a
 /// side question forks: the route's provider, the surface's tools, the merged settings and the request
 /// options the header gives.
@@ -295,14 +305,17 @@ struct RequestSource<'a> {
 }
 
 impl HostRunParts {
-    /// The tools a run calls: the surface's own and, on a bridge session, the registry behind them. A
-    /// deferred tool is not in the request, but a call to it (through `call_tool`, or by its name) runs it,
-    /// as Node's executor dispatches by registry (`tool-exec/dispatch.mjs`).
+    /// The tools a run calls: the surface's own and the registry behind them, the whole registry on a bridge
+    /// session and its connected servers' tools on any other. A deferred tool is not in the request, but a call
+    /// to it (through `call_tool`, or by its name) runs it, as Node's executor dispatches by registry
+    /// (`tool-exec/dispatch.mjs`); `dispatchMcp` runs a tool a connected server of the session's scope holds
+    /// whatever the session's exposure (`isRegisteredMcpTool`).
     fn surface_tools(&self, set: ToolSet, header: &Header, surface: &mixdog_tools::policy::SessionSurface) -> ToolSet {
-        if !surface.bridge {
-            return set;
+        let scope = super::session_tools::header_scope(header).map(str::to_owned);
+        if surface.bridge {
+            return set.with_registry(self.services.resolver.clone(), scope);
         }
-        set.with_registry(self.services.resolver.clone(), super::session_tools::header_scope(header).map(str::to_owned))
+        set.with_registry(Arc::new(McpOnly(self.services.resolver.clone())), scope)
     }
 
     async fn request_parts(&self, source: RequestSource<'_>) -> Result<RequestParts, TurnError> {

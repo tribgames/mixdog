@@ -2312,6 +2312,14 @@ mod tests {
     }
 
     async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
+        turn_world_with(provider, Arc::new(NoMcp), Vec::new(), false).await
+    }
+
+    /// [`turn_world`] whose sessions take their MCP tools from `mcp`, and whose registry resolves `connected` by name
+    /// whatever the folder, as `McpAwareResolver` resolves a ready server's tool (`McpHub::tool_in`); `lead`: the turn
+    /// settings are a Lead surface host's (`LeadSurfaceHost`, the MCP fold and the refresh every call starts with) over the world's threads.
+    async fn turn_world_with(provider: Arc<dyn ProviderAdapter>, mcp: Arc<dyn super::super::session_tools::SessionMcp>, connected: Vec<Arc<dyn Tool>>, lead: bool) -> World {
+        let provider_name = provider.id().as_str().to_owned();
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
@@ -2339,6 +2347,8 @@ mod tests {
         let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
         let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
         let asked = Arc::new(AskedFor::default());
+        let exclusions: Arc<mixdog_core_session::session::SessionToolExclusions> = Arc::default();
+        let surfaces_from = exclusions.clone();
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
             clock: clock.clone(),
@@ -2358,16 +2368,16 @@ mod tests {
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
-            resolver: Arc::new(PoolResolver(pool.clone())),
+            resolver: Arc::new(PoolResolver(pool.iter().chain(&connected).cloned().collect())),
             unattended: crate::run_host::unattended::UnattendedRunRegistry::new(Arc::new(NoStamps)),
             approvals: asked.clone(),
-            exclusions: Arc::default(),
+            exclusions,
             agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
             hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, workspace.path().to_path_buf(), Default::default())),
             blobs: Arc::new(NoBlobs),
             tool_pool: pool,
-            mcp: Arc::new(NoMcp),
+            mcp: mcp.clone(),
             skills_listed: Arc::new(NoSkills),
             skill_names: Arc::new(NoSkillNames),
             ext_pool: Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(4)),
@@ -2390,6 +2400,10 @@ mod tests {
                     let mut deps = rig_deps;
                     deps.runs = runs;
                     deps.side = Arc::new(super::super::side_question_store::SideQuestionService::new(side_store, side_next));
+                    // A Lead world's sessions are judged by the surface the composition derives from the header (`compose_flip`).
+                    if lead {
+                        deps.surfaces = Arc::new(mixdog_core_session::session::HeaderToolSurfaces::new(surfaces_from));
+                    }
                     deps
                 }
             }),
@@ -2415,12 +2429,18 @@ mod tests {
             }),
         };
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
-        path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
+        path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), &provider_name)).await.unwrap();
         let directory = path.directory.clone();
         // The settings host the composition binds: here one whose live settings are one key, `responseLanguage`, that a
         // turn start writes into the header when it moved (`settings`, empty: nothing moved).
         let settings = Arc::new(Mutex::new(serde_json::Map::new()));
-        assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
+        if lead {
+            let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+            let host = super::super::surface_host::tests::lead_host_over(threads.clone(), threads, mcp);
+            assert!(path.turn_settings.bind(Arc::new(host)).is_ok());
+        } else {
+            assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
+        }
         World { workspace, rig, ledger, asked, store, next, path, directory, settings }
     }
 
@@ -2529,6 +2549,207 @@ mod tests {
         let fork = requests.last().expect("the rebuilt fork");
         assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]);
         assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
+    }
+
+    /// A connected server's tool: notes every call that reaches it and answers `ran <server> <tool>`, as the recorded server did.
+    struct RecordingServerTool {
+        spec: ToolSpec,
+        answer: String,
+        reached: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl Tool for RecordingServerTool {
+        fn spec(&self) -> &ToolSpec {
+            &self.spec
+        }
+        async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+            lock(&self.reached).push(self.spec.name.clone());
+            Ok(ToolOutput { parts: vec![ToolPart::Text(self.answer.clone())], ..ToolOutput::default() })
+        }
+    }
+
+    /// The recorded registry, each server kept for a folder as the hub keeps it (`McpHub::tools_for_cwd`): its own scope
+    /// intersected with its owning plugin's.
+    struct ScopedServers {
+        scopes: mixdog_mcp::scopes::ExtensionScopes,
+        servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)>,
+    }
+
+    impl super::super::session_tools::SessionMcp for ScopedServers {
+        fn tools(&self, _: Option<&str>, cwd: &std::path::Path) -> Vec<Arc<dyn Tool>> {
+            self.servers
+                .iter()
+                .filter(|(server, plugin, _)| self.scopes.mcp_server_allowed_for_cwd(server, plugin.as_deref(), cwd))
+                .flat_map(|(_, _, tools)| tools.iter().cloned())
+                .collect()
+        }
+    }
+
+    /// The provider of one recorded turn: before it answers with step `n`'s call it moves the session's cwd to the step's,
+    /// in place as the `cwd` tool does mid-turn; at each request it notes what reached the server since the last one and the
+    /// session's MCP snapshot then (at the first, the turn start's).
+    struct MovingCwd {
+        inner: Scripted,
+        cwds: Vec<Value>,
+        thread: std::sync::OnceLock<(ThreadId, Arc<mixdog_core_session::session::SessionHandle>)>,
+        reached: Arc<Mutex<Vec<String>>>,
+        observed: Mutex<Vec<(Value, Value)>>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for MovingCwd {
+        fn id(&self) -> &ProviderId {
+            self.inner.id()
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            self.inner.codec()
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            self.inner.retry_policy()
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            self.inner.keepalive()
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            let n = lock(&self.inner.requests).len();
+            let (id, handle) = self.thread.get().expect("the thread is started before its turn");
+            let ran = Value::from(std::mem::take(&mut *lock(&self.reached)));
+            let names = handle.header_snapshot().get("deferredMcpToolNames").cloned().unwrap_or(Value::Null);
+            lock(&self.observed).push((ran, names));
+            if let Some(cwd) = self.cwds.get(n).filter(|_| n > 0) {
+                handle
+                    .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": { "cwd": cwd } }), op: None, ctx: CallContext::internal("test") })
+                    .await
+                    .expect("cwd");
+            }
+            self.inner.attempt(request).await
+        }
+    }
+
+    /// Node's tool calls once the session's cwd moved out of a plugin's project scope and back (`fixtures/mcp-cwd-scope`):
+    /// one turn per recorded session, started in project A, each step a model's call dispatched through the real turn path
+    /// after the cwd moved. The snapshot the turn start took, each call's result as the model got it back, the calls that
+    /// reached the server and the snapshot after each call are the recorded ones, on a native session, a bridge one and one
+    /// with no deferred provider mode.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_models_mcp_call_after_the_cwd_left_its_plugins_scope_gets_nodes_result() {
+        use mixdog_core_api::domain::provider::{Content, ContentPart};
+        let mut checked = 0;
+        let text = include_str!("../../../../fixtures/mcp-cwd-scope/golden.json");
+        for case_index in 0..3 {
+            let sandbox = tempfile::tempdir().unwrap();
+            for project in ["project-a", "project-b"] {
+                std::fs::create_dir_all(sandbox.path().join(project)).unwrap();
+            }
+            let escaped = serde_json::to_string(&sandbox.path().to_string_lossy()).unwrap();
+            let rec = mixdog_js::fixture_tools::parse_golden(&text.replace("<SANDBOX>", &escaped[1..escaped.len() - 1])).expect("mcp cwd scope golden");
+            let case = &rec["cases"][case_index];
+            let label = case["name"].as_str().unwrap();
+            let steps = case["steps"].as_array().unwrap();
+            let reached = Arc::new(Mutex::new(Vec::new()));
+            let servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)> = rec["registry"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|entry| {
+                    let server = entry["server"].as_str().unwrap().to_owned();
+                    let tools: Vec<Arc<dyn Tool>> = entry["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|doc| {
+                            let tool = doc["name"].as_str().unwrap();
+                            let spec = ToolSpec {
+                                name: format!("mcp__{server}__{tool}"),
+                                title: None,
+                                trigger: None,
+                                public: true,
+                                aliases: Vec::new(),
+                                description: doc["description"].as_str().unwrap().into(),
+                                input_schema: doc["inputSchema"].clone(),
+                                annotations: ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() },
+                                parallel_safe: true,
+                                exclusive_with: Vec::new(),
+                            };
+                            Arc::new(RecordingServerTool { spec, answer: format!("ran {server} {tool}"), reached: reached.clone() }) as Arc<dyn Tool>
+                        })
+                        .collect();
+                    (server, entry["pluginId"].as_str().map(str::to_owned), tools)
+                })
+                .collect();
+            let connected: Vec<Arc<dyn Tool>> = servers.iter().flat_map(|(_, _, tools)| tools.iter().cloned()).collect();
+            let mcp = Arc::new(ScopedServers { scopes: mixdog_mcp::scopes::ExtensionScopes::from_config(&rec["extensionScopes"]), servers });
+            let done = |stop| StreamEvent::Completed { stop: Some(stop), pricing_model: None, request_ms: None };
+            let mut script: VecDeque<Vec<StreamEvent>> = steps
+                .iter()
+                .enumerate()
+                .map(|(n, step)| {
+                    let call = ToolCall { id: format!("c{n}"), name: step["call"].as_str().unwrap().into(), arguments: json!({}), native_type: None };
+                    vec![StreamEvent::ToolCallDone(call), done(StopReason::ToolUse)]
+                })
+                .collect();
+            script.push_back(vec![StreamEvent::TextDelta("ok".into()), done(StopReason::EndTurn)]);
+            // The recorded session's own provider serves the turn, so its exposure (native, bridge) stays the recorded one.
+            let provider = Arc::new(MovingCwd {
+                inner: Scripted {
+                    id: ProviderId::from(case["before"]["provider"].as_str().unwrap()),
+                    policy: RetryPolicy::codex_default(),
+                    keepalive: KeepaliveSchedule::SPEC,
+                    codec: MockCodec,
+                    script: Mutex::new(script),
+                    requests: Mutex::new(Vec::new()),
+                    fail_first: std::sync::atomic::AtomicBool::new(false),
+                },
+                cwds: steps.iter().map(|step| step["cwd"].clone()).collect(),
+                thread: std::sync::OnceLock::new(),
+                reached: reached.clone(),
+                observed: Mutex::new(Vec::new()),
+            });
+            let world = turn_world_with(provider.clone(), mcp, connected, true).await;
+            let mut header = super::super::surface_host::tests::header_of(&case["before"]);
+            for key in ["id", "updatedAt"] {
+                header.shift_remove(key);
+            }
+            header.insert("cwd".into(), case["turnStart"]["cwd"].clone());
+            let (id, handle) = started_thread(&world, Value::Object(header)).await;
+            assert!(provider.thread.set((id.clone(), handle.clone())).is_ok());
+            let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+            let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+            assert_eq!(started["kind"], "started", "{label}");
+            eventually_on_awaiting(
+                || format!("{label}: the turn's {} requests and an idle actor", steps.len() + 1),
+                &[&world.rig.store.committed, handle.stepped()],
+                || (lock(&provider.inner.requests).len() > steps.len() && !handle.turn_busy()).then_some(()),
+            )
+            .await;
+            let requests = lock(&provider.inner.requests).clone();
+            assert_eq!(requests.len(), steps.len() + 1, "{label}: one request per call and the closing one");
+            let first = &requests[0];
+            assert!(first.messages.iter().all(|message| message.role != Role::Tool), "{label}: the first request carries no call result");
+            let results: Vec<String> = requests
+                .last()
+                .unwrap()
+                .messages
+                .iter()
+                .filter(|message| message.role == Role::Tool)
+                .map(|message| match &message.content {
+                    Content::Text(text) => text.clone(),
+                    Content::Parts(parts) => parts.iter().filter_map(|part| match part { ContentPart::Text(text, _) => Some(text.as_str()), _ => None }).collect(),
+                })
+                .collect();
+            let observed = lock(&provider.observed).clone();
+            assert_eq!(results.len(), steps.len(), "{label}: every call's result");
+            assert_eq!(observed[0], (json!([]), case["turnStart"]["mcpNames"].clone()), "{label}: the turn start's snapshot");
+            assert_eq!(observed.len(), steps.len() + 1, "{label}: every call observed");
+            for (n, step) in steps.iter().enumerate() {
+                assert_eq!(results[n], step["result"].as_str().unwrap(), "{label} step {n}: what the model got back");
+                assert_eq!(observed[n + 1].0, step["ran"], "{label} step {n}: the calls that reached the server");
+                assert_eq!(observed[n + 1].1, step["mcpNames"], "{label} step {n}: the session's MCP snapshot");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 12);
     }
 
     /// A provider that hands each request it is asked to send to `sent` and answers with a text. Its codec is Grok's, so

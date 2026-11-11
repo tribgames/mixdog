@@ -5,9 +5,11 @@
 // `prepareDeferredToolCallThrough` refuses a connector tool outside that snapshot (`isDeferredToolAvailable`) whatever the
 // session's exposure. A session with no deferred provider mode keeps no snapshot, so its call runs.
 //
-// Each case is one session (`applyDeferredToolSurface` for its provider) and a list of steps: the cwd the session has
-// moved to (in place, as the `cwd` tool's `_applyResolvedCwdForCaller` does), the tool called through `executeTool`, what
-// it returned, whether the server was called, and the session's MCP snapshot (`deferredMcpToolNames`) after.
+// Each case is one session (`applyDeferredToolSurface` for its provider), one turn started in project A (the fold of
+// `turn-prepare.mjs` `foldMcpSurface` for a session past its first fold: `reconcileDeferredMcpToolCatalog` over the
+// cwd's servers, whatever its provider mode) and the turn's steps: the cwd the session has moved to (in place, as the
+// `cwd` tool's `_applyResolvedCwdForCaller` does mid-turn), the tool called through `executeTool`, what it returned,
+// whether the server was called, and the session's MCP snapshot (`deferredMcpToolNames`) after.
 //
 //   node benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs --tree <exact export of b6f10295a with node_modules>
 //
@@ -36,7 +38,7 @@ try {
   const identity = exactProductIdentity(tree, NODE_COMMIT);
   const recorder = 'benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs';
   const U = (rel) => importFrom(tree, `src/runtime/agent/orchestrator/${rel}`);
-  const { applyDeferredToolSurface } = await U('runtime-core/tool-catalog.mjs');
+  const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, scopedMcpToolsFor } = await U('runtime-core/tool-catalog.mjs');
   const { executeTool } = await U('session/loop/tool-exec.mjs');
   const { _registerMcpServerForTest, disconnectAll } = await U('mcp/client.mjs');
   const { saveConfig } = await U('config.mjs');
@@ -102,6 +104,9 @@ try {
   const cases = [];
   for (const [name, current] of CASES) {
     const before = json(current);
+    // The turn start (`foldMcpSurface`, `turn-prepare.mjs:63`).
+    reconcileDeferredMcpToolCatalog(current, scopedMcpToolsFor(current));
+    const turnStart = { cwd: current.cwd, mcpNames: json(current.deferredMcpToolNames ?? null) };
     const steps = [];
     for (const [project, call] of STEPS) {
       current.cwd = project === 'a' ? projectA : projectB;
@@ -109,7 +114,7 @@ try {
       const result = await executeTool(call, {}, current.cwd, current.id, current, {});
       steps.push({ cwd: current.cwd, call, result: json(result), ran: [...ran], mcpNames: json(current.deferredMcpToolNames ?? null) });
     }
-    cases.push({ name, before, steps });
+    cases.push({ name, before, turnStart, steps });
   }
   await disconnectAll({ scopeId: SCOPE });
   const placeholder = (value) =>

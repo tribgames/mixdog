@@ -137,6 +137,13 @@
         "updatedAt": 1700000000000,
         "deferredAnnouncedTools": []
       },
+      "turnStart": {
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpNames": [
+          "mcp__plugin-unity-tools__build",
+          "mcp__demo__ping"
+        ]
+      },
       "steps": [
         {
           "cwd": "<SANDBOX>\\project-a",
@@ -286,6 +293,13 @@
         "updatedAt": 1700000000000,
         "deferredAnnouncedTools": []
       },
+      "turnStart": {
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpNames": [
+          "mcp__plugin-unity-tools__build",
+          "mcp__demo__ping"
+        ]
+      },
       "steps": [
         {
           "cwd": "<SANDBOX>\\project-a",
@@ -423,6 +437,13 @@
         "updatedAt": 1700000000000,
         "deferredAnnouncedTools": []
       },
+      "turnStart": {
+        "cwd": "<SANDBOX>\\project-a",
+        "mcpNames": [
+          "mcp__plugin-unity-tools__build",
+          "mcp__demo__ping"
+        ]
+      },
       "steps": [
         {
           "cwd": "<SANDBOX>\\project-a",
@@ -431,7 +452,10 @@
           "ran": [
             "mcp__plugin-unity-tools__build"
           ],
-          "mcpNames": null
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
         },
         {
           "cwd": "<SANDBOX>\\project-b",
@@ -440,7 +464,10 @@
           "ran": [
             "mcp__plugin-unity-tools__build"
           ],
-          "mcpNames": null
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
         },
         {
           "cwd": "<SANDBOX>\\project-b",
@@ -449,7 +476,10 @@
           "ran": [
             "mcp__demo__ping"
           ],
-          "mcpNames": null
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
         },
         {
           "cwd": "<SANDBOX>\\project-a",
@@ -458,7 +488,10 @@
           "ran": [
             "mcp__plugin-unity-tools__build"
           ],
-          "mcpNames": null
+          "mcpNames": [
+            "mcp__plugin-unity-tools__build",
+            "mcp__demo__ping"
+          ]
         }
       ]
     }
