@@ -34,13 +34,6 @@ export function loneRefusal(field) {
   return { kind: 'rpc', code: -32602, reason: 'invalidParams', message: 'invalidParams', data: { reason: 'invalidParams', path: field, expected } };
 }
 
-/** What a desktop client is told when it calls `method`, which only a paired phone may call (mixdog-app-server server.rs
- *  `on_request`: `CoreError::PermissionDenied` before the params are read; error.rs `message` is the reason; schema
- *  method_table.json `origins`), as protocol-client's `ClientFailure` detail carries it. */
-export function permissionRefusal(method) {
-  return { kind: 'rpc', code: -32600, reason: 'permissionDenied', message: 'permissionDenied', data: { reason: 'permissionDenied', method, origin: 'local' } };
-}
-
 export const CASES = [
   // ── MCP: a header value is sent on every request to the server. Node saves the server and its fetch refuses the value when it
   //    connects (a ByteString holds no unit over 255), sending nothing; the core refuses the call naming the field and saves
