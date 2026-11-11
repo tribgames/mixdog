@@ -2903,7 +2903,7 @@ impl SessionActor {
     /// suppressed while one was in flight; `ask-queue.mjs:87-101` runs each notification as its
     /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
-        if self.turn_busy() || self.deleting {
+        if self.turn_busy() || self.deleting || self.starts_gated() {
             return;
         }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
@@ -3047,6 +3047,13 @@ impl SessionActor {
     /// Goal entry is being checked.
     fn turn_busy(&self) -> bool {
         self.turn_held() || self.turn_pending()
+    }
+
+    /// Work on the session may not start now, whatever would start it (a queue drain, a prioritised
+    /// entry, a live notification, a Goal entry): the scheduled compaction runs (`afterCompaction`,
+    /// `compaction-gate.mjs`, wraps every ask); its end drains the queue.
+    fn starts_gated(&self) -> bool {
+        self.after_compaction.is_some()
     }
 
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.

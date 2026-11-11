@@ -349,6 +349,39 @@ async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_wai
     gate.notify_one();
 }
 
+/// A prompt queued behind the turn and prioritised while the scheduled compaction runs
+/// (`prioritizeQueued` kicks a drain) waits for the compaction like any ask (`afterCompaction`
+/// wraps `runner.ask`); it starts once the compaction ended.
+#[tokio::test(start_paused = true)]
+async fn a_prioritised_queued_prompt_waits_for_the_scheduled_compaction() {
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    assert_eq!(turn(&handle, "queued", "op-2").await["kind"], json!("queued"));
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
+    let qid = handle.cell.queue.load()[0].qid.clone();
+
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+
+    handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qid.as_str())).expect("prioritised");
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the prioritised prompt waits for the compaction");
+    hold.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert!(handle.cell.queued.load().is_empty(), "it started once the compaction ended");
+    gate.notify_one();
+}
+
 /// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed
 /// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
 /// resume entry is finished and the answer is `true`; any other key, and a second ask for the
