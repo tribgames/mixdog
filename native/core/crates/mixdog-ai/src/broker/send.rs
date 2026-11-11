@@ -33,8 +33,8 @@ pub trait AttemptSink: Send {
     /// the send's own. The default ignores it; the accounting sink records it
     /// as `<requestId>:abandoned:<i>`.
     fn abandoned(&mut self, _usage: &Usage, _model: Option<&str>) {}
-    /// A display-only stage of the send (`onStageChange(stage, payload)`): `reconnecting` with its payload before each
-    /// retry wait. The default ignores it.
+    /// A display-only stage of the send (`onStageChange(stage, payload)`): `requesting` where the provider raises it,
+    /// `reconnecting` with its payload before each retry wait. The default ignores it.
     fn stage(&mut self, _stage: &str, _payload: Option<serde_json::Value>) {}
 }
 
@@ -260,11 +260,16 @@ impl ModelBroker {
         by_connection: bool,
         liveness: Option<&RunLiveness>,
     ) -> Result<(), Stop> {
-        let stream = tokio::select! {
+        let opened = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Stop::Cancelled),
-            opened = adapter.attempt(request.clone()) => opened.map_err(Stop::Failed)?,
+            opened = adapter.attempt(request.clone()) => opened,
         };
+        // The stages the adapter raised from inside the attempt come before whatever the attempt's end brings.
+        for stage in request.options.send_identity.take_stages() {
+            sink.stage(stage, None);
+        }
+        let stream = opened.map_err(Stop::Failed)?;
         if by_connection {
             // The stream opened: a failure from here on is the stream's, not the request's.
             *streamed = true;

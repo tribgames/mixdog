@@ -137,6 +137,9 @@ impl Tone {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stage {
     Connecting,
+    /// The provider is about to put a request on the wire (its `onStageChange('requesting')`): the request clock of the
+    /// turn's liveness starts here.
+    Requesting,
     Streaming,
     /// A provider ping or comment: informational only.
     WaitingOnProvider,

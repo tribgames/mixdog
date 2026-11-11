@@ -13,7 +13,8 @@
     "`draws` is not compared: the recorder's count of its own seeded `Math.random` stream before the send and during it (`Math.random` wrapped right after `startRecording`), not an output of the product; the replay reads it to find the retry jitter sample among the SDK clients' draws, and the sample is compared through the recorded wait",
     "`attemptRequests` is not compared: the recorder's own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed",
     "The Cursor case's HTTP/2 streams are recorded by the world's h2c hub (lib/h2-world.mjs): `:authority` is written as the host and `:scheme` as the scheme of the origin the product addressed (the loopback address and clear text are the world's), the pseudo-headers in the order :method, :scheme, :authority, :path (the client library's choice, not the product's), and the body of the Run stream is its first Connect frame (later frames - heartbeats - are not part of the arrival). Replay side: the Rust h2 client (reqwest) adds `accept: */*` to every request and the `content-length` of a whole body, and `node:http2` adds no header of its own, so the replay's h2 listener leaves those two headers out of the arrival",
-    "`requesting and streaming stages` is not compared: the core raises them from its run loop around the whole send (mixdog-agent/src/send.rs:460, `RunEvent::Stage`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder's `reconnecting` stage, compared whole and in order",
+    "no `MaxListenersExceededWarning` is recorded: every request of the recording process adds a `close` listener to the loopback endpoint's shared keep-alive socket, and Node warns on the eleventh (the recorder sets `EventEmitter.defaultMaxListeners = 0`); the warning is the recording process's, which the number of cases before a send decides, and no product output",
+    "`streaming stages` is not compared: the core raises `streaming` from its run loop when a stream opens (mixdog-agent/src/send.rs, `RunEvent::Stage(Stage::Streaming)`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder's `reconnecting` stage and the provider's own `requesting` stage (raised where Node's send raises it: SendIdentity::raise_stage / SendStages), compared whole and in order",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -21,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 157247,
+      "bytes": 179373,
       "path": "cases.json",
-      "sha256": "465abed225ef410a8f95b9a551ea0dbfc8fd13173df90d6d16ad8667606f7f1b"
+      "sha256": "712a8a3c966e8ea2bacf7ab7ab98fcc968d1b5c090d4779904f33a83ad7b05f5"
     }
   ],
   "inputs": [
@@ -67,6 +68,14 @@
   "levels": [
     {
       "id": "anthropic-api-key-raises-the-stage",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-400",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-api-key-redacts-an-opaque-credential-in-a-429",
       "level": "wire"
     },
     {
@@ -144,6 +153,10 @@
     {
       "id": "cursor-end-frame-error-surfaces-the-server-error",
       "level": "wire"
+    },
+    {
+      "id": "cursor-oversized-request-is-terminal",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -158,9 +171,13 @@
       {
         "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch",
         "paths": [
+          "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs",
+          "src/runtime/agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs"
         ],
-        "sha256": "487c22b30f4bc3650ccdffac44ed5bbaba2e0868657e37e463a00d41db081e5f"
+        "sha256": "c1ee0e633dbc863f7082757e377a2104ab5f3c99e824793a927972ce49e26ede"
       },
       {
         "file": "benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
@@ -174,20 +191,20 @@
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 2
+      "filesDifferingFromCommit": 6
     },
-    "srcSha256": "5a915df5c81d559afd677b6fc68cba84653eb631b04079f31d8759012fde2715",
+    "srcSha256": "4138f92ee08d9dd29d965d192cc6c1f631553c573d33970015110aed715cccdf",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "43e4654d745a43b78ed6d037a268c6267ba2d9af6ea1d3c61d634caf3a9714ad",
+  "recorderSha256": "a2800ccfd7b14fb457969f29a71a0af865f39b5ffe82d68d5785b4d0a83cdaf6",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 157247,
+  "totalBytes": 179373,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

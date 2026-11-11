@@ -141,6 +141,9 @@ struct Scripted {
     requests: Mutex<Vec<Arc<ModelRequest>>>,
     /// Every `settle_send` the loop made, in order.
     settled: Mutex<Vec<(String, mixdog_core_api::domain::provider::SendEnd)>>,
+    /// The display stages the provider declares (`send_stages`), and whether its attempt raises `requesting` itself.
+    stages: mixdog_core_api::domain::provider::SendStages,
+    raises_requesting: bool,
 }
 
 impl Scripted {
@@ -148,8 +151,15 @@ impl Scripted {
         Self::with_policy(script, RetryPolicy::codex_default())
     }
 
+    /// A provider that raises `requesting` as `stages` declares, and from inside its attempt when `raises_requesting`.
+    fn staged(script: Vec<Attempt>, stages: mixdog_core_api::domain::provider::SendStages, raises_requesting: bool) -> Arc<Self> {
+        Arc::new(Self { stages, raises_requesting, ..Arc::into_inner(Self::new(script)).expect("one owner") })
+    }
+
     fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Arc<Self> {
         Arc::new(Self {
+            stages: Default::default(),
+            raises_requesting: false,
             id: ProviderId::from("scripted"),
             policy,
             keepalive: KeepaliveSchedule::SPEC,
@@ -187,10 +197,16 @@ impl ProviderAdapter for Scripted {
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
     }
+    fn send_stages(&self, _model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.stages
+    }
     async fn attempt(
         &self,
         request: Arc<ModelRequest>,
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if self.raises_requesting {
+            request.options.send_identity.raise_requesting_once();
+        }
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
             Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None))),
@@ -1310,6 +1326,33 @@ async fn a_transient_failure_is_retried_through_the_decider_and_the_host_wait() 
         .collect::<Vec<_>>();
     assert_eq!(reconnecting, [(1, 4)]);
     assert_eq!(h.provider.requests().len(), 2);
+}
+
+/// The provider's own `requesting` stages (`onStageChange('requesting')`) reach the run's observer where the provider
+/// raises them: once before a send's first attempt, before every attempt, or from inside an attempt.
+#[tokio::test]
+async fn the_loop_raises_the_requesting_stage_where_the_provider_does() {
+    use mixdog_core_api::domain::provider::SendStages;
+    let stage_order = |stages: SendStages, raises_requesting: bool| async move {
+        let reset = ProviderError::transport(TransportFault::Reset, DeliveryState::Ambiguous);
+        let script = vec![Attempt::Reject(reset), turn(vec![text("ok"), done(StopReason::EndTurn)])];
+        let h = Harness { provider: Scripted::staged(script, stages, raises_requesting), ..Harness::new(Vec::new()) };
+        finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+        h.observer
+            .events()
+            .into_iter()
+            .filter_map(|e| match e {
+                RunEvent::Stage(Stage::Requesting) => Some("requesting"),
+                RunEvent::Stage(Stage::Reconnecting { .. }) => Some("reconnecting"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let plain = SendStages::default();
+    assert_eq!(stage_order(plain, false).await, ["reconnecting"], "a provider that raises none");
+    assert_eq!(stage_order(SendStages { preparing: 1, ..plain }, false).await, ["requesting", "reconnecting"], "once before the first attempt");
+    assert_eq!(stage_order(SendStages { each_attempt: true, ..plain }, false).await, ["requesting", "reconnecting", "requesting"], "before every attempt");
+    assert_eq!(stage_order(plain, true).await, ["requesting", "reconnecting"], "raised from inside the attempt, once");
 }
 
 /// The transport fault Node's provider error ended in: the last link of the recorded cause chain
