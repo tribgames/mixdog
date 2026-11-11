@@ -18,8 +18,9 @@ import http from 'node:http';
 import { createRequire, register } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { installDeterministicWorld } from './lib/deterministic-world.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const RECORDER = 'benchmarks/rust-core/recorders/record-provider-gateways.mjs';
 const args = parseArgs();
@@ -446,13 +447,15 @@ writeSetManifest(outDir, {
       "stageChange 'requesting' / 'streaming'": "the engine's spinner phases; in the core the turn loop raises them around the send (agent Stage::Connecting / Streaming), not the provider stream the replay reads",
       toolCall: "the folded result's toolCalls are compared instead (the core's stream carries the call as ToolCallDone, which the result holds)",
       "request header accept-encoding": "the recorder dials a plain-http loopback, so undici writes its http value; the replay writes the Rust request's head for that same scheme (node_http::head)",
-      "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (provenance.nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
+      "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
       "listing requests to raw.githubusercontent.com and models.dev": "the shared model catalogs, fetched by the catalog service (ListingLookup), not by the provider under test",
       "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
       "result.reasoning": "no engine of these wires returns it (null in every recording) and the core has no such result field: the reasoning shown is compared as the streamDelta events, the reasoning kept as reasoningContent",
       "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",
       "onStreamDelta kinds other than 'reasoning'": "not logged by the recorder: 'transport' / 'semantic' / 'text' / 'tool' feed the session's liveness clock (the core's progress stamps), and the text and tool calls are compared as textDelta and the result's toolCalls; 'reasoning' is logged because it is the reasoning the caller is shown",
-    }, provenance: recordingProvenance(RECORDER, [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
+    },
+    ...recorderProvenance(import.meta.url),
+  },
   // Refuses to write unless the loaded tree is exactly b6f10295a.
   identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
 });
