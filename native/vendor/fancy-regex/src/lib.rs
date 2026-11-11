@@ -56,7 +56,6 @@ mod compile;
 mod error;
 mod expand;
 mod input;
-#[cfg(feature = "std")]
 pub mod interrupt;
 mod optimize;
 mod parse;
@@ -177,6 +176,8 @@ enum RegexImpl {
         explicit_capture_group_0: bool,
         /// The actual pattern passed to regex-automata for delegation
         delegated_pattern: String,
+        /// The lazy DFA `is_match` steps itself (mixdog, [`interrupt`]).
+        stepped: vm::Stepped,
     },
     Fancy {
         prog: Arc<Prog>,
@@ -1247,16 +1248,23 @@ impl Regex {
             // string path for anything the translator doesn't cover.
             let utf8 = matches!(compile_options.bytes_mode, BytesMode::Unicode);
             let mut hir_ctx = to_hir::HirCtx::new(compile_options.unicode, utf8);
-            let inner = match to_hir::expr_to_hir(&tree.expr, &mut hir_ctx) {
-                Some(hir) => compile::compile_inner_from_hir(&hir, &compile_options, usage)?,
+            let hir = to_hir::expr_to_hir(&tree.expr, &mut hir_ctx);
+            let inner = match &hir {
+                Some(hir) => compile::compile_inner_from_hir(hir, &compile_options, usage)?,
                 None => compile::compile_inner(&re_cooked, &compile_options, usage)?,
             };
+            let stepped = vm::Stepped::new(compile::stepped_dfa(
+                &re_cooked,
+                hir.as_ref(),
+                &compile_options,
+            ));
             return Ok(Regex {
                 inner: RegexImpl::Wrap {
                     inner,
                     pattern,
                     explicit_capture_group_0: requires_capture_group_fixup,
                     delegated_pattern: re_cooked,
+                    stepped,
                 },
                 named_groups: Arc::new(tree.named_groups),
             });
@@ -1267,7 +1275,8 @@ impl Regex {
             CompileOptions {
                 anchored: can_compile_as_anchored(&tree.expr),
                 contains_subroutines: tree.contains_subroutines,
-                seek_filter: options.seek_filter,
+                // mixdog: a seek searches the rest of the haystack unanchored in one call (see `interrupt`).
+                seek_filter: None,
                 disallow_empty_match_at_eof_after_newline,
                 bytes_mode: options.bytes_mode,
                 unicode: options.syntaxc.get_unicode()
@@ -1332,11 +1341,12 @@ impl Regex {
         input: RegexInput<'_, S>,
     ) -> Result<bool> {
         match &self.inner {
-            RegexImpl::Wrap { inner, .. } => {
+            RegexImpl::Wrap { inner, stepped, .. } => {
                 if input.is_done() {
                     Ok(false)
                 } else {
-                    Ok(inner.is_match(ra_input(&input)))
+                    // mixdog: the lazy DFA is stepped here, so the stop of `interrupt` is read as it runs.
+                    vm::is_match_stepped(stepped, inner, &ra_input(&input).earliest(true))
                 }
             }
             RegexImpl::Fancy { .. } => self.find_input_raw(&input, 0).map(|m| m.is_some()),

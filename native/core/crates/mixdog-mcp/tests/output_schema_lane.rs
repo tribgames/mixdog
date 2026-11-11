@@ -2,10 +2,13 @@
 //! Its own test binary: it boots the production executors, which a process installs once (the `it` suite installs the
 //! inline test backend, which runs a job on the thread that submits it).
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+use fancy_regex::interrupt::CHUNK;
+use fancy_regex::interrupt::INTERVAL;
+use fancy_regex::interrupt::probe;
 use mixdog_mcp::McpIo;
 use mixdog_mcp::McpServer;
 use mixdog_mcp::McpServerConfig;
@@ -101,34 +104,90 @@ fn calls_on_one_worker() {
     });
 }
 
-/// The matcher reads the check set on its thread every `INTERVAL` backtracking steps: a check that answers stop the
-/// first time it is read ends a match whose steps would run for hours, after one read.
-#[test]
-fn a_match_ends_at_the_first_read_of_a_check_that_answers_stop() {
-    let regex = fancy_regex::RegexBuilder::new(HOSTILE).backtrack_limit(usize::MAX).build().unwrap();
-    let reads = Rc::new(Cell::new(0_usize));
-    let check = {
-        let reads = Rc::clone(&reads);
-        move || {
-            reads.set(reads.get() + 1);
-            true
-        }
-    };
-    let haystack = hostile_value();
-    let answered = fancy_regex::interrupt::checking(Rc::new(check), || regex.is_match(haystack.as_str().unwrap()));
-    assert!(
-        matches!(answered, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))),
-        "{answered:?}"
-    );
-    assert_eq!(reads.get(), 1, "the match ended at the first read of the check");
+/// The three ways a match runs long besides failing: VM steps that never fail (a repetition holding a lookahead over
+/// 500,000 characters, one failure at the end), an absent repeater's advance (300,000 characters, none failing), and
+/// one search handed to regex-automata (a 4 MiB suffix after a lookahead). Each runs to its answer.
+fn long_shapes() -> Vec<(&'static str, &'static str, String)> {
+    vec![
+        ("VM steps without a failure", r"^(?:(?=a)a)*$", "a".repeat(500_000)),
+        ("an absent repeater's advance", r"^(?~abc)$", "x".repeat(300_000)),
+        ("one delegated search", r"^(?=x)[a-z]*$", format!("x{}", "a".repeat(4 << 20))),
+    ]
 }
 
-/// A check whose call is already cancelled ends at the matcher's first read of it and answers cancelled.
+/// `regex` matched against `haystack` under `stop` (none: no stop set) on a cpu-bulk lane of one thread: the answer, the
+/// steps at which the match read the stop, and how long the match took. A second job on the same lane then runs, so
+/// the lane's thread is free again.
+fn on_the_lane(
+    tokens: &mixdog_rt::LaneTokens,
+    regex: &Arc<fancy_regex::Regex>,
+    haystack: &Arc<String>,
+    stop: Option<bool>,
+) -> (Result<bool, fancy_regex::Error>, Vec<u64>, Duration) {
+    use mixdog_rt::LaneToken;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    runtime.block_on(async {
+        let (regex, haystack) = (Arc::clone(regex), Arc::clone(haystack));
+        let job = tokens
+            .cpu_bulk
+            .submit(&CancellationToken::new(), move |_lane| {
+                probe::take_reads();
+                let started = std::time::Instant::now();
+                let answer = match stop {
+                    Some(stop) => fancy_regex::interrupt::checking(Arc::new(AtomicBool::new(stop)), || {
+                        regex.is_match(haystack.as_str())
+                    }),
+                    None => regex.is_match(haystack.as_str()),
+                };
+                let took = started.elapsed();
+                (answer, probe::take_reads(), took)
+            })
+            .unwrap();
+        let ran = tokio::time::timeout(Duration::from_secs(120), job).await.expect("the match ends in 120 s").unwrap();
+        let next = tokens.cpu_bulk.submit(&CancellationToken::new(), |_lane| 7).unwrap();
+        assert_eq!(tokio::time::timeout(Duration::from_secs(30), next).await.expect("the lane runs its next job in 30 s").unwrap(), 7);
+        ran
+    })
+}
+
+/// Counted, not timed: a match reads its stop at least once every `INTERVAL + CHUNK` steps, whichever way it runs
+/// long; a stop already set ends it at its first read, within `INTERVAL + CHUNK` steps; and either way the lane's thread
+/// is free again after it. (The time of each shape with the stop read and with no stop set is printed: what the reads
+/// cost.)
+#[test]
+fn a_long_match_reads_its_stop_within_a_bounded_number_of_steps_and_frees_its_lane() {
+    let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
+    config.cpu_bulk = mixdog_rt::exec::PoolParams { threads: 1, queue: 2 };
+    let (_executors, tokens) = mixdog_rt::exec::boot(config).expect("the production lanes");
+    for (shape, pattern, haystack) in long_shapes() {
+        let regex = Arc::new(fancy_regex::RegexBuilder::new(pattern).backtrack_limit(usize::MAX).build().unwrap());
+        let haystack = Arc::new(haystack);
+
+        let (_, _, unread) = on_the_lane(&tokens, &regex, &haystack, None);
+        let (answer, reads, read) = on_the_lane(&tokens, &regex, &haystack, Some(false));
+        eprintln!("{shape}: {read:?} reading the stop {} times, {unread:?} with no stop", reads.len());
+        assert!(matches!(answer, Ok(true)), "{shape}: {answer:?}");
+        assert!(reads.len() >= 10, "{shape}: read {} times", reads.len());
+        let mut before = 0;
+        for read in &reads {
+            assert!(read - before <= INTERVAL + CHUNK as u64, "{shape}: {} steps between two reads", read - before);
+            before = *read;
+        }
+
+        let (answer, reads, _) = on_the_lane(&tokens, &regex, &haystack, Some(true));
+        assert!(
+            matches!(answer, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))),
+            "{shape}: {answer:?}"
+        );
+        assert_eq!(reads.len(), 1, "{shape}: the match ended at its first read of the stop");
+        assert!(reads[0] <= INTERVAL + CHUNK as u64, "{shape}: first read after {} steps", reads[0]);
+    }
+}
+
+/// A check whose call is already cancelled ends at the matcher's first read of its stop and answers cancelled.
 #[test]
 fn a_cancelled_calls_check_answers_cancelled() {
     let validators = OutputValidators::of(hostile_tools().as_array().unwrap()).unwrap();
-    let cancelled = CancellationToken::new();
-    cancelled.cancel();
     let result = json!({"content": [], "structuredContent": {"v": hostile_value()}});
-    assert_eq!(validators.check("hostile", &result, &[cancelled]), Err(RpcError::Cancelled));
+    assert_eq!(validators.check("hostile", &result, &Arc::new(AtomicBool::new(true))), Err(RpcError::Cancelled));
 }

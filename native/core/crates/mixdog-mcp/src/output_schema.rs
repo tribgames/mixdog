@@ -9,16 +9,16 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use jsonschema::ValidationError;
 use jsonschema::error::TypeKind;
 use jsonschema::error::ValidationErrorKind;
 use jsonschema::paths::LocationSegment;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use crate::rpc::RpcError;
 
@@ -362,22 +362,17 @@ impl OutputValidators {
     }
 
     /// `callTool`'s check of a result of `tool` against its output schema. A pattern may backtrack for long (up to
-    /// [`BACKTRACK_LIMIT`] steps): the matcher reads `stops` every `fancy_regex::interrupt::INTERVAL` steps, and once one
-    /// is cancelled the check ends with [`RpcError::Cancelled`].
-    pub fn check(&self, tool: &str, result: &Value, stops: &[CancellationToken]) -> Result<(), RpcError> {
-        let stopped = {
-            let stops = stops.to_vec();
-            move || stops.iter().any(CancellationToken::is_cancelled)
-        };
-        let checked =
-            fancy_regex::interrupt::checking(Rc::new(stopped.clone()), || self.check_unstopped(tool, result, &stopped));
-        if stopped() {
+    /// [`BACKTRACK_LIMIT`] steps): its match reads `stop` at bounded intervals of its steps (`fancy_regex::interrupt`),
+    /// and once `stop` is set the check ends with [`RpcError::Cancelled`].
+    pub fn check(&self, tool: &str, result: &Value, stop: &Arc<AtomicBool>) -> Result<(), RpcError> {
+        let checked = fancy_regex::interrupt::checking(Arc::clone(stop), || self.check_unstopped(tool, result, stop));
+        if stop.load(Ordering::Relaxed) {
             return Err(RpcError::Cancelled);
         }
         checked
     }
 
-    fn check_unstopped(&self, tool: &str, result: &Value, stopped: &(impl Fn() -> bool + Clone + Send + Sync + 'static)) -> Result<(), RpcError> {
+    fn check_unstopped(&self, tool: &str, result: &Value, stop: &Arc<AtomicBool>) -> Result<(), RpcError> {
         let Some(slot) = self.tools.get(tool) else {
             return Ok(());
         };
@@ -416,7 +411,7 @@ impl OutputValidators {
                     .spawn_scoped(scope, || {
                         let keywords = KeywordChecks { registered: &slot.registered, built: RefCell::default(), patterns: RefCell::default() };
                         let docs = crate::ajv_stack::Documents::new(&slot.schema, &slot.registered);
-                        fancy_regex::interrupt::checking(Rc::new(stopped.clone()), || {
+                        fancy_regex::interrupt::checking(Arc::clone(stop), || {
                             crate::ajv_stack::validation_overflows(&docs, structured, &keywords)
                         })
                     })

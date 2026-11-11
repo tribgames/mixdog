@@ -71,7 +71,6 @@
 
 use alloc::boxed::Box;
 use alloc::string::String;
-#[cfg(feature = "variable-lookbehinds")]
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -83,7 +82,6 @@ use regex_automata::util::primitives::NonMaxUsize;
 use regex_automata::Anchored;
 use regex_automata::Input;
 
-#[cfg(feature = "variable-lookbehinds")]
 pub(crate) type CachePoolFn = alloc::boxed::Box<
     dyn Fn() -> regex_automata::hybrid::dfa::Cache
         + Send
@@ -94,6 +92,7 @@ pub(crate) type CachePoolFn = alloc::boxed::Box<
 
 use crate::error::RuntimeError;
 use crate::input::{Input as HaystackInput, RegexInput};
+use crate::interrupt::Steps;
 use crate::Assertion;
 use crate::BytesMode;
 use crate::Error;
@@ -321,6 +320,8 @@ pub struct Delegate {
     pub pattern: String,
     /// The range of capture groups. None if there are no capture groups.
     pub capture_groups: Option<CaptureGroupRange>,
+    /// The regex as a lazy DFA the VM steps itself (mixdog, [`crate::interrupt`]).
+    pub(crate) stepped: Stepped,
 }
 
 impl core::fmt::Debug for Delegate {
@@ -330,12 +331,126 @@ impl core::fmt::Debug for Delegate {
             inner: _,
             pattern,
             capture_groups,
+            stepped: _,
         } = self;
 
         f.debug_struct("Delegate")
             .field("pattern", pattern)
             .field("capture_groups", capture_groups)
             .finish()
+    }
+}
+
+/// A lazy DFA with its caches, which the VM runs one byte at a time so that it counts the steps and reads the stop of
+/// [`crate::interrupt`] every `CHUNK` bytes (mixdog). Its answers are those of regex-automata's own search loops; it
+/// never gives up on its cache, and only a quit byte (a Unicode word boundary on a non-ASCII byte) sends a search to
+/// the meta engine, in one call.
+pub(crate) struct Stepped(
+    Option<(
+        Arc<regex_automata::hybrid::dfa::DFA>,
+        Pool<regex_automata::hybrid::dfa::Cache, CachePoolFn>,
+    )>,
+);
+
+impl Stepped {
+    /// `None`: no lazy DFA could be built, and every search goes to the meta engine.
+    pub(crate) fn new(dfa: Option<Arc<regex_automata::hybrid::dfa::DFA>>) -> Self {
+        Self(dfa.map(|dfa| {
+            let create: CachePoolFn = {
+                let dfa = Arc::clone(&dfa);
+                Box::new(move || dfa.create_cache())
+            };
+            (dfa, Pool::new(create))
+        }))
+    }
+}
+
+impl Clone for Stepped {
+    fn clone(&self) -> Self {
+        Self::new(self.0.as_ref().map(|(dfa, _)| Arc::clone(dfa)))
+    }
+}
+
+/// What a stepped search found (mixdog).
+enum Stepping {
+    /// The end (forward) or start (reverse) of the match.
+    Found(usize),
+    /// No match.
+    Missed,
+    /// The automaton cannot search this haystack (a quit byte, or a cache it gave up on).
+    Unable,
+    /// The stop was set.
+    Stopped,
+}
+
+/// A forward search of `input` (anchored or not), as regex-automata's `find_fwd`: the end of the leftmost-first match,
+/// or of the first match found when `input` asks for the earliest. Steps `CHUNK` bytes per counted step.
+fn search_fwd_stepped(stepped: &Stepped, input: &Input<'_>, steps: &mut Steps) -> Stepping {
+    use crate::interrupt::CHUNK;
+    let Some((dfa, caches)) = &stepped.0 else {
+        return Stepping::Unable;
+    };
+    let mut cache = caches.get();
+    let cache = &mut *cache;
+    let Ok(mut sid) = dfa.start_state_forward(cache, input) else {
+        return Stepping::Unable;
+    };
+    let haystack = input.haystack();
+    let (start, end) = (input.start(), input.end());
+    let mut found = None;
+    let mut at = start;
+    cache.search_start(at);
+    while at < end {
+        if (at - start) % CHUNK == CHUNK - 1 && !steps.take(CHUNK as u64) {
+            cache.search_finish(at);
+            return Stepping::Stopped;
+        }
+        cache.search_update(at);
+        sid = match dfa.next_state(cache, sid, haystack[at]) {
+            Ok(sid) => sid,
+            Err(_) => return Stepping::Unable,
+        };
+        if sid.is_tagged() {
+            // Matches are reported one byte late: the match ends before this byte.
+            if sid.is_match() {
+                found = Some(at);
+                if input.get_earliest() {
+                    cache.search_finish(at);
+                    return Stepping::Found(at);
+                }
+            } else if sid.is_dead() {
+                cache.search_finish(at);
+                return found.map_or(Stepping::Missed, Stepping::Found);
+            } else if sid.is_quit() {
+                cache.search_finish(at);
+                return Stepping::Unable;
+            }
+        }
+        at += 1;
+    }
+    cache.search_finish(end);
+    // The end of the input: the byte after the searched range, or the end of the haystack.
+    let last = match haystack.get(end) {
+        Some(&byte) => dfa.next_state(cache, sid, byte),
+        None => dfa.next_eoi_state(cache, sid),
+    };
+    match last {
+        Ok(sid) if sid.is_match() => Stepping::Found(end),
+        Ok(sid) if sid.is_quit() => Stepping::Unable,
+        Ok(_) => found.map_or(Stepping::Missed, Stepping::Found),
+        Err(_) => Stepping::Unable,
+    }
+}
+
+/// `is_match` of a wrapped pattern (mixdog): its lazy DFA stepped over `input` with the stop of this thread read every
+/// `CHUNK` bytes; the meta engine answers where the DFA cannot search.
+pub(crate) fn is_match_stepped(stepped: &Stepped, meta: &Regex, input: &Input<'_>) -> Result<bool> {
+    let mut steps = Steps::new();
+    match search_fwd_stepped(stepped, input, &mut steps) {
+        Stepping::Found(_) => Ok(true),
+        Stepping::Missed => Ok(false),
+        Stepping::Unable => Ok(meta.is_match(input.clone())),
+        Stepping::Stopped => Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded)),
     }
 }
 
@@ -922,6 +1037,148 @@ fn matches_literal_casei<S: HaystackInput + ?Sized>(
     false
 }
 
+/// `matches_literal` or `matches_literal_casei` read `CHUNK` bytes (characters, where cases are folded by Unicode) per
+/// step (mixdog, [`crate::interrupt`]); `None` once the stop is set.
+fn matches_literal_stepped<S: HaystackInput + ?Sized>(
+    s: &S,
+    ix: usize,
+    end: usize,
+    literal: &[u8],
+    casei: bool,
+    unicode: bool,
+    steps: &mut Steps,
+) -> Option<bool> {
+    use crate::interrupt::CHUNK;
+    if end > s.len() {
+        return Some(false);
+    }
+    let text = &s.as_bytes()[ix..end];
+    let all = |steps: &mut Steps, holds: &dyn Fn(&[u8], &[u8]) -> bool| -> Option<bool> {
+        for (t, l) in text.chunks(CHUNK).zip(literal.chunks(CHUNK)) {
+            if !steps.take(t.len() as u64) {
+                return None;
+            }
+            if !holds(t, l) {
+                return Some(false);
+            }
+        }
+        Some(true)
+    };
+    if all(steps, &|t: &[u8], l: &[u8]| t == l)? {
+        return Some(true);
+    }
+    if !casei || !s.is_char_boundary(ix) || !s.is_char_boundary(end) {
+        return Some(false);
+    }
+    if all(steps, &|t: &[u8], l: &[u8]| t.is_ascii() && l.is_ascii())? {
+        return all(steps, &|t: &[u8], l: &[u8]| t.eq_ignore_ascii_case(l));
+    }
+    if !unicode {
+        return Some(false);
+    }
+    // One step for the UTF-8 check of each side, then `matches_literal_casei_unicode` `CHUNK` characters per step.
+    if !steps.take(text.len() as u64) {
+        return None;
+    }
+    let (Ok(text), Ok(literal)) = (core::str::from_utf8(text), core::str::from_utf8(literal)) else {
+        return Some(false);
+    };
+    let (mut text_chars, mut literal_chars) = (text.chars(), literal.chars());
+    let mut read = 0;
+    loop {
+        read += 1;
+        if read % CHUNK == 0 && !steps.take(CHUNK as u64) {
+            return None;
+        }
+        match (text_chars.next(), literal_chars.next()) {
+            (None, None) => return Some(true),
+            (Some(t), Some(l)) => {
+                if t == l {
+                    continue;
+                }
+                if t.is_ascii() && l.is_ascii() {
+                    if t.eq_ignore_ascii_case(&l) {
+                        continue;
+                    }
+                    return Some(false);
+                }
+                if !chars_fold_equal(t, l) {
+                    return Some(false);
+                }
+            }
+            _ => return Some(false),
+        }
+    }
+}
+
+/// What a stepped reverse search found (mixdog).
+#[cfg(feature = "variable-lookbehinds")]
+enum Reverse {
+    /// The start of the match.
+    Found(usize),
+    /// No match, or the automaton could not search (as `try_search_rev`'s error).
+    Missed,
+    /// The stop was set.
+    Stopped,
+}
+
+/// `try_search_rev` of an anchored reverse search, run here one byte at a time so the steps are counted and the stop
+/// is read every `CHUNK` bytes (mixdog, [`crate::interrupt`]); its answers are those of regex-automata's own loop.
+#[cfg(feature = "variable-lookbehinds")]
+fn search_rev_stepped(
+    dfa: &regex_automata::hybrid::dfa::DFA,
+    cache: &mut regex_automata::hybrid::dfa::Cache,
+    input: &Input<'_>,
+    steps: &mut Steps,
+) -> Reverse {
+    use crate::interrupt::CHUNK;
+    let Ok(mut sid) = dfa.start_state_reverse(cache, input) else {
+        return Reverse::Missed;
+    };
+    let haystack = input.haystack();
+    let (start, end) = (input.start(), input.end());
+    let mut found = None;
+    let mut at = end;
+    cache.search_start(end);
+    while at > start {
+        at -= 1;
+        if (end - at) % CHUNK == 0 && !steps.take(CHUNK as u64) {
+            cache.search_finish(at);
+            return Reverse::Stopped;
+        }
+        cache.search_update(at);
+        sid = match dfa.next_state(cache, sid, haystack[at]) {
+            Ok(sid) => sid,
+            Err(_) => return Reverse::Missed,
+        };
+        if sid.is_tagged() {
+            // Matches are reported one byte late: the match starts after this byte.
+            if sid.is_match() {
+                found = Some(at + 1);
+            } else if sid.is_dead() {
+                cache.search_finish(at);
+                return found.map_or(Reverse::Missed, Reverse::Found);
+            } else if sid.is_quit() {
+                cache.search_finish(at);
+                return Reverse::Missed;
+            }
+        }
+    }
+    cache.search_finish(start);
+    // The end of the input: the byte before the searched range, or the start of the haystack.
+    let last = if start > 0 {
+        dfa.next_state(cache, sid, haystack[start - 1])
+    } else {
+        dfa.next_eoi_state(cache, sid)
+    };
+    match last {
+        Ok(sid) if sid.is_match() => Reverse::Found(start),
+        Ok(sid) if sid.is_quit() => Reverse::Missed,
+        Ok(_) => found.map_or(Reverse::Missed, Reverse::Found),
+        Err(_) => Reverse::Missed,
+    }
+}
+
 /// Helper function to store capture group positions from inner_slots into state.
 /// This is used by both Delegate and BackwardsDelegate instructions.
 #[inline]
@@ -1039,6 +1296,22 @@ fn run_with<S: HaystackInput + ?Sized, T>(
         println!("pos\tinstruction");
     }
     let mut backtrack_count = 0;
+    // mixdog: every instruction and backtrack is counted, and the stop set on this thread is read as `Steps` says.
+    let mut steps = Steps::new();
+    macro_rules! take {
+        ($weight:expr) => {
+            if !steps.take($weight as u64) {
+                return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded));
+            }
+        };
+    }
+    macro_rules! read_now {
+        () => {
+            if !steps.read_now() {
+                return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded));
+            }
+        };
+    }
     let mut pc = 0;
     let mut ix = pos;
     let mut slash_z_matched = false;
@@ -1052,6 +1325,7 @@ fn run_with<S: HaystackInput + ?Sized, T>(
     loop {
         // break from this loop to fail, causes stack to pop
         'fail: loop {
+            take!(1);
             #[cfg(feature = "std")]
             if option_flags & OPTION_TRACE != 0 {
                 println!("{}\t{} {:?}", ix, pc, prog.body[pc]);
@@ -1122,6 +1396,7 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     }
                 }
                 Insn::Lit(ref val) => {
+                    take!(val.len());
                     let ix_end = ix + val.len();
                     if !matches_literal(haystack, ix, ix_end, val.as_bytes()) {
                         break 'fail;
@@ -1156,16 +1431,17 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                         }
                         Assertion::EndTextIgnoreTrailingNewlines { crlf } => {
                             let bytes = haystack.as_bytes();
-                            let matched = if ix == bytes.len() {
-                                // At the end of string
-                                true
-                            } else if crlf {
-                                // In CRLF mode, trailing \r\n pairs and bare \n are ignored
-                                bytes[ix..].iter().all(|&b| b == b'\n' || b == b'\r')
-                            } else {
-                                // Check if all remaining bytes are newlines
-                                bytes[ix..].iter().all(|&b| b == b'\n')
-                            };
+                            // mixdog: the rest of the haystack is read `CHUNK` bytes per step.
+                            let mut matched = true;
+                            for chunk in bytes[ix..].chunks(crate::interrupt::CHUNK) {
+                                take!(chunk.len());
+                                // In CRLF mode, trailing \r\n pairs and bare \n are ignored; otherwise every
+                                // remaining byte must be a newline.
+                                if !chunk.iter().all(|&b| b == b'\n' || (crlf && b == b'\r')) {
+                                    matched = false;
+                                    break;
+                                }
+                            }
                             slash_z_matched |= matched;
                             matched
                         }
@@ -1327,6 +1603,7 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                 }
                 Insn::GoBack(count) => {
                     for _ in 0..count {
+                        take!(1);
                         if ix == 0 {
                             break 'fail;
                         }
@@ -1341,6 +1618,7 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     // been pushed with the look-around, because we don't want to
                     // explore them.
                     loop {
+                        take!(1);
                         let (popped_pc, _) = state.pop();
                         if popped_pc == pc + 1 {
                             // We've reached the state that would jump us to
@@ -1368,11 +1646,23 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     }
                     let ref_text = &haystack.as_bytes()[lo..hi];
                     let ix_end = ix + ref_text.len();
-                    if casei {
-                        if !matches_literal_casei(haystack, ix, ix_end, ref_text, unicode) {
-                            break 'fail;
+                    // mixdog: a reference longer than `CHUNK` bytes is compared `CHUNK` bytes per step.
+                    let matched = if ref_text.len() <= crate::interrupt::CHUNK {
+                        take!(ref_text.len());
+                        if casei {
+                            matches_literal_casei(haystack, ix, ix_end, ref_text, unicode)
+                        } else {
+                            matches_literal(haystack, ix, ix_end, ref_text)
                         }
-                    } else if !matches_literal(haystack, ix, ix_end, ref_text) {
+                    } else {
+                        match matches_literal_stepped(haystack, ix, ix_end, ref_text, casei, unicode, &mut steps) {
+                            Some(matched) => matched,
+                            None => {
+                                return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded))
+                            }
+                        }
+                    };
+                    if !matched {
                         break 'fail;
                     }
                     ix = ix_end;
@@ -1402,10 +1692,14 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                         .anchored(Anchored::Yes)
                         .range(0..ix);
 
-                    match dfa.try_search_rev(&mut cache_guard, &input) {
-                        Ok(Some(match_result)) => {
+                    // mixdog: the reverse automaton is stepped here, `CHUNK` bytes per step, where
+                    // `try_search_rev` would run it to the start of the haystack in one call.
+                    match search_rev_stepped(dfa, &mut cache_guard, &input, &mut steps) {
+                        Reverse::Stopped => {
+                            return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded))
+                        }
+                        Reverse::Found(match_start) => {
                             // Update ix to the start position of the match
-                            let match_start = match_result.offset();
 
                             if let Some(inner) = capture_group_extraction_inner {
                                 if let Some(range) = capture_groups {
@@ -1415,7 +1709,11 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                                         .anchored(Anchored::Yes);
                                     inner_slots.resize((range.end() - range.start() + 1) * 2, None);
 
-                                    if inner.search_slots(&forward_input, inner_slots).is_some() {
+                                    // mixdog: one search over what the reverse scan just stepped through.
+                                    read_now!();
+                                    let found = inner.search_slots(&forward_input, inner_slots).is_some();
+                                    take!(ix - match_start);
+                                    if found {
                                         // Store capture group positions, ignoring any whose range is earlier than what has been stored already
                                         store_capture_groups(state, inner_slots, range, true);
                                     } else {
@@ -1430,7 +1728,7 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                                 ix = match_start;
                             }
                         }
-                        _ => break 'fail,
+                        Reverse::Missed => break 'fail,
                     }
                 }
                 Insn::BeginAtomic => {
@@ -1445,20 +1743,43 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     ref inner,
                     pattern: _,
                     capture_groups,
+                    ref stepped,
                 }) => {
                     let input = Input::new(haystack.as_bytes())
                         .span(ix..haystack.len())
                         .anchored(Anchored::Yes);
+                    // mixdog: the lazy DFA finds where the match ends, `CHUNK` bytes per counted step; the meta
+                    // engine then reads the groups of that match only.
+                    read_now!();
+                    let end = match search_fwd_stepped(stepped, &input, &mut steps) {
+                        Stepping::Found(end) => Some(end),
+                        Stepping::Missed => break 'fail,
+                        Stepping::Unable => None,
+                        Stepping::Stopped => {
+                            return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded))
+                        }
+                    };
+                    let input = match end {
+                        Some(end) => {
+                            read_now!();
+                            input.span(ix..end)
+                        }
+                        None => input,
+                    };
                     if let Some(range) = capture_groups {
                         // Has capture groups, need to extract them
                         inner_slots.resize((range.end() - range.start() + 1) * 2, None);
-                        if inner.search_slots(&input, inner_slots).is_some() {
+                        let found = inner.search_slots(&input, inner_slots).is_some();
+                        take!(input.end() - ix);
+                        if found {
                             // store the capture groups, no need to check current state to see if new values are further to the right
                             store_capture_groups(state, inner_slots, range, false);
                             ix = inner_slots[1].unwrap().get();
                         } else {
                             break 'fail;
                         }
+                    } else if let Some(end) = end {
+                        ix = end;
                     } else {
                         // No groups, so we can use faster methods
                         match inner.search_half(&input) {
@@ -1476,9 +1797,20 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     // Check if delegate matches at current position
                     let input = Input::new(haystack.as_bytes())
                         .span(ix..haystack.len())
-                        .anchored(Anchored::Yes);
+                        .anchored(Anchored::Yes)
+                        .earliest(true);
                     // capture groups in the delegate are always ignored, so we can use the quicker search_half method
-                    let delegate_matches_here = delegate.inner.search_half(&input).is_some();
+                    // (mixdog: its lazy DFA stepped here, the stop read before; each advance below comes back here
+                    // as a new step)
+                    read_now!();
+                    let delegate_matches_here = match search_fwd_stepped(&delegate.stepped, &input, &mut steps) {
+                        Stepping::Found(_) => true,
+                        Stepping::Missed => false,
+                        Stepping::Unable => delegate.inner.search_half(&input).is_some(),
+                        Stepping::Stopped => {
+                            return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded))
+                        }
+                    };
 
                     if delegate_matches_here {
                         // Delegate matches at current position - we've reached the boundary
@@ -1537,6 +1869,8 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                         // TODO: ideally we would be able to use .earliest(true) as an extra optimization
                         //       as we only care about the start of the match, but unfortunately this doesn't
                         //       always return the correct start position, perhaps a bug in regex-automata
+                        // mixdog: never compiled (`lib.rs` passes no seek filter): this search is unbounded.
+                        read_now!();
                         let seek_input = Input::new(haystack.as_bytes()).span(ix..match_range.end);
                         match inner.search(&seek_input) {
                             None => return Ok(None),
@@ -1603,10 +1937,6 @@ fn run_with<S: HaystackInput + ?Sized, T>(
 
         backtrack_count += 1;
         if backtrack_count > options.backtrack_limit {
-            return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded));
-        }
-        #[cfg(feature = "std")]
-        if backtrack_count % crate::interrupt::INTERVAL == 0 && crate::interrupt::interrupted() {
             return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded));
         }
 

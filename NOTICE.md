@@ -86,6 +86,24 @@ MIT terms. The upstream notice is preserved as `LICENSES/ripgrep-NOTICE.txt`.
 - `native/mixdog-graph/` (the `grep` and `ignore` crates)
 - `src/runtime/agent/orchestrator/tools/builtin/` (the `rg` fast path)
 
+### fancy-regex 0.19.2 — Copyright 2015 The Fancy Regex Authors
+
+<https://github.com/fancy-regex/fancy-regex>
+
+The crate is vendored and compiled into the Rust core, where it matches the
+`pattern` keywords of MCP tools' output schemas. The upstream license is
+preserved as `LICENSES/fancy-regex-MIT.txt` and beside the vendored tree.
+
+- `native/vendor/fancy-regex/`
+
+Statement of changes (listed in `native/vendor/fancy-regex/MIXDOG.md` and
+marked `mixdog` in the sources): a stop a caller sets on its thread, which a
+match reads at bounded intervals of counted steps (`src/interrupt.rs`, new;
+`src/vm.rs`); searches handed to regex-automata run its lazy DFA one byte at a
+time in the VM (`src/vm.rs`, `src/compile.rs`, `src/lib.rs`), and no seek
+pre-filter is compiled; the manifest drops the examples, tests, benches and
+dev-dependencies.
+
 ### Ink — Copyright (c) Vadim Demedes
 
 Installed from Mixdog's patched Ink runtime release asset. The package retains
