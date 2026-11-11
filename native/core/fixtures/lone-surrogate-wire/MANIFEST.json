@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 441639,
+      "bytes": 447263,
       "path": "golden.json",
-      "sha256": "9a5a2a85b80090c57ac632a2226d1f7bbd3ab1f965ce05d786c33b8994407ca4"
+      "sha256": "5e07a84eb1300c6984f76eb8046f791404334575f338e976a3f7046493785afb"
     }
   ],
   "inputs": [
@@ -17,11 +17,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-cases.mjs",
-      "sha256": "b2599464d0b804760b9b12aab840e932d36bfa627ab4ef5bcf4331f237956d6d"
+      "sha256": "22c323e2242ddfc9b33030065cadbc03731d4e0c86293b2d1659bf5c350cd499"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "8814e37d0c183cb5b83166c075ce0b615389584abeb84b1402ead796569e26b6"
+      "sha256": "c049037ffb09f2ea1a5a6ed94e358a123dcd7d54631fa6deae56078395130892"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -41,7 +41,16 @@
     }
   ],
   "nodeVersion": "v22.20.0",
-  "normalisations": [],
+  "normalisations": [
+    {
+      "cases": [
+        "mcp-add-header-lone",
+        "mcp-save-header-lone"
+      ],
+      "field": "node.config.value.config.headers.*",
+      "how": "each lone surrogate read as U+FFFD before comparing"
+    }
+  ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -60,67 +69,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "e975a58ec21c7b0ac7f5fb02e16ac5fb4bd9e1fd89d5da78d9c44ad5389cfef1",
+  "recorderSha256": "a39a7a8b3c9cc89ad27acf5075635a3a1193ec29291258e0153f50a2c3227ddc",
   "refusedByRule": {
     "cases": [
-      {
-        "case": "mcp-add-header-lone",
-        "coreMustAnswer": {
-          "code": -32602,
-          "data": {
-            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in mcp/addMcpServer.params/input/headers/X-Token",
-            "path": "mcp/addMcpServer.params/input/headers/X-Token",
-            "reason": "invalidParams"
-          },
-          "kind": "rpc",
-          "message": "invalidParams",
-          "reason": "invalidParams"
-        },
-        "field": "mcp/addMcpServer.params/input/headers/X-Token",
-        "nodeAnswered": {
-          "connected": {
-            "error": "[mcp-client] 1 MCP server(s) failed to connect — lone-header: Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
-            "failures": [
-              {
-                "msg": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
-                "name": "lone-header"
-              }
-            ],
-            "ok": false
-          },
-          "saved": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}"
-        },
-        "nodeRequests": []
-      },
-      {
-        "case": "mcp-save-header-lone",
-        "coreMustAnswer": {
-          "code": -32602,
-          "data": {
-            "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in mcp/saveMcpServer.params/input/headers/X-Token",
-            "path": "mcp/saveMcpServer.params/input/headers/X-Token",
-            "reason": "invalidParams"
-          },
-          "kind": "rpc",
-          "message": "invalidParams",
-          "reason": "invalidParams"
-        },
-        "field": "mcp/saveMcpServer.params/input/headers/X-Token",
-        "nodeAnswered": {
-          "connected": {
-            "error": "[mcp-client] 1 MCP server(s) failed to connect — lone-header-save: Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
-            "failures": [
-              {
-                "msg": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
-                "name": "lone-header-save"
-              }
-            ],
-            "ok": false
-          },
-          "saved": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}"
-        },
-        "nodeRequests": []
-      },
       {
         "case": "lsp-rename-lone",
         "coreMustAnswer": {
@@ -362,5 +313,5 @@
     }
   ],
   "set": "lone-surrogate-wire",
-  "totalBytes": 441639
+  "totalBytes": 447263
 }

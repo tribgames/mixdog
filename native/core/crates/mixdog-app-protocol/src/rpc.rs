@@ -197,6 +197,7 @@ pub fn decode_inbound_text(frame: &str, max_inbound_frame_bytes: usize) -> Inbou
                         mixdog_js::LoneAt::Value(pointer) => mixdog_js::LoneAt::Value(format!("#{pointer}")),
                         mixdog_js::LoneAt::Key(pointer) => mixdog_js::LoneAt::Key(format!("#{pointer}")),
                         mixdog_js::LoneAt::MergedKey(pointer) => mixdog_js::LoneAt::MergedKey(format!("#{pointer}")),
+                        mixdog_js::LoneAt::Unit { pointer, at, unit } => mixdog_js::LoneAt::Unit { pointer: format!("#{pointer}"), at: *at, unit: *unit },
                     })
                 })
                 .collect::<Vec<_>>()

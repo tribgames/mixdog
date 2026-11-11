@@ -72,8 +72,17 @@ export async function replay({ exe, golden, only, startServer, buildWorld }) {
       // `preconnect`, once per origin and process), which the core does not send for a custom origin: a difference of
       // provider construction, not of the string under test, so the warm-up is left out of both sides.
       const sent = (log) => log.filter((request) => !(request.method === 'HEAD' && request.url === '/'));
-      const core = { node: got.ok ? { ok: true, value: got.value } : { ok: false, error: got.error }, requests: sent(requests) };
-      const expected = { node: node.node, requests: sent(node.requests) };
+      const answer = got.ok ? { ok: true, value: got.value } : { ok: false, error: got.error };
+      let core = { node: answer, requests: sent(requests) };
+      let expected = { node: node.node, requests: sent(node.requests) };
+      if (entry.after) {
+        // What a client reads after the call: the status, and the server's config (its header value's lone unit read as U+FFFD,
+        // the manifest's normalisation).
+        const status = await call('mcp/mcpStatus', {});
+        const config = await call('mcp/getMcpServerConfig', { name: entry.after });
+        core = { node: { answer, status, config }, requests: core.requests };
+        expected = { node: { ...node.node, config: JSON.parse(JSON.stringify(node.node.config).replace(/\\ud[89a-f][0-9a-f]{2}/g, '\\ufffd')) }, requests: expected.requests };
+      }
       if (!isDeepStrictEqual(core, expected)) unexpected.push({ case: entry.name, node: expected, core });
     }
     console.log(`lone-surrogate-wire replay over ${exe}: ${compared} compared, ${refused.length} refused by decision, ${unexpected.length} unexpected`);

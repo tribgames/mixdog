@@ -2,8 +2,9 @@
 // What Node (b6f10295a, an exact export) does with a client's string holding an unpaired UTF-16 surrogate where the string
 // becomes an HTTP header, a URL query or a language-server request, or where its serialised size is limited
 // (lib/lone-surrogate-wire-cases.mjs). Each case runs Node's own code for that request:
-//   - mcpConnect: the editor input as Node saves it (`normalizeMcpServerInput`, mcp-glue/server-input.mjs) and the connect Node
-//     runs right after the save (`connectMcpServers`, mcp/client.mjs, the SDK's streamable HTTP transport);
+//   - mcpRuntime: `addMcpServer` / `saveMcpServer` of Node's own session runtime (`createMixdogSessionRuntime`, its home, data and
+//     profile folders in the scratch world), which saves the server and connects it (the SDK's streamable HTTP transport); then
+//     what a client reads after the call: `mcpStatus` and `getMcpServerConfig` of the server;
 //   - mcpProbe: `probeMcpServerAuth` (mcp/oauth-probe.mjs);
 //   - custom: `saveCustomProvider` / `testCustomProvider` / `discoverCustomProviderModels` (services/provider-admin.mjs) over a
 //     config holding no provider;
@@ -74,15 +75,14 @@ const identity = exactProductIdentity(tree, COMMIT);
 // Nothing of the signed-in profile is read or written.
 const STATE = `${ROOT}-node-state`;
 rmSync(STATE, { recursive: true, force: true });
-for (const dir of ['home', 'data', 'userData']) mkdirSync(join(STATE, dir), { recursive: true });
-Object.assign(process.env, { MIXDOG_HOME: join(STATE, 'home'), MIXDOG_DATA_DIR: join(STATE, 'data') });
+for (const dir of ['home', 'data', 'userData', 'profile']) mkdirSync(join(STATE, dir), { recursive: true });
+for (const key of ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = join(STATE, 'profile');
+Object.assign(process.env, { MIXDOG_HOME: join(STATE, 'home'), MIXDOG_DATA_DIR: join(STATE, 'data'), MIXDOG_SKIP_USER_DATA_BACKUP: '1' });
 buildWorld();
 
 const at = (path) => importFrom(tree, path);
-const { normalizeMcpTransportUrl } = await at('src/runtime/agent/orchestrator/mcp/client-config.mjs');
-const { createMcpServerInput } = await at('src/session-runtime/mcp-glue/server-input.mjs');
-const { normalizeMcpServerInput } = createMcpServerInput({ mcpClient: { normalizeMcpTransportUrl }, getCurrentCwd: () => PROJECT });
 const mcpClient = await at('src/runtime/agent/orchestrator/mcp/client.mjs');
+const { createMixdogSessionRuntime } = await at('src/mixdog-session-runtime.mjs');
 const { probeMcpServerAuth } = await at('src/runtime/agent/orchestrator/mcp/oauth-probe.mjs');
 const admin = await at('src/session-runtime/services/provider-admin.mjs');
 const { createHuggingFaceCatalog } = await at('src/runtime/local-provider/hugging-face.mjs');
@@ -116,18 +116,15 @@ const outcome = async (run) => {
 const config = { providers: {} };
 const cfgMod = { loadConfig: () => structuredClone(config), saveConfig: () => {} };
 const CUSTOM = { save: admin.saveCustomProvider, test: admin.testCustomProvider, discover: admin.discoverCustomProviderModels };
+// One session runtime for the MCP cases, made at the first: they run in order on it, as the core's replay runs them on one core.
+let runtime = null;
 const RUN = {
-  async mcpConnect({ input }) {
-    const { name, config: saved } = normalizeMcpServerInput(input);
-    const connected = await within(
-      mcpClient.connectMcpServers({ [name]: saved }).then(
-        () => ({ ok: true }),
-        (error) => ({ ok: false, error: error.message, failures: error.failures ?? null }),
-      ),
-      `the connect of ${name}`,
-    );
-    // What Node writes into the config file for the server (JSON.stringify: a lone unit as its six-character escape).
-    return { saved: JSON.stringify(saved), connected };
+  async mcpRuntime({ op, input }) {
+    runtime ??= await within(createMixdogSessionRuntime({ cwd: PROJECT, toolMode: 'full' }), 'the session runtime');
+    const answer = await within(outcome(() => runtime[op](input)), `${op} of ${input.name}`);
+    const status = await within(outcome(() => runtime.mcpStatus()), 'mcpStatus');
+    const config = await within(outcome(() => runtime.getMcpServerConfig(input.name)), `getMcpServerConfig of ${input.name}`);
+    return { answer, status, config };
   },
   mcpProbe: ({ cfg }) => outcome(() => probeMcpServerAuth(cfg)),
   custom: ({ op, input }) => within(outcome(() => CUSTOM[op](cfgMod, input)), `custom ${op}`),
@@ -169,6 +166,7 @@ try {
   }
 } finally {
   await operations.dispose();
+  if (runtime) await within(runtime.close(), 'the session runtime closing');
   await mcpClient.disconnectAll();
   await server.close();
   process.env.PATH = hostPath;
@@ -192,7 +190,9 @@ writeSetManifest(stage, {
     exact: true,
     ...recorderProvenance(import.meta.url),
     exclusions: [],
-    normalisations: [],
+    // The MCP cases' config read after the call: Node keeps the header value with its lone unit; the core holds it as U+FFFD (the
+    // accepted echo difference, decisions.md "frame-lone-surrogate"). Its status, error text included, is compared unchanged.
+    normalisations: [{ cases: CASES.filter((entry) => entry.after).map((entry) => entry.name), field: 'node.config.value.config.headers.*', how: 'each lone surrogate read as U+FFFD before comparing' }],
     // Cases the core refuses by decision: the field is not free text (mixdog-app-protocol free_text.rs, tests/it/free_text_fields.json).
     // Node's answer and what reached the local server are recorded (golden.json cases[].node, cases[].requests).
     refusedByRule: {

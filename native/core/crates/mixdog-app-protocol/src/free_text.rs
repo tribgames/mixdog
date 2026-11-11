@@ -43,11 +43,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         "turn/start",
         &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
     ),
-    // A server's arguments and environment values as a person typed them (the names stay identifiers). Its header values are
-    // not here: they go on every request to the server, where Node's fetch refuses a lone unit and the core's HTTP library
-    // would send the U+FFFD bytes (recorded, native/core/fixtures/lone-surrogate-wire).
-    (Kind::Request, "mcp/addMcpServer", &["/input/args/*", "/input/env/*"]),
-    (Kind::Request, "mcp/saveMcpServer", &["/input/args/*", "/input/env/*"]),
+    // A server's arguments, environment values and header values as a person typed them (the names stay identifiers). A header
+    // value is saved as Node saves it; its connection then fails with Node's ByteString error naming the lone unit, which the
+    // service keeps for it (mixdog-mcp lone_headers.rs; recorded, native/core/fixtures/lone-surrogate-wire).
+    (Kind::Request, "mcp/addMcpServer", &["/input/args/*", "/input/env/*", "/input/headers/*"]),
+    (Kind::Request, "mcp/saveMcpServer", &["/input/args/*", "/input/env/*", "/input/headers/*"]),
     (Kind::Request, "thread/askSide", &["/question"]),
     (Kind::Request, "thread/queue/delete", &["/currentText"]),
     (Kind::Request, "thread/requestWorktree", &["/input/prompt"]),
@@ -277,7 +277,7 @@ pub fn matches(pattern: &str, pointer: &str) -> bool {
 pub fn is_free_text(kind: Kind, method: &str, at: &LoneAt) -> bool {
     let patterns = FREE_TEXT.iter().filter(|(k, m, _)| *k == kind && *m == method).flat_map(|(_, _, patterns)| patterns.iter());
     match at {
-        LoneAt::Value(pointer) => patterns.filter(|pattern| !pattern.ends_with("/{}")).any(|pattern| matches(pattern, pointer)),
+        LoneAt::Value(pointer) | LoneAt::Unit { pointer, .. } => patterns.filter(|pattern| !pattern.ends_with("/{}")).any(|pattern| matches(pattern, pointer)),
         LoneAt::Key(pointer) => patterns.filter(|pattern| pattern.ends_with("/{}") || pattern.ends_with("/**")).any(|pattern| matches(pattern, pointer)),
         LoneAt::MergedKey(_) => false,
     }
@@ -316,8 +316,10 @@ mod tests {
         // A map: its values are free text by `*`, its keys stay refused unless a `{}` pattern names them.
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/env/HOME")]), None);
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/env/HOME".into())]), Some("/input/env/HOME"));
-        // A server's header value goes on the wire: refused. A language server's params per field.
-        assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/headers/X-Token")]), Some("/input/headers/X-Token"));
+        // A server's header value is saved and fails its connection as Node's does; its name stays refused. A language server's
+        // params per field.
+        assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/headers/X-Token")]), None);
+        assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/headers/X-Token".into())]), Some("/input/headers/X-Token"));
         assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/newName")]), Some("/request/params/newName"));
         assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/textEdit/newText")]), None);
     }

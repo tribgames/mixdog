@@ -1033,8 +1033,14 @@ impl McpService {
             "mcp/mcpStatus" => self.mcp_status(p).await,
             "mcp/getMcpServerConfig" => self.runtime.server_config(&text(field(p, "name"))).await,
             "mcp/reconnectMcp" => self.reconnect_mcp(p.get("name").and_then(Value::as_str)).await,
-            "mcp/addMcpServer" => self.add_mcp_server(field(p, "input"), &req.ctx.cancel).await.map_err(|_| cancelled())?,
-            "mcp/saveMcpServer" => self.save_mcp_server(field(p, "input")).await,
+            "mcp/addMcpServer" => {
+                crate::lone_headers::remember(field(p, "input"), &req.ctx.lone_surrogates);
+                self.add_mcp_server(field(p, "input"), &req.ctx.cancel).await.map_err(|_| cancelled())?
+            }
+            "mcp/saveMcpServer" => {
+                crate::lone_headers::remember(field(p, "input"), &req.ctx.lone_surrogates);
+                self.save_mcp_server(field(p, "input")).await
+            }
             "mcp/removeMcpServer" => self.remove_mcp_server(&text(field(p, "name"))).await,
             "mcp/setMcpServerEnabled" => self.set_mcp_server_enabled(&text(field(p, "name")), field(p, "enabled")).await,
             "mcp/enablePluginMcp" => self.enable_plugin_mcp(field(p, "plugin")).await,

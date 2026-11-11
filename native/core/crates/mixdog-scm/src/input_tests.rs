@@ -387,7 +387,8 @@ fn a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it() {
     else {
         panic!("the core's frame decoder refuses {frame}");
     };
-    assert_eq!(request.lone_surrogates.iter().map(mixdog_js::LoneAt::pointer).collect::<Vec<_>>(), ["/query"], "where the decoder replaced one");
+    let places = request.lone_surrogates.iter().filter(|at| matches!(at, mixdog_js::LoneAt::Value(_)));
+    assert_eq!(places.map(mixdog_js::LoneAt::pointer).collect::<Vec<_>>(), ["/query"], "where the decoder replaced one");
     use mixdog_app_protocol::free_text;
     assert_eq!(free_text::refused(free_text::Kind::Request, "git/log", &request.lone_surrogates), None, "a query is free text");
     // Node's answer and the arguments it acted on, each lone unit as the UTF-8 its spawn wrote: U+FFFD.
