@@ -83,6 +83,9 @@ pub enum Section {
     SetupChanged(Value),
     /// `progressHint` of the runtime section alone (`None` removes it): the rest of the section stays as it was. Producers of a hint (the running tool, the voice install) publish this, never a whole `Runtime`.
     ProgressHint(Option<Value>),
+    /// `spinner.quiet` of the runtime section alone (`None` clears it): the running turn's quiet state (`turn-quiet.mjs`
+    /// `set({ spinner: { ...spinner, quiet } })`). The rest of the section stays as it was.
+    SpinnerQuiet(Option<Value>),
     Route(ThreadRoute),
     Context(ThreadContext),
     Todo(Option<Value>),

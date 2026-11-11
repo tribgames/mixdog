@@ -82,3 +82,6 @@ tokio-util = { workspace = true }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }

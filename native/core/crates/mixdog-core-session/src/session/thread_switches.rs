@@ -994,6 +994,10 @@ impl ContextTarget for GaugeTarget {
     }
 }
 
+#[cfg(test)]
+#[path = "thread_switches_home_replay.rs"]
+mod home_replay;
+
 /// `isScratchSession(session)`: an agent's home thread or a room's thread never is; any other
 /// is while it holds no user conversation and no completed turn.
 pub(crate) fn is_scratch(thread: &str, committed: &[Value], live: &[Value]) -> bool {

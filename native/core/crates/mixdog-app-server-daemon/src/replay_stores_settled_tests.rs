@@ -97,6 +97,7 @@ impl mixdog_ledger::refresh::Pricer for NoPrices {
 
 async fn workers(headers: Arc<GatedHeaders>, root: &std::path::Path) -> StoreWorkers {
     let tokens = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &root.join("core.sqlite")).expect("core state");
     let root = root.to_owned();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &CancellationToken::new(), move |lane| {
         mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
@@ -105,7 +106,7 @@ async fn workers(headers: Arc<GatedHeaders>, root: &std::path::Path) -> StoreWor
     .await
     .expect("job ran")
     .expect("index");
-    StoreWorkers::new(index, headers, tokens.interactive_io)
+    StoreWorkers::new(index, headers, tokens.interactive_io, Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(state)))
 }
 
 /// The control over `directory`, the agent index `workers` and the other stores in `data`.

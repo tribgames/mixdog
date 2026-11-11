@@ -85,6 +85,7 @@ pub mod summary_routes;
 pub mod tail;
 pub mod unattended;
 pub mod tool_progress;
+pub mod quiet_watch;
 pub mod tool_pool;
 pub mod explorer_host;
 pub mod explorer_env;
@@ -163,4 +164,10 @@ pub mod workflow_surface;
 pub mod member_names;
 pub mod room_daemon;
 pub mod room_files;
+#[cfg(test)]
+mod room_rows_replay;
+#[cfg(test)]
+mod room_send_replay;
+#[cfg(test)]
+mod pool_list_replay;
 pub mod room_labels;

@@ -1685,7 +1685,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The purge hooks a deleted session runs (warm cache, read state, transcript offsets, provider connections, worker turns, the worker index).
     // The worker index (flip-ce-7): `turn_starts` binds to it, the `Owed` rows and the host runtime read it. `StoreWorkers` hears the status signals (flip-ce-10).
     let reap = Arc::new(mixdog_core::run_host::agent_inputs::ConfigReap::new(config.clone())); // the one reap `recover` also takes
-    let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(catalog_index.clone(), Arc::new(LateThreads(late.clone())), b.tokens.interactive_io));
+    let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(
+        catalog_index.clone(),
+        Arc::new(LateThreads(late.clone())),
+        b.tokens.interactive_io,
+        // The rows of sessions deleted while they still count, kept in the core's state as Node's index file keeps them.
+        Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(b.core_state.clone())),
+    ));
     store_workers.bind_signals(activity.signals()).map_err(|_| ComposeError::AlreadyBound("store worker signals"))?;
     #[cfg(feature = "replay-controls")]
     let replay_workers = store_workers.clone();
@@ -2544,9 +2550,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let room_sessions = Arc::new(
         mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
     );
-    let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
-        summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
-    ))));
+    // Node's supervisor step logs one line per step with `process.stderr.write` (`room-supervisor-completion.mjs` default `log`): the daemon's raw stderr.
+    let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(
+        Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
+            summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
+        )),
+        { let log = b.log.clone(); Arc::new(move |chunk: &str| log.raw(chunk)) },
+    ));
     // Node's rooms log (`agent-rooms.ts:190`) is `console.warn("[mixdog-rooms] <line>")` in the desktop main process. Rooms live in the core (spec §9), so it is the
     // daemon's `console.warn`, which `installRedirect` (`daemon.mjs:844`) writes as `[<ISO>] [console.warn] [mixdog-rooms] <line>`: `console_warn_sink()` (wp-ai-svc-35), no `[daemon]` tag.
     let room_log: Arc<dyn Fn(&str) + Send + Sync> = {
@@ -2570,6 +2580,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 b.tokens.durability_io,
                 b.data_dir.clone(),
                 mixdog_services::task_reports::collect::sensitive_scopes(&[home.clone(), mixdog_home.clone(), b.data_dir.clone()]),
+                documents.clone(),
                 room_log.clone(),
             )),
             sessions: room_sessions.clone(),
@@ -2577,6 +2588,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             maintainer: maintainer.clone(),
             preview: Arc::new(|text: &str| mixdog_core_rooms::rooms::preview::plain_preview_text(text)), // flip-rooms-9
             log: room_log.clone(),
+            now: now_ms.clone(),
         },
     );
     let room_calls = mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live_rooms.clone())), room_log.clone());
@@ -2668,6 +2680,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
         definition_names.clone(),
         rooms_ready.clone(),
+        // A user's message into a room (`room/send`, the composer's `submitToSession` on a room log).
+        Arc::new(mixdog_core_rooms::rooms::user_send::UserSend::new(rooms.clone(), live_rooms.clone(), room_calls.clone())),
     )))?;
     // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
     // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
