@@ -73,7 +73,7 @@ await run('in-band-error-after-stop', 174, [cand([{ text: 'ok' }], { finishReaso
 await run('in-band-error-unterminated-tail', 185, [], undefined, `data: ${JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } })}`);
 const silent = new Response(new ReadableStream({ start() {} }));
 rec.describe(silent, { $response: { status: silent.status, statusText: silent.statusText, headers: [...silent.headers.entries()], bodyChunks: [], bodyNeverEnds: true } });
-await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:196`, { firstByteTimeoutMs: 25, label: 'fixture', response: silent, advanceMs: [25] }, async () => {
+await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:197`, { firstByteTimeoutMs: 25, label: 'fixture', response: silent, advanceMs: [25] }, async () => {
   const pending = consumeGeminiRestStreamResponse(silent, { label: 'fixture', firstByteTimeoutMs: 25 }).then((response) => ({ response }), (error) => ({ error }));
   await rec.clock.advance(25, { what: 'gemini first-chunk window' });
   return pending;
