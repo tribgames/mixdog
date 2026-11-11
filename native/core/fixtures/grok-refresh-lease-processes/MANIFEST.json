@@ -28,11 +28,11 @@
   "recorder": "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/processes.mjs",
   "recorderSha256": "06f1987c087e6be555ce6aebd457fa8f5098d00e736e64e425bb670d035c23e0",
   "runtime": {
-    "electron": "43.8.4",
-    "node": "v24.22.1"
+    "electron": null,
+    "node": "v22.20.0"
   },
   "scripts": {
-    "benchmarks/rust-core/recorders/lib/common.mjs": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66",
+    "benchmarks/rust-core/recorders/lib/common.mjs": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096",
     "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/node_child.mjs": "744380ebc7eb6d4461215a5138977050156bc92f5417857a9ef8cefddeafaa23"
   },
   "set": "grok-refresh-lease-processes",
