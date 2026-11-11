@@ -189,6 +189,8 @@ mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
 #[cfg(test)]
+mod session_reentry_tests;
+#[cfg(test)]
 mod new_task_tests;
 
 use std::sync::Arc;

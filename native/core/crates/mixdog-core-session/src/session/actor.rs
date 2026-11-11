@@ -433,10 +433,18 @@ const SUBMISSION_MEMORY: usize = 256;
 struct Submissions {
     order: std::collections::VecDeque<String>,
     answers: std::collections::HashMap<String, Value>,
+    /// The submission whose start is reading its input row's facts (its answer is not known yet), and the retried sends of it
+    /// that joined meanwhile: they hear the original's answer, as Node's memory took the id when the send was admitted.
+    starting: Option<(String, Vec<Waiter>)>,
 }
 
 impl Submissions {
     fn remember(&mut self, id: &str, answer: Value) {
+        if let Some((_, joined)) = self.starting.take_if(|(starting, _)| starting == id) {
+            for waiter in joined {
+                let _ = waiter.send(Ok(Reply::Value(answer.clone())));
+            }
+        }
         if self.answers.insert(id.to_owned(), answer).is_none() {
             self.order.push_back(id.to_owned());
         }
@@ -451,6 +459,22 @@ impl Submissions {
         if self.answers.remove(id).is_some() {
             self.order.retain(|kept| kept != id);
         }
+    }
+
+    /// A send of the starting submission: it waits for the original's answer. Gives the waiter back when none is starting.
+    fn join(&mut self, id: &str, waiter: Waiter) -> Option<Waiter> {
+        match &mut self.starting {
+            Some((starting, joined)) if starting == id => {
+                joined.push(waiter);
+                None
+            }
+            _ => Some(waiter),
+        }
+    }
+
+    /// The start never happened: the joined sends hear the drop, as the original's waiter does.
+    fn unstarted(&mut self) {
+        self.starting = None;
     }
 }
 
@@ -1831,7 +1855,7 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        for (id, record, bytes) in self.outbox.handoff() {
+        for (id, record, bytes) in self.outbox.handoff(self.ch.dur_tx.capacity()) {
             let msg = ToDurability::Append {
                 id,
                 generation: self.generation,
@@ -4114,6 +4138,18 @@ impl SessionActor {
             let _ = tx.send(Ok(Reply::Value(answer.clone())));
             return Ok(());
         }
+        let tx = if req.method.as_str() == "turn/start"
+            && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
+            && display_text(&params.input) != ""
+            && let Some(id) = submission_id(&params.input)
+        {
+            match self.submissions.join(id, tx) {
+                Some(tx) => tx,
+                None => return Ok(()),
+            }
+        } else {
+            tx
+        };
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -4209,6 +4245,9 @@ impl SessionActor {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
+            if let Some(submission) = submission_id(&params.input) {
+                self.submissions.starting = Some((submission.to_owned(), Vec::new()));
+            }
             return Ok(Plan {
                 kind: PlanKind::StartRun(params.input, op_ref),
                 value,
@@ -4965,6 +5004,7 @@ impl SessionActor {
             self.submitter = None;
             self.retry_provenance = None;
             self.retry_prior = None;
+            self.submissions.unstarted();
         }
     }
 
@@ -4974,6 +5014,7 @@ impl SessionActor {
         let submitter = self.submitter.take();
         // A delete closed the thread meanwhile: the turn never starts.
         if self.deleting {
+            self.submissions.unstarted();
             return;
         }
         let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent, routine } = start;

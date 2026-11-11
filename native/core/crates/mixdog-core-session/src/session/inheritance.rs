@@ -180,8 +180,10 @@ impl SessionDirectory {
             handle.request(CoreRequest { method: Method(method), params, op: None, ctx: ctx.clone() }).await?;
         }
         let held = handle.cell.header.load();
+        // The summary of the header as acked (the view's own, `view()`): the patch's reply is sent before its view is published,
+        // so the view held now still shows the heir before it named its source.
         Ok(Reply::Value(json!({
-            "thread": handle.cell.view.load_full().summary.clone(),
+            "thread": self.deps().transcript.summary(heir, &held),
             "messages": count,
             "provider": held.get("provider").cloned().unwrap_or(Value::Null),
             "model": held.get("model").cloned().unwrap_or(Value::Null),

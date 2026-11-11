@@ -189,7 +189,7 @@ pub struct ComposedCore {
     local_processes: LocalProcessManager,
     /// The one shell registry and kill route of the process (exec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
-    stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    stop_steps: StopSteps,
     final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
     /// The daemon log and the run token it holds: the stop procedure flushes the one, then cancels the other.
     log: crate::daemon_log::DaemonLog,
@@ -199,6 +199,45 @@ pub struct ComposedCore {
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// The ordered stop steps and the one run of them in progress. A stop that overlaps one in progress awaits that same run (Node's
+/// `disposeDesktopSessionHost` hands every caller the one `disposePromise`, session-host-lifecycle.ts): it never returns before the
+/// cleanup has ended, and nothing runs twice. A call after a run has ended runs only the steps registered since.
+#[derive(Default)]
+pub(crate) struct StopSteps {
+    steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    running: std::sync::Mutex<Option<futures::future::Shared<futures::future::BoxFuture<'static, ()>>>>,
+}
+
+impl StopSteps {
+    pub(crate) fn push(&self, name: &'static str, step: StopStep) {
+        self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, step));
+    }
+
+    pub(crate) async fn run(&self) {
+        use futures::FutureExt;
+        let run = {
+            let mut running = self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match running.as_ref() {
+                Some(run) if run.peek().is_none() => run.clone(),
+                _ => {
+                    let steps = std::mem::take(&mut *self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+                    let run = async move {
+                        for (name, step) in steps {
+                            tracing::debug!(step = name, "stopping");
+                            step.await;
+                        }
+                    }
+                    .boxed()
+                    .shared();
+                    *running = Some(run.clone());
+                    run
+                }
+            }
+        };
+        run.await;
+    }
+}
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
@@ -317,7 +356,7 @@ impl ComposedCore {
     /// directory shutdown, `GraphCache::drain`, ...). Steps run in registration order, after the
     /// extension host has closed.
     pub fn on_stop(&self, name: &'static str, step: impl Future<Output = ()> + Send + 'static) {
-        self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, Box::pin(step)));
+        self.stop_steps.push(name, Box::pin(step));
     }
 
     /// Registers a barrier the release procedure runs before it closes connections: a session
@@ -379,11 +418,7 @@ impl ComposedCore {
     /// The registered stop steps alone, for the release procedure that closes the extension host
     /// at its own point (RuntimeCore::close_ext_host).
     pub async fn run_stop_steps(&self) {
-        let steps = std::mem::take(&mut *self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        for (name, step) in steps {
-            tracing::debug!(step = name, "stopping");
-            step.await;
-        }
+        self.stop_steps.run().await;
         // Flushed after every other stop step, as Node does (daemon.mjs:411 awaits flushDaemonLogs after the discovery withdrawal and the
         // singleton release, just before the exit): Node flushes, it never closes a stream. Then the run token ends (the log's lane jobs hang
         // on it; Rust-only). A second call finds nothing to run and both are idempotent.
@@ -763,7 +798,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tidy_processes,
         local_processes,
         shell_control,
-        stop_steps: std::sync::Mutex::new(Vec::new()),
+        stop_steps: StopSteps::default(),
         final_barriers: std::sync::Mutex::new(Vec::new()),
         log,
         stop,

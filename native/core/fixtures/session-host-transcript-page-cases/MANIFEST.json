@@ -71,17 +71,24 @@
   "recorderSha256": "feb487051a9acb65ae7707d3b52552b24f9130c9a1f86c82a1e0c24f07debf7d",
   "replay": {
     "compare": "mixdog-app-server thread/items/list: replay the open and the next-page read; compare the read args the host sent, each reply whole (page/full, items, byte size) and the held snapshot whole",
-    "entry": "Drive these public items on o1: thread/items/list (mixdog-app-protocol/src/methods.rs:185).",
+    "entry": "Drive thread/items/list (mixdog-core-session/src/session/reads.rs items_list) over a real store: mixdog-app-server-daemon session_host_replay_tests (an_older_page_answers_only_the_revealed_rows_as_node_recorded, a_full_read_answers_the_whole_window_as_node_recorded).",
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the page / full reply shape, projectionStamp and transcriptHeld: no counterpart found"
-    ],
-    "normalised": {},
+    "missingOnO1": [],
+    "normalised": {
+      "rowIds": "a row id is the core's item id where the recorder scripted c0..c299; the rows are compared whole without it",
+      "rowText": "the recorder handed its scripted rows to the host untrimmed (`row <id> ` x50); a stored assistant message restores as its trimmed text in Node (transcript-restore/restore.mjs restoredAssistantTranscriptItems) and in the core alike, so the recorded text is compared trimmed",
+      "pageShape": "Node's host reply wrapper (page/full, projectionStamp, byte size) is the desktop host's; the core answers the same rows and hasOlder on thread/items/list (older page by the opening page's nextCursor; full read without a cursor)"
+    },
     "protocolMethods": [
       "thread/items/list (mixdog-app-protocol/src/methods.rs:185)"
     ],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": {
+      "an older page crosses the daemon hop as the revealed rows only, and the host keeps its held copy": "session_host_replay_tests::an_older_page_answers_only_the_revealed_rows_as_node_recorded",
+      "a session that changed between reads answers the page in full": "session_host_replay_tests::a_full_read_answers_the_whole_window_as_node_recorded",
+      "held rows that move while the page is in flight fall back to a full read": "session_host_replay_tests::a_full_read_answers_the_whole_window_as_node_recorded"
+    }
   },
   "set": "session-host-transcript-page-cases",
   "totalBytes": 378041,
