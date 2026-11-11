@@ -36287,7 +36287,13 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\Users\\\\tempe\\\\side\\\\pool\\\\w31\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000002\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4242,\"cwd\":\"<CWD>\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000002\",\"protocol\":1,\"revision\":6}",
+              "rewrites": {
+                "<CWD> (JSON-escaped)": {
+                  "originalLength": 33,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -38753,7 +38759,13 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\Users\\\\tempe\\\\side\\\\pool\\\\w31\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000024\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4242,\"cwd\":\"<CWD>\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000024\",\"protocol\":1,\"revision\":6}",
+              "rewrites": {
+                "<CWD> (JSON-escaped)": {
+                  "originalLength": 33,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -39030,7 +39042,13 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\Users\\\\tempe\\\\side\\\\pool\\\\w31\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000025\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4242,\"cwd\":\"<CWD>\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000025\",\"protocol\":1,\"revision\":6}",
+              "rewrites": {
+                "<CWD> (JSON-escaped)": {
+                  "originalLength": 33,
+                  "count": 1
+                }
+              }
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
