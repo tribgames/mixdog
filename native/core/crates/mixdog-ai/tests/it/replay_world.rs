@@ -23,8 +23,6 @@ use mixdog_ai::catalog::ModelsDevSource;
 use mixdog_ai::providers::anthropic::catalog_caps::CatalogCaps;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::oauth::pace::Pace;
-use mixdog_ai::providers::google::traits::ModelTraits;
-use mixdog_ai::providers::google::traits::ThinkingControl;
 use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::providers::openai::config::CodexIdentity;
 use mixdog_ai::providers::openai::config::NoFacts;
@@ -58,18 +56,6 @@ struct CaseEnv(Vec<(String, String)>);
 impl Environment for CaseEnv {
     fn var(&self, name: &str) -> Option<String> {
         self.0.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
-    }
-}
-
-/// No catalog traits: no case of these sets reads one.
-struct NoTraits;
-
-impl ModelTraits for NoTraits {
-    fn is_gemini_family(&self, _: &str) -> bool {
-        false
-    }
-    fn thinking(&self, _: &str) -> ThinkingControl {
-        ThinkingControl::Unspecified
     }
 }
 
@@ -181,13 +167,29 @@ pub async fn builder_with(
     env: Vec<(String, String)>,
     context: SessionContext,
 ) -> DefaultProviderBuilder {
+    builder_versioned(endpoint, home, env, context, false).await
+}
+
+/// [`builder_with`] that, with `versioned`, wires the product's client-version service as production does: the
+/// Antigravity route reads the updater's manifest before its first send (`ensureAntigravityVersion`), over the same link.
+pub async fn builder_versioned(
+    endpoint: &Endpoint,
+    home: &std::path::Path,
+    env: Vec<(String, String)>,
+    context: SessionContext,
+    versioned: bool,
+) -> DefaultProviderBuilder {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let env: Arc<dyn Environment> = Arc::new(CaseEnv(env));
     let link = Arc::new(endpoint.link(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).expect("the production link")));
     // The product's Anthropic caps over an empty catalog, as the recorders ran: Node's release-generation floor.
     let metadata = ModelsDevSource::new(link.clone(), home.join("catalog"), io);
+    // The models.dev disk copy a case recorded as its input (none for the others), as the product's boot reads it.
+    metadata.warm_from_disk().await;
     let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+    let traits_of = catalog.clone();
+    let versions = versioned.then(|| mixdog_ai::client_versions::ClientVersions::new(link.clone(), home.to_path_buf(), io, env.clone()));
     DefaultProviderBuilder::new(BuilderEnv {
         http: link.clone(),
         bidi: link,
@@ -195,7 +197,9 @@ pub async fn builder_with(
         keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
         accounts: AccountStore::new(home.to_path_buf(), io),
         anthropic_caps: CatalogCaps::new(catalog, &*env).lookup(),
-        google_traits: Arc::new(NoTraits),
+        // The product's traits over empty catalogs, as the recorders ran: the family is the wire id's, no model states a ladder.
+        google_traits: Arc::new(mixdog_ai::providers::google::traits::CatalogGoogleTraits(Vec::new())),
+        route_traits: Arc::new(move |id| Some(Arc::new(traits_of.traits(mixdog_protocol::ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>)),
         openai_facts: Arc::new(NoFacts),
         openai_context: Arc::new(context),
         codex_identity: CodexIdentity {
@@ -207,10 +211,10 @@ pub async fn builder_with(
         pace: Arc::new(PausedPace),
         gzip_lane: tokens.cpu_bulk,
         client_version: String::new(),
-        client_versions: None,
+        antigravity_client_version: versions.as_ref().map_or_else(|| "".into(), |v| v.antigravity_live()),
+        client_versions: versions,
         grok_client_version: None,
         cursor_client_version: None,
-        antigravity_client_version: "".into(),
         listing: ListingLookup::new(),
         env,
         home_dir: home.to_path_buf(),

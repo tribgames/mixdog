@@ -205,6 +205,10 @@ pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
         accounts: AccountStore::new(p.plugin_data.clone(), io).remote_client(client),
         anthropic_caps: CatalogCaps::new(p.catalog.clone(), &*p.env).lookup(),
         google_traits: Arc::new(CatalogGoogleTraits(["gemini", "vertex-ai", "antigravity-oauth"].map(|id| Arc::new(p.catalog.traits(ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>).to_vec())),
+        route_traits: {
+            let catalog = p.catalog.clone();
+            Arc::new(move |id| Some(Arc::new(catalog.traits(ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>))
+        },
         openai_facts: Arc::new(CatalogOpenAiFacts::new(p.catalog.clone())),
         openai_context: Arc::new(SessionContext::new()),
         codex_identity: identity.codex,

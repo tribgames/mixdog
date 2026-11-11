@@ -20,7 +20,7 @@ const rec = await startRecording({
     '`attemptRequests` is not compared: the recorder\'s own list of which arrivals were attempts of the send (the others are token grants, session exchanges and catalog reads it answered itself), not an output of the product; the replay reads it to take each retry wait once the attempt before it failed',
     '`requesting and streaming stages` is not compared: the core raises them from its run loop around the whole send (mixdog-agent/src/send.rs:460, `RunEvent::Stage`), not from the provider send this set replays (ModelBroker::send); the set pins the retry ladder\'s `reconnecting` stage, compared whole and in order',
   ],
-  entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
+  entry: 'anthropic.mjs AnthropicProvider({ apiKey }), openai-compat.mjs OpenAICompatProvider(\'xai\', { apiKey, apiMode?, preconnect: false }), vertex-ai.mjs VertexAIProvider({ authMode: \'api-key\', apiKey } or { authMode: \'adc\', projectId, location } over the ADC file), and over the credentials files the case input names: anthropic-oauth.mjs AnthropicOAuthProvider({}), openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false }) (Messages wire), grok-oauth.mjs GrokOAuthProvider({}), antigravity-oauth.mjs AntigravityOAuthProvider({}) and devin.mjs DevinOAuthProvider({}) and opencode-go.mjs OpenCodeGoProvider({ apiKey }) (the Gemini wire, routed by the models.dev catalog the case\'s input names, written to the data directory and warmed from disk) .send(history, model, [], { onStageChange }) against the loopback endpoint; the stages it raises (`onStageChange`) and the lines it writes to stderr are recorded beside its error. Not run: a live endpoint.',
   compare: 'Serve each case\'s replies from a loopback endpoint to the Rust send of the same provider (ModelBroker::send over the adapter DefaultProviderBuilder builds), take the recorded clock steps on the paused clock, and compare the requests as they arrived, the error, the stages and the stderr lines.',
   replay: 'Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build("anthropic" | "xai" | "vertex-ai" | "anthropic-oauth" | "openrouter" | "grok-oauth" | "antigravity-oauth" | "devin-oauth") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).',
 });
@@ -143,6 +143,11 @@ const { OpenRouterProvider } = await rec.P(`${P}openrouter.mjs`);
 const { GrokOAuthProvider } = await rec.P(`${P}grok-oauth.mjs`);
 const { AntigravityOAuthProvider } = await rec.P(`${P}antigravity-oauth.mjs`);
 const { DevinOAuthProvider } = await rec.P(`${P}devin.mjs`);
+const { OpenCodeGoProvider } = await rec.P(`${P}opencode-go.mjs`);
+const { warmCatalogFromDisk } = await rec.P(`${P}model-catalog.mjs`);
+// The models.dev catalog the Go gateway routes by (`openCodeGoCatalogWire`, opencode-go.mjs:41, read through `getModelsDevRowSync`, which is
+// null until the catalog's disk copy is warm): the one Gemini-package row. It is the case's recorded input; the replay writes the same file.
+const MODELS_DEV = { 'opencode-go': { id: 'opencode-go', name: 'OpenCode Go', models: { 'gemini-fixture': { id: 'gemini-fixture', name: 'Gemini Fixture', npm: '@ai-sdk/google', limit: { context: 1000000, output: 65536 } } } } };
 const devinPb = await rec.raw(`${P}devin-wire-protobuf.mjs`);
 const geminiError = (code, status, message) => ({ error: { code, message, status } });
 const tokenGrant = (() => {
@@ -200,6 +205,25 @@ const routes = [
     (record) => (record.method === 'GET' ? json(200, { object: 'list', data: [] }) : undefined),
   ],
   [
+    'anthropic-oauth-redacts-an-echoed-credential',
+    'src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:860',
+    { provider: 'anthropic-oauth', credentials: { 'anthropic-oauth-credentials.json': { claudeAiOauth: { accessToken: 'fixture-access-token', refreshToken: 'fixture-refresh-token', expiresAt: FAR, scopes: ['user:inference', 'user:profile'], subscriptionType: 'max' } } } },
+    () => new AnthropicOAuthProvider({}),
+    'claude-sonnet-4-6',
+    // A refusal that echoes the credential it was sent (a bearer token, an Anthropic token and a JSON secret field): the error text and the stderr line carry them redacted.
+    [json(400, anthropicError('invalid_request_error', 'rejected Bearer fixture-access-token and sk-ant-echo-1 {"refresh_token":"fixture-refresh-token"}'))],
+  ],
+  [
+    'opencode-go-gemini-raises-the-ladder-stage',
+    'src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141',
+    { provider: 'opencode-go-oauth', credentials: { 'opencode-go-oauth.json': { ...OAUTH, access_token: 'fixture-key' } }, modelsDev: MODELS_DEV },
+    () => new OpenCodeGoProvider({ apiKey: 'fixture-key', preconnect: false }),
+    'gemini-fixture',
+    [json(503, geminiError(503, 'UNAVAILABLE', 'overloaded'), ADVICE), json(400, geminiError(400, 'INVALID_ARGUMENT', 'bad field'))],
+    undefined,
+    { sessionId: 'fixture-session' },
+  ],
+  [
     'vertex-claude-raises-the-stage',
     'src/runtime/agent/orchestrator/providers/vertex-ai.mjs:516',
     { provider: 'vertex-ai', credentials: { 'adc.json': ADC }, adcFile: 'adc.json' },
@@ -228,11 +252,15 @@ const routes = [
   ],
 ];
 for (const [id, source, input, make, model, replies, aux, options] of routes) {
-  await rec.run(id, source, input, (ctx) => {
+  await rec.run(id, source, input, async (ctx) => {
     caseStart = randomDrawn;
     uuidStart = uuidDrawn;
     for (const [file, doc] of Object.entries(input.credentials)) rec.write(file, JSON.stringify(doc));
     if (input.adcFile) process.env.GOOGLE_APPLICATION_CREDENTIALS = join(rec.dataDir, input.adcFile);
+    if (input.modelsDev) {
+      rec.write('modelsdev-catalog.json', JSON.stringify({ fetchedAt: 1, data: input.modelsDev }));
+      await warmCatalogFromDisk({ background: true });
+    }
     return send(ctx, make(), model, replies, aux, options);
   });
 }

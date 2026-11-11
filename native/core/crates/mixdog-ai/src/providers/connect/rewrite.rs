@@ -178,6 +178,7 @@ pub struct HttpAdapter {
     keepalive: KeepaliveSchedule,
     listing: Option<Arc<dyn ModelListing>>,
     resend: Option<Resend>,
+    retry_line: Option<mixdog_core_api::domain::provider::RetryLine>,
 }
 
 impl HttpAdapter {
@@ -199,7 +200,14 @@ impl HttpAdapter {
             keepalive: KeepaliveSchedule::SPEC,
             listing: None,
             resend: None,
+            retry_line: None,
         }
+    }
+
+    /// The line the provider's ladder writes before each retry ([`ProviderAdapter::retry_line`]).
+    pub fn with_retry_line(mut self, line: mixdog_core_api::domain::provider::RetryLine) -> Self {
+        self.retry_line = Some(line);
+        self
     }
 
     /// The refusals the provider sends again at once ([`Resend`]).
@@ -231,6 +239,10 @@ impl ProviderAdapter for HttpAdapter {
 
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
+    }
+
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.retry_line.clone()
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

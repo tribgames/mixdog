@@ -109,6 +109,9 @@ use crate::transport::preconnect::Preconnect;
 use crate::transport::preconnect::Setting;
 use crate::transport::WsDial;
 
+/// A provider id's catalog traits for wire routing ([`BuilderEnv::route_traits`]).
+pub type RouteTraits = Arc<dyn Fn(&str) -> Option<Arc<dyn crate::catalog::ModelTraits>> + Send + Sync>;
+
 /// What the host supplies to every adapter.
 #[derive(Clone)]
 pub struct BuilderEnv {
@@ -122,6 +125,9 @@ pub struct BuilderEnv {
     pub anthropic_caps: CapsLookup,
     /// Gemini/Vertex model traits.
     pub google_traits: Arc<dyn ModelTraits>,
+    /// The catalog traits of a gateway's models (`getModelsDevRowSync`: the SDK package that names a model's wire), by
+    /// provider id; `None` where the host has no catalog for it.
+    pub route_traits: RouteTraits,
     pub openai_facts: Arc<dyn ModelFactsSource>,
     /// The per-process OpenAI request context (turn-state tokens).
     pub openai_context: Arc<SessionContext>,
@@ -423,7 +429,7 @@ impl RequestAuth for GoBearerAuth {
     async fn authorize(&self) -> Result<google::auth::Authorization, ProviderError> {
         let token = self.0.key().await?;
         Ok(google::auth::Authorization {
-            headers: vec![("authorization".into(), format!("Bearer {token}")), ("x-goog-api-key".into(), token)],
+            headers: vec![("Authorization".into(), format!("Bearer {token}")), ("x-goog-api-key".into(), token)],
             identity: String::new(),
         })
     }
@@ -772,7 +778,7 @@ impl DefaultProviderBuilder {
             .and_then(Value::as_object)
             .map(|map| map.iter().filter_map(|(m, w)| Some((m.clone(), Wire::parse(w.as_str()?)?))).collect())
             .unwrap_or_default();
-        let routing = RouteInputs { model_wires, catalog: None };
+        let routing = RouteInputs { model_wires, catalog: (self.env.route_traits)(name) };
         let caches_model_info = profile.listing.caches_model_info;
         let account = Arc::new(
             CompatAdapter::new(codec, http.clone(), Some(key.clone()))
@@ -832,7 +838,7 @@ impl DefaultProviderBuilder {
                             .with_headers(identifying.clone()),
                     );
                 let gemini = google::adapter::GoogleAdapter::new(
-                    google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()),
+                    google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()).with_error_label("OpenCode Go Gemini streamGenerateContent"),
                     google::policy::gemini(),
                     gemini_http,
                     Arc::new(GoBearerAuth(key.clone())),

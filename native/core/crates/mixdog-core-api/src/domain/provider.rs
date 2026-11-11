@@ -294,6 +294,43 @@ impl std::fmt::Debug for ToolExclusionSink {
     }
 }
 
+/// The identity of one provider send, shared by every attempt of it (Node mints an id per `send` call, e.g. Grok's
+/// `x-grok-req-id` and Antigravity's `requestId`, and the retry loop inside it reuses it). The id is minted by the first
+/// attempt that asks; the broker gives each send a fresh one. Clones share the cell. It is not part of a request's
+/// content: two identities always compare equal.
+#[derive(Clone, Default, Debug)]
+pub struct SendIdentity {
+    id: std::sync::Arc<std::sync::OnceLock<String>>,
+    /// The wire a gateway's latest attempt of this send went out on: the send's own route (Node keeps it per send,
+    /// `wire-route.mjs` `sendOnRoute`), so concurrent sends of one model on different wires never share it.
+    wire: std::sync::Arc<std::sync::Mutex<Option<&'static str>>>,
+}
+
+impl SendIdentity {
+    /// The send's id, minted with `mint` by the first caller.
+    pub fn get_or_mint(&self, mint: impl FnOnce() -> String) -> String {
+        self.id.get_or_init(mint).clone()
+    }
+
+    /// Records the wire an attempt of this send went out on.
+    pub fn set_wire(&self, wire: &'static str) {
+        *self.wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(wire);
+    }
+
+    /// The wire the send's latest attempt went out on, once one did.
+    pub fn wire(&self) -> Option<&'static str> {
+        *self.wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl PartialEq for SendIdentity {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for SendIdentity {}
+
 /// Send options the adapters read (PW §2.1, §2.1a). Callbacks are replaced
 /// by the [`StreamEvent`] stream; admission and account routing happen
 /// before an attempt and are not adapter options.
@@ -365,6 +402,8 @@ pub struct RequestOptions {
     /// Node `session.wireRoute`: the wire the session pinned for a provider and model. A gateway sends on it while
     /// it names the gateway and the request's model and the model is still offered there (`sendWireRoute`).
     pub wire_pin: Option<WirePin>,
+    /// The send these options belong to, for the ids Node mints once per send.
+    pub send_identity: SendIdentity,
 }
 
 /// A session's pinned wire route (Node `session.wireRoute`: `{ provider, model, wire }`).
@@ -1129,6 +1168,23 @@ pub trait ProviderAdapter: Send + Sync {
     /// forwards its inner provider's.
     fn retry_policy_for(&self, _model: &str) -> &RetryPolicy {
         self.retry_policy()
+    }
+    /// [`Self::retry_policy_for`] of one send: a provider whose route is known only per send (a gateway, by the wire
+    /// the send's attempts went out on, [`SendIdentity::wire`]) reads it from `request`. By default the model's.
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        self.retry_policy_for(&request.model)
+    }
+    /// Called once before a send's first attempt, so a provider whose route is known only by resolving it can record
+    /// it on the send ([`SendIdentity::set_wire`]) before the stages ahead of the first attempt are read. Nothing by
+    /// default; a wrapper forwards.
+    async fn prepare_send(&self, _request: &ModelRequest) {}
+    /// [`Self::send_stages`] of one send (see [`Self::retry_policy_of`]).
+    fn send_stages_of(&self, request: &ModelRequest) -> SendStages {
+        self.send_stages(&request.model)
+    }
+    /// [`Self::retry_line`] of one send (see [`Self::retry_policy_of`]).
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<RetryLine> {
+        self.retry_line(&request.model)
     }
     fn keepalive(&self) -> &KeepaliveSchedule;
     /// Exactly one attempt; never retries internally. Dropping the future

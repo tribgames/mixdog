@@ -236,6 +236,18 @@ impl ProviderAdapter for AccountedAdapter {
     fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
         self.inner.retry_policy_for(model)
     }
+    async fn prepare_send(&self, request: &ModelRequest) {
+        self.inner.prepare_send(request).await;
+    }
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        self.inner.retry_policy_of(request)
+    }
+    fn send_stages_of(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::SendStages {
+        self.inner.send_stages_of(request)
+    }
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.inner.retry_line_of(request)
+    }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.inner.keepalive()
     }
