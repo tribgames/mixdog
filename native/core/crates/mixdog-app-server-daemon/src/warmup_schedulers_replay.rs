@@ -1,11 +1,8 @@
 //! Node's recording `fixtures/session-warmup-schedulers/recording.json` (`record-session-warmup-schedulers.mjs`, test file
 //! `src/session-runtime/warmup-schedulers.test.mjs`), read when the test runs and decoded with [`Exact`]: one test per
-//! case. Node's `createWarmupSchedulers` is the daemon's five warm-ups, each driven through the call the runtime makes:
-//! `scheduleProviderWarmup` is [`ProviderWarmup::start`], `scheduleProviderModelWarmup` [`ModelWarmup::start`],
-//! `scheduleProviderSetupWarmup(0)` [`SetupWarmup::schedule`], `scheduleModelCatalogWarmup` [`arm_first_warm`],
-//! `scheduleStatuslineUsageWarmup` [`StatuslineWarmup::start`], `refreshStatuslineUsageAfterTurn`
-//! [`StatuslineWarmup::turn_settled`] and `wakeDeferredWarmups` the wake of the prewarm signals
-//! (`prewarm_world.rs` `WarmupSignals::wake`, in its order). The recorded delay argument 0 is each warm-up's configured
+//! case. Node's `createWarmupSchedulers` is the daemon's [`WarmupSchedulers`] (`prewarm_world.rs`), the object the
+//! boot (`compose_flip.rs`), the turn settle and the wakes (`WarmupSignals`) call: each recorded call is its method of
+//! the same name over the daemon's five warm-ups. The recorded delay argument 0 is each warm-up's configured
 //! delay (its env delay set to 0). The scripted dependencies are the recorder's: an async one resolves at the next
 //! `yield` step (Node runs no microtask between steps), a gated one at the `yield` after its gate opened. Time is the
 //! paused tokio clock, moved only by the recorded `tick` steps.
@@ -39,7 +36,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::catalog::CatalogRefresh;
 use crate::catalog::CatalogWarmup;
-use crate::catalog::arm_first_warm;
+use crate::prewarm_world::WarmupSchedulers;
 use crate::setup_host::SetupWarmup;
 
 /// The bound on every wait for the warm-ups to reach the state a step ends in.
@@ -120,16 +117,29 @@ impl World {
         rx.await.expect("a dependency in flight is released or the test ends")
     }
 
-    /// Waits until `ready` holds, re-checked on every change; bounded.
+    /// Waits until `ready` holds, re-checked on every change, under one real-time deadline for the whole wait. The
+    /// deadline is a blocking task: while it runs the paused clock does not advance by itself (Tokio inhibits
+    /// auto-advance while a blocking task runs), so only a recorded `tick` moves time.
     async fn until(&self, what: &str, mut ready: impl FnMut(&mut Inner) -> bool) {
+        let (done, ended) = std::sync::mpsc::channel::<()>();
+        let mut deadline = tokio::task::spawn_blocking(move || matches!(ended.recv_timeout(DEADLINE), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
             if ready(&mut self.inner.lock().unwrap()) {
+                // Returned without yielding, so no timer due at this instant fires before the step's state is read; the
+                // deadline task ends as `done` is dropped.
+                drop(done);
                 return;
             }
-            tokio::time::timeout(DEADLINE, changed).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
+            tokio::select! {
+                () = &mut changed => {}
+                expired = &mut deadline => {
+                    assert!(!expired.expect("the deadline task"), "timed out after {DEADLINE:?} waiting for {what}");
+                    unreachable!("the deadline task ends only when the wait ends or its deadline passes");
+                }
+            }
         }
     }
 
@@ -316,11 +326,7 @@ impl ProviderSetup for Setup {
 
 struct Warmups {
     world: Arc<World>,
-    providers: Arc<ProviderWarmup>,
-    models: Arc<ModelWarmup>,
-    setup: Arc<SetupWarmup>,
-    catalog: Arc<CatalogWarmup>,
-    statusline: Arc<StatuslineWarmup>,
+    schedulers: WarmupSchedulers,
     catalog_env: Vec<(&'static str, &'static str)>,
 }
 
@@ -367,7 +373,9 @@ fn warmups(world: &Exact) -> Warmups {
     } else {
         vec![("MIXDOG_DISABLE_MODEL_CATALOG_WARMUP", "1")]
     };
-    Warmups { world: w, providers, models, setup, catalog, statusline, catalog_env }
+    // The daemon's scheduler object (`compose_flip.rs` builds the same over its warm-ups).
+    let schedulers = WarmupSchedulers { providers, models, setup, catalog, statusline };
+    Warmups { world: w, schedulers, catalog_env }
 }
 
 impl Warmups {
@@ -375,23 +383,18 @@ impl Warmups {
         if method.starts_with("schedule") {
             assert_eq!(args, [Exact::Number(0.0)], "{method}: the recorded delay is each warm-up's configured one, 0");
         }
+        let schedulers = &self.schedulers;
         match method {
-            "scheduleProviderWarmup" => self.providers.start(),
-            "scheduleProviderModelWarmup" => self.models.start(),
-            "scheduleProviderSetupWarmup" => self.setup.schedule(0),
+            "scheduleProviderWarmup" => schedulers.schedule_provider_warmup(),
+            "scheduleProviderModelWarmup" => schedulers.schedule_provider_model_warmup(),
+            "scheduleProviderSetupWarmup" => schedulers.schedule_provider_setup_warmup(Some(0)),
             "scheduleModelCatalogWarmup" => {
                 let env = self.catalog_env.clone();
-                arm_first_warm(&self.catalog, &move |name| env.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()));
+                schedulers.schedule_model_catalog_warmup(&move |name| env.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned()));
             }
-            "scheduleStatuslineUsageWarmup" => self.statusline.start(),
-            "refreshStatuslineUsageAfterTurn" => self.statusline.turn_settled(),
-            // `WarmupSignals::wake`'s order: the catalog, the models, the statusline, the providers.
-            "wakeDeferredWarmups" => {
-                self.catalog.wake();
-                self.models.wake();
-                self.statusline.wake();
-                self.providers.wake();
-            }
+            "scheduleStatuslineUsageWarmup" => schedulers.schedule_statusline_usage_warmup(),
+            "refreshStatuslineUsageAfterTurn" => schedulers.refresh_statusline_usage_after_turn(),
+            "wakeDeferredWarmups" => schedulers.wake_deferred_warmups(),
             other => panic!("unknown scheduler call {other}"),
         }
     }

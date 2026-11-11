@@ -1,11 +1,11 @@
 //! Node's recording `fixtures/session-sequence/recording.json` (`record-session-sequence.mjs`, test file
 //! `src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs`), read when the test runs and decoded with
 //! [`Exact`]: one test per case. One session's lifecycle operations run in order over the real thread store: a save is the
-//! session's fenced header write (`patch_header_fenced`, `saveSessionAsync(session, { expectedGeneration })`) or, for a
+//! session's fenced header write (`thread/header/patch` with `expectedGeneration`, `saveSessionAsync(session, { expectedGeneration })`) or, for a
 //! session that is not stored, its create under the same id (the record Node's save writes anew); the debounced save is
-//! the same write (the core keeps no debounced copy) and answers nothing; the close and the detach are the core's
-//! barriers (`write_close`, `write_detach`: `markSessionClosed`, `bumpSessionGeneration`), answered with the generation
-//! they resolved; the delete is `thread/delete`. Node's injected unlink failure is the delete mark's durable write
+//! the same write (the core keeps no debounced copy) and answers nothing; the close and the detach are the directory's
+//! own (`SessionClose::close`, `SessionClose::detach`: `markSessionClosed`, `bumpSessionGeneration`), answered with the
+//! generation they resolved; the delete is `thread/delete`, Node's client delete. Node's injected unlink failure is the delete mark's durable write
 //! failing (rolled back), asked of the case's plan once per mark as Node asks it once per unlink. Each case compares the
 //! answers, the plan left, the marks written with their failure, and the whole stored record, as the manifest declares.
 
@@ -30,7 +30,6 @@ const NOW: u64 = 1_700_000_000_000;
 
 struct World {
     real: Real,
-    threads: super::thread_state::SessionThreads,
     id: ThreadId,
 }
 
@@ -38,56 +37,49 @@ impl World {
     async fn new(id: &str) -> World {
         let real = real().await;
         real.rig.clock.0.store(NOW, std::sync::atomic::Ordering::SeqCst);
-        let threads = super::thread_state::SessionThreads::new(real.directory.clone());
-        World { real, threads, id: ThreadId::from(id) }
+        World { real, id: ThreadId::from(id) }
     }
 
-    /// `saveSessionAsync({ id, generation: 0, closed: false, messages }, { expectedGeneration: 0 })`: the fenced write of
-    /// the messages, or the record created anew when none is stored.
+    /// The case's first save: the record created under its id.
+    async fn create(&self, messages: &[Value]) -> Exact {
+        let header = json!({ "id": self.id, "generation": 0, "closed": false, "tools": [], "messages": messages });
+        self.real.directory.create_with_id(self.id.clone(), header.as_object().cloned().unwrap(), json!({})).await.expect("the record is created");
+        Exact::String("saved".into())
+    }
+
+    /// `saveSessionAsync({ id, generation: 0, closed: false, messages }, { expectedGeneration: 0 })` after the first: the
+    /// fenced write of the messages (dropped for a deleted session, whose writes the delete fenced).
     async fn save(&self, messages: &[Value]) -> Exact {
-        if self.real.directory.stored_header(&self.id).await.is_none() {
-            let header = json!({ "id": self.id, "generation": 0, "closed": false, "tools": [], "messages": messages });
-            self.real.directory.create_with_id(self.id.clone(), header.as_object().cloned().unwrap(), json!({})).await.expect("the record is created");
-            return Exact::String("saved".into());
-        }
         let mut set = Map::new();
         set.insert("messages".into(), Value::Array(messages.to_vec()));
-        let saved = super::close::patch_header_fenced(&self.threads, &self.id, Some(0.0), set, Vec::new()).await.expect("the save");
-        Exact::String(match saved {
-            super::close::Saved::Written => "saved",
-            super::close::Saved::Dropped => "dropped",
-        }
-        .into())
+        Exact::String(super::lifecycle_replay::save_fenced(&self.real, &self.id, Some(0.0), set, Vec::new()).await.into())
     }
 
-    /// The barrier's answer: the generation it wrote, `null` when no session is stored.
+    /// The barrier's answer: the generation it wrote, `null` when no session is stored (`closeSession` answers true
+    /// there: nothing is left to close).
     async fn barrier(&self, landed: bool) -> Exact {
-        if !landed {
-            return Exact::Null;
+        assert!(landed, "the barrier landed");
+        match self.stored().await {
+            Exact::Null => Exact::Null,
+            stored => stored.get("generation").clone(),
         }
-        self.stored().await.get("generation").clone()
     }
 
+    /// The directory's own close (`markSessionClosed`), the one the idle sweep and a canonical close make.
     async fn close(&self, reason: &str) -> Exact {
-        let landed = super::close::write_close(&self.threads, &self.id, reason, NOW as i64).await.expect("the close barrier");
+        let landed = super::lifecycle_replay::close_of(&self.real).close(self.id.as_str(), reason).await;
         self.barrier(landed).await
     }
 
+    /// The directory's own detach (`bumpSessionGeneration`), the one the context switch and the exit make.
     async fn detach(&self, reason: &str) -> Exact {
-        let landed = super::close::write_detach(&self.threads, &self.id, reason, false, NOW as i64).await.expect("the detach barrier");
+        let landed = super::lifecycle_replay::close_of(&self.real).detach(self.id.as_str(), reason, false).await;
         self.barrier(landed).await
     }
 
-    /// thread/delete's answer; for a session that is not stored, the store's `true` the recording holds, once the client's
-    /// `false` is asserted (manifest: no client reaches the store's idempotent answer).
+    /// thread/delete's answer (the client's `deleteSession`).
     async fn delete(&self) -> Exact {
-        let stored = self.real.directory.stored_header(&self.id).await.is_some();
-        let deleted = super::address_replay::delete(&self.real.directory, self.id.as_str()).await.expect("thread/delete");
-        if !stored {
-            assert!(!deleted, "thread/delete of a session that is not stored answers false");
-            return Exact::Bool(true);
-        }
-        Exact::Bool(deleted)
+        Exact::Bool(super::address_replay::delete(&self.real.directory, self.id.as_str()).await.expect("thread/delete"))
     }
 
     async fn stored(&self) -> Exact {
@@ -136,7 +128,7 @@ async fn first_save(world: &World, input: &Exact) -> Exact {
     assert_eq!(initial.get("generation"), &Exact::Number(0.0));
     assert_eq!(initial.get("closed"), &Exact::Bool(false));
     let messages: Vec<Value> = initial.get("messages").as_array().iter().map(|content| message(content.as_str())).collect();
-    world.save(&messages).await
+    world.create(&messages).await
 }
 
 /// Line 64: `deleteSession(id)` accepted, then `closeSession(id, 'desktop-context-switch', { tombstone: false })` while it
@@ -153,12 +145,12 @@ async fn detach_while_deleting(name: &str) {
     assert_eq!(ops[0].get("op").as_str(), "deleteSession");
     let close = &ops[1];
     assert_eq!((close.get("op").as_str(), close.get("options").get("tombstone")), ("closeSession", &Exact::Bool(false)));
-    let held = super::address_replay::begin_close(&world.real, &world.id).await;
+    // Node's client delete detaches the session first and the closeSession issued right after it lands next, before the
+    // delete's unlink: the delete is held once its detach landed, the detach runs, then the delete goes on.
+    let held = super::address_replay::begin_delete(&world.real, &world.id).await;
     let closer = super::lifecycle_replay::close_of(&world.real);
-    let (reason, id) = (close.get("reason").as_str().to_owned(), world.id.as_str().to_owned());
-    let closing = tokio::spawn(async move { closer.detach(&id, &reason, false).await });
+    let closed = awaiting(|| "the detach to answer".to_owned(), closer.detach(world.id.as_str(), close.get("reason").as_str(), false)).await;
     let deleted = held.finish().await;
-    let closed = awaiting(|| "the detach to answer".to_owned(), closing).await.expect("the detach task");
     let what = |field: &str| format!("{name}: {field}");
     assert_eq!(first, *result.get("firstSave"), "{}", what("firstSave"));
     assert_eq!(Exact::Bool(deleted), *result.get("deleted"), "{}", what("deleted"));

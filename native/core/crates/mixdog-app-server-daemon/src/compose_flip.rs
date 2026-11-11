@@ -1948,12 +1948,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     provider_warmup
         .bind(provider_init, Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }))
         .map_err(|()| ComposeError::AlreadyBound("provider warm-up"))?;
+    let warmup_schedulers = Arc::new(crate::prewarm_world::WarmupSchedulers {
+        providers: provider_warmup.clone(),
+        models: model_warmup.clone(),
+        setup: setup_warmup.clone(),
+        catalog: b.catalog_warmup.clone(),
+        statusline: statusline_warmup.clone(),
+    });
     let session_prewarm: Arc<dyn mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals> = Arc::new(crate::prewarm_world::WarmupSignals {
         prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy },
-        catalog: b.catalog_warmup.clone(),
-        models: model_warmup.clone(),
-        statusline: statusline_warmup.clone(),
-        providers: provider_warmup.clone(),
+        schedulers: warmup_schedulers.clone(),
         channel_admin: channel_admin.clone(),
     });
     // The deferred channel start parks on the same busy probe (`channel-start.mjs:50-56`) and is woken with the warm-ups.
@@ -2233,11 +2237,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_setup_ui
         .bind(Arc::new(mixdog_core_session::session::setup_ui::SessionSetupUi::new(directory.clone())))
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
-    provider_warmup.start(); // the boot's scheduleProviderWarmup() (session.mjs:121)
-    model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:122): after the model list, the gates and the wakes exist
+    warmup_schedulers.schedule_provider_warmup(); // the boot's scheduleProviderWarmup() (session.mjs:121)
+    warmup_schedulers.schedule_provider_model_warmup(); // the boot's scheduleProviderModelWarmup() (session.mjs:122): after the model list, the gates and the wakes exist
     // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
     channel_admin.schedule_automation_autostart();
-    setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
+    warmup_schedulers.schedule_provider_setup_warmup(None); // the boot's scheduleProviderSetupWarmup() (session.mjs:123), default 300 ms
+    warmup_schedulers.schedule_model_catalog_warmup(&|name| std::env::var(name).ok()); // the boot's scheduleModelCatalogWarmup() (session.mjs:124)
     // The pool's directory-side cells (true cycles, bound once, in `verify_bound`): the dispatcher is built from the very values the turn's own gate takes (`policy`, `connectors`, the resolver, `HostGateEnv`, the bus dispatch).
     late_dispatcher
         .bind(Arc::new(mixdog_core::run_host::tool_pool::dispatcher::PipelineDispatcher::new(
@@ -2798,7 +2803,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }),
         )
         .map_err(|()| ComposeError::AlreadyBound("statusline usage warm-up"))?;
-    statusline_warmup.start();
+    warmup_schedulers.schedule_statusline_usage_warmup();
     let route_writer = Arc::new(mixdog_core_ports::ports::route_write::LiveRouteWriter {
         cell: routes.clone(),
         session: late_route_session.clone(),

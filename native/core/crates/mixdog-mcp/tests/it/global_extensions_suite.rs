@@ -49,7 +49,7 @@ fn recording() -> Exact {
 }
 
 fn case(line: f64) -> Exact {
-    recording().get("cases").as_array().iter().find(|case| case.get("testLine").as_f64() == line).cloned().unwrap_or_else(|| panic!("no case at line {line}"))
+    recording().get("cases").as_array().iter().find(|case| *case.get("testLine") == Exact::Number(line)).cloned().unwrap_or_else(|| panic!("no case at line {line}"))
 }
 
 fn plain(value: Value) -> Exact {
@@ -117,6 +117,9 @@ struct Seen {
     recording: std::sync::atomic::AtomicBool,
     /// Case 57's connector: an enable stays pending until `cancelMcpLogin` releases it, and each connect's end is recorded.
     hold_enable: std::sync::atomic::AtomicBool,
+    /// The overlapping-enables connector: the first enabled connect stays pending until released, each connect's end is recorded.
+    hold_once: std::sync::atomic::AtomicBool,
+    records_done: std::sync::atomic::AtomicBool,
     released: tokio::sync::Notify,
     entered: tokio::sync::Notify,
 }
@@ -165,7 +168,7 @@ struct Watch(Arc<Seen>);
 impl OpWatch for Watch {
     async fn connecting(&self, scope: &str, op: &Op) {
         self.0.push(Some(scope), one("connect", op_of(op)));
-        if self.0.scripted_57() && matches!(op, Op::Only(_, true)) {
+        if matches!(op, Op::Only(_, true)) && (self.0.scripted_57() || self.0.hold_once.swap(false, std::sync::atomic::Ordering::SeqCst)) {
             self.0.entered.notify_one();
             tokio::time::timeout(Duration::from_secs(30), self.0.released.notified())
                 .await
@@ -173,7 +176,7 @@ impl OpWatch for Watch {
         }
     }
     fn connected(&self, scope: &str, op: &Op) {
-        if self.0.scripted_57() {
+        if self.0.scripted_57() || self.0.records_done.load(std::sync::atomic::Ordering::SeqCst) {
             self.0.push(Some(scope), one("connectDone", op_of(op)));
         }
     }
@@ -352,6 +355,32 @@ async fn line_57_disable_during_a_pending_enable_cancels_its_login() {
     let result = case.get("result");
     assert_eq!(statuses(&[first, second]), *result.get("results"), "line 57: the statuses");
     assert_eq!(plain(json!(w.seen.events())), *result.get("events"), "line 57: the events");
+}
+
+/// Recorder case `overlapping-enables-connect-once`: an enable asked while the server's enable connect is pending rides
+/// the running chain; the state asked did not change, so the server is connected once and the surface refreshed once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn overlapping_enables_connect_once() {
+    let case = recording().get("cases").as_array().iter().find(|case| case.get("name").as_str() == "overlapping-enables-connect-once").cloned().expect("the case");
+    let w = world(None, &[]).await;
+    w.seen.hold_once.store(true, std::sync::atomic::Ordering::SeqCst);
+    w.seen.records_done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let steps = case.get("input").get("steps").as_array();
+    let toggle = |step: &Exact| {
+        let (host, args) = (w.host.clone(), step.get("args").as_array().to_vec());
+        async move { host.schedule_mcp_toggle(args[0].as_str(), args[1] == Exact::Bool(true)).await }
+    };
+    let first = tokio::spawn(toggle(&steps[0]));
+    tokio::time::timeout(Duration::from_secs(30), w.seen.entered.notified()).await.expect("the first enable's connect to start within 30 s");
+    let mut second = Box::pin(toggle(&steps[1]));
+    // Node asks both toggles before the pending connect ends: the second has joined the chain when it first waits.
+    assert!(futures::poll!(second.as_mut()).is_pending(), "the second enable waits on the running chain");
+    w.seen.released.notify_one();
+    let both = async { (first.await.unwrap(), second.await) };
+    let (first, second) = tokio::time::timeout(Duration::from_secs(30), both).await.expect("both toggles to settle within 30 s");
+    let result = case.get("result");
+    assert_eq!(statuses(&[first, second]), *result.get("results"), "the statuses");
+    assert_eq!(plain(json!(w.seen.events())), *result.get("events"), "the events");
 }
 
 /// Line 86: a change reaches every other runtime, never the one that made it. The core's change is the writer's full

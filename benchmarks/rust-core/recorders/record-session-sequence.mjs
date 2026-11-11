@@ -11,15 +11,33 @@
 // seeded mulberry32 (input generator only); the recording keeps their ops.
 //
 //   node benchmarks/rust-core/recorders/record-session-sequence.mjs --tree <dir>
+// (re-executes itself with --experimental-test-module-mocks, which `mock.module` needs)
+import { spawnSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { mock } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exact } from './lib/exact.mjs';
 import { DETERMINISM, DEADLINE_MS, installDeterminism, realClearTimeout, realSetTimeout } from './lib/session-wire-harness.mjs';
-import { parseArgs } from './lib/common.mjs';
+import { parseArgs, resolveTree } from './lib/common.mjs';
 import { cleanup, runSessionRecorder } from './lib/session-rec.mjs';
+
+if (!process.execArgv.includes('--experimental-test-module-mocks')) {
+  // The re-executed recorder has a deadline: a hang is killed and reported, never waited for.
+  const child = spawnSync(process.execPath, ['--experimental-test-module-mocks', fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: 'inherit', windowsHide: true, timeout: 300_000, killSignal: 'SIGKILL' });
+  if (child.error) throw new Error(`the re-executed recorder did not finish within 300 s: ${child.error.message}`);
+  process.exit(child.status ?? 1);
+}
+
+// The client delete's session-search forget (session-search-ingest.mjs) starts Node's PostgreSQL search index, whose
+// install/start timers and data dir are not the session store's: it is a scripted endpoint here (manifest).
+mock.module(pathToFileURL(join(resolveTree(parseArgs()), 'src/runtime/session-search/session-search-ingest.mjs')).href, {
+  // Its other exports are the module's too: no turn is ingested and no backfill runs here, and with no search write queued
+  // the real closeSessionSearch returns at once, as this one does.
+  namedExports: { forgetSessionSearch: async () => {}, closeSessionSearch: async () => {}, ingestSessionTurn() {}, backfillSessionSearch: async () => {} },
+});
 
 // Experiment switches (not used for the committed recording): --seeds 8,3,1 runs only those seeds in that order, --skip-detach drops the two detach cases.
 const cliArgs = parseArgs();
@@ -37,8 +55,8 @@ mkdirSync(join(root, 'home'), { recursive: true });
 await runSessionRecorder(import.meta.url, {
   set: 'session-sequence',
   testFile: 'src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs',
-  entry: 'Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord) and manager/session-close.mjs (closeSession) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.',
-  replay: 'mixdog-core-session session/sequence_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: the first save creates the thread under the recorded id with the recorded record as its header (create_with_id); a later save is close.rs patch_header_fenced (expectedGeneration 0) of the client\'s messages over SessionThreads, or the create again when no record is stored; close and detach are close.rs write_close / write_detach (markSessionClosed, bumpSessionGeneration), answered with the generation stored after them or null when no record is stored; delete is thread/delete; line 64\'s closeSession is SessionClose::detach accepted while the delete is held at its mark. Node\'s unlink failure is the delete mark\'s durable write failing (rolled back), asked of the case\'s plan once per mark. Compared whole: every op\'s result, firstSave / deleted / closed, unlinkPlanLeft, the marks written with their failure (unlinks), commitError (null: no barrier of the replay failed), initial and clockSteps (the replay arms no timer and moves no clock) and the stored record (the thread header, messages placed as the recorded record has them).',
+  entry: 'Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord), manager/session-close.mjs (closeSession) and the client\'s delete (session-runtime/lifecycle/session-switch/session-delete.mjs deleteSession over manager.mjs) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.',
+  replay: 'mixdog-core-session session/sequence_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: the first save creates the thread under the recorded id with the recorded record as its header (create_with_id); a later save is the thread\'s request thread/header/patch with expectedGeneration 0 (the request SessionThreads::patch_header_fenced sends) of the client\'s messages, or the create again when no record is stored; close and detach are the directory\'s own close and detach (close.rs SessionClose::close / SessionClose::detach, the calls the idle sweep, thread/delete and the context switch make), answered with the generation stored after them or null when no record is stored; delete is thread/delete and its answer is compared as recorded; line 64\'s closeSession is SessionClose::detach, run while the client delete is held after its own detach landed and before it closes the thread (its catalog read, delete.rs delete_session), Node\'s order: the delete\'s detach, the closeSession\'s, then the unlink. Node\'s unlink failure is the delete mark\'s durable write failing (rolled back), asked of the case\'s plan once per mark. Compared whole: every op\'s result, firstSave / deleted / closed, unlinkPlanLeft, the marks written with their failure (unlinks), commitError (null: no barrier of the replay failed), initial and clockSteps (the replay arms no timer and moves no clock) and the stored record (the thread header, messages placed as the recorded record has them).',
   values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: [
     'session ids drop the test\'s process id (sess_sequence_<tag>_<n>)',
@@ -49,7 +67,9 @@ await runSessionRecorder(import.meta.url, {
     'the temp data dir is a path under the OS temp dir: it is not recorded; a recorded string that holds it is a defect of the recording (the recorder fails on it)',
     'replay: logFile and sessionsDir are not compared: they are Node\'s JSONL session log and its files in the sessions dir, a file format the core does not write (its store is the thread store); the stored record they hold is compared whole (stored)',
     'replay: timersArmed is not compared: it is Node\'s debounce timer (150 ms) of saveSession; the core keeps no debounced copy, the debounced save is written at once and answers nothing, and the stored record after it is compared',
-    'replay: a delete of a session that is not stored answers false through thread/delete, the client\'s deleteSession (lifecycle/session-switch/session-delete.mjs:56 isAvailableSession refuses it before the store is asked); the recording calls the store\'s deleteSession (store/session-delete.mjs:175), whose idempotent true for an absent record no client reaches. The replay asserts false there and compares the recorded true in the results list',
+    'a delete is the client\'s: the session runtime\'s deleteSession (lifecycle/session-switch/session-delete.mjs:57, createSessionDelete over the real manager.mjs, no session current), which refuses a session that is not stored or is closed (isAvailableSession) and detaches one before it unlinks it',
+    'the client delete\'s forgetSessionSearch (session-search-ingest.mjs, mock.module) is a scripted endpoint that does nothing: the real one starts Node\'s PostgreSQL session-search index, whose install/start timers (499, 4000, 30000 ms) fire at no fixed point of a case and whose data dir outlives the run; the search rows are not the session store\'s (session-switch records the forget call)',
+    'the 60 random scenarios issue each op once the previous one answered (a client\'s calls), where the test file issues them all at once: the order the store applies them in is the same, and the client\'s delete reads the stored record when it is called',
     'replay: messages: the place of the messages field in the stored record as in session-lifecycle (the thread holds the recorded messages as one header field; it is compared where the recorded record has it)',
     ...DETERMINISM,
   ],
@@ -59,6 +79,20 @@ await runSessionRecorder(import.meta.url, {
   const { closeSession } = await imp('src/runtime/agent/orchestrator/session/manager/session-close.mjs');
   const { bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError, markSessionClosed, saveSession, saveSessionAsync } = store;
   const { settleSummaryIndexWrites } = await imp('src/runtime/agent/orchestrator/session/store-summary-index.mjs');
+  const mgr = await imp('src/runtime/agent/orchestrator/session/manager.mjs');
+  const { createSessionDelete } = await imp('src/session-runtime/lifecycle/session-switch/session-delete.mjs');
+  // A client's delete (the desktop's session delete, lifecycle/session-switch.mjs): the session runtime's deleteSession over
+  // the real session manager, with no session current in this runtime (a client deletes a session it does not have open).
+  const { deleteSession: clientDelete } = createSessionDelete({
+    getSession: () => null,
+    setSession() {},
+    mgr,
+    statusRoutes: null,
+    agentTool: null,
+    async createCurrentSession() {},
+    invalidateContextStatusCache() {},
+    invalidatePreSessionToolSurface() {},
+  }, { cancelBackgroundTasks() {} });
 
   const sessions = join(root, 'data', 'sessions');
   const logPath = (id) => join(sessions, `${id}.log.jsonl`);
@@ -144,7 +178,7 @@ await runSessionRecorder(import.meta.url, {
       const { id, first, initial } = await newSession(fails ? 'detach_fail' : 'detach_ok');
       unlinks.length = 0; armed.length = 0;
       failing = (candidate) => fails && candidate === id;
-      const deleting = deleteSession(id);
+      const deleting = clientDelete(id);
       const closing = closeSession(id, 'desktop-context-switch', { tombstone: false });
       const deleted = exact(await deleting);
       const closed = exact(await closing);
@@ -202,9 +236,13 @@ await runSessionRecorder(import.meta.url, {
           if (!existing) return;
           st = { exists: true, messages: existing.messages, generation: existing.generation + 1, closed: kind === 'close' ? true : existing.closed === true };
         } else {
-          const fails = kind === 'deleteFail' && st.exists;
-          if (st.exists) plan.push(fails);
-          if (!fails) { st = { exists: false }; slot = null; }
+          // The client's delete refuses a session that is not stored or is closed (isAvailableSession); otherwise it
+          // detaches it (closeSession, tombstone false) before the unlink, so a failed unlink leaves it detached.
+          const available = st.exists && !st.closed;
+          const fails = kind === 'deleteFail' && available;
+          if (available) plan.push(fails);
+          if (available && fails) st = { ...st, generation: st.generation + 1 };
+          else if (available) { st = { exists: false }; slot = null; }
         }
       });
       return plan;
@@ -218,19 +256,19 @@ await runSessionRecorder(import.meta.url, {
       failing = () => queue.shift() === true;
       unlinks.length = 0; armed.length = 0;
       let client = [first];
-      const pending = ops.map((kind, index) => {
+      // Each op is awaited before the next is issued (a client issues its next call once the last answered).
+      const answers = [];
+      for (const [index, kind] of ops.entries()) {
         if (kind === 'save' || kind === 'debounced') {
           client = [...client, { role: 'user', content: `m${index + 1}` }];
           const copy = { id, generation: 0, closed: false, messages: client };
-          if (kind === 'save') return saveSessionAsync(copy, { expectedGeneration: 0 });
-          saveSession(copy, { expectedGeneration: 0 });
-          return undefined;
-        }
-        if (kind === 'close') return markSessionClosed(id, 'test');
-        if (kind === 'detach') return bumpSessionGeneration(id, 'detach');
-        return deleteSession(id);
-      });
-      const results = exact(await Promise.all(pending));
+          if (kind === 'save') answers.push(await saveSessionAsync(copy, { expectedGeneration: 0 }));
+          else answers.push(saveSession(copy, { expectedGeneration: 0 }));
+        } else if (kind === 'close') answers.push(await markSessionClosed(id, 'test'));
+        else if (kind === 'detach') answers.push(await bumpSessionGeneration(id, 'detach'));
+        else answers.push(await clientDelete(id));
+      }
+      const results = exact(answers);
       const clockSteps = [];
       await finish(clockSteps);
       failing = () => false;

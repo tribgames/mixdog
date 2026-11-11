@@ -88,6 +88,7 @@ pub(super) struct Real {
     /// The store, as the fence a listing waits on for the index writes acknowledged before it.
     pub(super) threads: Arc<super::StoreThreads>,
     mark: Arc<MarkHold>,
+    meta: Arc<MetaHold>,
     /// Whether each delete mark's durable write fails, and the marks written.
     pub(super) marks: Arc<MarkFail>,
     pub(super) data: super::testing::DataDir,
@@ -105,10 +106,15 @@ pub(super) struct MarkFail {
 /// durable close (`finishCanonicalClose`).
 type MarkHold = std::sync::Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>;
 
+/// A delete held where it reads the session's catalog entry (`session_meta`, `delete_session`'s `isAvailableSession`):
+/// after the client delete's detach landed, before the delete closes the thread.
+type MetaHold = std::sync::Mutex<Option<(Arc<tokio::sync::Notify>, tokio::sync::oneshot::Receiver<()>)>>;
+
 /// The real store, its session logs holding a commit while [`MarkHold`] is armed.
 struct HeldStore {
     store: Arc<dyn super::ThreadStore>,
     mark: Arc<MarkHold>,
+    meta: Arc<MetaHold>,
     marks: Arc<MarkFail>,
 }
 
@@ -189,7 +195,15 @@ impl super::ThreadStore for HeldStore {
         self.store.context_io(lane, id, read)
     }
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
-        self.store.session_meta(id)
+        let read = self.store.session_meta(id);
+        let held = lock(&self.meta).take();
+        Box::pin(async move {
+            if let Some((reached, release)) = held {
+                reached.notify_one();
+                awaiting(|| "the held delete to be released".to_owned(), release).await.expect("the delete released");
+            }
+            read.await
+        })
     }
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         self.store.purge_deleted()
@@ -252,8 +266,33 @@ pub(super) async fn real() -> Real {
     let marks = Arc::new(MarkFail::default());
     let rig = Rig::new();
     rig.set_script(echo());
-    let directory = Arc::new(SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone(), marks: marks.clone() }))));
-    Real { directory, rig, index, threads, mark, marks, data }
+    let meta = Arc::new(MetaHold::default());
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone(), meta: meta.clone(), marks: marks.clone() }))));
+    Real { directory, rig, index, threads, mark, meta, marks, data }
+}
+
+/// A client delete (`thread/delete`) held after its detach landed, before it closes the thread.
+pub(super) struct HeldDelete {
+    release: tokio::sync::oneshot::Sender<()>,
+    delete: tokio::task::JoinHandle<Result<Reply, CoreError>>,
+}
+
+pub(super) async fn begin_delete(real: &Real, id: &ThreadId) -> HeldDelete {
+    let (reached, (release, held)) = (Arc::new(tokio::sync::Notify::new()), tokio::sync::oneshot::channel());
+    *lock(&real.meta) = Some((reached.clone(), held));
+    let handle = real.directory.handle(id).expect("loaded");
+    let params = json!({ "threadId": id, "opId": "op-delete" });
+    let delete = tokio::spawn(async move { handle.request(request("thread/delete", params)).await });
+    awaiting(|| "the delete's detach to land".to_owned(), reached.notified()).await;
+    HeldDelete { release, delete }
+}
+
+impl HeldDelete {
+    pub(super) async fn finish(self) -> bool {
+        self.release.send(()).expect("the delete is held");
+        let reply = awaiting(|| "the delete to finish".to_owned(), self.delete).await.expect("the delete task").expect("thread/delete");
+        matches!(reply, Reply::Value(Value::Bool(true)))
+    }
 }
 
 /// A thread whose first turn landed, so the catalog lists it (a close acts on a listed session, `isAvailableSession`),
@@ -472,14 +511,24 @@ async fn line_108_a_closed_owner_never_queues_or_wakes_a_completion() {
     assert_eq!(case.get("result").get("woke"), &Exact::Array(Vec::new()));
 }
 
-/// Lines 140 and 150: a completion for an owner that is closed (140), or whose lifecycle moved on since the job was
-/// started (150: the core's completions carry no lifecycle generation, so the owner that moved on is the closed one),
-/// is not delivered: nothing is queued and no turn starts. Line 150's `rt` is not compared (Node's runtime stays open
-/// under a later generation; the core's thread is gone).
+/// Line 140: a completion for an owner that is closed is not delivered: nothing is queued and no turn starts.
+/// (Line 150: one whose lifecycle moved on since the job was started; the core's completions carry no lifecycle
+/// generation, so the owner that moved on is the closed one. Its `rt` is not compared: Node's runtime stays open under
+/// a later generation; the core's thread is gone.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lines_140_150_a_completion_for_a_closed_owner_is_not_delivered() {
+async fn line_140_a_completion_for_a_closed_owner_is_not_delivered() {
+    completion_for_a_closed_owner(140.0).await;
+}
+
+/// Line 150: a completion for an owner whose lifecycle moved on since the job started is not delivered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn line_150_a_completion_for_a_moved_on_owner_is_not_delivered() {
+    completion_for_a_closed_owner(150.0).await;
+}
+
+async fn completion_for_a_closed_owner(line: f64) {
     let recording = recording();
-    for line in [140.0, 150.0] {
+    {
         let case = case(&recording, line);
         let steps = case.get("result").get("steps").as_array();
         let real = real().await;

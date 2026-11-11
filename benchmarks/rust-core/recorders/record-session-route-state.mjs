@@ -151,6 +151,12 @@ await runSessionRecorder(import.meta.url, {
   };
   const shape = (target) => ({ target: exact(target) });
 
+  // The scripted compactor's answers (recorded as inputs): what it returns for each scenario that compacts.
+  const COMPACTOR_ANSWERS = {
+    compacting: { messages: [{ role: 'user', content: 'Compacted for the heir.' }] },
+    compact: { messages: [{ role: 'user', content: 'Summarized on request.' }] },
+  };
+
   // 9 preflight is the same verdict the carry reaches
   {
     const out = {};
@@ -159,7 +165,7 @@ await runSessionRecorder(import.meta.url, {
       const calls = [];
       const h = open(src, 20_000, async ({ budgetTokens, session }) => {
         calls.push({ budgetTokens, isSource: session === src, session: exact(session) });
-        return { messages: [{ role: 'user', content: 'Compacted for the heir.' }] };
+        return structuredClone(COMPACTOR_ANSWERS.compacting);
       });
       const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.compacting = { fit, inherit: await outcome(() => h.api.inheritFrom(src.id)), calls, ...shape(h.target), saves: h.saves };
@@ -177,7 +183,7 @@ await runSessionRecorder(import.meta.url, {
       const fit = exact(h.api.inheritancePreflight(src.id, h.route));
       out.accepted = { fit, inherit: await outcome(() => h.api.inheritFrom(src.id)), ...shape(h.target), saves: h.saves };
     }
-    add('inheritance-preflight-is-the-verdict-the-carry-reaches', 306, { conversation: CONVERSATION, heirRoute: { provider: 'anthropic-oauth', model: 'claude-opus-5' }, windows: [20_000, 20_000, 500_000] }, out);
+    add('inheritance-preflight-is-the-verdict-the-carry-reaches', 306, { conversation: CONVERSATION, heirRoute: { provider: 'anthropic-oauth', model: 'claude-opus-5' }, windows: [20_000, 20_000, 500_000], compactorAnswers: { compacting: COMPACTOR_ANSWERS.compacting, emptyCompaction: { messages: [] } } }, out);
   }
 
   // 10 compact:true
@@ -188,7 +194,7 @@ await runSessionRecorder(import.meta.url, {
       const calls = [];
       const h = open(src, 500_000, async ({ session }) => {
         calls.push({ session: exact(session), isSource: session === src });
-        return { messages: [{ role: 'user', content: 'Summarized on request.' }] };
+        return structuredClone(COMPACTOR_ANSWERS.compact);
       });
       out.preflight = exact(h.api.inheritancePreflight(src.id, h.route));
       out.compact = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), calls, sourceCompaction: exact(src.compaction), ...shape(h.target) };
@@ -211,7 +217,7 @@ await runSessionRecorder(import.meta.url, {
       const h = open(src, 500_000, async () => ({ messages: [] }));
       out.empty = { inherit: await outcome(() => h.api.inheritFrom(src.id, { compact: true })), ...shape(h.target) };
     }
-    add('compact-true-compacts-a-conversation-that-fits', 372, { conversation: CONVERSATION, window: 500_000, compactor: { compact: 'returns one user message', failing: 'throws Error(compactor down)', empty: 'returns no messages' } }, out);
+    add('compact-true-compacts-a-conversation-that-fits', 372, { conversation: CONVERSATION, window: 500_000, compactor: { compact: 'returns one user message', failing: 'throws Error(compactor down)', empty: 'returns no messages' }, compactorAnswers: { compact: COMPACTOR_ANSWERS.compact, empty: { messages: [] } } }, out);
   }
 
   return { cases };

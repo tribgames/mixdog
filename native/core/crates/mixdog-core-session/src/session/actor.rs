@@ -4149,6 +4149,13 @@ impl SessionActor {
                 let _ = tx.send(Ok(Reply::Value(json!({ "conflict": current }))));
                 return Ok(());
             }
+            // A save issued for an ownership generation (`saveSessionAsync(session, { expectedGeneration })`): dropped
+            // when the header it would land on is past that generation (`_dropsAgainst`, `store.mjs:149-153`).
+            let expected = req.params.get("expectedGeneration").and_then(Value::as_f64);
+            if super::close::drops_against(&self.projected.header, expected) {
+                let _ = tx.send(Ok(Reply::Value(json!({ "dropped": true }))));
+                return Ok(());
+            }
         }
         // `restoreQueued` of an entry that is not queued (it started, or was taken) answers
         // `count: 0` and the composer's own text, not an error.
@@ -4182,11 +4189,16 @@ impl SessionActor {
         match result {
             Ok(plan) => {
                 self.apply_plan(plan, req.op.clone(), tx);
-                if req.method.as_str() == "thread/header/patch"
-                    && let Some(expect) = req.params.get("expect").and_then(Value::as_object)
-                    && let Some(entry) = self.outbox.last_mut()
-                {
-                    entry.effects.push(Effect::Decided(expect.keys().cloned().collect()));
+                if req.method.as_str() == "thread/header/patch" {
+                    let mut keys: Vec<String> = req.params.get("expect").and_then(Value::as_object).map(|expect| expect.keys().cloned().collect()).unwrap_or_default();
+                    if req.params.get("expectedGeneration").and_then(Value::as_f64).is_some() {
+                        keys.extend(["generation".to_owned(), "closed".to_owned()]);
+                    }
+                    if !keys.is_empty()
+                        && let Some(entry) = self.outbox.last_mut()
+                    {
+                        entry.effects.push(Effect::Decided(keys));
+                    }
                 }
                 Ok(())
             }

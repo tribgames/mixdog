@@ -20,7 +20,6 @@ use serde_json::json;
 use super::address_replay::Real;
 use super::address_replay::delete;
 use super::address_replay::real;
-use super::address_replay::request;
 use super::testing::lock;
 use super::thread_switches::ContextTarget;
 use super::thread_switches::SessionContextSwitch;
@@ -331,6 +330,7 @@ async fn switch_context(real: &Real, directory: Arc<super::SessionDirectory>, id
     let target = Arc::new(Target::default());
     let switch = SessionContextSwitch::new(directory.clone(), close, target.clone());
     let from = lock(&real.rig.deletes.0).len();
+    let ingests_from = lock(&real.rig.closes.seen).len();
     let cwd = args.try_get("cwd").map(|cwd| cwd.as_str().to_owned());
     let desktop = args.try_get("desktopSession").map(|d| d.to_plain().expect("plain")).filter(Value::is_object);
     let for_resume = args.try_get("forResume") == Some(&Exact::Bool(true));
@@ -338,7 +338,9 @@ async fn switch_context(real: &Real, directory: Arc<super::SessionDirectory>, id
     crate::eventually_on!(&[&*real.rig.closes.ended], || lock(&real.rig.closes.seen).iter().any(|(seen, _)| seen == id).then_some(())).await;
     let stored = directory.stored_header(id).await.expect("the thread left is kept");
     let tombstone = stored.get("closed") == Some(&Value::Bool(true));
-    let mut calls = vec![json!(["closeSurface", id.as_str(), SWITCH_REASON, { "tombstone": tombstone }]), json!(["ingest", id.as_str()])];
+    let mut calls = vec![json!(["closeSurface", id.as_str(), SWITCH_REASON, { "tombstone": tombstone }])];
+    // The memory ingests the close ran (the directory's `CloseIngest`), as they reached it.
+    calls.extend(lock(&real.rig.closes.seen)[ingests_from..].iter().map(|(seen, _)| json!(["ingest", seen.as_str()])));
     for note in &lock(&real.rig.deletes.0)[from..] {
         if *note == format!("releaseSessionWork:{id}:{SWITCH_REASON}") {
             calls.push(json!(["cancelTasks", { "reason": SWITCH_REASON, "notify": false, "executionSessionId": id.as_str() }]));
@@ -357,20 +359,29 @@ fn recorded_switch(result: &Exact) -> Exact {
     Exact::Object(vec![("result".into(), result.get("result").clone()), ("calls".into(), Exact::Array(calls))])
 }
 
-/// Lines 213 and 233: a context switch closes the thread left (a scratch one tombstoned, a conversation detached), has
-/// its memory ingested, releases its work and invalidates the context, whether or not it is for a resume.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lines_213_233_a_context_switch_leaves_the_open_thread() {
+/// A context switch of the case at `line`: the thread left is closed (a scratch one tombstoned, a conversation
+/// detached), its memory ingested, its work released and the context invalidated.
+async fn context_switch(line: f64) {
     let recording = recording();
-    for line in [213.0, 233.0] {
-        let case = case(&recording, line);
-        let real = real().await;
-        let current = case.get("input").get("current");
-        let id = thread(&real, current).await;
-        let (answered, calls) = switch_context(&real, real.directory.clone(), &id, case.get("input").get("args")).await;
-        let got = Exact::Object(vec![("result".into(), Exact::Bool(answered)), ("calls".into(), exact(Value::Array(calls)))]);
-        assert_eq!(got, recorded_switch(case.get("result")), "line {line}");
-    }
+    let case = case(&recording, line);
+    let real = real().await;
+    let current = case.get("input").get("current");
+    let id = thread(&real, current).await;
+    let (answered, calls) = switch_context(&real, real.directory.clone(), &id, case.get("input").get("args")).await;
+    let got = Exact::Object(vec![("result".into(), Exact::Bool(answered)), ("calls".into(), exact(Value::Array(calls)))]);
+    assert_eq!(got, recorded_switch(case.get("result")), "line {line}");
+}
+
+/// Line 213: a context switch leaves the open thread.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn line_213_a_context_switch_leaves_the_open_thread() {
+    context_switch(213.0).await;
+}
+
+/// Line 233: a context switch for a resume leaves the open thread the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn line_233_a_resume_switch_leaves_the_open_thread() {
+    context_switch(233.0).await;
 }
 
 /// Line 244: a new session is a new thread (`thread/start`), the open conversation's memory is ingested and it is left

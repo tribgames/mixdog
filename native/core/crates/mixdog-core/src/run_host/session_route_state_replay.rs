@@ -203,7 +203,6 @@ struct Carry {
 /// What Node's scripted compactor did: rows to answer, nothing, or a throw.
 enum Compactor {
     Rows(Vec<Value>),
-    Nothing,
     Throws,
     Unused,
 }
@@ -215,7 +214,6 @@ impl Carry {
         rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
         match compactor {
             Compactor::Rows(rows) => *lock(&rig.compaction.heir_rows) = Some(rows),
-            Compactor::Nothing => *lock(&rig.compaction.heir_rows) = Some(Vec::new()),
             Compactor::Throws => rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst),
             Compactor::Unused => {}
         }
@@ -323,15 +321,19 @@ async fn inheritance_carry(line: &str) {
     };
     let heir_small = untouched(pre.get("emptyCompaction").get("target"));
     let heir_roomy = untouched(pre.get("accepted").get("target"));
-    let compacted = |target: &Exact| Compactor::Rows(vec![json!({ "role": "user", "content": target.get("messages").as_array()[0].get("content").as_str() })]);
+    // The scripted compactor's answers, recorded as the cases' inputs.
+    let compacted = |line: f64, scenario: &str| {
+        let answer = case(&recording, line).get("input").get("compactorAnswers").get(scenario);
+        Compactor::Rows(answer.get("messages").as_array().iter().map(plain).collect())
+    };
     let preflight = plain(asked.get("preflight"));
     let mut scenarios = vec![
-        ("306 compacting", &heir_small, 20_000, compacted(pre.get("compacting").get("target")), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target")),
-        ("306 emptyCompaction", &heir_small, 20_000, Compactor::Nothing, vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target")),
+        ("306 compacting", &heir_small, 20_000, compacted(306.0, "compacting"), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target")),
+        ("306 emptyCompaction", &heir_small, 20_000, compacted(306.0, "emptyCompaction"), vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target")),
         ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target")),
-        ("372 compact", &heir_roomy, 500_000, compacted(asked.get("compact").get("target")), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target")),
+        ("372 compact", &heir_roomy, 500_000, compacted(372.0, "compact"), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target")),
         ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target")),
-        ("372 empty", &heir_roomy, 500_000, Compactor::Nothing, vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target")),
+        ("372 empty", &heir_roomy, 500_000, compacted(372.0, "empty"), vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target")),
     ];
     for default in asked.get("default").as_array() {
         let args = default.get("args").as_array();
@@ -377,8 +379,9 @@ impl RouteWindows for NoCatalogWindows {
     }
 }
 
-/// Line 255: the same conversation judged on each heir route (a roomy one, an Anthropic one, a tight one and one with
-/// no windows).
+/// Line 255: the same conversation judged on each heir session (a roomy one, an Anthropic one, a tight one and one with
+/// no windows). Node measures the heir session itself (`inheritFrom`'s `target`), which no client request names apart
+/// from the carry: the heir-session policy ([`HostInheritanceFit`]) is asked as the carry asks it.
 #[tokio::test]
 async fn the_inheritance_fit_is_judged_on_the_heirs_route() {
     let recording = recording();

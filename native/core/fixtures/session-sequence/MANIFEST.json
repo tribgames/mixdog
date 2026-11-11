@@ -1,6 +1,6 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-sequence.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146",
-  "entry": "Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, deleteSession, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord) and manager/session-close.mjs (closeSession) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.",
+  "entry": "Ran the real store.mjs (saveSession, saveSessionAsync, markSessionClosed, bumpSessionGeneration, drainSessionStore, getSessionLifecycleCommitError), store/transcript-durability.mjs (readDurableSessionRecord), manager/session-close.mjs (closeSession) and the client's delete (session-runtime/lifecycle/session-switch/session-delete.mjs deleteSession over manager.mjs) on a temp MIXDOG_DATA_DIR, with an EACCES injected into fs.unlinkSync of the session log and the debounce timer on the mock clock (never advanced). Did not run the 1.4.5 oracle `predict` as a check: the recording holds what Node did.",
   "exclusions": [
     "session ids drop the test's process id (sess_sequence_<tag>_<n>)",
     "the unlink plan is computed by the test's `predict` oracle (copied here only to place the injected failures); the recorded outcomes are Node's own",
@@ -10,7 +10,9 @@
     "the temp data dir is a path under the OS temp dir: it is not recorded; a recorded string that holds it is a defect of the recording (the recorder fails on it)",
     "replay: logFile and sessionsDir are not compared: they are Node's JSONL session log and its files in the sessions dir, a file format the core does not write (its store is the thread store); the stored record they hold is compared whole (stored)",
     "replay: timersArmed is not compared: it is Node's debounce timer (150 ms) of saveSession; the core keeps no debounced copy, the debounced save is written at once and answers nothing, and the stored record after it is compared",
-    "replay: a delete of a session that is not stored answers false through thread/delete, the client's deleteSession (lifecycle/session-switch/session-delete.mjs:56 isAvailableSession refuses it before the store is asked); the recording calls the store's deleteSession (store/session-delete.mjs:175), whose idempotent true for an absent record no client reaches. The replay asserts false there and compares the recorded true in the results list",
+    "a delete is the client's: the session runtime's deleteSession (lifecycle/session-switch/session-delete.mjs:57, createSessionDelete over the real manager.mjs, no session current), which refuses a session that is not stored or is closed (isAvailableSession) and detaches one before it unlinks it",
+    "the client delete's forgetSessionSearch (session-search-ingest.mjs, mock.module) is a scripted endpoint that does nothing: the real one starts Node's PostgreSQL session-search index, whose install/start timers (499, 4000, 30000 ms) fire at no fixed point of a case and whose data dir outlives the run; the search rows are not the session store's (session-switch records the forget call)",
+    "the 60 random scenarios issue each op once the previous one answered (a client's calls), where the test file issues them all at once: the order the store applies them in is the same, and the client's delete reads the stored record when it is called",
     "replay: messages: the place of the messages field in the stored record as in session-lifecycle (the thread holds the recorded messages as one header field; it is compared where the recorded record has it)",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
@@ -26,9 +28,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 214678,
+      "bytes": 181753,
       "path": "recording.json",
-      "sha256": "4e3f28bb53fd30ef95239d6995b9acd627630705f66a79af051da50415e42cea"
+      "sha256": "2cf8f54b90347777a8737ae8e403d4de5aae980f9334a435fba4ece5113f2914"
     }
   ],
   "inputs": [
@@ -76,10 +78,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-sequence.mjs",
-  "recorderSha256": "3f1b5d027dfa02f96a026da0f458e6a1de6b40dc64048c1f4bb1516c5864656c",
-  "replay": "mixdog-core-session session/sequence_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: the first save creates the thread under the recorded id with the recorded record as its header (create_with_id); a later save is close.rs patch_header_fenced (expectedGeneration 0) of the client's messages over SessionThreads, or the create again when no record is stored; close and detach are close.rs write_close / write_detach (markSessionClosed, bumpSessionGeneration), answered with the generation stored after them or null when no record is stored; delete is thread/delete; line 64's closeSession is SessionClose::detach accepted while the delete is held at its mark. Node's unlink failure is the delete mark's durable write failing (rolled back), asked of the case's plan once per mark. Compared whole: every op's result, firstSave / deleted / closed, unlinkPlanLeft, the marks written with their failure (unlinks), commitError (null: no barrier of the replay failed), initial and clockSteps (the replay arms no timer and moves no clock) and the stored record (the thread header, messages placed as the recorded record has them).",
+  "recorderSha256": "f9a8d07c242d8a2187f6d13a0c19e5c69e6319da3f03a11e9cded572d3f0ca0a",
+  "replay": "mixdog-core-session session/sequence_replay.rs, one test per recorded case, over the real thread store in a scratch data dir: the first save creates the thread under the recorded id with the recorded record as its header (create_with_id); a later save is the thread's request thread/header/patch with expectedGeneration 0 (the request SessionThreads::patch_header_fenced sends) of the client's messages, or the create again when no record is stored; close and detach are the directory's own close and detach (close.rs SessionClose::close / SessionClose::detach, the calls the idle sweep, thread/delete and the context switch make), answered with the generation stored after them or null when no record is stored; delete is thread/delete and its answer is compared as recorded; line 64's closeSession is SessionClose::detach, run while the client delete is held after its own detach landed and before it closes the thread (its catalog read, delete.rs delete_session), Node's order: the delete's detach, the closeSession's, then the unlink. Node's unlink failure is the delete mark's durable write failing (rolled back), asked of the case's plan once per mark. Compared whole: every op's result, firstSave / deleted / closed, unlinkPlanLeft, the marks written with their failure (unlinks), commitError (null: no barrier of the replay failed), initial and clockSteps (the replay arms no timer and moves no clock) and the stored record (the thread header, messages placed as the recorded record has them).",
   "set": "session-sequence",
   "testFile": "src/runtime/agent/orchestrator/session/store/session-sequence.test.mjs",
-  "totalBytes": 214678,
+  "totalBytes": 181753,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

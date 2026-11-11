@@ -7,9 +7,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1932480,
+      "bytes": 1933080,
       "path": "recording.json",
-      "sha256": "8445d521b623d514bbd4ed3bd11b825787ea65e0731ec13af444e7bd0c43333a"
+      "sha256": "6cc3dfdda6e7056457a6d363fee5a39a4a9e4070fd42d4ae4cdd5aa4d138f8a3"
     }
   ],
   "inputs": [
@@ -49,10 +49,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-route-state.mjs",
-  "recorderSha256": "f4ef10d33ff2b4f145af20b1268d678c15f7b1c93a11e399b7c21fbc3e780add",
+  "recorderSha256": "dc6e2bf30d613ee3e192b4564bb59e14ade55019d63fa01f8d6e9b6b5a873c51",
   "replay": "mixdog-core run_host/session_route_state_replay.rs: mixdog_ai::service::admin_route (resolve_route_effort_state, resolve_route_context_state, selection_fast_capable, save_model_settings, resolve_route, window_meta_of) for cases 10, 27, 49, 74, 104, 149, 229, and mixdog_core_session::session::inheritance::inheritance_fit over run_host::inheritance_fit::HostInheritanceFit for 255, each result compared whole. Cases 306 and 372 (inheritFrom) are played through thread/inheritancePreflight, thread/fork and thread/messages/read on a real session directory and compared at what a client observes: the verdict, the answer or refusal text, the heir's conversation. Not compared: the compactor calls Node's mock counted (budgetTokens, threshold, copy-not-source) — no client sees them; the heir's conversation and the refusal text are their observable consequence.",
   "set": "session-route-state",
   "testFile": "src/session-runtime/session-lifecycle.test.mjs",
-  "totalBytes": 1932480,
+  "totalBytes": 1933080,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
