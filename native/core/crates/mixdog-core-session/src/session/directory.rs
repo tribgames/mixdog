@@ -1336,6 +1336,7 @@ impl DirInner {
                 dur_rx,
                 directory: self.me.clone(),
             },
+            control,
         );
         let mut actor = actor;
         let launch = move || {

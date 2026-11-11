@@ -601,8 +601,10 @@ pub(crate) struct SessionActor {
     turn_prewarm_armed: bool,
     /// The live-workspace reads started; only the latest one's answer is published.
     live_workspace_reads: u64,
-    /// Settings announcements that reached the thread before it had a session (`on_settings_changed`).
+    /// Settings announcements that reached the control thread before it had a session (`on_settings_changed`).
     setup_changes_held: u64,
+    /// The desktop's control session (`SessionHandle::control`).
+    control: bool,
     /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
     turns_closed: usize,
     /// state.stats (usage totals), folded from each model call's usage event.
@@ -910,6 +912,7 @@ impl SessionActor {
         state: SessionState,
         surface: watch::Sender<Arc<SessionSurface>>,
         ch: ActorChannels,
+        control: bool,
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
@@ -942,6 +945,7 @@ impl SessionActor {
             turn_prewarm_armed: false,
             live_workspace_reads: 0,
             setup_changes_held: 0,
+            control,
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
@@ -3231,10 +3235,10 @@ impl SessionActor {
     /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
     fn on_settings_changed(&mut self, announced: u64) {
         // Node's router counts every delivery (setupChangeSeq += 1): announcements that reached this thread together count one each.
-        // Node delivers them to a session's listener: a thread with no session yet (no model on its header) holds them until its
-        // route is seated - the save of the route that seats it is the announcement a new task's session counts (its session exists
-        // before the save in Node); a thread never seated counts none (the control session's setupChanged stays null).
-        if !mixdog_core_ports::ports::route::header_names_session(&self.projected.header) {
+        // Node delivers them to a session's listener. A task's session exists from `client.create`, so every delivery counts; the
+        // control runtime has no session until its route is seated (`ensureControlSession`): it holds them until then, and a control
+        // thread never seated counts none (its setupChanged stays null).
+        if self.control && !mixdog_core_ports::ports::route::header_names_session(&self.projected.header) {
             self.setup_changes_held += announced;
             self.sync_route_config();
             return;
