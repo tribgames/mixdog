@@ -3,7 +3,7 @@
 //! `session-runtime-inline-host.dispatch.test.mjs:153`): each recorded `notifySessionCompletion(owner, text, meta)` through the
 //! core's `OwnerNotify` (`SessionCompletions::notify` over the real `SessionDirectory`), the answer against Node's. An owner is a
 //! started thread (Node: a runtime hinted by its id or found by `setSessionId`); a missing owner is a thread that was never
-//! started; a disposed runtime's owner is a thread that was deleted. The completions are plain text, as the test's.
+//! started; a disposed runtime's owner is a thread that was deleted (	hread/delete answered). The completions are plain text, as the test's.
 
 use mixdog_core_session::session::agent_registry::SessionCompletions;
 use mixdog_agent::agent_tool::flow::seams::OwnerNotify;
@@ -18,9 +18,8 @@ fn golden() -> Value {
 async fn each_recorded_completion_is_answered_as_in_node() {
     let golden = golden();
     let case = golden["cases"].as_array().unwrap().iter().find(|case| case["case"] == "notifySessionCompletion routes to the runtime that owns the session, hinted or discovered").expect("the case");
-    // Both named in the manifest: the host's close, and a disposed runtime (the core has no disposal of a loaded thread's runtime
-    // short of deleting it, and a deleted thread's handle still answers `live`: `agent_registry/flow.rs` `notify`, open).
-    let excluded = ["after the host closed", "owner whose runtime was disposed"];
+    // Named in the manifest: the host's close (the daemon's own lifetime).
+    let excluded = ["after the host closed"];
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone()))));
     let completions = SessionCompletions::new(directory.clone());
@@ -42,6 +41,14 @@ async fn each_recorded_completion_is_answered_as_in_node() {
             continue;
         }
         let owner = &owners[call["owner"].as_str().unwrap()];
+        // The test's `hinted.dispose('bye')`: the owner's runtime ends the way a core thread's does, deleted (the catalog lists it, which a
+        // delete needs).
+        if label == "owner whose runtime was disposed" {
+            rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+            let op = "op-dispose";
+            let deleted = directory.request(request("thread/delete", json!({ "threadId": owner, "opId": op }), op)).await.expect("thread/delete");
+            assert!(matches!(&deleted, Reply::Value(value) if *value == json!(true)), "the owner's thread was deleted: {deleted:?}");
+        }
         let answer = completions.notify(owner, call["text"].as_str().unwrap(), &call["meta"]);
         answers.push(json!({ "call": label, "owner": call["owner"], "text": call["text"], "meta": call["meta"], "answer": answer }));
     }

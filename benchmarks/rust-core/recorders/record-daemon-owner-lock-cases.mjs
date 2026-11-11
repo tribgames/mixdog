@@ -168,21 +168,22 @@ await record('one process holds it once; release frees it; intact() follows the 
   see('this process after the release', again.held);
 });
 
+// Named Rust absence, both: the flag's one reader is Node's gone-row sweep (terminal-reaper/gone-rows.mjs:109
+// `ownsDataDir = daemonOwnerLockHeldHere`, :160 `if (!ownsDataDir()) return 0`): a process that does not own the data dir
+// (the `--plain` REPL) never prunes the persistent worker index, and the owner prunes the gone, settled rows of every owner at
+// each maintenance pass (agent-tool.mjs:207). A second process on the data folder sees that pruning. The core has no
+// `sweepGoneRows` at all: its agent registry only forgets a deleted session's rows (`forget_deleted_session`,
+// native/core/crates/mixdog-core-session/src/session/agent_registry/mod.rs:559), so no core process prunes gone rows, owner or not,
+// and there is nothing to gate on the lock.
 const excluded = {
   'only the process that took the lock knows it owns the data dir':
-    "not observable outside the process: the flag's one reader is the gone-row sweep's gate (Node " +
-    'src/session-runtime/services/agent-tool/terminal-reaper/gone-rows.mjs:109 `ownsDataDir = daemonOwnerLockHeldHere`, :160 ' +
-    '`if (!ownsDataDir()) return 0`), whose only outside effect is that a process not owning the data dir (the `--plain` REPL) ' +
-    "never prunes the worker index. The core has no such second process: its agent registry is composed only after " +
-    '`ownership::acquire` succeeds (native/core/crates/mixdog-app-server-daemon/src/startup.rs:119), and a second start on ' +
-    'the data dir is refused `AlreadyOwned` (startup.rs:296), as the replayed case "a held lock refuses every other process" shows',
+    'Rust absence: the core has no gone-row sweep (see above), so the lock does not gate a prune; a second start on the data dir ' +
+    'is refused `AlreadyOwned` (native/core/crates/mixdog-app-server-daemon/src/startup.rs:296), as the replayed case "a held lock ' +
+    'refuses every other process" shows',
   'releasing the lock ends this process ownership of the data dir':
-    "not observable outside the process: `daemonOwnerLockHeldHere()` after `release()` is read only by the same sweep gate " +
-    '(gone-rows.mjs:160); a released Node owner stops pruning, and a core that drops its `CoreOwnership` has ended (the value ' +
-    'lives for the core\'s life, startup.rs:296 "L is held for the core\'s life"); the release itself is replayed in ' +
-    '"one process holds it once; release frees it"',
+    'Rust absence: the core has no gone-row sweep to stop (see above); the release itself is replayed in "one process holds it ' +
+    'once; release frees it"',
 };
-
 const finalDir = join(FIXTURES_ROOT, 'daemon-owner-lock-cases');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { note: `Node's daemon owner lock at ${NODE_COMMIT}, per case of ${RECORDER}`, test: TEST, platform: process.platform, cases });
