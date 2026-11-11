@@ -255,13 +255,6 @@ pub(crate) enum Inbox {
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
-    /// Replay-only ([`super::SessionDirectory::durability_settled`]): answered once every record accepted before it is
-    /// committed (or failed) and every prompt-history append pushed before it is written; what is accepted after it
-    /// neither holds nor hastens the answer. At once when nothing from before it is pending; an error naming the store when
-    /// one of them failed. `prompts` is the appends' accepted count the caller took as it arrived
-    /// ([`super::control::ControlCell::prompt_marks`]).
-    #[cfg(any(test, feature = "test-support"))]
-    Settled { prompts: u64, tx: oneshot::Sender<Result<(), String>> },
 }
 
 /// Where a test's injected unwind of the actor happens.
@@ -652,10 +645,6 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
-    /// [`Inbox::Settled`] callers, each with its positions: the outbox's last accepted entry, taken when the question is
-    /// handled, and the prompt-history appends pushed, taken by the caller as it arrived ([`SessionActor::answer_settled`]).
-    #[cfg(any(test, feature = "test-support"))]
-    settled: Vec<((u64, u64), oneshot::Sender<Result<(), String>>)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -917,11 +906,14 @@ impl SessionActor {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
         #[cfg(any(test, feature = "test-support"))]
-        let prompt_marks = cell.prompt_marks.clone();
+        let (prompt_marks, record_marks) = (cell.prompt_marks.clone(), cell.record_marks.clone());
         Self {
             goal_watch,
             surface,
             feed_id: FeedId::from(id.as_str()),
+            #[cfg(any(test, feature = "test-support"))]
+            outbox: Outbox::numbered_on(deps.limits, record_marks),
+            #[cfg(not(any(test, feature = "test-support")))]
             outbox: Outbox::new(deps.limits),
             slot: None,
             seed: None,
@@ -968,8 +960,6 @@ impl SessionActor {
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
             after_publish: Vec::new(),
-            #[cfg(any(test, feature = "test-support"))]
-            settled: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
             #[cfg(any(test, feature = "test-support"))]
@@ -1070,9 +1060,6 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
-            // After the pump, which may return early on a failed hand-off: every iteration ends here.
-            #[cfg(any(test, feature = "test-support"))]
-            self.answer_settled();
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -1089,10 +1076,6 @@ impl SessionActor {
                 && self.delete_closed.is_none()
                 && self.delete_mark.is_none()
             {
-                // The close flushed: every accepted record is committed, and, when the prompt-history appends all landed,
-                // a barrier that finds this thread gone counts it settled.
-                #[cfg(any(test, feature = "test-support"))]
-                self.cell.flushed.store(self.prompt_appends.marks().check(self.prompt_appends.marks().accepted()) == Some(Ok(())), SeqCst);
                 break;
             }
         }
@@ -2141,8 +2124,8 @@ impl SessionActor {
 
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
         #[cfg(any(test, feature = "test-support"))]
-        if entry.durable.is_some() {
-            self.outbox.note_failed(entry.id, format!("{error:?}"));
+        if let Some(durable) = &entry.durable {
+            self.outbox.note_failed(durable, format!("{error:?}"));
         }
         // A queued prompt whose record was not stored is removed and its id forgotten, and the sender hears a refusal
         // (`drain-enqueue.mjs:64`, a failed durable mirror), so a retry is a new submission.
@@ -3971,9 +3954,6 @@ impl SessionActor {
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
-            // The accept watermarks now; answered at the end of an iteration of the run loop once both are reached.
-            #[cfg(any(test, feature = "test-support"))]
-            Inbox::Settled { prompts, tx } => self.settled.push(((self.outbox.last_accepted(), prompts), tx)),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -5375,26 +5355,6 @@ impl SessionActor {
         let _ = self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| {
             let _ = jobs.send(JobDone::PromptPersisted(prompts.load(lane, &cwd)));
         });
-    }
-
-    /// Answers each [`Inbox::Settled`] whose records are committed through its mark (the store's sync acked them:
-    /// `on_durability` -> `Outbox::acked`) and whose prompt appends are written; the rest wait.
-    #[cfg(any(test, feature = "test-support"))]
-    fn answer_settled(&mut self) {
-        for ((records, prompts), tx) in std::mem::take(&mut self.settled) {
-            let answer = match (self.outbox.committed_through(records), self.prompt_appends.marks().check(prompts)) {
-                (Some(Err(error)), _) => Some(Err(format!("thread {}: {error}", self.id.as_str()))),
-                (_, Some(Err(error))) => Some(Err(format!("thread {}: {error}", self.id.as_str()))),
-                (Some(Ok(())), Some(Ok(()))) => Some(Ok(())),
-                _ => None,
-            };
-            match answer {
-                Some(answer) => {
-                    let _ = tx.send(answer);
-                }
-                None => self.settled.push(((records, prompts), tx)),
-            }
-        }
     }
 
     /// `appendPromptHistory(cwd, text)` for a user-submitted prompt, off the actor.

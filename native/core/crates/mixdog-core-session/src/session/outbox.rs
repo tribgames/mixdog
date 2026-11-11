@@ -46,6 +46,9 @@ pub(crate) struct Durable {
     pub class: Class,
     pub stage: Stage,
     pub bytes: usize,
+    /// The record's number on the outbox's [`mixdog_rt::WriteMarks`].
+    #[cfg(any(test, feature = "test-support"))]
+    pub mark: u64,
 }
 
 /// What happens when an entry is released, or fails.
@@ -96,10 +99,11 @@ pub(crate) struct Outbox {
     limits: SessionLimits,
     normal: Usage,
     reserve: Usage,
-    /// The lowest-id durable record that left uncommitted (its encode or its barrier failed), and why: the replay barrier's
-    /// error when it was accepted before the barrier.
+    /// Every durable record numbered as it is accepted ([`Self::push`]) and reported once: written when the store acked it
+    /// ([`Self::acked`]), failed when it left uncommitted ([`Self::note_failed`], or the outbox dropped with it still open).
+    /// The replay barrier reads these without the actor ([`super::SessionDirectory::durability_settled`]).
     #[cfg(any(test, feature = "test-support"))]
-    failed: Option<(u64, String)>,
+    marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 impl Outbox {
@@ -111,16 +115,22 @@ impl Outbox {
             normal: Usage::default(),
             reserve: Usage::default(),
             #[cfg(any(test, feature = "test-support"))]
-            failed: None,
+            marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         }
     }
 
-    /// The durable record `id` failed and left the outbox uncommitted.
+    /// An outbox numbering its durable records on `marks`: the thread's [`super::control::ControlCell::record_marks`].
     #[cfg(any(test, feature = "test-support"))]
-    pub fn note_failed(&mut self, id: u64, error: String) {
-        if self.failed.as_ref().is_none_or(|(at, _)| id < *at) {
-            self.failed = Some((id, error));
-        }
+    pub fn numbered_on(limits: SessionLimits, marks: Arc<mixdog_rt::WriteMarks>) -> Self {
+        let mut outbox = Self::new(limits);
+        outbox.marks = marks;
+        outbox
+    }
+
+    /// The durable record of a removed entry left uncommitted.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn note_failed(&self, durable: &Durable, error: String) {
+        self.marks.failed(durable.mark, error);
     }
 
     /// A record of `class` fits the window now.
@@ -142,29 +152,6 @@ impl Outbox {
     /// Every accepted record is released (durable or failed).
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
-    }
-
-    /// The id of the last entry accepted (0 before the first): the accept watermark the replay barrier captures.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn last_accepted(&self) -> u64 {
-        self.next_id - 1
-    }
-
-    /// `Some(Ok)` once every record accepted up to `mark` is committed — the store wrote and synced it and acked it
-    /// ([`Self::acked`]); `Some(Err)` once one of them failed ([`Self::note_failed`]); `None` while one is still on its way.
-    /// Entries after `mark` do not count.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn committed_through(&self, mark: u64) -> Option<Result<(), String>> {
-        if let Some((at, error)) = &self.failed
-            && *at <= mark
-        {
-            return Some(Err(format!("record {at}, accepted before the barrier, failed: {error}")));
-        }
-        self.entries
-            .iter()
-            .take_while(|entry| entry.id <= mark)
-            .all(|entry| entry.durable.as_ref().is_none_or(|durable| matches!(durable.stage, Stage::Acked(_))))
-            .then_some(Ok(()))
     }
 
     pub fn producer_room(&self) -> bool {
@@ -201,6 +188,8 @@ impl Outbox {
                 class,
                 stage: Stage::Encoding,
                 bytes: 0,
+                #[cfg(any(test, feature = "test-support"))]
+                mark: self.marks.accept(),
             }
         });
         self.entries.push_back(Entry {
@@ -286,7 +275,11 @@ impl Outbox {
             return;
         };
         durable.stage = Stage::Acked(ordinal);
+        #[cfg(any(test, feature = "test-support"))]
+        let mark = durable.mark;
         let (class, bytes) = (durable.class, durable.bytes);
+        #[cfg(any(test, feature = "test-support"))]
+        self.marks.written(mark);
         let usage = self.usage(class);
         usage.records -= 1;
         usage.bytes -= bytes;
@@ -335,5 +328,14 @@ impl Outbox {
     /// The unreleased changes in accept order.
     pub fn changes(&self) -> impl Iterator<Item = &Change> {
         self.entries.iter().map(|entry| &entry.change)
+    }
+}
+
+/// The actor ended (a shutdown, an unwind) with records it accepted not yet acked: they are not committed by anyone now.
+/// A clean unload ends only once the outbox is empty, so this fails nothing then.
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for Outbox {
+    fn drop(&mut self) {
+        self.marks.abandon("the thread ended before the record was committed");
     }
 }

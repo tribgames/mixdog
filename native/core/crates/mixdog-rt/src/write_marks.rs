@@ -59,6 +59,24 @@ impl WriteMarks {
         self.finish(mark, Some(error.to_string()));
     }
 
+    /// The writer is gone: every write still open failed with `error`.
+    pub fn abandon(&self, error: &str) {
+        {
+            let mut marks = self.lock();
+            if let Some(first) = std::mem::take(&mut marks.open).first().copied()
+                && marks.failed.as_ref().is_none_or(|(at, _)| first < *at)
+            {
+                marks.failed = Some((first, error.to_owned()));
+            }
+        }
+        self.moved.notify_waiters();
+    }
+
+    /// The store's name, as a barrier's error gives it.
+    pub fn store(&self) -> &'static str {
+        self.store
+    }
+
     fn finish(&self, mark: u64, error: Option<String>) {
         {
             let mut marks = self.lock();
@@ -140,5 +158,16 @@ mod tests {
         assert_eq!(marks.check(barrier), None, "a later failure neither answers nor fails it");
         marks.failed(first, "denied");
         assert_eq!(marks.check(barrier), Some(Err("the store: write 1, accepted before the barrier, failed: denied".to_owned())));
+    }
+
+    #[test]
+    fn an_abandoned_writer_fails_its_open_writes_and_keeps_the_written_ones() {
+        let marks = WriteMarks::new("the store");
+        let (first, _second) = (marks.accept(), marks.accept());
+        marks.written(first);
+        assert_eq!(marks.check(first), Some(Ok(())));
+        marks.abandon("gone");
+        assert_eq!(marks.check(first), Some(Ok(())), "the written one stays written");
+        assert_eq!(marks.check(2), Some(Err("the store: write 2, accepted before the barrier, failed: gone".to_owned())));
     }
 }

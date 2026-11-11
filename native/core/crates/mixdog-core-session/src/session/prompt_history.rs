@@ -99,6 +99,14 @@ impl Default for Marks {
     }
 }
 
+/// The queue's owner ended (the thread's actor stopped) with appends neither landed nor failed: nobody writes them now.
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for Marks {
+    fn drop(&mut self) {
+        self.0.abandon("the thread ended before the append was written");
+    }
+}
+
 #[cfg(any(test, feature = "test-support"))]
 impl AppendQueue {
     /// A queue numbering its appends on `marks`: the thread's [`super::control::ControlCell::prompt_marks`], which the

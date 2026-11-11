@@ -242,10 +242,11 @@ pub(crate) struct ControlCell {
     /// replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_marks: Arc<mixdog_rt::WriteMarks>,
-    /// Set as the actor stops on an unload once every record it accepted is committed and every prompt append written:
-    /// the replay barrier counts a thread that ended so as settled.
+    /// The numbers of the thread's durable records ([`super::outbox::Outbox::numbered_on`]): accepted as the actor takes a
+    /// record into its outbox, written once the store synced and acked it, failed when it leaves uncommitted (its encode or
+    /// its barrier failed, or the actor ended first). The replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]
-    pub flushed: std::sync::atomic::AtomicBool,
+    pub record_marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 impl ControlCell {
