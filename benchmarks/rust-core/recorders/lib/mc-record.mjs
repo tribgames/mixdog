@@ -1,7 +1,7 @@
 // Shared frame of the memory + channels recorders: the exact Node export (b6f10295a), the fixture set directory, and the
 // manifest every set carries. One golden file per set holds the cases in the order the Node test file lists them.
 import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText, within } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, orderedStringify, parseArgs, resolveTree, stageSet, writeSetManifest, writeText, within } from './common.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
 // Local-time formatting in recalled text depends on the PC's zone: every recording of this family runs in UTC (an input of
@@ -61,7 +61,13 @@ export function finish(ctx, { url, set, golden, extra, flags = '', files = {} })
   }
   const final = join(FIXTURES_ROOT, set);
   const stage = stageSet(final);
-  writeJson(join(stage, 'golden.json'), golden);
+  // Random UUIDs (index revisions) are named by order of first appearance in the file, so two recordings are byte-identical.
+  const seen = new Map();
+  const goldenText = orderedStringify(golden).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (uuid) => {
+    if (!seen.has(uuid)) seen.set(uuid, `<uuid-${seen.size + 1}>`);
+    return seen.get(uuid);
+  });
+  writeText(join(stage, 'golden.json'), goldenText);
   for (const [name, text] of Object.entries(files)) writeText(join(stage, name), text);
   const provenance = recorderProvenance(url);
   writeSetManifest(stage, {
@@ -69,7 +75,8 @@ export function finish(ctx, { url, set, golden, extra, flags = '', files = {} })
     recorder: provenance.recorder,
     command: `node ${flags}${provenance.recorder} --tree <git archive of ${NODE_COMMIT} with node_modules>`.replace('  ', ' '),
     identity: ctx.identity,
-    extra: { ...provenance, ...extra, timezone: 'UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)' },
+    extra: { ...provenance, ...extra, uuidsNormalised: seen.size ? `golden.json: ${seen.size} random UUIDs, each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)` : 'none',
+      timezone: 'UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)' },
   });
   commitStage(stage, final);
   console.log(`${set}: recorded ${Array.isArray(golden.cases) ? golden.cases.length : Object.keys(golden.cases ?? {}).length} cases`);

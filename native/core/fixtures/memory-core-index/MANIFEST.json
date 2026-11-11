@@ -1,0 +1,58 @@
+{
+  "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-index.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "PostgreSQL (SQLite stand-in of the test file); the TUI row parser parseMemoryCoreRows; the real editCoreImpl/deleteCoreImpl (the test file's stand-ins write the SQLite table and are recorded by call)",
+    "runs": "syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall(\"memory\") (memory-action-handlers.mjs)"
+  },
+  "exclusions": "parseMemoryCoreRows (TUI, deleted) is not recorded; case 94 asserts it, the formatted text it parsed is recorded instead",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 101042,
+      "path": "golden.json",
+      "sha256": "b745ece1998053e42f849e5fc150c604b9b3cc6e2050fc65fec002f8ee86044d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "clock": "Date.now() fixed at clock.dateNowMs"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-core-index.mjs",
+  "recorderSha256": "1adc05990383c6565f7aaa9558cabf5169ee50e643aabe6ae68df1c180e9fb92",
+  "replay": "mixdog-services memory: mem/core/index.rs sync/resolve, mem/core/list.rs list/format, mem/core/action.rs + store.rs edit/delete via the memory tool; compares every result (index maps, revisions, entries, formatted text, tool content + isError), the ordered statements and the tables after each step",
+  "set": "memory-core-index",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 101042,
+  "uuidsNormalised": "golden.json: 18 random UUIDs, each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)"
+}
