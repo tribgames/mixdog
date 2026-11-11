@@ -1336,7 +1336,6 @@ impl DirInner {
                 dur_rx,
                 directory: self.me.clone(),
             },
-            control,
         );
         let mut actor = actor;
         let launch = move || {
@@ -1560,7 +1559,7 @@ impl SessionDirectory {
         // composed for it, as Node composes the session from `rt.route`.
         let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
         // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
-        let settings = self.inner.deps.compaction.settings_changes().map(super::actor::SettingsFollow::begin);
+        let settings = self.inner.deps.compaction.settings_changes(&id).map(super::actor::SettingsFollow::begin);
         // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
         let route = if control {
             self.inner.deps.new_route.adopt_control(&id).await

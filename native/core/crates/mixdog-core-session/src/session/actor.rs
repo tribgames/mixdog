@@ -601,10 +601,6 @@ pub(crate) struct SessionActor {
     turn_prewarm_armed: bool,
     /// The live-workspace reads started; only the latest one's answer is published.
     live_workspace_reads: u64,
-    /// Settings announcements that reached the control thread before it had a session (`on_settings_changed`).
-    setup_changes_held: u64,
-    /// The desktop's control session (`SessionHandle::control`).
-    control: bool,
     /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
     turns_closed: usize,
     /// state.stats (usage totals), folded from each model call's usage event.
@@ -912,7 +908,6 @@ impl SessionActor {
         state: SessionState,
         surface: watch::Sender<Arc<SessionSurface>>,
         ch: ActorChannels,
-        control: bool,
     ) -> Self {
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
@@ -944,8 +939,6 @@ impl SessionActor {
             room_approvals_resolved: Vec::new(),
             turn_prewarm_armed: false,
             live_workspace_reads: 0,
-            setup_changes_held: 0,
-            control,
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
@@ -1046,13 +1039,15 @@ impl SessionActor {
         self.read_agent_status(false);
         self.read_context_display();
         self.read_live_workspace();
-        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
+        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes(&self.id).map(SettingsFollow::begin));
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
             let marking = self.delete_closed.is_none() && self.delete_mark.is_some();
             tokio::select! {
                 biased;
+                // First: a write announces before it answers, so a read sent after the answer sees the change counted.
+                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
                 go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
@@ -1064,10 +1059,12 @@ impl SessionActor {
                     Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
                     msg => self.on_inbox(msg),
                 },
-                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 else => break,
             }
             self.pump();
+            if let Some(follow) = &settings {
+                follow.shown();
+            }
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -1371,9 +1368,6 @@ impl SessionActor {
             // agent status's scope.
             self.read_context_display();
             self.read_agent_status(false);
-            if self.setup_changes_held > 0 && mixdog_core_ports::ports::route::header_names_session(&self.projected.header) {
-                self.on_settings_changed(0);
-            }
         }
         entry
     }
@@ -3235,15 +3229,8 @@ impl SessionActor {
     /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
     fn on_settings_changed(&mut self, announced: u64) {
         // Node's router counts every delivery (setupChangeSeq += 1): announcements that reached this thread together count one each.
-        // Node delivers them to a session's listener. A task's session exists from `client.create`, so every delivery counts; the
-        // control runtime has no session until its route is seated (`ensureControlSession`): it holds them until then, and a control
-        // thread never seated counts none (its setupChanged stays null).
-        if self.control && !mixdog_core_ports::ports::route::header_names_session(&self.projected.header) {
-            self.setup_changes_held += announced;
-            self.sync_route_config();
-            return;
-        }
-        let announced = announced + std::mem::take(&mut self.setup_changes_held);
+        // Node delivers them to a session's listener, which exists from its creation: a task's from `client.create`, the control's
+        // from the first control call (`ensureControlSession`, session-host-transport.ts:235), seated route or not - as this thread.
         for _ in 0..announced {
             self.setup_changes += 1;
             let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
@@ -5578,13 +5565,21 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 pub(crate) struct SettingsFollow {
     changes: watch::Receiver<u64>,
     seen: u64,
+    shown: watch::Sender<u64>,
 }
 
 impl SettingsFollow {
     /// Follows `changes` from now: what the counter holds is behind the thread.
-    pub(crate) fn begin(mut changes: watch::Receiver<u64>) -> Self {
+    pub(crate) fn begin(feed: super::turn_ops::SettingsFeed) -> Self {
+        let super::turn_ops::SettingsFeed { mut changes, shown } = feed;
         let seen = *changes.borrow_and_update();
-        Self { changes, seen }
+        shown.send_replace(seen);
+        Self { changes, seen, shown }
+    }
+
+    /// Reports the announcements read so far as shown: the thread's state that counts them is published.
+    fn shown(&self) {
+        self.shown.send_if_modified(|shown| std::mem::replace(shown, self.seen) != self.seen);
     }
 
     /// The announcements since the last one read, however many the counter moved while the thread was busy; None once the configuration is gone.
