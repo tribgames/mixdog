@@ -141,8 +141,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-stream.mjs",
-  "recorderSha256": "4d34c081b549a8f3feb46db05234eb0aadc2fd1691a3fad8242486cb5741410b",
-  "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
+  "recorderSha256": "028c9dc9fd559ff63362c2a19800cffb069beddb4ebf231a623b7129ead8b812",
+  "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
