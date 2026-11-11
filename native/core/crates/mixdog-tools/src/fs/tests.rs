@@ -240,8 +240,9 @@ async fn replay_fs_search(scenario: &str) {
         set_mtime(&ws.join(rel), at(iso.as_str().unwrap()));
     }
     // The resize service (the extension host's sharp) answers the image bytes it was recorded on as recorded.
+    // Bytes the decoder rejected (`invalid`) get no reply, as any other bytes.
     let resizer = fixture.get("resizer").map(|replies| {
-        let replies = replies.as_array().unwrap().iter().map(|r| {
+        let replies = replies.as_array().unwrap().iter().filter(|r| r["invalid"] != true).map(|r| {
             assert_eq!(r["ext"], "png");
             let reply = &r["reply"];
             let dims = &reply["dimensions"];
@@ -277,12 +278,19 @@ async fn replay_fs_search(scenario: &str) {
         ("find", Box::new(FindTool::new())),
         ("grep", Box::new(GrepTool::new())),
         ("read", Box::new(ReadTool::new(None, resizer))),
-        ("code_graph", Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), graph_cache))),
+        ("code_graph", Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), graph_cache.clone()))),
     ];
     let tool_of = |name: &str| &tools.iter().find(|(n, _)| *n == name).unwrap_or_else(|| panic!("no replay for {name}")).1;
-    let args_of = |input: &JsonValue| -> JsonValue { serde_json::from_str(&input.to_string().replace("<ROOT>", &fwd)).unwrap() };
+    let raw_json = serde_json::to_string(&raw).unwrap();
+    let args_of = |input: &JsonValue| -> JsonValue {
+        serde_json::from_str(&input.to_string().replace("<ROOT>", &fwd).replace("<ROOTW>", &raw_json[1..raw_json.len() - 1])).unwrap()
+    };
     for call in fixture["warmup"].as_array().cloned().unwrap_or_default() {
         let _ = tool_of(call["tool"].as_str().unwrap()).call(&ctx, args_of(&call["input"])).await;
+    }
+    // As the recorder drained Node's disk cache: the warmup's graphs are written before the calls.
+    if fixture["drainAfterWarmup"] == true {
+        graph_cache.flush().unwrap();
     }
     let mut failures = Vec::new();
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
@@ -377,6 +385,13 @@ async fn glob_past_fifty_thousand_matches_answers_as_node_does() {
 #[tokio::test]
 async fn glob_refuses_unc_and_expands_from_nodes_root_as_node_does() {
     replay_fs_search("glob-unc").await;
+}
+
+/// A glob `path` or `root` that is not a string (an array included) is refused by the argument guard; a null or blank
+/// one searches the cwd.
+#[tokio::test]
+async fn glob_refuses_a_path_that_is_not_a_string_as_node_does() {
+    replay_fs_search("glob-path-array").await;
 }
 
 /// The expansion's root is Node's `path.parse(raw).root` (Node v22 `path.win32.parse`, the runtime of b6f10295a).

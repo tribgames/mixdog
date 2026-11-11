@@ -1,10 +1,10 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
+  "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch fixes applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch,benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
   "exclusions": [
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 20,
+  "fileCount": 24,
   "files": [
     {
       "bytes": 5739,
@@ -52,6 +52,11 @@
       "sha256": "72461a7664ec05994eb673eeee963622f3e45caca4d344a382af60fb5f4851ee"
     },
     {
+      "bytes": 2177,
+      "path": "code-graph-self-case.json",
+      "sha256": "c485773e3b355009a72cf7b90c957f4bd467e1cc648d22d0d68de48167dbdc58"
+    },
+    {
       "bytes": 2575,
       "path": "glob-absolute.json",
       "sha256": "dbb867151a5fe3542c416a2eea36ea938f6d2233eb7bcca27d15cb9d62694992"
@@ -62,9 +67,19 @@
       "sha256": "a95b954ac10d7698d920c660b5031416abd305c93578b8c9d6aa4b61cadcf333"
     },
     {
+      "bytes": 3611,
+      "path": "glob-path-array.json",
+      "sha256": "8f603c01311d00a73abee966f6a2c316af9ba302dc81a53504ce45d9d19a70bc"
+    },
+    {
       "bytes": 5530,
       "path": "glob-unc.json",
       "sha256": "6f55c68fff917f11e3b4394d37171bf0c52c08200a29ffd6f251c65aaea5525e"
+    },
+    {
+      "bytes": 3255,
+      "path": "glob-verbatim.json",
+      "sha256": "c959d955a11509f06150bc7a2088f6faae732ae39610c13735895580a474b303"
     },
     {
       "bytes": 2592,
@@ -85,6 +100,11 @@
       "bytes": 8518,
       "path": "not-found-hints.json",
       "sha256": "c0b66247e7c17c99266c79aea3bdd763355a145ee0787f83d4b27775cfef6258"
+    },
+    {
+      "bytes": 21316,
+      "path": "read-ipynb-base64-junk.json",
+      "sha256": "39eecfd7d021db61f6bb15729575d5c7313bc614be750383059b1c7486d7aa9f"
     },
     {
       "bytes": 13657,
@@ -114,7 +134,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "dcc4aa695bc3facaf9a809d4dbdc9a8227095296b2f2cdc8d443df4759c82134"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
@@ -136,27 +156,38 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
-    "patch": {
-      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch",
-      "paths": [
-        "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs"
-      ],
-      "sha256": "1bf4e5b273d83cacd5100e4969ebab862be23a2d230f77f4b76dc0f02e21416b"
-    },
+    "files": 9141,
+    "patches": [
+      {
+        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.mjs",
+          "src/runtime/agent/orchestrator/tools/code-graph/dispatch/federation.test.mjs"
+        ],
+        "sha256": "b599facbf25935ee6ff8a8c0024d0fd46c4be118848c7da6ce4b731a814c94dd"
+      },
+      {
+        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs"
+        ],
+        "sha256": "eb66c8c717f5836d7b8007ed1de31683a01529f54540fa9c453d86bee33c74f1"
+      }
+    ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 1
+      "filesDifferingFromCommit": 4
     },
-    "srcSha256": "b70cbecb9053f58eacbfa2586f51dc459e84ad1fb0e17a6ffe842265be24f3a7",
+    "srcSha256": "0d0c7409c86612334670b1c9eab1ddda4efedc1d793663680ee1838cbcf6841b",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "26e94cbef7a8f7150646b8c6101a039094a88ab0a36a95cd4ac210f85b15c90f",
+  "recorderSha256": "bb411346fbd2113b3bea63388cc40a0cc23e2d4becd6d3ed406d81aacf415057",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -177,8 +208,12 @@
     "grep-missing-indexed",
     "read-ipynb-image",
     "glob-past-cap",
-    "list-glob-path"
+    "list-glob-path",
+    "glob-path-array",
+    "glob-verbatim",
+    "read-ipynb-base64-junk",
+    "code-graph-self-case"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 2132984
+  "totalBytes": 2163343
 }
