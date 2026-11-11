@@ -7,11 +7,25 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  pure: {
+    'get-user-jwt-response': 'mixdog-ai/src/providers/devin/schema.rs:88 decode_user_jwt(&[u8]) -> UserJwt (pub; `pub mod schema` at devin/mod.rs:18) is the decode half; the encode half (a server message) has no Rust encoder: RUST WORK for that half',
+    'repeated-enums-packed': 'mixdog-ai/src/providers/devin/schema.rs:76 encode_metadata_request(&Metadata) -> Vec<u8> (pub)',
+    'nested-chat-request': 'mixdog-ai/src/providers/devin/schema.rs:227 ChatRequest::encode (pub) with ChatMessagePrompt::encode :155',
+    'proto3-defaults-and-presence': 'mixdog-ai/src/providers/devin/schema.rs:155 ChatMessagePrompt::encode (pub)',
+    'fixed-width-and-signed-scalars': 'mixdog-ai/src/providers/devin/schema.rs:227 ChatRequest::encode (pub; the CompletionConfiguration is its Configuration :198)',
+    'repeated-elements-keep-defaults': 'mixdog-ai/src/providers/devin/schema.rs:227 ChatRequest::encode (pub; Configuration :198)',
+    'streamed-chat-response': 'mixdog-ai/src/providers/devin/schema.rs:333 ChatResponse::decode(&[u8]) (pub)',
+    '64-bit-integers-bigint': 'mixdog-ai/src/providers/devin/schema.rs:333 ChatResponse::decode (pub; ModelUsageStats :285 is decoded inside it)',
+    '32-bit-and-unsigned-coercion': 'mixdog-ai/src/providers/devin/schema.rs:400 ClientModelConfig (pub struct, decoded in the CLI model-config listing; RUST WORK if no public decode fn is reachable: none found in devin/schema.rs)',
+    'malformed-protobuf-rejected': 'mixdog-ai/src/providers/devin/schema.rs:88 decode_user_jwt (pub): Err(PbError) on malformed bytes; mixdog-ai/src/providers/devin/schema.rs:333 ChatResponse::decode',
+    'assign-model-router-fields': 'mixdog-ai/src/providers/devin/schema.rs:358 encode_assign_model (pub) and :380 decode_assign_model',
+    'schema-table-field-names': 'RUST WORK: the Node schema table is a data structure inspected by name; Rust has typed per-message structs (devin/schema.rs) and no inspectable schema table',
+  },
   set: 'provider-devin-wire-protobuf',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs encodeDevinMessage(type, value), decodeDevinMessage(type, bytes), DEVIN_ENUMS, DEVIN_SCHEMAS. Not run: a Devin endpoint.',
   compare: 'mixdog-ai providers::connect pb.rs (:156-285) and devin request/decoder: for each `steps[*]` entry run `op` ("encode": value -> hex, "decode": hex -> value, "schema": field-name table) and compare `hex` / `value` / `error.message` whole. Rows in `input.values` carrying "<n>n" strings are 64-bit integers.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "Per case, see `levels` (PURE, public Rust functions of devin/schema.rs, `pub mod schema` at mixdog-ai/src/providers/devin/mod.rs:18): the Rust codec is typed per message (encode_metadata_request :76, decode_user_jwt :88, ChatMessagePrompt::encode :155, ChatRequest::encode :227, ChatResponse::decode :333, encode_assign_model :358, decode_assign_model :380), not a generic encode/decode by message name: a replay maps each recorded step (op, type, value / hex) to the typed function named in `levels`. Cases marked RUST WORK have no public Rust function of the same input and output.",
 });
 const { DEVIN_ENUMS, DEVIN_SCHEMAS, decodeDevinMessage, encodeDevinMessage } = await rec.P('agent/orchestrator/providers/devin-wire-protobuf.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs';
