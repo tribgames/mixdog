@@ -1,0 +1,64 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the owners behind its callbacks (database initialize, port advert, background workers, storage shutdown): scripted endpoints appending to one ordered event log",
+    "runs": "createMemoryServiceLifecycle (memory-service-lifecycle.mjs): init, stop, getInitialized, isStopping, getInitPromise; case 216 also the real createLoopbackListener (shared/loopback-listener.mjs) on an http.Server"
+  },
+  "exclusions": "none: every test of the file is recorded (the three-step failure loop is recorded for four steps; shutdown is a further shape)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 22597,
+      "path": "golden.json",
+      "sha256": "37d91b6243f818706944eb08b69a2c34391ec2a2b35cd4b0846163bdcda4a46a"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "error identity": "the test asserts error === the injected object; recorded as errorIsTheInjectedObject / aggregateHoldsTheInjectedErrorsInOrder booleans",
+    "listener port": "case 216: the real ephemeral port is written <port> in the advertise/ready events; only the observable result of connecting after stop (ECONNREFUSED)"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs",
+  "recorderSha256": "bf0aa33c45bf7d87fadbfa2c5c1cfcd4bb53010937b1a7aa1aa3ea887f838037",
+  "replay": "mixdog-services memory/boot.rs: MemoryStack::start (:269, pub) and MemoryStack::stop (:614, pub) (a use opens the database once and concurrent uses share that opening; stop cancels and joins an opening nobody waits for, refuses a use while an opening is in flight, starts nothing when an opening ends after the stop gave up; tests memory/tests/boot.rs two_first_uses_share_one_install_and_see_its_outcome, a_stop_cancels_and_joins_an_opening_nobody_waits_for, a_use_after_stop_is_refused_while_an_opening_is_in_flight, an_opening_that_ends_after_the_stop_gave_up_starts_nothing). A replay maps per case: \"who gets the instance\" (same init promise, one `initialize`), \"what a cancelled acquisition leaves behind\" (state flags, no ready/advertise after stop), \"order of release\" (withdraw, close, stop-background, shutdown; workers before the request drain; storage last). Rust has no HTTP port to advertise: `advertise`/`withdraw`/`close`/`listen` map to the seams it has or are listed as work for the Rust side; the state flags and the order of the remaining owners are compared exactly",
+  "set": "memory-service-lifecycle",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 22597,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

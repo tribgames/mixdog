@@ -614,6 +614,42 @@
           "type": "object"
         },
         {
+          "description": "Provider facts the committed assistant turn keeps, Anthropic's fallback record (`StreamEvent::ProviderMetadata`).",
+          "properties": {
+            "type": {
+              "enum": [
+                "providerMetadata"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The id the provider gave the response, which the usage ledger books the send under (`StreamEvent::ResponseId`).",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "responseId"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
           "properties": {
             "account_id": {
@@ -702,6 +738,21 @@
           },
           "required": [
             "route",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model began its output, which the usage ledger times the first-output wait from (`StreamEvent::OutputStarted`, Node `firstOutputAt`).",
+          "properties": {
+            "type": {
+              "enum": [
+                "outputStarted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
             "type"
           ],
           "type": "object"
