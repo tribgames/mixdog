@@ -1,0 +1,1421 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "the desktop and daemon partial-append suffix checks agree on every input",
+      "observed": {
+        "cases": [
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "abcde"
+            },
+            "desktop": "de",
+            "daemon": "de"
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "ab"
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "xbcde"
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 4,
+              "text": "abcde"
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "b",
+              "from": 3,
+              "text": "abcde"
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "abcde",
+              "tail": {
+                "id": "a"
+              }
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": ""
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "x"
+            },
+            "desktop": "x",
+            "daemon": "x"
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": 7
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": null,
+            "after": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": {
+              "id": "a",
+              "from": 3,
+              "text": "abc"
+            },
+            "after": {
+              "undefined": true
+            },
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": "abc",
+            "after": "abcd",
+            "desktop": null,
+            "daemon": null
+          },
+          {
+            "before": [],
+            "after": [],
+            "desktop": null,
+            "daemon": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "a text burst sends its first append at once, then one latest snapshot per batch window",
+      "observed": {
+        "batchMs": 90,
+        "steps": [
+          {
+            "step": "publish ''",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 1,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                }
+              }
+            }
+          },
+          {
+            "step": "publish '한'",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "한"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish '한글'",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "한글"
+                }
+              }
+            }
+          },
+          {
+            "step": "advance 89",
+            "atMs": 89,
+            "pendingTimers": 1,
+            "frameCount": 2
+          },
+          {
+            "step": "advance 1",
+            "atMs": 90,
+            "pendingTimers": 1,
+            "frameCount": 3
+          },
+          {
+            "step": "advance 90",
+            "atMs": 180,
+            "pendingTimers": 0,
+            "frameCount": 3
+          },
+          {
+            "step": "publish '한글 다음'",
+            "atMs": 180,
+            "pendingTimers": 1,
+            "frameCount": 4,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "한글 다음"
+                }
+              }
+            }
+          }
+        ],
+        "frames": [
+          {
+            "sequence": 1,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                }
+              }
+            },
+            "critical": true
+          },
+          {
+            "sequence": 2,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "한"
+                }
+              }
+            },
+            "critical": false
+          },
+          {
+            "sequence": 3,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "한글"
+                }
+              }
+            },
+            "critical": false
+          },
+          {
+            "sequence": 4,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "한글 다음"
+                }
+              }
+            },
+            "critical": false
+          }
+        ]
+      }
+    },
+    {
+      "case": "completion, replay, and unknown approval fields bypass batching and remain critical",
+      "observed": {
+        "steps": [
+          {
+            "step": "publish ''",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 1,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                }
+              }
+            }
+          },
+          {
+            "step": "publish 'pending text'",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "pending text"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish 'pending text more'",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "pending text more"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish with futureApproval",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 3,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "pending text more"
+                },
+                "futureApproval": {
+                  "id": "approval"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish 'complete' busy false",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 4,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": false,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "complete"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish replay 'replay'",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 5,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "replay",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "replay"
+                }
+              }
+            }
+          }
+        ],
+        "frames": [
+          {
+            "sequence": 1,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                }
+              }
+            },
+            "critical": true
+          },
+          {
+            "sequence": 2,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "pending text"
+                }
+              }
+            },
+            "critical": false
+          },
+          {
+            "sequence": 3,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "pending text more"
+                },
+                "futureApproval": {
+                  "id": "approval"
+                }
+              }
+            },
+            "critical": true
+          },
+          {
+            "sequence": 4,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": false,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "complete"
+                }
+              }
+            },
+            "critical": true
+          },
+          {
+            "sequence": 5,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "replay",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "replay"
+                }
+              }
+            },
+            "critical": true
+          }
+        ]
+      }
+    },
+    {
+      "case": "backpressure cannot downgrade queued approval state and disconnect clears delayed work",
+      "observed": {
+        "steps": [
+          {
+            "step": "publish ''",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 1,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                }
+              }
+            }
+          },
+          {
+            "step": "publish approval",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 1,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                },
+                "futureApproval": {
+                  "id": "approval"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish 'continued' approval",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 1,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "continued"
+                },
+                "futureApproval": {
+                  "id": "approval"
+                }
+              }
+            }
+          },
+          {
+            "step": "advance 90",
+            "atMs": 90,
+            "pendingTimers": 0,
+            "frameCount": 1
+          },
+          {
+            "step": "acknowledge 1",
+            "atMs": 90,
+            "pendingTimers": 0,
+            "frameCount": 2
+          },
+          {
+            "step": "publish 'continued text' approval",
+            "atMs": 90,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "continued text"
+                },
+                "futureApproval": {
+                  "id": "approval"
+                }
+              }
+            }
+          },
+          {
+            "step": "clear",
+            "atMs": 90,
+            "pendingTimers": 0,
+            "frameCount": 2
+          },
+          {
+            "step": "advance 100",
+            "atMs": 190,
+            "pendingTimers": 0,
+            "frameCount": 2
+          },
+          {
+            "step": "acknowledge 2",
+            "atMs": 190,
+            "pendingTimers": 0,
+            "frameCount": 2
+          }
+        ],
+        "frames": [
+          {
+            "sequence": 1,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": ""
+                }
+              }
+            },
+            "critical": true
+          },
+          {
+            "sequence": 2,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "continued"
+                },
+                "futureApproval": {
+                  "id": "approval"
+                }
+              }
+            },
+            "critical": true
+          }
+        ]
+      }
+    },
+    {
+      "case": "partial-line growth batches as a text append; a partial for another row does not",
+      "observed": {
+        "steps": [
+          {
+            "step": "publish 'line1\\n'",
+            "atMs": 0,
+            "pendingTimers": 0,
+            "frameCount": 1,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\n"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish partial 'pa'",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\n"
+                },
+                "streamingPartial": {
+                  "id": "tail",
+                  "from": 6,
+                  "text": "pa"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish partial 'partial'",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\n"
+                },
+                "streamingPartial": {
+                  "id": "tail",
+                  "from": 6,
+                  "text": "partial"
+                }
+              }
+            }
+          },
+          {
+            "step": "publish tail moved, partial 'ne' from 19",
+            "atMs": 0,
+            "pendingTimers": 1,
+            "frameCount": 2,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\npartial line\n"
+                },
+                "streamingPartial": {
+                  "id": "tail",
+                  "from": 19,
+                  "text": "ne"
+                }
+              }
+            }
+          },
+          {
+            "step": "advance 90",
+            "atMs": 90,
+            "pendingTimers": 1,
+            "frameCount": 3
+          },
+          {
+            "step": "publish partial for row 'other'",
+            "atMs": 90,
+            "pendingTimers": 0,
+            "frameCount": 4,
+            "published": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\npartial line\n"
+                },
+                "streamingPartial": {
+                  "id": "other",
+                  "from": 0,
+                  "text": "x"
+                }
+              }
+            }
+          }
+        ],
+        "frames": [
+          {
+            "sequence": 1,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\n"
+                }
+              }
+            },
+            "critical": true
+          },
+          {
+            "sequence": 2,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\n"
+                },
+                "streamingPartial": {
+                  "id": "tail",
+                  "from": 6,
+                  "text": "pa"
+                }
+              }
+            },
+            "critical": false
+          },
+          {
+            "sequence": 3,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\npartial line\n"
+                },
+                "streamingPartial": {
+                  "id": "tail",
+                  "from": 19,
+                  "text": "ne"
+                }
+              }
+            },
+            "critical": false
+          },
+          {
+            "sequence": 4,
+            "value": {
+              "sessionId": "s",
+              "frameSource": "live",
+              "snapshot": {
+                "busy": true,
+                "items": [
+                  {
+                    "id": "user",
+                    "kind": "user",
+                    "text": "input"
+                  }
+                ],
+                "streamingTail": {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "line1\npartial line\n"
+                },
+                "streamingPartial": {
+                  "id": "other",
+                  "from": 0,
+                  "text": "x"
+                }
+              }
+            },
+            "critical": true
+          }
+        ]
+      }
+    },
+    {
+      "case": "a decoder that predates streamingPartial keeps painting the line-gated tail",
+      "observed": {
+        "sends": [
+          {
+            "snapshot": {
+              "busy": true,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                }
+              ],
+              "streamingTail": {
+                "id": "tail",
+                "kind": "assistant",
+                "text": "one\n",
+                "streaming": true
+              }
+            },
+            "wire": {
+              "busy": true,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                }
+              ],
+              "streamingTail": {
+                "id": "tail",
+                "kind": "assistant",
+                "text": "one\n",
+                "streaming": true
+              },
+              "__itemsRevision": 1
+            },
+            "ok": true,
+            "received": {
+              "busy": true,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                }
+              ],
+              "streamingTail": {
+                "id": "tail",
+                "kind": "assistant",
+                "text": "one\n",
+                "streaming": true
+              }
+            }
+          },
+          {
+            "snapshot": {
+              "busy": true,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                }
+              ],
+              "streamingTail": {
+                "id": "tail",
+                "kind": "assistant",
+                "text": "one\n",
+                "streaming": true
+              },
+              "streamingPartial": {
+                "id": "tail",
+                "from": 4,
+                "text": "tw"
+              }
+            },
+            "wire": {
+              "r": 2,
+              "sc": {
+                "streamingPartial": {
+                  "id": "tail",
+                  "from": 4,
+                  "text": "tw"
+                }
+              },
+              "ta": "",
+              "tt": {
+                "id": "tail",
+                "kind": "assistant",
+                "streaming": true
+              },
+              "__v": 2
+            },
+            "ok": true,
+            "received": {
+              "busy": true,
+              "streamingPartial": {
+                "id": "tail",
+                "from": 4,
+                "text": "tw"
+              },
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                }
+              ],
+              "streamingTail": {
+                "id": "tail",
+                "kind": "assistant",
+                "streaming": true,
+                "text": "one\n"
+              }
+            }
+          },
+          {
+            "snapshot": {
+              "busy": false,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                },
+                {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "one\ntwo",
+                  "streaming": false
+                }
+              ],
+              "streamingTail": null
+            },
+            "wire": {
+              "r": 3,
+              "ip": {
+                "p": 1,
+                "a": [
+                  {
+                    "id": "tail",
+                    "kind": "assistant",
+                    "text": "one\ntwo",
+                    "streaming": false
+                  }
+                ]
+              },
+              "sc": {
+                "busy": false
+              },
+              "sd": [
+                "streamingPartial"
+              ],
+              "streamingTail": null,
+              "__v": 2
+            },
+            "ok": true,
+            "received": {
+              "busy": false,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                },
+                {
+                  "id": "tail",
+                  "kind": "assistant",
+                  "text": "one\ntwo",
+                  "streaming": false
+                }
+              ],
+              "streamingTail": null
+            }
+          }
+        ],
+        "tailText": "one\n",
+        "streamingPartial": {
+          "id": "tail",
+          "from": 4,
+          "text": "tw"
+        },
+        "settledHasStreamingPartial": false
+      }
+    },
+    {
+      "case": "batching reduces real compact packet bytes while preserving decoder state",
+      "observed": {
+        "batchMs": 90,
+        "publishEveryMs": 4,
+        "publishes": 100,
+        "packets": 7,
+        "bytes": 1440,
+        "receivedTailEqualsLastText": true,
+        "finalTail": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
+        "sent": [
+          {
+            "atMs": 0,
+            "wire": {
+              "busy": true,
+              "items": [
+                {
+                  "id": "user",
+                  "kind": "user",
+                  "text": "input"
+                }
+              ],
+              "streamingTail": {
+                "id": "tail",
+                "kind": "assistant",
+                "text": ""
+              },
+              "__itemsRevision": 1
+            },
+            "ok": true
+          },
+          {
+            "atMs": 0,
+            "wire": {
+              "r": 2,
+              "ta": "응답 ",
+              "tt": {
+                "id": "tail",
+                "kind": "assistant"
+              },
+              "__v": 2
+            },
+            "ok": true
+          },
+          {
+            "atMs": 92,
+            "wire": {
+              "r": 3,
+              "ta": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
+              "__v": 2
+            },
+            "ok": true
+          },
+          {
+            "atMs": 184,
+            "wire": {
+              "r": 4,
+              "ta": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
+              "__v": 2
+            },
+            "ok": true
+          },
+          {
+            "atMs": 276,
+            "wire": {
+              "r": 5,
+              "ta": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
+              "__v": 2
+            },
+            "ok": true
+          },
+          {
+            "atMs": 368,
+            "wire": {
+              "r": 6,
+              "ta": "응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 응답 ",
+              "__v": 2
+            },
+            "ok": true
+          },
+          {
+            "atMs": 490,
+            "wire": {
+              "r": 7,
+              "ta": "응답 응답 응답 응답 응답 응답 응답 응답 ",
+              "__v": 2
+            },
+            "ok": true
+          }
+        ]
+      }
+    }
+  ]
+}
