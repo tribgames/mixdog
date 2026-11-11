@@ -456,11 +456,36 @@ async fn an_heir_its_source_never_recorded_keeps_the_sidecars_it_names() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
+/// The warnings this test process logged (`tracing`, as the product's subscriber writes them), from the first call on.
+fn logged() -> String {
+    #[derive(Clone)]
+    struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            lock(&self.0).extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    static LOG: std::sync::OnceLock<Captured> = std::sync::OnceLock::new();
+    let log = LOG.get_or_init(|| {
+        let log = Captured(Arc::default());
+        let writer = log.clone();
+        let subscriber = tracing_subscriber::fmt().with_ansi(false).with_max_level(tracing::Level::WARN).with_writer(move || writer.clone()).finish();
+        tracing::subscriber::set_global_default(subscriber).expect("the only subscriber");
+        log
+    });
+    String::from_utf8_lossy(&lock(&log.0)).into_owned()
+}
+
 /// Node's `unreadable-fork`: as `clear-fork`; the fork's log is then damaged and the cleared session opened again: a
-/// session the store cannot read may be a copy, so nothing is deleted. Closed, the fork readable again, opened again:
-/// the reconcile prunes `stray`.
+/// session the store cannot read may be a copy, so nothing is deleted and the skip is logged with why. Closed, the
+/// fork readable again, opened again: the reconcile prunes `stray`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_copy_that_cannot_be_read_keeps_every_sidecar() {
+    logged();
     let world = world("unreadable-fork").await;
     let (id, fork) = (world.handle.id.as_str().to_owned(), world.case["seed"]["forkId"].as_str().expect("the fork id").to_owned());
     let forked = json!({ "threadId": id, "opId": "op-fork", "intoThreadId": fork });
@@ -471,6 +496,9 @@ async fn a_copy_that_cannot_be_read_keeps_every_sidecar() {
     lock(&world.rig.store.damaged).insert(fork.clone());
     let (directory, _handle) = world.reopened(1).await;
     let unreadable = world.point("after-unreadable-resume", false).await;
+    assert_eq!(unreadable, world.case["points"][1], "a copy that cannot be read: the open deletes nothing");
+    let skipped = logged().lines().filter(|line| line.contains("offload prune skipped") && line.contains(id.as_str()) && line.contains(fork.as_str())).count();
+    assert_eq!(skipped, 1, "the skip is logged once, naming the session and the copy it could not read:\n{}", logged());
     within("the directory shuts down", directory.shutdown_for("test close")).await;
     lock(&world.rig.store.damaged).remove(&fork);
     let _reopened = world.reopened(2).await;

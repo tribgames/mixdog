@@ -60,6 +60,7 @@ test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/te
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
+tracing-subscriber = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
