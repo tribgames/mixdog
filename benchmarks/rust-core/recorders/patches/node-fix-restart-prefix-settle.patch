@@ -1,0 +1,16 @@
+diff --git a/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs b/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
+index 4618631..dfd1392 100644
+--- a/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
++++ b/src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs
+@@ -86,9 +86,8 @@ const provider = {
+ // Where the interrupted turn stops: the checkpoint made durable, the recorded
+ // bodies handed over, and nothing ever finishes (the parent kills the process).
+ const hang = async () => {
+-  await settleTurnCheckpointWrites(sessionId);
+-  await new Promise((resolve) => setTimeout(resolve, 300));
+-  await settleTurnCheckpointWrites(sessionId);
++  // The checkpoint is durable once the journal's write lane is idle (settleTurnJournalWrites resolves true): no fixed pause.
++  if (!(await settleTurnCheckpointWrites(sessionId))) throw new Error('the turn checkpoint writes did not settle');
+   writeFileSync(outFile, JSON.stringify({ sessionId, bodies, changes }));
+   process.stdout.write('READY\n');
+   return new Promise(() => {});
