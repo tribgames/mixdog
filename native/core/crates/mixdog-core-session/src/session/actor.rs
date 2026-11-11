@@ -3783,6 +3783,18 @@ impl SessionActor {
                     if self.run.as_mut().is_some_and(|run| run.live_call.withdraw()) {
                         self.patch_spinner([("liveCall", Value::Null)]);
                     }
+                    // `closeThinkingForToolBatch(stream, taskWaitSpinnerMode(cards))`: no call of an earlier batch is still a
+                    // task wait when the next batch opens (each batch settles before the model is asked again), so `tool-use`.
+                    self.patch_spinner([("mode", json!("tool-use"))]);
+                }
+                // `approveToolRequest`: `if (getState().spinner) set({ spinner: { ...spinner, mode: 'tool-approval' } })`.
+                super::run::CallMark::ToolApproval => self.patch_spinner([("mode", json!("tool-approval"))]),
+                // `onToolPhaseCompleted`: back to `requesting`, unless it already is.
+                super::run::CallMark::ToolPhaseCompleted => {
+                    let mode = self.spinner().and_then(|spinner| spinner.get("mode")).and_then(Value::as_str);
+                    if mode.is_some_and(|mode| mode != "requesting") {
+                        self.patch_spinner([("mode", json!("requesting"))]);
+                    }
                 }
             },
             RunShown::Check(check) => {

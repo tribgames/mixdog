@@ -1182,6 +1182,7 @@ impl Run {
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        self.emit(RunEvent::ToolPhaseCompleted { iteration: self.iterations, calls: calls.len() });
         Ok(())
     }
 

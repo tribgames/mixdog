@@ -341,6 +341,40 @@ async fn a_kickoff_stays_out_of_the_prompt_history() {
     assert_eq!(added, vec![json!({ "kind": "added", "prompt": "typed" })]);
 }
 
+/// The spinner follows a tool batch as Node's turn sets it: `tool-use` as the batch opens (`openToolCalls`,
+/// `closeThinkingForToolBatch`), `tool-approval` while a call waits for the person (`approveToolRequest`), `requesting` once the
+/// batch is over (`onToolPhaseCompleted`; recorded: `running-approval-pending`'s states show `tool-approval`, then `tool-use`).
+#[tokio::test(start_paused = true)]
+async fn the_spinner_follows_a_tool_batch() {
+    use super::run::CallMark;
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            for mark in [CallMark::Streaming, CallMark::ToolCall, CallMark::ToolApproval, CallMark::ToolPhaseCompleted] {
+                run.port.call_mark(mark).await.expect("shown");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "use a tool", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let mut modes: Vec<String> = Vec::new();
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        if method != "thread/runtime/updated" {
+            continue;
+        }
+        if let Some(mode) = params["value"]["spinner"]["mode"].as_str()
+            && modes.last().map(String::as_str) != Some(mode)
+        {
+            modes.push(mode.to_owned());
+        }
+    }
+    assert_eq!(modes, ["requesting", "responding", "tool-use", "tool-approval", "requesting"]);
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_implicit_approval_session_asks_nobody() {
     let rig = Rig::new();
