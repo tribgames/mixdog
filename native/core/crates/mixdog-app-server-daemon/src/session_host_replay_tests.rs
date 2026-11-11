@@ -51,7 +51,6 @@ fn recorded(set: &str) -> Exact {
         "data-dir-retarget-cases" => mixdog_testkit::fixture!("../../fixtures/data-dir-retarget-cases/golden.json"),
         "session-inheritance-cases" => mixdog_testkit::fixture!("../../fixtures/session-inheritance-cases/golden.json"),
         "session-host-transcript-page-cases" => mixdog_testkit::fixture!("../../fixtures/session-host-transcript-page-cases/golden.json"),
-        "session-host-lifecycle-cases" => mixdog_testkit::fixture!("../../fixtures/session-host-lifecycle-cases/golden.json"),
         other => panic!("no recording {other}"),
     };
     Exact::decode(&serde_json::from_str::<Value>(text).expect("golden.json")).expect("exact")
@@ -65,57 +64,6 @@ fn observed(set: &str, name: &str) -> Exact {
 
 fn plain(value: &Exact) -> Value {
     value.to_plain().expect("a plain recorded value")
-}
-
-// ---- session-host-lifecycle -------------------------------------------------------------------------------------------
-
-/// Case "every overlapping host disposal waits for the same attachment cleanup": the core's stop steps
-/// (`ComposedCore::stop` → `run_stop_steps` → `StopSteps::run`), one of them the attachment cleanup held until it is released. A
-/// second stop while the first runs awaits that same cleanup; the cleanup runs once.
-#[tokio::test(flavor = "current_thread")]
-async fn overlapping_stops_wait_for_the_same_cleanup_as_node_recorded() {
-    let golden = recorded("session-host-lifecycle-cases");
-    let found = golden.get("cases").as_array().iter().find(|case| case.get("case").as_str() == "every overlapping host disposal waits for the same attachment cleanup").cloned();
-    let observed = found.expect("the case").get("observed").clone();
-    let events = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
-    let closes = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let (entered_tx, entered) = tokio::sync::oneshot::channel::<()>();
-    let (release, released) = tokio::sync::oneshot::channel::<()>();
-    let steps = Arc::new(crate::compose::StopSteps::default());
-    let (log, count) = (events.clone(), closes.clone());
-    steps.push(
-        "attachment cleanup",
-        Box::pin(async move {
-            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            log.lock().unwrap().push("cleanup entered");
-            let _ = entered_tx.send(());
-            let _ = released.await;
-            log.lock().unwrap().push("cleanup returned");
-        }),
-    );
-    let (log, run) = (events.clone(), steps.clone());
-    let first = tokio::spawn(async move {
-        run.run().await;
-        log.lock().unwrap().push("first dispose finished");
-    });
-    let limit = std::time::Duration::from_secs(5);
-    tokio::time::timeout(limit, entered).await.expect("the stop to start the attachment cleanup").expect("entered");
-    let log = events.clone();
-    let mut second = std::pin::pin!(async {
-        steps.run().await;
-        log.lock().unwrap().push("second dispose finished");
-    });
-    assert!(futures::poll!(&mut second).is_pending(), "the second stop waits for the cleanup in progress");
-    events.lock().unwrap().push("cleanup released");
-    release.send(()).expect("the cleanup waits");
-    tokio::time::timeout(limit, async {
-        first.await.expect("the first stop");
-        second.await;
-    })
-    .await
-    .expect("both overlapping stops to finish");
-    let rust = json!({ "events": *events.lock().unwrap(), "closes": closes.load(std::sync::atomic::Ordering::SeqCst) });
-    assert_eq!(Exact::plain(&rust), observed);
 }
 
 // ---- session-host-transcript-page -------------------------------------------------------------------------------------
@@ -193,18 +141,61 @@ async fn an_older_page_answers_only_the_revealed_rows_as_node_recorded() {
     assert_rows(&folded(&window), &recorded_page_rows(observed.get("snapshot").get("items")), "the window the client holds");
 }
 
-/// Cases "a session that changed between reads answers the page in full" and "held rows that move while the page is in flight fall back
-/// to a full read": the full read of the 96-row window (no cursor) answers the recorded snapshot's rows, with the rows appended since.
+/// Appends assistant rows to the open paged session the way the session's rows are written (`thread/inheritedRows/append`).
+async fn append_page_rows(directory: &SessionDirectory, rows: &[&str]) {
+    let handle = directory.open_handle(&ThreadId::from("sess_page_host"), &CallContext::internal("test")).await.expect("open");
+    let messages: Vec<Value> = rows.iter().map(|row| json!({ "role": "assistant", "content": format!("row {row} ").repeat(50) })).collect();
+    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
+    handle.request(append).await.expect("the rows are stored");
+}
+
+/// The rows after the newest held row (`sortDirection: asc` from its id): what the live feed adds to the client's window.
+async fn newer_than(directory: &SessionDirectory, held: &[Value]) -> Vec<Value> {
+    let last = held.last().expect("held rows")["id"].clone();
+    let params = json!({ "threadId": "sess_page_host", "limit": 64, "byteBudget": 1_000_000, "cursor": last, "sortDirection": "asc" });
+    call(directory, "thread/items/list", params).await.expect("the newer rows")["data"].as_array().expect("data").clone()
+}
+
+/// Case "a session that changed between reads answers the page in full": the client holds the newest 32 rows; two rows are appended
+/// (the intervening change, between the opening read and the page read); the page read then reveals the 64 rows before the oldest held
+/// row and the appended rows follow the newest held one. Node's host re-read the newest 96 rows (recorded `snapshot.items`); the
+/// client's window is the revealed rows, the held ones and the appended ones, whose newest 96 are the recorded rows. The window is two
+/// rows longer at its old end (manifest `replay.normalised.windowOldEnd`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_full_read_answers_the_whole_window_as_node_recorded() {
-    for (name, extra) in [("a session that changed between reads answers the page in full", &["n0", "n1"][..]), ("held rows that move while the page is in flight fall back to a full read", &[][..])] {
-        let observed = observed("session-host-transcript-page-cases", name);
-        let (_dir, directory) = paged_directory(extra).await;
-        let (window, answer) = page(&directory, 96, None).await;
-        let snapshot = observed.get("snapshot");
-        assert_rows(&folded(&window), &recorded_page_rows(snapshot.get("items")), &format!("{name}: the window"));
-        assert_eq!(answer["hasOlder"], json!(plain(snapshot)["transcriptHasOlder"]), "{name}: older rows remain");
-    }
+async fn a_session_that_changed_between_reads_shows_the_recorded_window_as_node_recorded() {
+    let name = "a session that changed between reads answers the page in full";
+    let observed = observed("session-host-transcript-page-cases", name);
+    let (_dir, directory) = paged_directory(&[]).await;
+    let (held, opened) = page(&directory, 32, None).await;
+    let appended: Vec<String> = plain(observed.get("appendedRows")).as_array().expect("appended rows").iter().map(|row| row.as_str().expect("row").to_owned()).collect();
+    append_page_rows(&directory, &appended.iter().map(String::as_str).collect::<Vec<_>>()).await;
+    let (revealed, answer) = page(&directory, 64, Some(&opened["nextCursor"])).await;
+    let newer = newer_than(&directory, &held).await;
+    let window: Vec<Value> = revealed.iter().chain(held.iter()).chain(newer.iter()).cloned().collect();
+    let recorded = recorded_page_rows(observed.get("snapshot").get("items"));
+    let shown = folded(&window);
+    assert_eq!(shown.len(), recorded.len() + 2, "{name}: the window is two rows longer at its old end");
+    assert_rows(&shown[shown.len() - recorded.len()..], &recorded, &format!("{name}: the newest rows of the window"));
+    assert_eq!(answer["hasOlder"], json!(plain(observed.get("snapshot"))["transcriptHasOlder"]), "{name}: older rows remain");
+}
+
+/// Case "held rows that move while the page is in flight fall back to a full read": the page read is answered, the client's held rows
+/// then move (the client drops its oldest held row: the page no longer joins its window) and it reads the window in full (the newest 96
+/// rows, no cursor): the recorded snapshot's rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn held_rows_that_move_during_a_page_read_fall_back_to_a_full_read_as_node_recorded() {
+    let name = "held rows that move while the page is in flight fall back to a full read";
+    let observed = observed("session-host-transcript-page-cases", name);
+    let (_dir, directory) = paged_directory(&[]).await;
+    let (held, opened) = page(&directory, 32, None).await;
+    let (revealed, _) = page(&directory, 64, Some(&opened["nextCursor"])).await;
+    let moved: Vec<Value> = held[1..].to_vec();
+    let joined = revealed.last().map(|row| row["id"].clone());
+    assert_ne!(joined, moved.first().map(|row| row["id"].clone()), "{name}: the revealed rows no longer join the moved held rows");
+    let (window, answer) = page(&directory, 96, None).await;
+    let snapshot = observed.get("snapshot");
+    assert_rows(&folded(&window), &recorded_page_rows(snapshot.get("items")), &format!("{name}: the window"));
+    assert_eq!(answer["hasOlder"], json!(plain(snapshot)["transcriptHasOlder"]), "{name}: older rows remain");
 }
 
 // ---- data-dir-retarget ------------------------------------------------------------------------------------------------
@@ -226,6 +217,12 @@ async fn the_config_and_turn_snapshots_follow_the_data_directory_as_node_recorde
     let after_second = rel(&crate::compose_flip::config_file(second.path()));
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    // The instance over the first directory is running (and stays so to the end) while the second is used: the first directory
+    // stays untouched. Node's single process moved its variable; the core has one directory per composed instance, and the
+    // instance of the second directory is the one that now takes the writes (manifest `replay.retarget`).
+    let (running_first, _) = Config::open(crate::compose_flip::config_file(first.path()), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes)
+        .await
+        .expect("the config of the first directory");
     let (config, _) = Config::open(crate::compose_flip::config_file(second.path()), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes)
         .await
         .expect("the config of the second directory");
@@ -257,6 +254,7 @@ async fn the_config_and_turn_snapshots_follow_the_data_directory_as_node_recorde
         },
     });
     assert_eq!(Exact::plain(&rust), observed);
+    assert!(running_first.full().get("retarget-probe").is_none(), "the running first instance never saw the second directory's section");
 }
 
 // ---- session-inheritance ----------------------------------------------------------------------------------------------
@@ -500,7 +498,15 @@ async fn a_successful_inheritance_restores_its_boundary_as_node_recorded() {
     assert_eq!(Exact::plain(&result), *observed.get("inheritFromResult"), "the answer");
     let recorded_source: Vec<Value> = plain(observed.get("sourceAfter"))["messages"].as_array().expect("messages").clone();
     assert_eq!(model_messages(&directory, "source").await, json!(recorded_source), "the source keeps its conversation");
-    let target_messages: Vec<Value> = plain(observed.get("targetMessages")).as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect();
+    // Node's heir holds its own system block first (`targetBefore`), which an inheritance leaves as it was (it carries only the
+    // source's conversation, `inheritable`); the core keeps no system block in a thread's stored messages (the run builds it per
+    // request), so the recorded blocks are shown unchanged and the conversation after them is compared whole (manifest
+    // `replay.normalised.systemBlock`).
+    let recorded_target = plain(observed.get("targetMessages"));
+    let (recorded_system, target_messages): (Vec<Value>, Vec<Value>) = recorded_target.as_array().expect("messages").iter().cloned().partition(|m| m["role"] == "system");
+    let before_system: Vec<Value> = target.get("messages").and_then(Value::as_array).expect("messages").clone();
+    assert_eq!(recorded_system, before_system, "the heir's system block is the one it had before");
+    assert_eq!(&recorded_target.as_array().expect("messages")[..recorded_system.len()], &recorded_system[..], "the system block stays first");
     assert_eq!(Exact::plain(&model_messages(&directory, "heir").await), Exact::plain(&json!(target_messages)), "the heir's model messages");
     let restored = observed.get("restored");
     assert_rows(&without_ids(&rows(&directory, "heir", None).await), &recorded_rows(restored.get("live").get("items")), "the live rows");

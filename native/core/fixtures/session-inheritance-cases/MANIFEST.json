@@ -76,6 +76,7 @@
     ],
     "missingOnO1": [],
     "normalised": {
+      "systemBlock": "the heir's recorded `targetMessages` start with its own system block (`targetBefore.messages`, 'Target instructions.'), which Node's inheritance leaves in place and never takes from the source (src/session-runtime/lifecycle/inheritance.mjs:33-37 hands the compactor the whole transcript but only the conversation half travels). The core keeps no system block in a thread's stored messages: the run builds it for each request, so `thread/modelMessages/list` holds the conversation only. The replay checks the recorded block equals `targetBefore`'s and stays first, and compares the conversation after it whole.",
       "rowIds": "Node numbered restored rows by message position (hist_<session>_<message>_<part>); the core's row id is its item id. Rows are compared whole without the id"
     },
     "protocolMethods": [
