@@ -10715,7 +10715,7 @@
     },
     {
       "id": "model-classes-and-demotion-wrappers",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-request.test.mjs:566",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-request.test.mjs:524",
       "input": {
         "classes": [
           "claude-sonnet-4-5",
@@ -11015,7 +11015,7 @@
     },
     {
       "id": "images-only-for-vision-models",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-request.test.mjs:606",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-request.test.mjs:555",
       "input": {
         "scenarios": [
           {
@@ -11669,7 +11669,7 @@
     },
     {
       "id": "tool-schemas-json-strings",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-request.test.mjs:628",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-request.test.mjs:579",
       "input": {
         "scenarios": [
           {
