@@ -113,15 +113,60 @@
                 "mimeType": "image/png"
               }
             ]
-          },
-          {
-            "role": "assistant",
-            "content": "Next response."
           }
         ],
         "sameArray": false,
         "sameElements": true,
-        "sourceLengthAfterPush": 6
+        "sourceAfterPush": [
+          {
+            "role": "user",
+            "content": "Check the background result."
+          },
+          {
+            "role": "user",
+            "content": "<task-notification>\n<task-id>task_history</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nSummary: The background check passed.\n</result>\n</task-notification>",
+            "meta": {
+              "source": "task-notification",
+              "execution": {
+                "id": "task_history",
+                "surface": "shell",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "role": "assistant",
+            "content": "Inspecting the result.",
+            "toolCalls": [
+              {
+                "id": "read_result",
+                "name": "read",
+                "args": {
+                  "file_path": "result.txt"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "toolCallId": "read_result",
+            "content": "The check passed."
+          },
+          {
+            "role": "assistant",
+            "content": "The result is ready."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "data": "image-bytes",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -808,7 +853,7 @@
       },
       "result": {
         "drained": true,
-        "skillPromptCalls": 0,
+        "skillPromptCalls": [],
         "afterDrain": [
           {
             "role": "user",
@@ -914,7 +959,6 @@
             "content": "Continue."
           }
         ],
-        "prefixEqualsSentHistory": true,
         "retained": {
           "ok": {
             "messageHashes": [
@@ -954,9 +998,29 @@
         ],
         "shrunk": {
           "error": {
+            "$exact": "error",
             "name": "ProviderPrefixMutationError",
+            "message": "provider message history shrank outside compaction",
             "code": "PROVIDER_PREFIX_MUTATION",
-            "message": "provider message history shrank outside compaction"
+            "props": {
+              "name": "ProviderPrefixMutationError",
+              "details": {
+                "classification": "unexpected",
+                "reason": "history_shrink",
+                "provider": null,
+                "model": null,
+                "kind": "history_shrink",
+                "source": null,
+                "index": 3,
+                "previousCount": 4,
+                "nextCount": 3,
+                "previousHash": "4babf07ed9de528588d82d54f81365782a66d11df25dba2a0fc9ee8777f364c2",
+                "nextHash": null,
+                "previousRequestPrefixHash": "cb052d02e8ac312c606778fb8dd9ce63c706177940731bd13cd6dffca9a46557",
+                "nextRequestPrefixHash": "cb052d02e8ac312c606778fb8dd9ce63c706177940731bd13cd6dffca9a46557",
+                "requestPrefixChanged": false
+              }
+            }
           }
         }
       }
