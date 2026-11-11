@@ -19,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 110248,
+      "bytes": 1042614,
       "path": "cases.json",
-      "sha256": "93c66ee07e266848c6461ee90dc18fd16a5791dc1f13083073761b5bd4d5b239"
+      "sha256": "851fd2b917515e2b4aeae206fc3183ea563199bbe78617174d98209033499f84"
     }
   ],
   "inputs": [
@@ -69,9 +69,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-oauth-transport.mjs",
-  "recorderSha256": "bdd645d50884f2f32a203346e155da00840fe3e185f387554b089dd47ca8b70d",
+  "recorderSha256": "acaca61d50d6615f3820c28a6b5e0ab062da2e7b55ad8aeef0f4b6e18c302168",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
+  "replayExclusions": {
+    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+  },
   "set": "provider-openai-oauth-transport",
-  "totalBytes": 110248,
+  "totalBytes": 1042614,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
