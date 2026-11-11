@@ -1,6 +1,5 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-chunk-quality-handoff.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
-  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "nothing of the 26 cases: the 23 Cycle1 cases (prompts, parsing, validation, generator with a scripted callLlm, splitting, partitioning, quality assessment) are recorded here with the test's own inputs; the cycles golden (memory-jobs) holds other scripted shapes of the same functions and is not a substitute. The scripted classifier is the service boundary: it logs every (request, prompt) and answers per call",
     "runs": "compactHandoffRows (compact-handoff.mjs), renderEntryLines (recall-format.mjs), assessChunkQuality, makeChunkQuality (memory-chunk-quality.mjs)"
@@ -9,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 500430,
+      "bytes": 501753,
       "path": "golden.json",
-      "sha256": "6afdb674fec60948b13c0595a6fd3cca463d91daa072e79f639cbccf0ad0bc8a"
+      "sha256": "4d24007301063fbdb2cd010d526f7c1665e1965eb4c4bac0bfd64e9bd1ac2c1e"
     }
   ],
   "inputs": [
@@ -20,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -51,10 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-chunk-quality-handoff.mjs",
-  "recorderSha256": "bdf46f6633c06700cfa0a68a5cbaaea3f8f0a47fd199768ccab817e87180f550",
-  "replay": "mixdog-services memory: mem/recall/compact.rs compact_handoff_rows + mem/recall/format.rs render_entry_lines + mem/cycles/quality.rs assess_chunk_quality/make_chunk_quality; compares the projected rows (all fields), rendered text, and the assessments (usable, reasons, provenance)",
+  "recorderSha256": "8038aaf90ed52048c385ec0342c15a95288d77fb310088f6cb4213815fafa3c9",
+  "replay": "mixdog-services memory/cycles/quality.rs (pub): chunk_source_text (:66), cycle1_source_budget (:87), build_cycle1_chunk_prompt (:94), partition_cycle1_rows (:99), parse_cycle1_line_format (:129), validate_cycle1_grouping (:204), make_chunk_quality (:267), assess_chunk_quality (:282), split_cycle1_row (:313), generate_cycle1_chunks (:467); memory/recall/compact.rs compact_handoff_rows (:130), chunk_quality_usable (:104); memory/recall/format.rs render_entry_lines (:220). A replay compares each case's prompts, parse/validation results, the scripted-classifier calls (request, prompt) in order, the whole generator result, the assessments and the projected/rendered rows",
   "set": "memory-chunk-quality-handoff",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 500430,
-  "uuidsNormalised": "none"
+  "totalBytes": 501753,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

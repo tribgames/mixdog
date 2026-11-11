@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The compact-handoff cases of Node's chunk quality tests (src/runtime/memory/lib/memory-chunk-quality.test.mjs lines
-// 372, 393, 406: the rest of that file, the Cycle1 chunking, is recorded by the cycles golden already) from the real
+// 26 cases: 372, 393, 406 the compact handoff, and the 23 Cycle1 cases) from the real
 // `compactHandoffRows` (compact-handoff.mjs), `renderEntryLines` (recall-format.mjs), `assessChunkQuality` and
 // `makeChunkQuality` (memory-chunk-quality.mjs): the roots of the test file plus further shapes (fresh summary, no
 // members, single root, a root whose summary was altered), with the projected rows and the rendered text.
@@ -30,7 +30,7 @@ async function handoff(label, roots, renderOptions) {
   const out = { label, roots: input, projected };
   if (projected.result) {
     out.rendered = await capture(() => renderEntryLines(compactHandoffRows(structuredClone(roots)), renderOptions));
-    out.renderOptions = renderOptions ?? null;
+    out.renderOptions = renderOptions;
     out.rootsUnchanged = JSON.stringify(roots) === JSON.stringify(input);
   }
   return out;
@@ -38,7 +38,7 @@ async function handoff(label, roots, renderOptions) {
 
 const first = row(1, '```js\nconst n = 296;\n```\nhttps://example.com | exact');
 const second = row(2, 'No success was verified.');
-// ---- the other 23 cases of the test file, with the test's own inputs (the cycles golden holds other scripted shapes of the same
+// ---- the 23 Cycle1 cases of the test file, with the test's own inputs (the cycles golden holds other scripted shapes of the same
 // functions, not these scenarios). Every scripted reply, every prompt and request the generator sent, and the whole result.
 const answer = (indexes, summary = 'The request remains pending.') => `${indexes}|request|task|${summary}`;
 const sourceRows = (prompt) => prompt.split('\n').filter((line) => /^@\d+ /.test(line)).map((line) => JSON.parse(line.replace(/^@\d+ /, '')));
@@ -54,7 +54,7 @@ async function generate(label, rows, script, options = {}) {
   };
   const outcome = await capture(() => generateCycle1Chunks(structuredClone(rows), { callLlm, signal: options.useSignal ? controller.signal : undefined, ...(options.inputTokenBudget ? { inputTokenBudget: options.inputTokenBudget } : {}) }));
   if (outcome.result?.stats) { outcome.timingFields = { llmMs: outcome.result.stats.llmMs, totalMs: outcome.result.stats.totalMs }; }
-  return { label, rows: structuredClone(rows), inputTokenBudget: options.inputTokenBudget ?? null, calls, ...outcome };
+  return { label, rows: structuredClone(rows), inputTokenBudget: options.inputTokenBudget, calls, ...outcome };
 }
 
 const r = (id, content, session) => row(id, content, session);
@@ -159,7 +159,7 @@ add(273, 'cancellation is propagated and never converted to a quality verdict', 
 {
   const members0 = [row(1), row(2)];
   const root = { id: 1, is_root: 1, summary: 'Pending request.', members: members0 };
-  const steps = [{ label: 'legacy root', ...(await capture(() => assessChunkQuality(root))), chunkQualityAfter: root.chunk_quality ?? { $undefined: true } }];
+  const steps = [{ label: 'legacy root', ...(await capture(() => assessChunkQuality(root))), chunkQualityAfter: root.chunk_quality }];
   root.chunk_quality = makeChunkQuality(root.summary, members0);
   for (const [label, rootArg, expected] of [['known root', root, undefined], ['summary altered', { ...root, summary: 'It succeeded.' }, undefined], ['member list cut', root, members0.slice(1)], ['duplicated member', root, [...members0, members0[0]]], ['member content changed', root, [row(1, 'changed'), row(2)]], ['expanded summary', { ...root, summary: 'Expanded. '.repeat(1000) }, undefined]]) steps.push({ label, ...(await capture(() => assessChunkQuality(structuredClone(rootArg), expected && structuredClone(expected)))) });
   add(357, 'legacy chunks are reusable while expanded, altered and incomplete known chunks are rejected', { members: members0, root, steps });
@@ -196,7 +196,7 @@ for (const [label, root, expectedMembers] of [
   ['verified root, duplicated member', overlapRoot, [...members, members[0]]],
   ['verified root, member content changed', overlapRoot, [row(1, 'changed'), row(2)]],
   ['expanded summary', { ...overlapRoot, summary: 'Expanded. '.repeat(1000) }, undefined],
-]) quality.push({ label, expectedMembers: expectedMembers ?? null, ...(await capture(() => assessChunkQuality(structuredClone(root), expectedMembers && structuredClone(expectedMembers)))) });
+]) quality.push({ label, expectedMembers, ...(await capture(() => assessChunkQuality(structuredClone(root), expectedMembers && structuredClone(expectedMembers)))) });
 
 finish(ctx, {
   url: import.meta.url,
@@ -215,7 +215,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'compactHandoffRows (compact-handoff.mjs), renderEntryLines (recall-format.mjs), assessChunkQuality, makeChunkQuality (memory-chunk-quality.mjs)', notRun: 'nothing of the 26 cases: the 23 Cycle1 cases (prompts, parsing, validation, generator with a scripted callLlm, splitting, partitioning, quality assessment) are recorded here with the test\'s own inputs; the cycles golden (memory-jobs) holds other scripted shapes of the same functions and is not a substitute. The scripted classifier is the service boundary: it logs every (request, prompt) and answers per call' },
-    replay: 'mixdog-services memory: mem/recall/compact.rs compact_handoff_rows + mem/recall/format.rs render_entry_lines + mem/cycles/quality.rs assess_chunk_quality/make_chunk_quality; compares the projected rows (all fields), rendered text, and the assessments (usable, reasons, provenance)',
+    replay: "mixdog-services memory/cycles/quality.rs (pub): chunk_source_text (:66), cycle1_source_budget (:87), build_cycle1_chunk_prompt (:94), partition_cycle1_rows (:99), parse_cycle1_line_format (:129), validate_cycle1_grouping (:204), make_chunk_quality (:267), assess_chunk_quality (:282), split_cycle1_row (:313), generate_cycle1_chunks (:467); memory/recall/compact.rs compact_handoff_rows (:130), chunk_quality_usable (:104); memory/recall/format.rs render_entry_lines (:220). A replay compares each case's prompts, parse/validation results, the scripted-classifier calls (request, prompt) in order, the whole generator result, the assessments and the projected/rendered rows",
     exclusions: 'case 90 runs the parser inside a vm context with a 1 s time limit, as the test does (a synchronous parser cannot be bounded otherwise); chunk_quality of the roots is the value makeChunkQuality produced here (a stored JSON); a replay builds the same roots from the golden',
     normalised: { 'stats.llmMs / totalMs / verificationMs': 'measured with Date.now(), which is the virtual clock: always 0 in the recording (not a Node value to equal)', 'verifiedAt': 'Date.now() is fixed at the recorded clock.dateNowMs (virtual clock, never advanced), so verifiedAt equals it' },
   },
