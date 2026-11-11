@@ -22,6 +22,7 @@ use mixdog_core_domains::domains::ai_account::auth_refresh::ProviderEffects;
 use mixdog_core_domains::domains::ai_account::auth_refresh::RefreshEffects;
 use mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup;
 use mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup;
+use mixdog_core_domains::domains::ai_admin::model_warmup::WarmupMarks;
 use mixdog_core_domains::domains::ai_account::setup_cache::SetupHost;
 use mixdog_core_domains::domains::ai_account::collaborators::ProviderSetup;
 use mixdog_rt::TaskClass;
@@ -63,18 +64,31 @@ pub fn warmup_delay_ms(env: &dyn Fn(&str) -> Option<String>) -> u64 {
     n.floor().clamp(0.0, WARMUP_DELAY_MAX_MS as f64) as u64
 }
 
+/// `timers.providerSetupWarmupTimer`.
+const SLOT: &str = "providerSetupWarmupTimer";
+
+/// `bootProfile(event, meta)` as a debug trace: the daemon's marks of its warm-ups.
+pub struct TracedMarks;
+
+impl WarmupMarks for TracedMarks {
+    fn profile(&self, event: &str, detail: Option<serde_json::Value>) {
+        tracing::debug!(event, ?detail, "boot profile");
+    }
+}
+
 /// The provider-setup warm-up timer slot (`timers.providerSetupWarmupTimer`).
 pub struct SetupWarmup {
     delay_ms: u64,
     pending: AtomicBool,
     /// `isCloseRequested()`.
     closing: Arc<dyn Fn() -> bool + Send + Sync>,
+    marks: Arc<dyn WarmupMarks>,
     setup: OnceLock<Arc<dyn ProviderSetup>>,
 }
 
 impl SetupWarmup {
-    pub fn new(delay_ms: u64, closing: Arc<dyn Fn() -> bool + Send + Sync>) -> Arc<Self> {
-        Arc::new(Self { delay_ms, pending: AtomicBool::new(false), closing, setup: OnceLock::new() })
+    pub fn new(delay_ms: u64, closing: Arc<dyn Fn() -> bool + Send + Sync>, marks: Arc<dyn WarmupMarks>) -> Arc<Self> {
+        Arc::new(Self { delay_ms, pending: AtomicBool::new(false), closing, marks, setup: OnceLock::new() })
     }
 
     /// Binds the setup the timer warms; a second bind is refused.
@@ -97,7 +111,7 @@ impl SetupWarmup {
     }
 
     /// `arm('providerSetupWarmupTimer', delayMs, run)`: nothing when already pending or closing; the slot clears when the timer fires, and the
-    /// run happens only while the runtime is open. The result of the warm-up is only a boot-profile mark in Node, so it is dropped.
+    /// run happens only while the runtime is open. The result of the warm-up is only a boot-profile mark.
     pub fn schedule(self: &Arc<Self>, delay_ms: u64) {
         if self.pending() || self.closing() {
             return;
@@ -105,16 +119,25 @@ impl SetupWarmup {
         if self.pending.swap(true, Ordering::SeqCst) {
             return;
         }
+        let delay = Duration::from_millis(delay_ms);
+        self.marks.armed(SLOT, delay);
+        // `setTimeout` counts from the call, not from when the task is first polled.
+        let deadline = tokio::time::Instant::now() + delay;
         let this = self.clone();
         mixdog_rt::spawn("provider-setup-warmup", TaskClass::Work, async move {
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            tokio::time::sleep_until(deadline).await;
+            this.marks.running(SLOT, true);
             this.pending.store(false, Ordering::SeqCst);
-            if this.closing() {
-                return;
+            if !this.closing()
+                && let Some(setup) = this.setup.get()
+            {
+                // `cachedProviderSetup()`
+                match setup.get(false, false, false, false).await {
+                    Ok(_) => this.marks.profile("provider-setup:warm-ready", None),
+                    Err(failure) => this.marks.profile("provider-setup:warm-failed", Some(serde_json::json!({ "error": failure.message() }))),
+                }
             }
-            if let Some(setup) = this.setup.get() {
-                let _ = setup.get(false, false, false, false).await; // `cachedProviderSetup()`
-            }
+            this.marks.running(SLOT, false);
         });
     }
 }
@@ -258,14 +281,17 @@ mod tests {
     async fn the_slot_is_armed_once_and_cleared_when_it_fires() {
         mixdog_rt::testing::tokens();
         let closing = Arc::new(AtomicBool::new(false));
-        let warmup = SetupWarmup::new(300, {
-            let closing = closing.clone();
-            Arc::new(move || closing.load(Ordering::SeqCst))
-        });
+        let warmup = SetupWarmup::new(
+            300,
+            {
+                let closing = closing.clone();
+                Arc::new(move || closing.load(Ordering::SeqCst))
+            },
+            Arc::new(TracedMarks),
+        );
         warmup.schedule_default();
         warmup.schedule_default();
         assert!(warmup.pending());
-        tokio::task::yield_now().await; // the timer task registers its deadline before time moves
         tokio::time::advance(Duration::from_millis(299)).await;
         tokio::task::yield_now().await;
         assert!(warmup.pending(), "not before the delay");
