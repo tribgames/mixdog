@@ -98,10 +98,6 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
     handles
 }
 
-async fn settle() {
-    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
-}
-
 #[test]
 fn waits_for_room_then_enqueues_and_runs() {
     let _serial = serial();
@@ -133,12 +129,11 @@ fn cancelling_the_token_ends_the_wait() {
     let cancel = CancellationToken::new();
 
     let result = block_on(async {
-        let canceller = cancel.clone();
-        tokio::spawn(async move {
-            settle().await;
-            canceller.cancel();
-        });
-        tokens.cpu_bulk.submit_wait(&cancel, |_| ()).await
+        let mut waiting = pin!(tokens.cpu_bulk.submit_wait(&cancel, |_| ()));
+        let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
+        assert!(polled.is_pending(), "the full lane makes the caller wait");
+        cancel.cancel();
+        waiting.await
     });
     assert_eq!(result.err(), Some(SubmitWaitError::Cancelled));
     gate.open();
@@ -206,7 +201,7 @@ fn every_waiter_is_served_as_room_frees() {
                 })
             })
             .collect();
-        settle().await;
+        // The lane is held full: no waiter can have run.
         assert_eq!(done.load(SeqCst), 0);
         gate.open();
         for w in waiters {
