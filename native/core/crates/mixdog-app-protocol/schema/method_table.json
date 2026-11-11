@@ -792,6 +792,48 @@
     },
     {
       "class": "C2",
+      "method": "thread/approval/answerNotification",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::approval::ThreadApprovalAnswerNotificationParams",
+      "result": "v2::approval::ThreadApprovalAnswerNotificationResponse",
+      "scope": {
+        "field": "threadId",
+        "kind": "thread"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "thread/approval/answer",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::approval::ThreadApprovalAnswerParams",
+      "result": "v2::approval::ThreadApprovalAnswerResponse",
+      "scope": {
+        "field": "threadId",
+        "kind": "thread"
+      }
+    },
+    {
+      "class": "C2",
       "method": "thread/goal/set",
       "mutation": {
         "domain": "thread",
@@ -10618,6 +10660,16 @@
     },
     {
       "delivery": null,
+      "method": "host/browser/frame",
+      "params": "HostBrowserFrameParams"
+    },
+    {
+      "delivery": null,
+      "method": "browser/streamAck",
+      "params": "BrowserStreamAckParams"
+    },
+    {
+      "delivery": null,
       "method": "host/notification/clicked",
       "params": "HostNotificationClickedParams"
     },
@@ -10852,6 +10904,11 @@
       "delivery": "connection",
       "method": "browser/webrtcSignal",
       "params": "BrowserWebrtcSignalParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "browser/frame",
+      "params": "BrowserFrameParams"
     },
     {
       "delivery": "connection",

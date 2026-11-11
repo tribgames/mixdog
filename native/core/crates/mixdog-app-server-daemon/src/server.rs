@@ -63,7 +63,7 @@ impl Running {
             core.clone(),
             outgoing.clone(),
             Arc::new(move |id| origins.origin_of(id)),
-            server_config(limits, core.defaults_separation()),
+            ServerConfig { native_push: core.native_push_offered(), ..server_config(limits, core.defaults_separation()) },
         )?;
         Ok(Self { server, hub, outgoing })
     }
@@ -95,7 +95,10 @@ pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_prot
             browser: CapabilityState::Available,
             computer: CapabilityState::Available,
             voice: CapabilityState::Available,
+            // Each `initialize` answers it again with the relay's native push offer of that moment (`ServerConfig::native_push`).
+            remote: mixdog_app_protocol::remote_flags::remote_capabilities(false),
         },
+        native_push: Arc::new(|| false),
         limits,
         version_gate: Arc::new(move |client| match compat::parse(&client.version) {
             Ok(client) => match compat::order(&client, &server) {

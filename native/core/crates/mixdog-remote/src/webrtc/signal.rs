@@ -1086,17 +1086,21 @@ impl DesktopSignal {
         }
     }
 
+    /// In Node's field order (`parseRemoteWebrtcDesktopSignal`, `shared/remote-webrtc.ts:1171-1215`): the source or connection
+    /// first, then `type`, then the signal's own fields; the phone receives it so.
     pub fn to_json(&self) -> Value {
         let mut out = Map::new();
-        out.insert("type".into(), json!(self.type_name()));
+        let kind = json!(self.type_name());
         match self {
             Self::Geometry { source, geometry } => {
                 out.insert("v".into(), json!(VERSION));
                 out.insert("source".into(), source.to_json());
+                out.insert("type".into(), kind);
                 out.insert("geometry".into(), geometry.to_json());
             }
             Self::Offer { connection, sdp, fingerprints, ice_servers, ice_transport_policy, geometry, input_epoch } => {
                 connection.put(&mut out);
+                out.insert("type".into(), kind);
                 out.insert("sdp".into(), json!(sdp));
                 out.insert("fingerprints".into(), Value::Array(fingerprints.iter().map(Fingerprint::to_json).collect()));
                 out.insert("iceServers".into(), ice_servers_json(ice_servers));
@@ -1106,20 +1110,24 @@ impl DesktopSignal {
             }
             Self::Candidate { connection, candidate } => {
                 connection.put(&mut out);
+                out.insert("type".into(), kind);
                 out.insert("candidate".into(), candidate_json(candidate));
             }
             Self::Promote { connection, input_epoch, geometry_generation } => {
                 connection.put(&mut out);
+                out.insert("type".into(), kind);
                 out.insert("inputEpoch".into(), json!(input_epoch));
                 out.insert("geometryGeneration".into(), json!(geometry_generation));
             }
             Self::Demote { connection, input_epoch, reason } => {
                 connection.put(&mut out);
+                out.insert("type".into(), kind);
                 out.insert("inputEpoch".into(), json!(input_epoch));
                 out.insert("reason".into(), json!(reason.wire_name()));
             }
             Self::Close { connection, reason, retry_after_ms } => {
                 connection.put(&mut out);
+                out.insert("type".into(), kind);
                 out.insert("reason".into(), json!(reason.wire_name()));
                 if let Some(retry) = retry_after_ms {
                     out.insert("retryAfterMs".into(), json!(retry));

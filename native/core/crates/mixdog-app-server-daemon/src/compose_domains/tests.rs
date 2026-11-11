@@ -363,7 +363,7 @@ const OTHER_OWNERS: &[(&str, &str)] = &[("host/claim", "wp-compaction-world: the
 /// `compose_domains`, each with that service's whole method list: the phone's live view (`live_view::LiveViewService`, SPEC R36) needs
 /// the remote runtime and device registry `real_core` builds. The test asks the core composed above which service serves each one.
 const COMPOSED_BY_REAL_CORE: &[(&str, &[&str])] =
-    &[("live_view::LiveViewService", &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page"])];
+    &[("live_view::LiveViewService", &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page", "host/browser/frame", "browser/streamAck"])];
 
 impl mixdog_agent::compact::settings_service::CompactionHost for Quiet {
     fn route_provider(&self, _: Option<&ThreadId>) -> Option<String> {
