@@ -1,16 +1,17 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-channels-config-reload-order.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
-    "notRun": "the config file loader (load is scripted and settled by the recorder), the scheduler and the webhook/event services (call recorders)",
-    "runs": "createConfigReloadWatch (config-reload-watch.mjs) subscribed to the real shared config change feed (shared/config.mjs subscribeConfigChange) in a private data dir, calling the real createConfigReloader (owned-runtime/config-reload.mjs); updateSection writes the channels section in-process"
+    "notRun": "the config loader of case 92 (scripted, settled by the recorder), the scheduler and the webhook/event services (call recorders)",
+    "runs": "createConfigReloadWatch (config-reload-watch.mjs) subscribed to the real shared config change feed (shared/config.mjs subscribeConfigChange, a real directory watcher) in a private data dir; writes by updateSection in-process and, for case 55, by a real child process; the real createConfigReloader (owned-runtime/config-reload.mjs) for case 92"
   },
-  "exclusions": "test cases 55 and 75 (external writes / section filter) belong to the gaps-memory-channels recording",
+  "exclusions": "none. NOTE for the Rust side: cases 55 and 75 are not recorded by branch gaps-memory-channels (its channels fixtures are channel-remote-intent and webhook-late-reload), so this set holds them",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1680,
+      "bytes": 49424,
       "path": "golden.json",
-      "sha256": "3245b1c04b2d51b8a5c375c46e23e8e9bf527aae71e519fb0ca5cb31c234a458"
+      "sha256": "6e929e6ee3a8f5a84e5c217afa9f5275655e28bb0d2a627124d4f0c89b9731af"
     }
   ],
   "inputs": [
@@ -20,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -29,7 +30,9 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "private data dir": "temp, not recorded"
+    "backup directory names": "scope-<hash> written <scope>, the ISO time in <time>-<sequence>-<kind> written <time>; the backup list is sorted by path then text (the order the files are listed in is not an order of the product)",
+    "file texts": "the private data dir path, UUIDs (the instance id) and ISO timestamps inside the files are written <data-dir>, <instance-id>, <time>",
+    "private root": "temp, not recorded; paths are relative to the data dir / backup root"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -49,10 +52,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channels-config-reload-order.mjs",
-  "recorderSha256": "f16e2f282af792696961aff354f8976c7e5adec1c4dcfa41fb81616a2517f84f",
-  "replay": "mixdog-services channels: ch/runtime.rs reload_runtime / reload_turn serialized by reload_gate: two overlapping reloads whose loads resolve in reverse order; compares the ordered effects (setConfig, scheduler.reloadConfig restart flag, sync/stop services) and the final config: only the newest started reload applies",
+  "recorderSha256": "e41aeee4d5d2f67bb6ffcf2e9a3aaa474fa720f1ae33b5cb123b677254bd3217",
+  "replay": "mixdog-services daemon: domain_seams/channel_stack.rs, the config.changes() subscription that calls ChannelRuntime::reload_runtime (reload_turn serialized by reload_gate); drive it with the real ConfigWatcher over a temp data dir: compares per step the reload count and, for case 92, the ordered effects (setConfig, scheduler.reloadConfig restart flag, sync/stop services) and the final config; the files on disk are Node's config.json bytes for the Rust writer to equal",
   "set": "channels-config-reload-order",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 1680,
+  "totalBytes": 49424,
   "uuidsNormalised": "none"
 }
