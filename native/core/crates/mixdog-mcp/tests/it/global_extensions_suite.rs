@@ -122,6 +122,8 @@ struct Seen {
     records_done: std::sync::atomic::AtomicBool,
     released: tokio::sync::Notify,
     entered: tokio::sync::Notify,
+    /// The surface was refreshed after the recording began.
+    refreshed: tokio::sync::Notify,
 }
 
 impl Seen {
@@ -204,6 +206,9 @@ impl McpSurface for Surface {
     async fn refresh_surface(&self) {
         let runtime = self.seen.runtime.lock().unwrap().clone();
         self.seen.push(runtime.as_deref(), one("invalidatePreSessionToolSurface", json!(true)));
+        if self.seen.recording.load(std::sync::atomic::Ordering::SeqCst) {
+            self.seen.refreshed.notify_one();
+        }
     }
     async fn tool_names(&self) -> Result<Vec<String>, String> {
         Ok(Vec::new())
@@ -381,6 +386,30 @@ async fn overlapping_enables_connect_once() {
     let result = case.get("result");
     assert_eq!(statuses(&[first, second]), *result.get("results"), "the statuses");
     assert_eq!(plain(json!(w.seen.events())), *result.get("events"), "the events");
+}
+
+/// `scheduleMcpToggle` runs its toggle to the end whoever awaits it (`resource-extension-sync.mjs:56`): when the only caller is
+/// cancelled while the connect is pending, the toggle still connects, refreshes the surface and frees its chain, and the
+/// glue is not held by it afterwards.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_toggle_whose_callers_are_cancelled_completes_and_releases_the_glue() {
+    let case = recording().get("cases").as_array().iter().find(|case| case.get("name").as_str() == "overlapping-enables-connect-once").cloned().expect("the case");
+    let w = world(None, &[]).await;
+    w.seen.hold_once.store(true, std::sync::atomic::Ordering::SeqCst);
+    w.seen.records_done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let held_by_others = Arc::strong_count(&w.glue);
+    let args = case.get("input").get("steps").as_array()[0].get("args").as_array().to_vec();
+    let (host, name) = (w.host.clone(), args[0].as_str().to_owned());
+    let caller = tokio::spawn(async move { host.schedule_mcp_toggle(&name, true).await });
+    tokio::time::timeout(Duration::from_secs(30), w.seen.entered.notified()).await.expect("the enable's connect to start within 30 s");
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled(), "the only caller is cancelled while the connect is pending");
+    w.seen.released.notify_one();
+    tokio::time::timeout(Duration::from_secs(30), w.seen.refreshed.notified()).await.expect("the toggle to refresh the surface with no caller within 30 s");
+    // A toggle asked next joins the chain if its cleanup has not run yet and starts a new one if it has; either way it ends
+    // only after the chain it joined or started has dropped its glue.
+    w.host.schedule_mcp_toggle(args[0].as_str(), true).await;
+    assert_eq!(Arc::strong_count(&w.glue), held_by_others, "no finished toggle holds the glue");
 }
 
 /// Line 86: a change reaches every other runtime, never the one that made it. The core's change is the writer's full

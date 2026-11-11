@@ -1321,7 +1321,15 @@ impl ExtensionHost for GlueHost {
             let mut chains = lock(&self.glue.toggle_chains);
             let chain = chains.entry(name.to_owned()).or_insert(ToggleChain { desired: enabled, running: None });
             chain.desired = enabled;
-            chain.running.get_or_insert_with(|| run_toggle_chain(self.glue.clone(), name.to_owned()).boxed().shared()).clone()
+            // The run is its own task, as Node's promise runs on whoever awaits it: callers that are cancelled do not
+            // stall it, so it reaches its cleanup and drops its glue. What the chain stores is only the task's handle.
+            chain
+                .running
+                .get_or_insert_with(|| {
+                    let task = tokio::spawn(run_toggle_chain(self.glue.clone(), name.to_owned()));
+                    async move { task.await.unwrap_or_else(|error| panic!("the toggle chain ended without an answer: {error}")) }.boxed().shared()
+                })
+                .clone()
         };
         // A disable would otherwise wait out an explicit sign-in of this server still in flight.
         if !enabled {
