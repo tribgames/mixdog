@@ -39,23 +39,33 @@
 //   heir-fork           as clear-fork, but a new session inherits the conversation (`inheritToNewSession`), the heir
 //                       is cleared with a fork and the source without one: the heir's fork keeps `named`;
 //   owner-let-go        the session is resumed and closed (its writer claim let go) while the resume's reconcile
-//                       lists its directory: nothing is deleted; it is resumed again.
+//                       lists its directory: nothing is deleted; it is resumed again;
+//   older-fork          as heir-fork, but the heir is made by Node without the fix (a child recorder process on the
+//                       `--base-tree`, b6f10295a as shipped): its source records no copy, the heir names its source in
+//                       its own record only (`inheritedFromSessionId`); the source is cleared without a fork, closed
+//                       and resumed: the heir, found in the session catalog, keeps `named`;
+//   unreadable-fork     as clear-fork; the fork's record is then made unreadable (its log overwritten) and the source
+//                       resumed: nothing is deleted; closed, the fork's log put back, resumed again;
+//   room-row            a session (not compacted) whose transcript names `named` (a `stray` nothing names); a room
+//                       log's row (`appendRoomRows`, a member's speech) names `stray`; resumed: a room log is not a
+//                       copy of the conversation, `stray` goes.
 // "Adopted, before its save" is the commit's timing line (`recordCompactionTiming`); "while it lists" is the prune's
 // `readdir` of the session's tool-result directory. At each observed point the recording holds the session's
 // tool-result directory whole (every file in `readdir` order, its text) and the stored transcript whole (the session's
 // record read from disk, `resolveSessionRecordSync`).
 //
 //   node benchmarks/rust-core/recorders/record-offload-prune-order.mjs --tree <b6f10295a with the patch applied> \
-//     --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch [--only <case>]
+//     --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch --base-tree <b6f10295a> \
+//     [--only <case>]
 //
 // Output: native/core/fixtures/offload-prune-order/golden.json (+ MANIFEST.json).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fsp from 'node:fs/promises';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { freezeClock } from './lib/mc-record.mjs';
 
@@ -66,7 +76,11 @@ const { recorderProvenance } = await import('./lib/provenance.mjs');
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
-if (!identity.patch) throw new Error('record from the tree with the prune-after-save patch (--patch)');
+// The older-fork child runs Node as shipped (the `--base-tree`, exactly the commit); every other run the patched tree.
+const child = args.get('child');
+if (!identity.patch && child !== 'older-fork') throw new Error('record from the tree with the prune-after-save patch (--patch)');
+const baseTree = args.has('base-tree') ? resolve(args.get('base-tree')) : null;
+const baseIdentity = baseTree && !child ? nodeTreeIdentity(new Map(), baseTree, NODE_COMMIT) : null;
 
 // The recorder's clock: `Date.now()` stands still here for the whole run; every sidecar is an hour older.
 const CLOCK_MS = 1_800_000_000_000;
@@ -74,7 +88,6 @@ const SIDECAR_MTIME_MS = CLOCK_MS - 3_600_000;
 freezeClock(CLOCK_MS);
 
 // `--child process-stopped --data <dir>`: the process the case stops, on the parent's data dir.
-const child = args.get('child');
 const dataDir = child ? args.get('data') : mkdtempSync(join(tmpdir(), 'mixdog-offload-prune-order-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 const S = 'src/runtime/agent/orchestrator/session';
@@ -92,6 +105,7 @@ const { encodePatch } = await importFrom(tree, `${S}/store/session-log-format.mj
 const { loadLegacySession } = await importFrom(tree, `${S}/store/legacy-session.mjs`);
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
 const { createLifecycleApi } = await importFrom(tree, 'src/session-runtime/lifecycle-api.mjs');
+const { appendRoomRows } = await importFrom(tree, 'src/session-runtime/agent-room-delivery.mjs');
 // The prune's listing: `pruneOffloadSession` reads the directory with `readdir` of node:fs/promises. `onListing` sees
 // it; `holdListing` may return a promise the listing waits for.
 let onListing = null;
@@ -138,6 +152,14 @@ function seededElsewhere(tag) {
   const sessionId = `sess_prune_order_${tag.replaceAll('-', '_')}`;
   const dir = join(dataDir, 'tool-results', sessionId);
   const files = Object.fromEntries(ROLES.map((role) => [role, join(dir, `${createHash('sha256').update(`${role} output of ${tag}`).digest('hex')}.txt`)]));
+  return { sessionId, files, dir };
+}
+
+/** The names of a plain session (`named`, `stray`) another process stores. */
+function plainElsewhere(tag) {
+  const sessionId = `sess_prune_order_${tag.replaceAll('-', '_')}`;
+  const dir = join(dataDir, 'tool-results', sessionId);
+  const files = Object.fromEntries(['named', 'stray'].map((role) => [role, join(dir, `${createHash('sha256').update(`${role} output of ${tag}`).digest('hex')}.txt`)]));
   return { sessionId, files, dir };
 }
 
@@ -404,6 +426,45 @@ const SCENARIOS = {
     await settleRecorder(seeded.sessionId);
     return [{ changed: null, error: null }, [before, point('after-resume', seeded, { mtimes: true })]];
   },
+  'older-fork': async (seeded) => {
+    // Node as shipped seeds the session and makes its heir; this (patched) process clears, closes and resumes it. The
+    // child writes the session summary index too: this process's writes to it land (and its lock is let go) first.
+    await settleSessionSummaryIndex();
+    const made = olderFork();
+    seeded.seed = made.seed;
+    if (!(await manager.clearSessionMessages(seeded.sessionId, { fork: false }))) throw new Error('not cleared');
+    await settleRecorder(seeded.sessionId);
+    const points = [point('after-clear', seeded)];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    points.push(await resumed(seeded));
+    return [{ changed: null, error: null }, points];
+  },
+  'unreadable-fork': async (seeded) => {
+    const forkId = `${seeded.sessionId}_archive`;
+    seeded.seed.forkId = forkId;
+    if (!(await manager.clearSessionMessages(seeded.sessionId, { archiveAs: forkId }))) throw new Error('not cleared');
+    await settleRecorder(forkId);
+    await settleRecorder(seeded.sessionId);
+    const points = [point('after-clear', seeded)];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    const forkLog = join(dataDir, 'sessions', `${forkId}.log.jsonl`);
+    const stored = readFileSync(forkLog);
+    writeFileSync(forkLog, 'not a session log\n');
+    points.push({ ...(await resumed(seeded)), at: 'after-unreadable-resume' });
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    writeFileSync(forkLog, stored);
+    points.push({ ...(await resumed(seeded)), at: 'after-readable-resume' });
+    return [{ changed: null, error: null }, points];
+  },
+  'room-row': async (seeded) => {
+    // A room's log (`sess_room_<id>`, an ordinary session) takes a member's speech naming `stray`.
+    const roomLog = 'sess_room_pruneorder';
+    await saveSessionAsync({ id: roomLog, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: [], tools: [], generation: 0, closed: false });
+    await appendRoomRows(roomLog, [{ id: 'row1', kind: 'speech', speaker: 'agent', text: `the stray result is at ${seeded.files.stray}` }]);
+    await settleRecorder(roomLog);
+    seeded.seed.roomLog = { sessionId: roomLog, messages: storedTranscript({ sessionId: roomLog }) };
+    return [{ changed: null, error: null }, [await resumed(seeded)]];
+  },
 };
 
 // The sessions the cases that do not compact seed.
@@ -422,7 +483,7 @@ const PLAIN = {
       ]
     ),
   ...Object.fromEntries(
-    ['clear-fork', 'heir-fork', 'owner-let-go'].map((tag) => [
+    ['clear-fork', 'heir-fork', 'owner-let-go', 'older-fork', 'unreadable-fork', 'room-row'].map((tag) => [
       tag,
       () =>
         plainSession(
@@ -463,6 +524,35 @@ function stoppedChild(name) {
   return JSON.parse(run.stdout.trim().split('\n').at(-1));
 }
 
+/** Runs this recorder as the older-fork child: Node as shipped (`--base-tree`) on this data dir. */
+function olderFork() {
+  if (!baseTree) throw new Error('older-fork needs --base-tree <b6f10295a>');
+  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', baseTree, '--child', 'older-fork', '--data', dataDir], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    windowsHide: true,
+  });
+  if (run.status !== 0) throw new Error(`the older Node failed: ${run.error ?? run.stderr}`);
+  return JSON.parse(run.stdout.trim().split('\n').at(-1));
+}
+
+if (child === 'older-fork') {
+  // The heir is the copy: its own record names its source, nothing in the source names it. Its id is minted (random):
+  // it is <HEIR> in what is recorded. The heir's transcript recorded is the conversation it carries (its system
+  // prompt is composed for its own id: not recorded, declared).
+  const seeded = await PLAIN['older-fork']();
+  const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
+  const lifecycle = createLifecycleApi({ getSession: () => null, getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }), mgr: manager, invalidateContextStatusCache() {}, saveSession() {} });
+  const { sessionId: heirId } = await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId));
+  await settleRecorder(heirId);
+  await settleRecorder(seeded.sessionId);
+  const heir = { inheritedFromSessionId: loadSession(heirId).inheritedFromSessionId, transcript: storedTranscript({ sessionId: heirId }).filter((message) => message?.role !== 'system') };
+  await settlePendingMessageWrites({ throwOnTimeout: true });
+  drainSessionStore();
+  await settleSessionSummaryIndex();
+  console.log(JSON.stringify({ seed: JSON.parse(JSON.stringify({ ...seeded.seed, heir }).replaceAll(heirId, '<HEIR>')) }));
+  process.exit(0);
+}
 if (child === 'process-stopped') {
   const seeded = await storedSession(child);
   const outcome = await underATurn(seeded);
@@ -494,7 +584,13 @@ const cases = [];
 for (const [name, scenario] of Object.entries(SCENARIOS)) {
   if (only && only !== name) continue;
   // A stopped process seeds its own session (`--child`).
-  const seeded = ['process-stopped', 'saved-then-stopped'].includes(name) ? seededElsewhere(name) : PLAIN[name] ? await PLAIN[name]() : await storedSession(name);
+  const seeded = ['process-stopped', 'saved-then-stopped'].includes(name)
+    ? seededElsewhere(name)
+    : name === 'older-fork'
+      ? plainElsewhere(name)
+      : PLAIN[name]
+        ? await PLAIN[name]()
+        : await storedSession(name);
   const [outcome, points] = await scenario(seeded);
   cases.push(masked({ name, ...outcome, seed: seeded.seed, compacted: seeded.compacted, points }));
 }
@@ -515,10 +611,11 @@ writeJson(join(stage, 'golden.json'), { note: `Node's compaction offload prune a
 writeSetManifest(stage, {
   set: 'offload-prune-order',
   recorder,
-  command: `node ${recorder} --tree <export of ${NODE_COMMIT} with the patch> --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch`,
+  command: `node ${recorder} --tree <export of ${NODE_COMMIT} with the patch> --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch --base-tree <export of ${NODE_COMMIT}>`,
   identity,
   extra: {
     ...recorderProvenance(import.meta.url),
+    baseTree: { identity: baseIdentity, use: 'older-fork: the heir is made by a child process of this recorder on this tree (Node as shipped, without the fix)' },
     tests: ['src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)', 'src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs (pruneCompactedOffloads)', 'src/runtime/agent/orchestrator/session/tool-result-offload.mjs (pruneOffloadSession)'],
     clock: `Date.now() stands still at ${CLOCK_MS} for the whole run (lib/mc-record.mjs freezeClock); every sidecar's mtime is ${SIDECAR_MTIME_MS} (an hour older): the prune's ten-minute age gate reads both`,
     normalised: {
@@ -532,7 +629,10 @@ writeSetManifest(stage, {
       sessionFiles: "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",
       summary: 'the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)',
       forks:
-        "clear-fork and heir-fork record the cleared session's directory and transcript; the fork's and the heir's transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+        "clear-fork, heir-fork, older-fork and unreadable-fork record the cleared session's directory and transcript; the fork's and the heir's transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+      olderForkHeir:
+        "older-fork's seed holds the heir's source link and the conversation it carries (its non-system messages) as the replay's input; the heir's system prompt (composed for its own minted id) is left out, and its minted id is <HEIR>",
+      roomLog: "room-row's seed holds the room log's stored messages as the replay's input; the room log itself is not compared",
     },
   },
 });

@@ -5932,6 +5932,228 @@
           ]
         }
       ]
+    },
+    {
+      "name": "older-fork",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_older_fork",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of older-fork",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of older-fork",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_older_fork\\69ff01bc36ccfe25fdf6022391a4578bb927e248487f7074c69c08719f11ad61.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ],
+        "heir": {
+          "inheritedFromSessionId": "sess_prune_order_older_fork",
+          "transcript": [
+            {
+              "role": "user",
+              "content": "the result is at <DATA>\\tool-results\\sess_prune_order_older_fork\\69ff01bc36ccfe25fdf6022391a4578bb927e248487f7074c69c08719f11ad61.txt"
+            },
+            {
+              "role": "assistant",
+              "content": "noted",
+              "meta": {
+                "sessionInheritances": [
+                  {
+                    "sourceSessionId": "sess_prune_order_older_fork",
+                    "sessionId": "<HEIR>",
+                    "provider": "anthropic",
+                    "modelId": "fake-model",
+                    "at": 1800000000000
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "27a0cdf9af84b9cbe5b5ea88b67b436d703b8b1bf3e287ce45c6faf1a02e38e3.txt",
+              "stray output of older-fork"
+            ],
+            [
+              "69ff01bc36ccfe25fdf6022391a4578bb927e248487f7074c69c08719f11ad61.txt",
+              "named output of older-fork"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "69ff01bc36ccfe25fdf6022391a4578bb927e248487f7074c69c08719f11ad61.txt",
+              "named output of older-fork"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "unreadable-fork",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_unreadable_fork",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of unreadable-fork",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of unreadable-fork",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_unreadable_fork\\3a4a66986c288f1f2ccfe12b0f584c95434fa843c74746fa9af80d0ef18e0b6e.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ],
+        "forkId": "sess_prune_order_unreadable_fork_archive"
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "3a4a66986c288f1f2ccfe12b0f584c95434fa843c74746fa9af80d0ef18e0b6e.txt",
+              "named output of unreadable-fork"
+            ],
+            [
+              "e4ee3d1ac35388e765a9bbebca6973e09ec7f9cc91b29087c0dc6a2afd4d6d21.txt",
+              "stray output of unreadable-fork"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-unreadable-resume",
+          "toolResults": [
+            [
+              "3a4a66986c288f1f2ccfe12b0f584c95434fa843c74746fa9af80d0ef18e0b6e.txt",
+              "named output of unreadable-fork"
+            ],
+            [
+              "e4ee3d1ac35388e765a9bbebca6973e09ec7f9cc91b29087c0dc6a2afd4d6d21.txt",
+              "stray output of unreadable-fork"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-readable-resume",
+          "toolResults": [
+            [
+              "3a4a66986c288f1f2ccfe12b0f584c95434fa843c74746fa9af80d0ef18e0b6e.txt",
+              "named output of unreadable-fork"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "room-row",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_room_row",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of room-row",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of room-row",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_room_row\\ac59356c8bb3486b2d82ce3cacd1872e3d7ff2bd40443d404b9b04e7825e9012.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ],
+        "roomLog": {
+          "sessionId": "sess_room_pruneorder",
+          "messages": [
+            {
+              "role": "assistant",
+              "content": "the stray result is at <DATA>\\tool-results\\sess_prune_order_room_row\\034952a664842b71218f1e910bcbb55d43feee38f089737be59bdc3c85f0832a.txt",
+              "meta": {
+                "source": "agent-room",
+                "room": {
+                  "kind": "speech",
+                  "speaker": "agent"
+                },
+                "transcript": {
+                  "at": 1800000000000,
+                  "messageId": "row1"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "points": [
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "ac59356c8bb3486b2d82ce3cacd1872e3d7ff2bd40443d404b9b04e7825e9012.txt",
+              "named output of room-row"
+            ]
+          ],
+          "transcript": [
+            {
+              "role": "user",
+              "content": "the result is at <DATA>\\tool-results\\sess_prune_order_room_row\\ac59356c8bb3486b2d82ce3cacd1872e3d7ff2bd40443d404b9b04e7825e9012.txt"
+            },
+            {
+              "role": "assistant",
+              "content": "noted"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
