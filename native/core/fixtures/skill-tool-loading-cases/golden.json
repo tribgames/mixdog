@@ -10418,5 +10418,5415 @@
         }
       ]
     }
-  ]
+  ],
+  "wire": {
+    "providers": [
+      {
+        "provider": "openai-oauth",
+        "opened": {
+          "provider": "openai-oauth",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredProviderMode": "native",
+          "deferredNativeTools": true,
+          "deferredSurfaceMode": "full",
+          "deferredCallableTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredSelectedTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": []
+        },
+        "initial": [
+          {
+            "type": "function",
+            "name": "read",
+            "description": "Read content.",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            },
+            "strict": false
+          },
+          {
+            "type": "function",
+            "name": "Skill",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            "strict": false
+          }
+        ],
+        "loads": [
+          {
+            "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "openai-oauth",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "native",
+              "deferredNativeTools": true,
+              "deferredSurfaceMode": "full",
+              "deferredCallableTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "office"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          },
+          {
+            "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "openai-oauth",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "native",
+              "deferredNativeTools": true,
+              "deferredSurfaceMode": "full",
+              "deferredCallableTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "office"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          }
+        ],
+        "after": [
+          {
+            "type": "function",
+            "name": "read",
+            "description": "Read content.",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            },
+            "strict": false
+          },
+          {
+            "type": "function",
+            "name": "Skill",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            "strict": false
+          }
+        ],
+        "office": "{\"created\":true}",
+        "rebuilt": {
+          "provider": "openai-oauth",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredProviderMode": "native",
+          "deferredNativeTools": true,
+          "deferredSurfaceMode": "full",
+          "deferredCallableTools": [
+            "read",
+            "office",
+            "Skill"
+          ],
+          "deferredSelectedTools": [
+            "read",
+            "office",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": [
+            "office"
+          ],
+          "deferredMcpToolNames": [],
+          "deferredLateToolCatalog": [],
+          "skillLoadedTools": [
+            "office"
+          ]
+        },
+        "loop": {
+          "opened": {
+            "provider": "openai-oauth",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "full",
+            "deferredCallableTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [],
+            "id": "skill-wire-openai-oauth",
+            "compaction": {
+              "auto": false
+            }
+          },
+          "requests": [
+            {
+              "tools": [
+                {
+                  "type": "function",
+                  "name": "read",
+                  "description": "Read content.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "strict": false
+                },
+                {
+                  "type": "function",
+                  "name": "Skill",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "strict": false
+                }
+              ],
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Create a presentation."
+                    }
+                  ],
+                  "internal_chat_message_metadata_passthrough": {}
+                }
+              ]
+            },
+            {
+              "tools": [
+                {
+                  "type": "function",
+                  "name": "read",
+                  "description": "Read content.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "strict": false
+                },
+                {
+                  "type": "function",
+                  "name": "Skill",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "strict": false
+                }
+              ],
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Create a presentation."
+                    }
+                  ],
+                  "internal_chat_message_metadata_passthrough": {}
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "skill-1",
+                  "name": "Skill",
+                  "arguments": "{\"name\":\"deck-guide\"}"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "skill-1",
+                  "output": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+                },
+                {
+                  "type": "tool_search_call",
+                  "call_id": "skill-1_load",
+                  "execution": "client",
+                  "arguments": {
+                    "names": [
+                      "office"
+                    ]
+                  }
+                },
+                {
+                  "type": "tool_search_output",
+                  "call_id": "skill-1_load",
+                  "status": "completed",
+                  "execution": "client",
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "office",
+                      "description": "Create a document.",
+                      "defer_loading": true,
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "action"
+                        ]
+                      },
+                      "strict": false
+                    }
+                  ]
+                },
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "<mixdog-runtime kind=\"context-attachment\">\n<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>\n</mixdog-runtime>"
+                    }
+                  ],
+                  "internal_chat_message_metadata_passthrough": {}
+                }
+              ]
+            },
+            {
+              "tools": [
+                {
+                  "type": "function",
+                  "name": "read",
+                  "description": "Read content.",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "strict": false
+                },
+                {
+                  "type": "function",
+                  "name": "Skill",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "strict": false
+                }
+              ],
+              "input": [
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "Create a presentation."
+                    }
+                  ],
+                  "internal_chat_message_metadata_passthrough": {}
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "skill-1",
+                  "name": "Skill",
+                  "arguments": "{\"name\":\"deck-guide\"}"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "skill-1",
+                  "output": "Loaded skill: deck-guide\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+                },
+                {
+                  "type": "tool_search_call",
+                  "call_id": "skill-1_load",
+                  "execution": "client",
+                  "arguments": {
+                    "names": [
+                      "office"
+                    ]
+                  }
+                },
+                {
+                  "type": "tool_search_output",
+                  "call_id": "skill-1_load",
+                  "status": "completed",
+                  "execution": "client",
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "office",
+                      "description": "Create a document.",
+                      "defer_loading": true,
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "action"
+                        ]
+                      },
+                      "strict": false
+                    }
+                  ]
+                },
+                {
+                  "type": "message",
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "<mixdog-runtime kind=\"context-attachment\">\n<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>\n</mixdog-runtime>"
+                    }
+                  ],
+                  "internal_chat_message_metadata_passthrough": {}
+                },
+                {
+                  "type": "function_call",
+                  "call_id": "skill-2",
+                  "name": "Skill",
+                  "arguments": "{\"name\":\"deck-guide\"}"
+                },
+                {
+                  "type": "function_call_output",
+                  "call_id": "skill-2",
+                  "output": "Loaded skill: deck-guide (already active; instructions unchanged — follow them without calling Skill again)\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool."
+                },
+                {
+                  "type": "tool_search_call",
+                  "call_id": "skill-2_load",
+                  "execution": "client",
+                  "arguments": {
+                    "names": [
+                      "office"
+                    ]
+                  }
+                },
+                {
+                  "type": "tool_search_output",
+                  "call_id": "skill-2_load",
+                  "status": "completed",
+                  "execution": "client",
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "office",
+                      "description": "Create a document.",
+                      "defer_loading": true,
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "action"
+                        ]
+                      },
+                      "strict": false
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "session": {
+            "provider": "openai-oauth",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "full",
+            "deferredCallableTools": [
+              "read",
+              "office",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "office",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [
+              "office"
+            ],
+            "id": "skill-wire-openai-oauth",
+            "compaction": {
+              "auto": false
+            },
+            "deferredMcpToolNames": [],
+            "deferredLateToolCatalog": [],
+            "_providerPrefixGuardState": {
+              "messageHashes": [
+                "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
+                "953262ffef1d932a8ecf41781cb545b633931074ea138542b6b1365cc7ebe081",
+                "24fd50d44ef0270103cfb80d3e75999285cdca33212e7361e28be72ed074a3cd",
+                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
+                "2d0da97703a425028b98116e527c8578ab3b2fbde79083c95c059fa7359329cc",
+                "2aeddcefeac0a02c7f066c1e2b92bf1bca388ceae2680e5a41bc878bbaede8a2"
+              ],
+              "requestPrefixHash": "4bfef383d536552258022000eb75c79b200d6dbc608dbdcd96ea9e62585efc54",
+              "provider": "openai-oauth",
+              "model": "fake-model",
+              "toolSchemaHash": "6e0cbc6e3eac060694df2a6fab44194aac09489fe1fed81ac07472e0d3c0a059",
+              "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            "lastProviderSendAt": 1794408133701,
+            "skillLoadedTools": [
+              "office"
+            ],
+            "_repeatFailGuard": null,
+            "_repeatFailHistory": [],
+            "_repeatArgShapeFailGuard": null,
+            "todoCheck": {
+              "reminders": 0,
+              "awaitingProgress": false,
+              "auditAsked": false
+            }
+          }
+        }
+      },
+      {
+        "provider": "anthropic-oauth",
+        "opened": {
+          "provider": "anthropic-oauth",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredProviderMode": "native",
+          "deferredNativeTools": true,
+          "deferredSurfaceMode": "full",
+          "deferredCallableTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredSelectedTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": []
+        },
+        "initial": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            },
+            "eager_input_streaming": true
+          },
+          {
+            "name": "Skill",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            "eager_input_streaming": true
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "defer_loading": true,
+            "eager_input_streaming": true
+          }
+        ],
+        "loads": [
+          {
+            "result": "{\"nativeToolSearch\":{\"provider\":\"anthropic-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "anthropic-oauth",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "native",
+              "deferredNativeTools": true,
+              "deferredSurfaceMode": "full",
+              "deferredCallableTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "office"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          },
+          {
+            "result": "{\"nativeToolSearch\":{\"provider\":\"anthropic-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "anthropic-oauth",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "native",
+              "deferredNativeTools": true,
+              "deferredSurfaceMode": "full",
+              "deferredCallableTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "office",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "office"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "input_schema": {
+              "type": "object",
+              "properties": {}
+            },
+            "eager_input_streaming": true
+          },
+          {
+            "name": "Skill",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            "eager_input_streaming": true
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "defer_loading": true,
+            "eager_input_streaming": true
+          }
+        ],
+        "office": "{\"created\":true}",
+        "rebuilt": {
+          "provider": "anthropic-oauth",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredProviderMode": "native",
+          "deferredNativeTools": true,
+          "deferredSurfaceMode": "full",
+          "deferredCallableTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredSelectedTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": [],
+          "deferredMcpToolNames": [],
+          "deferredLateToolCatalog": [],
+          "skillLoadedTools": [
+            "office"
+          ]
+        },
+        "loop": {
+          "opened": {
+            "provider": "anthropic-oauth",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "full",
+            "deferredCallableTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [],
+            "id": "skill-wire-anthropic-oauth",
+            "compaction": {
+              "auto": false
+            }
+          },
+          "requests": [
+            {
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "eager_input_streaming": true
+                },
+                {
+                  "name": "Skill",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "eager_input_streaming": true
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  },
+                  "defer_loading": true,
+                  "eager_input_streaming": true
+                }
+              ],
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Create a presentation.",
+                      "cache_control": {
+                        "type": "ephemeral"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "eager_input_streaming": true
+                },
+                {
+                  "name": "Skill",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "eager_input_streaming": true
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  },
+                  "defer_loading": true,
+                  "eager_input_streaming": true
+                }
+              ],
+              "input": [
+                {
+                  "role": "user",
+                  "content": "Create a presentation."
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool_use",
+                      "id": "skill-1",
+                      "name": "Skill",
+                      "input": {
+                        "name": "deck-guide"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "tool_result",
+                      "tool_use_id": "skill-1",
+                      "content": [
+                        {
+                          "type": "tool_reference",
+                          "tool_name": "office"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "<mixdog-runtime kind=\"context-attachment\">\n<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>\n</mixdog-runtime>",
+                      "cache_control": {
+                        "type": "ephemeral"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "eager_input_streaming": true
+                },
+                {
+                  "name": "Skill",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "eager_input_streaming": true
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "input_schema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  },
+                  "defer_loading": true,
+                  "eager_input_streaming": true
+                }
+              ],
+              "input": [
+                {
+                  "role": "user",
+                  "content": "Create a presentation."
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool_use",
+                      "id": "skill-1",
+                      "name": "Skill",
+                      "input": {
+                        "name": "deck-guide"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "tool_result",
+                      "tool_use_id": "skill-1",
+                      "content": [
+                        {
+                          "type": "tool_reference",
+                          "tool_name": "office"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": "<mixdog-runtime kind=\"context-attachment\">\n<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>\n</mixdog-runtime>"
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "tool_use",
+                      "id": "skill-2",
+                      "name": "Skill",
+                      "input": {
+                        "name": "deck-guide"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "tool_result",
+                      "tool_use_id": "skill-2",
+                      "content": [
+                        {
+                          "type": "tool_reference",
+                          "tool_name": "office"
+                        }
+                      ],
+                      "cache_control": {
+                        "type": "ephemeral"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "session": {
+            "provider": "anthropic-oauth",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "full",
+            "deferredCallableTools": [
+              "read",
+              "office",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "office",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [
+              "office"
+            ],
+            "id": "skill-wire-anthropic-oauth",
+            "compaction": {
+              "auto": false
+            },
+            "deferredMcpToolNames": [],
+            "deferredLateToolCatalog": [],
+            "_providerPrefixGuardState": {
+              "messageHashes": [
+                "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
+                "06f044b63ce1830d26bfbd6a12c8efc64c881e1c2eaf1b7d3e45ad7d22f33466",
+                "87167d1219032676660bdcf1737b2ee39bbaff2e8375500ab8bf892d25fc7e65",
+                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
+                "4e2a456d354332e09cc28389b7fe9d9ec1eb415ba234fb4654bd7517fce63d5f",
+                "8f7b71ac7be8f6e401bb39f7daa48f5b17f05e610e7764e6bbb8695ef47e499e"
+              ],
+              "requestPrefixHash": "e48d9d2397fd688095177396cdecff040168c04981305a116067547b26410ca5",
+              "provider": "anthropic-oauth",
+              "model": "fake-model",
+              "toolSchemaHash": "6e0cbc6e3eac060694df2a6fab44194aac09489fe1fed81ac07472e0d3c0a059",
+              "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            "lastProviderSendAt": 1794408133718,
+            "lastProviderCachedPrefixTokens": 0,
+            "skillLoadedTools": [
+              "office"
+            ],
+            "_repeatFailGuard": null,
+            "_repeatFailHistory": [],
+            "_repeatArgShapeFailGuard": null,
+            "todoCheck": {
+              "reminders": 0,
+              "awaitingProgress": false,
+              "auditAsked": false
+            }
+          }
+        }
+      },
+      {
+        "provider": "gemini",
+        "opened": {
+          "provider": "gemini",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "title": "load_tool",
+              "annotations": {
+                "title": "load_tool",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "agentHidden": true
+              },
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "call_tool",
+              "title": "call_tool",
+              "annotations": {
+                "title": "call_tool",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": true,
+                "agentHidden": true
+              },
+              "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "Exact tool name."
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Arguments for that tool."
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredProviderMode": "manifest",
+          "deferredNativeTools": false,
+          "deferredSurfaceMode": "full",
+          "toolExposureMode": "bridge-v1",
+          "deferredCallableTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredSelectedTools": [
+            "read",
+            "Skill"
+          ]
+        },
+        "initial": {
+          "functionDeclarations": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "Skill",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "call_tool",
+              "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "Exact tool name."
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Arguments for that tool."
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ]
+        },
+        "loads": [
+          {
+            "result": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "gemini",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "load_tool",
+                  "title": "load_tool",
+                  "annotations": {
+                    "title": "load_tool",
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false,
+                    "agentHidden": true
+                  },
+                  "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "names": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ],
+                        "description": "Exact name(s)/aliases."
+                      }
+                    },
+                    "required": [
+                      "names"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "call_tool",
+                  "title": "call_tool",
+                  "annotations": {
+                    "title": "call_tool",
+                    "readOnlyHint": false,
+                    "destructiveHint": true,
+                    "idempotentHint": false,
+                    "openWorldHint": true,
+                    "agentHidden": true
+                  },
+                  "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "description": "Exact tool name."
+                      },
+                      "arguments": {
+                        "type": "object",
+                        "description": "Arguments for that tool."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "manifest",
+              "deferredNativeTools": false,
+              "deferredSurfaceMode": "full",
+              "toolExposureMode": "bridge-v1",
+              "deferredCallableTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          },
+          {
+            "result": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "gemini",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "load_tool",
+                  "title": "load_tool",
+                  "annotations": {
+                    "title": "load_tool",
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false,
+                    "agentHidden": true
+                  },
+                  "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "names": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ],
+                        "description": "Exact name(s)/aliases."
+                      }
+                    },
+                    "required": [
+                      "names"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "call_tool",
+                  "title": "call_tool",
+                  "annotations": {
+                    "title": "call_tool",
+                    "readOnlyHint": false,
+                    "destructiveHint": true,
+                    "idempotentHint": false,
+                    "openWorldHint": true,
+                    "agentHidden": true
+                  },
+                  "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "description": "Exact tool name."
+                      },
+                      "arguments": {
+                        "type": "object",
+                        "description": "Arguments for that tool."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "manifest",
+              "deferredNativeTools": false,
+              "deferredSurfaceMode": "full",
+              "toolExposureMode": "bridge-v1",
+              "deferredCallableTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          }
+        ],
+        "after": {
+          "functionDeclarations": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "Skill",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "call_tool",
+              "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "Exact tool name."
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Arguments for that tool."
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ]
+        },
+        "office": "{\"created\":true}",
+        "rebuilt": {
+          "provider": "gemini",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "title": "load_tool",
+              "annotations": {
+                "title": "load_tool",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "agentHidden": true
+              },
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "title": "load_tool",
+              "annotations": {
+                "title": "load_tool",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "agentHidden": true
+              },
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "load_tool",
+            "Skill"
+          ],
+          "deferredProviderMode": "native",
+          "deferredNativeTools": true,
+          "deferredSurfaceMode": "full",
+          "deferredCallableTools": [
+            "read",
+            "load_tool",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": [],
+          "deferredSelectedTools": [
+            "read",
+            "Skill",
+            "load_tool"
+          ],
+          "deferredMcpToolNames": [],
+          "deferredLateToolCatalog": [],
+          "skillLoadedTools": [
+            "office"
+          ]
+        },
+        "loop": {
+          "opened": {
+            "provider": "gemini",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "manifest",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "full",
+            "toolExposureMode": "bridge-v1",
+            "deferredCallableTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "Skill"
+            ],
+            "id": "skill-wire-gemini",
+            "compaction": {
+              "auto": false
+            }
+          },
+          "requests": [
+            {
+              "tools": {
+                "functionDeclarations": [
+                  {
+                    "name": "read",
+                    "description": "Read content.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  },
+                  {
+                    "name": "Skill",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "load_tool",
+                    "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                    "parametersJsonSchema": {
+                      "type": "object",
+                      "properties": {
+                        "names": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ],
+                          "description": "Exact name(s)/aliases."
+                        }
+                      },
+                      "required": [
+                        "names"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "call_tool",
+                    "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                    "parametersJsonSchema": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "description": "Exact tool name."
+                        },
+                        "arguments": {
+                          "type": "object",
+                          "description": "Arguments for that tool."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "arguments"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                ]
+              },
+              "input": null
+            },
+            {
+              "tools": {
+                "functionDeclarations": [
+                  {
+                    "name": "read",
+                    "description": "Read content.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  },
+                  {
+                    "name": "Skill",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "load_tool",
+                    "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                    "parametersJsonSchema": {
+                      "type": "object",
+                      "properties": {
+                        "names": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ],
+                          "description": "Exact name(s)/aliases."
+                        }
+                      },
+                      "required": [
+                        "names"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "call_tool",
+                    "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                    "parametersJsonSchema": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "description": "Exact tool name."
+                        },
+                        "arguments": {
+                          "type": "object",
+                          "description": "Arguments for that tool."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "arguments"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                ]
+              },
+              "input": null
+            },
+            {
+              "tools": {
+                "functionDeclarations": [
+                  {
+                    "name": "read",
+                    "description": "Read content.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  },
+                  {
+                    "name": "Skill",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "name": "load_tool",
+                    "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                    "parametersJsonSchema": {
+                      "type": "object",
+                      "properties": {
+                        "names": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ],
+                          "description": "Exact name(s)/aliases."
+                        }
+                      },
+                      "required": [
+                        "names"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "name": "call_tool",
+                    "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                    "parametersJsonSchema": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "description": "Exact tool name."
+                        },
+                        "arguments": {
+                          "type": "object",
+                          "description": "Arguments for that tool."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "arguments"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                ]
+              },
+              "input": null
+            }
+          ],
+          "session": {
+            "provider": "gemini",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "manifest",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "full",
+            "toolExposureMode": "bridge-v1",
+            "deferredCallableTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "Skill"
+            ],
+            "id": "skill-wire-gemini",
+            "compaction": {
+              "auto": false
+            },
+            "deferredMcpToolNames": [],
+            "deferredLateToolCatalog": [],
+            "_providerPrefixGuardState": {
+              "messageHashes": [
+                "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
+                "98362fa1024eb5fa9af74012b00ac17f19aa8b07dabb366c38e8493303c29a6e",
+                "6a58d48e651414ae52e9759db495700d9e3e618ebab7f49f236b6acb4d2b32af",
+                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
+                "8c34ead516c500652e24815de28053e977d8d865e42e007f7f6f8114c0a36f55",
+                "cf9bcf3cb0e8ee92f8e5987ad2eb0920b055e72898fa77ac9fd9437afa8389e8"
+              ],
+              "requestPrefixHash": "0d38bce6c0c0120f790a10c29246ad57c1ae48d5a46fffd55c0e0f57df670442",
+              "provider": "gemini",
+              "model": "fake-model",
+              "toolSchemaHash": "2cfc417b5d05e4552b13c4a74480b6620924d8ed03b2290d035287ffaa02fb56",
+              "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            "lastProviderSendAt": 1794408133734,
+            "skillLoadedTools": [
+              "office"
+            ],
+            "_repeatFailGuard": null,
+            "_repeatFailHistory": [],
+            "_repeatArgShapeFailGuard": null,
+            "todoCheck": {
+              "reminders": 0,
+              "awaitingProgress": false,
+              "auditAsked": false
+            }
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "opened": {
+          "provider": "openrouter",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "title": "load_tool",
+              "annotations": {
+                "title": "load_tool",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "agentHidden": true
+              },
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "call_tool",
+              "title": "call_tool",
+              "annotations": {
+                "title": "call_tool",
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": false,
+                "openWorldHint": true,
+                "agentHidden": true
+              },
+              "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "Exact tool name."
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Arguments for that tool."
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredProviderMode": "canonical",
+          "deferredNativeTools": false,
+          "deferredSurfaceMode": "full",
+          "toolExposureMode": "bridge-v1",
+          "deferredCallableTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": [
+            "read",
+            "Skill"
+          ],
+          "deferredSelectedTools": [
+            "read",
+            "Skill"
+          ]
+        },
+        "initial": [
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read content.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "Skill",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "load_tool",
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "call_tool",
+              "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "Exact tool name."
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Arguments for that tool."
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "loads": [
+          {
+            "result": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "openrouter",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "load_tool",
+                  "title": "load_tool",
+                  "annotations": {
+                    "title": "load_tool",
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false,
+                    "agentHidden": true
+                  },
+                  "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "names": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ],
+                        "description": "Exact name(s)/aliases."
+                      }
+                    },
+                    "required": [
+                      "names"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "call_tool",
+                  "title": "call_tool",
+                  "annotations": {
+                    "title": "call_tool",
+                    "readOnlyHint": false,
+                    "destructiveHint": true,
+                    "idempotentHint": false,
+                    "openWorldHint": true,
+                    "agentHidden": true
+                  },
+                  "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "description": "Exact tool name."
+                      },
+                      "arguments": {
+                        "type": "object",
+                        "description": "Arguments for that tool."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "canonical",
+              "deferredNativeTools": false,
+              "deferredSurfaceMode": "full",
+              "toolExposureMode": "bridge-v1",
+              "deferredCallableTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          },
+          {
+            "result": "Loaded skill: deck-guide\nRequired tools available through call_tool: office. Read a definition with load_tool, then run it with call_tool {name, arguments}.",
+            "newMessages": [
+              {
+                "role": "user",
+                "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+                "meta": "skill"
+              }
+            ],
+            "session": {
+              "provider": "openrouter",
+              "tools": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "load_tool",
+                  "title": "load_tool",
+                  "annotations": {
+                    "title": "load_tool",
+                    "readOnlyHint": true,
+                    "destructiveHint": false,
+                    "idempotentHint": true,
+                    "openWorldHint": false,
+                    "agentHidden": true
+                  },
+                  "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "names": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        ],
+                        "description": "Exact name(s)/aliases."
+                      }
+                    },
+                    "required": [
+                      "names"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "call_tool",
+                  "title": "call_tool",
+                  "annotations": {
+                    "title": "call_tool",
+                    "readOnlyHint": false,
+                    "destructiveHint": true,
+                    "idempotentHint": false,
+                    "openWorldHint": true,
+                    "agentHidden": true
+                  },
+                  "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "description": "Exact tool name."
+                      },
+                      "arguments": {
+                        "type": "object",
+                        "description": "Arguments for that tool."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "messages": [],
+              "toolSpec": "full",
+              "deferredToolCatalog": [
+                {
+                  "name": "read",
+                  "description": "Read content.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "annotations": {
+                    "readOnlyHint": true
+                  }
+                },
+                {
+                  "name": "Skill",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "office",
+                  "description": "Create a document.",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  }
+                }
+              ],
+              "deferredToolUsage": {
+                "read": 710,
+                "code_graph": 520,
+                "grep": 500,
+                "find": 480,
+                "glob": 460,
+                "list": 430,
+                "edit": 400,
+                "apply_patch": 400,
+                "git": 0,
+                "agent": 330,
+                "shell": 81,
+                "cwd": 2,
+                "recall": 2,
+                "web_search": 2,
+                "web_fetch": 2
+              },
+              "deferredDefaultTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredProviderMode": "canonical",
+              "deferredNativeTools": false,
+              "deferredSurfaceMode": "full",
+              "toolExposureMode": "bridge-v1",
+              "deferredCallableTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredDiscoveredTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredSelectedTools": [
+                "read",
+                "Skill"
+              ],
+              "deferredMcpToolNames": [],
+              "deferredLateToolCatalog": [],
+              "skillLoadedTools": [
+                "office"
+              ]
+            }
+          }
+        ],
+        "after": [
+          {
+            "type": "function",
+            "function": {
+              "name": "read",
+              "description": "Read content.",
+              "parameters": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "Skill",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "load_tool",
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "call_tool",
+              "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "Exact tool name."
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "Arguments for that tool."
+                  }
+                },
+                "required": [
+                  "name",
+                  "arguments"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "office": "{\"created\":true}",
+        "rebuilt": {
+          "provider": "openrouter",
+          "tools": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "title": "load_tool",
+              "annotations": {
+                "title": "load_tool",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "agentHidden": true
+              },
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "messages": [],
+          "toolSpec": "full",
+          "deferredToolCatalog": [
+            {
+              "name": "read",
+              "description": "Read content.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "annotations": {
+                "readOnlyHint": true
+              }
+            },
+            {
+              "name": "Skill",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "load_tool",
+              "title": "load_tool",
+              "annotations": {
+                "title": "load_tool",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+                "agentHidden": true
+              },
+              "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    ],
+                    "description": "Exact name(s)/aliases."
+                  }
+                },
+                "required": [
+                  "names"
+                ],
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "office",
+              "description": "Create a document.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          ],
+          "deferredToolUsage": {
+            "read": 710,
+            "code_graph": 520,
+            "grep": 500,
+            "find": 480,
+            "glob": 460,
+            "list": 430,
+            "edit": 400,
+            "apply_patch": 400,
+            "git": 0,
+            "agent": 330,
+            "shell": 81,
+            "cwd": 2,
+            "recall": 2,
+            "web_search": 2,
+            "web_fetch": 2
+          },
+          "deferredDefaultTools": [
+            "read",
+            "load_tool",
+            "Skill"
+          ],
+          "deferredProviderMode": "native",
+          "deferredNativeTools": true,
+          "deferredSurfaceMode": "full",
+          "deferredCallableTools": [
+            "read",
+            "load_tool",
+            "Skill"
+          ],
+          "deferredDiscoveredTools": [],
+          "deferredSelectedTools": [
+            "read",
+            "Skill",
+            "load_tool"
+          ],
+          "deferredMcpToolNames": [],
+          "deferredLateToolCatalog": [],
+          "skillLoadedTools": [
+            "office"
+          ]
+        },
+        "loop": {
+          "opened": {
+            "provider": "openrouter",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "canonical",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "full",
+            "toolExposureMode": "bridge-v1",
+            "deferredCallableTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "Skill"
+            ],
+            "id": "skill-wire-openrouter",
+            "compaction": {
+              "auto": false
+            }
+          },
+          "requests": [
+            {
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "Read content.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "Skill",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "load_tool",
+                    "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "names": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ],
+                          "description": "Exact name(s)/aliases."
+                        }
+                      },
+                      "required": [
+                        "names"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "call_tool",
+                    "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "description": "Exact tool name."
+                        },
+                        "arguments": {
+                          "type": "object",
+                          "description": "Arguments for that tool."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "arguments"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              ],
+              "input": null
+            },
+            {
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "Read content.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "Skill",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "load_tool",
+                    "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "names": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ],
+                          "description": "Exact name(s)/aliases."
+                        }
+                      },
+                      "required": [
+                        "names"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "call_tool",
+                    "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "description": "Exact tool name."
+                        },
+                        "arguments": {
+                          "type": "object",
+                          "description": "Arguments for that tool."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "arguments"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              ],
+              "input": null
+            },
+            {
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "Read content.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "Skill",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "load_tool",
+                    "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "names": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "minItems": 1
+                            }
+                          ],
+                          "description": "Exact name(s)/aliases."
+                        }
+                      },
+                      "required": [
+                        "names"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "call_tool",
+                    "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "description": "Exact tool name."
+                        },
+                        "arguments": {
+                          "type": "object",
+                          "description": "Arguments for that tool."
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "arguments"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                }
+              ],
+              "input": null
+            }
+          ],
+          "session": {
+            "provider": "openrouter",
+            "tools": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "load_tool",
+                "title": "load_tool",
+                "annotations": {
+                  "title": "load_tool",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "agentHidden": true
+                },
+                "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "names": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      ],
+                      "description": "Exact name(s)/aliases."
+                    }
+                  },
+                  "required": [
+                    "names"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "call_tool",
+                "title": "call_tool",
+                "annotations": {
+                  "title": "call_tool",
+                  "readOnlyHint": false,
+                  "destructiveHint": true,
+                  "idempotentHint": false,
+                  "openWorldHint": true,
+                  "agentHidden": true
+                },
+                "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "description": "Exact tool name."
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments for that tool."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ],
+            "messages": [],
+            "toolSpec": "full",
+            "deferredToolCatalog": [
+              {
+                "name": "read",
+                "description": "Read content.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "annotations": {
+                  "readOnlyHint": true
+                }
+              },
+              {
+                "name": "Skill",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "office",
+                "description": "Create a document.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ]
+                }
+              }
+            ],
+            "deferredToolUsage": {
+              "read": 710,
+              "code_graph": 520,
+              "grep": 500,
+              "find": 480,
+              "glob": 460,
+              "list": 430,
+              "edit": 400,
+              "apply_patch": 400,
+              "git": 0,
+              "agent": 330,
+              "shell": 81,
+              "cwd": 2,
+              "recall": 2,
+              "web_search": 2,
+              "web_fetch": 2
+            },
+            "deferredDefaultTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredProviderMode": "canonical",
+            "deferredNativeTools": false,
+            "deferredSurfaceMode": "full",
+            "toolExposureMode": "bridge-v1",
+            "deferredCallableTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredDiscoveredTools": [
+              "read",
+              "Skill"
+            ],
+            "deferredSelectedTools": [
+              "read",
+              "Skill"
+            ],
+            "id": "skill-wire-openrouter",
+            "compaction": {
+              "auto": false
+            },
+            "deferredMcpToolNames": [],
+            "deferredLateToolCatalog": [],
+            "_providerPrefixGuardState": {
+              "messageHashes": [
+                "d1c6eaf243eab956bf092722c28d0d6ec8847ebf4bce15331bc3c049af64bb45",
+                "eee6fb86e03b36f6ea2b03f9c85a0e4209d652fc14e4d648aabe9678e066f2ea",
+                "e70a26178863414f4c5e4943b4ba9f315ee6b4e7e70a35d8e7c207a80021c7a0",
+                "94e2329b5153094bd463d90b528f9b9f5b3bf3f2ac1059e08e2e2dec6b52a349",
+                "8366bcfe928e3d860143d8a2e299a9bcb0b659646add5add893ec33ce19a8bd8",
+                "71f37f9e899645dfbf3ee2c82525c3cce76f0dee2b23a40f9742727d49a8ae5d"
+              ],
+              "requestPrefixHash": "3d7f1144a176fd195747245ef25123ffdaad6ecb93cea3000cecd50f4d611932",
+              "provider": "openrouter",
+              "model": "fake-model",
+              "toolSchemaHash": "2cfc417b5d05e4552b13c4a74480b6620924d8ed03b2290d035287ffaa02fb56",
+              "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+            },
+            "lastProviderSendAt": 1794408133746,
+            "skillLoadedTools": [
+              "office"
+            ],
+            "_repeatFailGuard": null,
+            "_repeatFailHistory": [],
+            "_repeatArgShapeFailGuard": null,
+            "todoCheck": {
+              "reminders": 0,
+              "awaitingProgress": false,
+              "auditAsked": false
+            }
+          }
+        }
+      }
+    ],
+    "skillToolContent": {
+      "opened": {
+        "provider": "openai-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": []
+      },
+      "result": "{\"nativeToolSearch\":{\"provider\":\"openai-oauth\",\"toolReferences\":[\"office\"],\"openaiTools\":[{\"type\":\"function\",\"name\":\"office\",\"description\":\"Create a document.\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}}],\"summary\":\"Loaded skill: deck-guide\\nRequired tools loaded: office. Their full definitions are available on your next request; use them directly without load_tool.\"}}",
+      "newMessages": [
+        {
+          "role": "user",
+          "content": "<skill>\n<name>deck-guide</name>\n<base-dir><root>/data/skills/deck-guide</base-dir>\n# Deck guide\n</skill>",
+          "meta": "skill"
+        }
+      ],
+      "session": {
+        "provider": "openai-oauth",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [],
+        "toolSpec": "full",
+        "deferredToolCatalog": [
+          {
+            "name": "read",
+            "description": "Read content.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            },
+            "annotations": {
+              "readOnlyHint": true
+            }
+          },
+          {
+            "name": "Skill",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "office",
+            "description": "Create a document.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            }
+          }
+        ],
+        "deferredToolUsage": {
+          "read": 710,
+          "code_graph": 520,
+          "grep": 500,
+          "find": 480,
+          "glob": 460,
+          "list": 430,
+          "edit": 400,
+          "apply_patch": 400,
+          "git": 0,
+          "agent": 330,
+          "shell": 81,
+          "cwd": 2,
+          "recall": 2,
+          "web_search": 2,
+          "web_fetch": 2
+        },
+        "deferredDefaultTools": [
+          "read",
+          "Skill"
+        ],
+        "deferredProviderMode": "native",
+        "deferredNativeTools": true,
+        "deferredSurfaceMode": "full",
+        "deferredCallableTools": [
+          "read",
+          "office",
+          "Skill"
+        ],
+        "deferredSelectedTools": [
+          "read",
+          "office",
+          "Skill"
+        ],
+        "deferredDiscoveredTools": [
+          "office"
+        ],
+        "skillLoadedTools": [
+          "office"
+        ]
+      }
+    },
+    "officeCalls": [
+      {
+        "name": "office",
+        "args": {
+          "action": "create"
+        }
+      },
+      {
+        "name": "office",
+        "args": {
+          "action": "create"
+        }
+      },
+      {
+        "name": "office",
+        "args": {
+          "action": "create"
+        }
+      },
+      {
+        "name": "office",
+        "args": {
+          "action": "create"
+        }
+      }
+    ]
+  }
 }
