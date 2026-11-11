@@ -212,7 +212,10 @@ impl Outbox {
     }
 
     /// The next encoded records in accept order, at most `room` of them, stopping at the first still encoding. A plan of more
-    /// records than the durability lane holds (a whole inherited conversation) is handed on as acks free the lane.
+    /// records than the durability lane holds (a whole inherited conversation) is handed on as acks free the lane. Node has no lane:
+    /// `inheritFrom` writes the heir's whole conversation with one `saveSession(target, { immediate: true })`
+    /// (`session-runtime/lifecycle/inheritance.mjs:231`); the core's records go through a bounded channel, so the whole plan is
+    /// stored in order, however long. Pinned by `an_inherited_conversation_larger_than_the_lane_is_stored_whole_and_in_order` (tests.rs).
     pub fn handoff(&mut self, room: usize) -> Vec<(u64, CommitRecord, usize)> {
         let mut out = Vec::new();
         for entry in &mut self.entries {
