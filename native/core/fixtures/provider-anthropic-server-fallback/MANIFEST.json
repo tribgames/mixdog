@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; the pure builder/parser cases call anthropic-oauth.mjs _buildRequestBodyForCacheSmoke and anthropic-server-fallback.mjs parseAnthropicFallbackBlock. Not run: a live endpoint.",
+  "entry": "anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; anthropic-oauth.mjs AnthropicOAuthProvider({}).send over a credentials file of the recording (the OAuth request body, WIRE), and a stream carrying the fallback block (the parser, WIRE). Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 62826,
+      "bytes": 86672,
       "path": "cases.json",
-      "sha256": "bac9dd7402d798f3e879ccf0f0193c88b28713706d2b0834991697d1615b61ec"
+      "sha256": "0d633a32241f960d38916294ef1d9a532ad0f664218175c546475a29297be948"
     }
   ],
   "inputs": [
@@ -59,13 +59,11 @@
     },
     {
       "id": "oauth-body-opts-eligible-models",
-      "level": "pure",
-      "rust": "RUST WORK: no public Rust function builds the OAuth request body without a send (providers/anthropic/body.rs build fns and betas.rs beta_header are pub(crate)); the same fallback fields are recorded at wire level by eligible-families-default-fallback"
+      "level": "wire"
     },
     {
       "id": "fallback-block-parser",
-      "level": "pure",
-      "rust": "RUST WORK: the Rust decoder does not read the fallback block (K1 gap G7); no public parser exists (providers/anthropic/decoder.rs)"
+      "level": "wire"
     },
     {
       "id": "sse-records-fallback-attributes-serving-model",
@@ -99,12 +97,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-server-fallback.mjs",
-  "recorderSha256": "6507efdd6e66beeb62dca45d6638b0dc46360f914061dcc83c6d9f3248528c2a",
+  "recorderSha256": "fa7f1bcae03f9918c375ba38c464073820626cdb8426ded727e7c1ecfd0628db",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-anthropic-server-fallback",
-  "totalBytes": 62826,
+  "totalBytes": 86672,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

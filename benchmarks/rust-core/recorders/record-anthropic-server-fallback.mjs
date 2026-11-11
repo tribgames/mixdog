@@ -7,19 +7,14 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
-  pure: {
-    'oauth-body-*': 'RUST WORK: no public Rust function builds the OAuth request body without a send (providers/anthropic/body.rs build fns and betas.rs beta_header are pub(crate)); the same fallback fields are recorded at wire level by eligible-families-default-fallback',
-    'fallback-block-parser': 'RUST WORK: the Rust decoder does not read the fallback block (K1 gap G7); no public parser exists (providers/anthropic/decoder.rs)',
-  },
   set: 'provider-anthropic-server-fallback',
-  entry: 'anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; the pure builder/parser cases call anthropic-oauth.mjs _buildRequestBodyForCacheSmoke and anthropic-server-fallback.mjs parseAnthropicFallbackBlock. Not run: a live endpoint.',
+  entry: 'anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; anthropic-oauth.mjs AnthropicOAuthProvider({}).send over a credentials file of the recording (the OAuth request body, WIRE), and a stream carrying the fallback block (the parser, WIRE). Not run: a live endpoint.',
   compare: 'WIRE cases: serve each case\'s scripted answer (SSE events as writes, or 404 then JSON for the non-streaming case) from a loopback endpoint through the Rust Anthropic send and compare the request as it arrived (body bytes, every header in order incl. anthropic-beta) and `result` / `deltas` (model, providerMetadata.anthropicFallbacks, content without the fallback block). The Rust decoder does not read the fallback block today (K1 gap G7): the replay will report that difference.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
 });
 const P = 'agent/orchestrator/providers/';
 const { SERVER_SIDE_FALLBACK_BETA_HEADER, buildAnthropicBetaHeaders } = await rec.P(`${P}anthropic-betas.mjs`);
-const { _buildRequestBodyForCacheSmoke } = await rec.P(`${P}anthropic-oauth.mjs`);
-const { applyAnthropicServerFallback, parseAnthropicFallbackBlock, supportsAnthropicServerFallback } = await rec.P(`${P}anthropic-server-fallback.mjs`);
+const { AnthropicOAuthProvider } = await rec.P(`${P}anthropic-oauth.mjs`);
 const { AnthropicProvider } = await rec.P(`${P}anthropic.mjs`);
 const { agentLoop } = await rec.P('agent/orchestrator/session/agent-loop.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs';
@@ -50,15 +45,28 @@ await rec.run('beta-header-gated-and-deduplicated', `${SRC}:36`, { sends: [{ mod
   serve(plainEvents);
   return { on: await provider().send(HI, 'claude-opus-5', [], {}), off: await provider().send(HI, 'claude-opus-5', [], { serverFallback: false }) };
 });
-await rec.run('oauth-body-opts-eligible-models', `${SRC}:48`, {}, () => ({
-  opus5: _buildRequestBodyForCacheSmoke([], 'claude-opus-5'),
-  opus48: _buildRequestBodyForCacheSmoke([], 'claude-opus-4-8'),
-  disabled: _buildRequestBodyForCacheSmoke([], 'claude-opus-5', [], { serverFallback: false }),
-}));
-await rec.run('fallback-block-parser', `${SRC}:59`, { block: fallbackBlock }, () => ({
-  parsed: parseAnthropicFallbackBlock(fallbackBlock),
-  notAFallback: parseAnthropicFallbackBlock({ type: 'text', text: 'fallback' }),
-}));
+// :48 - the OAuth request body: the Node test builds it with the test-only `_buildRequestBodyForCacheSmoke`; here the real OAuth provider sends it to the loopback endpoint (the credentials file of the
+// product, written into the recording's data directory with fixed fake tokens) and the body that arrived is the answer.
+await rec.run('oauth-body-opts-eligible-models', `${SRC}:48`, { credentials: 'anthropic-oauth-credentials.json (fixed fake tokens, scope user:inference)', sends: [{ model: 'claude-opus-5' }, { model: 'claude-opus-4-8' }, { model: 'claude-opus-5', serverFallback: false }] }, async () => {
+  rec.write('anthropic-oauth-credentials.json', JSON.stringify({ claudeAiOauth: { accessToken: 'oauth-access-fixture', refreshToken: 'oauth-refresh-fixture', expiresAt: Date.parse('2030-01-01T00:00:00Z'), scopes: ['user:inference'] } }));
+  serve(plainEvents);
+  const oauth = () => new AnthropicOAuthProvider({});
+  return { opus5: await oauth().send(HI, 'claude-opus-5', [], {}), opus48: await oauth().send(HI, 'claude-opus-4-8', [], {}), disabled: await oauth().send(HI, 'claude-opus-5', [], { serverFallback: false }) };
+});
+// :59 - the fallback block parser: the Node test calls `parseAnthropicFallbackBlock` on the block and on a text block whose text is "fallback"; here the stream carries both and the provider's own
+// parsing is what the send result shows (no public Rust function parses it: the Rust decoder does not read the block, K1 gap G7).
+await rec.run('fallback-block-parser', `${SRC}:59`, { block: fallbackBlock, notAFallback: { type: 'text', text: 'fallback' } }, async () => {
+  serve([
+    { type: 'message_start', message: { model: 'claude-opus-5', usage: { input_tokens: 10 } } },
+    { type: 'content_block_start', index: 0, content_block: fallbackBlock },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'content_block_start', index: 1, content_block: { type: 'text', text: 'fallback' } },
+    { type: 'content_block_stop', index: 1 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+    { type: 'message_stop' },
+  ]);
+  return { result: await provider().send(HI, 'claude-opus-5', [], {}) };
+});
 const events = [
   { type: 'message_start', message: { model: 'claude-opus-5', usage: { input_tokens: 10 } } },
   { type: 'content_block_start', index: 0, content_block: fallbackBlock },

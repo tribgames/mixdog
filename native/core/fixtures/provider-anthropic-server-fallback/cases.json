@@ -1056,80 +1056,598 @@
     {
       "id": "oauth-body-opts-eligible-models",
       "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:48",
-      "input": {},
+      "input": {
+        "credentials": "anthropic-oauth-credentials.json (fixed fake tokens, scope user:inference)",
+        "sends": [
+          {
+            "model": "claude-opus-5"
+          },
+          {
+            "model": "claude-opus-4-8"
+          },
+          {
+            "model": "claude-opus-5",
+            "serverFallback": false
+          }
+        ]
+      },
       "result": {
         "opus5": {
+          "content": "done",
           "model": "claude-opus-5",
-          "max_tokens": 65536,
-          "messages": [],
-          "stream": true,
-          "fallbacks": "default",
-          "system": [
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            },
+            "promptTokens": 10
+          },
+          "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
             {
               "type": "text",
-              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+              "text": "done"
             }
           ],
-          "thinking": {
-            "type": "adaptive"
-          }
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "generationMs": 0
         },
         "opus48": {
-          "model": "claude-opus-4-8",
-          "max_tokens": 65536,
-          "messages": [],
-          "stream": true,
-          "system": [
+          "content": "done",
+          "model": "claude-opus-5",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            },
+            "promptTokens": 10
+          },
+          "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
             {
               "type": "text",
-              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+              "text": "done"
             }
           ],
-          "thinking": {
-            "type": "adaptive"
-          }
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "generationMs": 0
         },
         "disabled": {
+          "content": "done",
           "model": "claude-opus-5",
-          "max_tokens": 65536,
-          "messages": [],
-          "stream": true,
-          "system": [
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            },
+            "promptTokens": 10
+          },
+          "stopReason": "end_turn",
+          "stopDetails": {
+            "$exact": "undefined"
+          },
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
             {
               "type": "text",
-              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+              "text": "done"
             }
           ],
-          "thinking": {
-            "type": "adaptive"
-          }
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "$exact": "undefined"
+          },
+          "generationMs": 0
         }
       },
       "calls": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs._buildRequestBodyForCacheSmoke",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
           "args": [
-            [],
-            "claude-opus-5"
+            {}
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs._buildRequestBodyForCacheSmoke",
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
           "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
             [],
-            "claude-opus-4-8"
+            {}
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs._buildRequestBodyForCacheSmoke",
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
           "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-4-8",
             [],
+            {}
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
             "claude-opus-5",
             [],
             {
               "serverFallback": false
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer oauth-access-fixture"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "311"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"fallbacks\":\"default\",\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/models",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer oauth-access-fixture"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer oauth-access-fixture"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "291"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-4-8\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/models",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer oauth-access-fixture"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer oauth-access-fixture"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "289"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+              "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -1149,44 +1667,261 @@
             "type": "refusal",
             "category": "cyber"
           }
+        },
+        "notAFallback": {
+          "type": "text",
+          "text": "fallback"
         }
       },
       "result": {
-        "parsed": {
-          "trigger": "refusal",
-          "originalModel": "claude-opus-5",
-          "fallbackModel": "claude-opus-4-8",
-          "category": "cyber"
-        },
-        "notAFallback": null
-      },
-      "calls": [
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.parseAnthropicFallbackBlock",
-          "args": [
-            {
-              "type": "fallback",
-              "from": {
-                "model": "claude-opus-5"
-              },
-              "to": {
-                "model": "claude-opus-4-8"
-              },
-              "trigger": {
-                "type": "refusal",
-                "category": "cyber"
-              }
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.mjs.parseAnthropicFallbackBlock",
-          "args": [
+        "result": {
+          "content": "fallback",
+          "model": "claude-opus-4-8",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "fallback"
+          ],
+          "thinkingBlocks": {
+            "$exact": "undefined"
+          },
+          "assistantBlocks": [
             {
               "type": "text",
               "text": "fallback"
             }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "fallback"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "anthropicFallbacks": [
+              {
+                "trigger": "refusal",
+                "originalModel": "claude-opus-5",
+                "fallbackModel": "claude-opus-4-8",
+                "category": "cyber"
+              }
+            ]
+          },
+          "generationMs": 0,
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 10,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic.mjs.AnthropicProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-opus-5",
+            [],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/models",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer oauth-access-fixture"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"fallback\",\"from\":{\"model\":\"claude-opus-5\"},\"to\":{\"model\":\"claude-opus-4-8\"},\"trigger\":{\"type\":\"refusal\",\"category\":\"cyber\"}}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"fallback\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "x-api-key",
+              "fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "anthropic-beta",
+              "interleaved-thinking-2025-05-14,effort-2025-11-24,server-side-fallback-2026-07-01"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "217"
+            ]
+          ],
+          "body": "{\"model\":\"claude-opus-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"fallbacks\":\"default\",\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":10}}}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"fallback\",\"from\":{\"model\":\"claude-opus-5\"},\"to\":{\"model\":\"claude-opus-4-8\"},\"trigger\":{\"type\":\"refusal\",\"category\":\"cyber\"}}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+              "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"fallback\"}}\n\n",
+              "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+              "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+              "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+            ]
+          }
         }
       ]
     },
