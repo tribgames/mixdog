@@ -1,0 +1,3091 @@
+{
+  "set": "provider-openai-ws-send-attempts",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "handshake-transient-connect-error-spends-budget-and-retries",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:74",
+      "input": {
+        "limit": 5,
+        "error": {
+          "message": "reset",
+          "props": {
+            "code": "ECONNRESET"
+          }
+        },
+        "info": {
+          "attemptIndex": 0,
+          "handshakeStart": 0,
+          "handshakeRetries": 0,
+          "handshakeRetryClassifiers": []
+        }
+      },
+      "result": {
+        "out": {
+          "value": true
+        },
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "reset",
+          "code": "ECONNRESET",
+          "props": {
+            "wsFailurePhase": "handshake",
+            "midstreamClassifier": "reset"
+          }
+        },
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "reset"
+          }
+        ],
+        "details": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "reset",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "reset",
+              "code": "ECONNRESET",
+              "props": {
+                "wsFailurePhase": "handshake",
+                "midstreamClassifier": "reset"
+              }
+            },
+            "waitMs": 186
+          }
+        ],
+        "spanEvents": [],
+        "sleeps": [
+          186
+        ],
+        "firstAttemptErrorIsTheError": true,
+        "firstAttemptClassifier": "reset"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handshake-http-401-surfaces-immediately",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:86",
+      "input": {
+        "error": {
+          "message": "unauthorized",
+          "props": {
+            "httpStatus": 401
+          }
+        },
+        "info": {
+          "attemptIndex": 0,
+          "handshakeStart": 0,
+          "handshakeRetries": 0,
+          "handshakeRetryClassifiers": []
+        }
+      },
+      "result": {
+        "rejectedWithTheError": true,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "unauthorized",
+          "props": {
+            "httpStatus": 401,
+            "wsFailurePhase": "handshake"
+          }
+        },
+        "progress": [],
+        "details": [],
+        "spanEvents": [
+          [
+            "error",
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "unauthorized",
+              "props": {
+                "httpStatus": 401,
+                "wsFailurePhase": "handshake"
+              }
+            }
+          ]
+        ],
+        "sleeps": [],
+        "spanEventTargetIsTheError": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handshake-policy-veto-tagged-for-http-fallback",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:97",
+      "input": {
+        "policy": "retry:false, httpFallback when classifier === http_503",
+        "error": {
+          "message": "unavailable",
+          "props": {
+            "httpStatus": 503
+          }
+        },
+        "info": {
+          "attemptIndex": 0,
+          "handshakeStart": 0,
+          "handshakeRetries": 0,
+          "handshakeRetryClassifiers": []
+        }
+      },
+      "result": {
+        "rejectedWithTheError": true,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "unavailable",
+          "props": {
+            "httpStatus": 503,
+            "wsFailurePhase": "handshake",
+            "wsHttpFallbackEligible": true,
+            "retryClassifier": "http_503"
+          }
+        },
+        "progress": [],
+        "details": [],
+        "spanEvents": [
+          [
+            "error",
+            null
+          ]
+        ],
+        "sleeps": []
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": {
+                "callback": "handshakeErrorPolicy"
+              },
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handshake-budget-spent-first-attempt-error-surfaces-exhausted",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:111",
+      "input": {
+        "first": {
+          "message": "first reset",
+          "props": {
+            "code": "ECONNRESET"
+          }
+        },
+        "last": {
+          "message": "last reset",
+          "props": {
+            "code": "ECONNRESET"
+          }
+        },
+        "lastAttemptIndex": 5
+      },
+      "result": {
+        "firstOut": {
+          "value": true
+        },
+        "lastRejectedWithFirst": true,
+        "first": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "first reset",
+          "code": "ECONNRESET",
+          "props": {
+            "wsFailurePhase": "handshake",
+            "midstreamClassifier": "reset",
+            "midstreamRetries": 5,
+            "wsRetriesExhausted": true
+          }
+        },
+        "last": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "last reset",
+          "code": "ECONNRESET",
+          "props": {
+            "wsFailurePhase": "handshake"
+          }
+        },
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "reset"
+          }
+        ],
+        "details": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "reset",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "first reset",
+              "code": "ECONNRESET",
+              "props": {
+                "wsFailurePhase": "handshake",
+                "midstreamClassifier": "reset",
+                "midstreamRetries": 5,
+                "wsRetriesExhausted": true
+              }
+            },
+            "waitMs": 191
+          }
+        ],
+        "spanEvents": [
+          [
+            "error",
+            null
+          ]
+        ],
+        "sleeps": [
+          191
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-abnormal-close-before-output-releases-socket-and-retries",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:124",
+      "input": {
+        "error": {
+          "message": "gone",
+          "props": {
+            "wsCloseCode": 1006
+          }
+        },
+        "midState": {
+          "attemptIndex": 0,
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "emittedText": false,
+          "emittedToolCall": false,
+          "emittedReasoning": false,
+          "startedToolCall": false
+        }
+      },
+      "result": {
+        "out": {
+          "value": true
+        },
+        "socketClosed": true,
+        "entryBusy": false,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "gone",
+          "props": {
+            "wsCloseCode": 1006,
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "midstreamClassifier": "ws_1006"
+          }
+        },
+        "streamOutcomeType": "object",
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "ws_1006"
+          }
+        ],
+        "details": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "ws_1006",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "gone",
+              "props": {
+                "wsCloseCode": 1006,
+                "wsFailurePhase": "stream",
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-oauth",
+                  "transport": "ws",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                },
+                "midstreamClassifier": "ws_1006"
+              }
+            },
+            "waitMs": 220
+          }
+        ],
+        "spanEvents": [],
+        "sleeps": [
+          220
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-cut-while-tool-input-streams-surfaces",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:142",
+      "input": {
+        "error": {
+          "message": "gone",
+          "props": {
+            "wsCloseCode": 1006,
+            "pendingToolUse": true
+          }
+        },
+        "midState": {
+          "attemptIndex": 0,
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "emittedText": false,
+          "emittedToolCall": false,
+          "emittedReasoning": false,
+          "startedToolCall": false
+        }
+      },
+      "result": {
+        "rejectedWithTheError": true,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "gone",
+          "props": {
+            "wsCloseCode": 1006,
+            "pendingToolUse": true,
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": true,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "progress": [],
+        "details": [],
+        "spanEvents": [
+          [
+            "error",
+            null
+          ]
+        ],
+        "sleeps": []
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-rate-limited-response-failed-waits-advised-time",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:153",
+      "input": {
+        "error": {
+          "message": "rate limited",
+          "props": {
+            "responseFailed": {
+              "response": {
+                "error": {
+                  "code": "rate_limit_exceeded",
+                  "message": "Rate limit reached. Please try again in 1.5s."
+                }
+              }
+            }
+          }
+        },
+        "midState": {
+          "attemptIndex": 0,
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "emittedText": false,
+          "emittedToolCall": false,
+          "emittedReasoning": false,
+          "startedToolCall": false
+        }
+      },
+      "result": {
+        "out": {
+          "value": true
+        },
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "rate limited",
+          "props": {
+            "responseFailed": {
+              "response": {
+                "error": {
+                  "code": "rate_limit_exceeded",
+                  "message": "Rate limit reached. Please try again in 1.5s."
+                }
+              }
+            },
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "midstreamClassifier": "response_failed_rate_limited"
+          }
+        },
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "response_failed_rate_limited"
+          }
+        ],
+        "details": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "response_failed_rate_limited",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "rate limited",
+              "props": {
+                "responseFailed": {
+                  "response": {
+                    "error": {
+                      "code": "rate_limit_exceeded",
+                      "message": "Rate limit reached. Please try again in 1.5s."
+                    }
+                  }
+                },
+                "wsFailurePhase": "stream",
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-oauth",
+                  "transport": "ws",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                },
+                "midstreamClassifier": "response_failed_rate_limited"
+              }
+            },
+            "waitMs": 1500
+          }
+        ],
+        "spanEvents": [],
+        "sleeps": [
+          1500
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-long-advised-wait-announced-before-it-starts",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:165",
+      "input": {
+        "error": {
+          "message": "OpenAI OAuth WS error: Rate limit reached. Please try again in 210s.",
+          "props": {
+            "responseFailed": {
+              "type": "error",
+              "error": {
+                "code": "rate_limit_exceeded",
+                "message": "Rate limit reached. Please try again in 210s."
+              }
+            }
+          }
+        },
+        "midState": {
+          "attemptIndex": 0,
+          "sawResponseCreated": false,
+          "sawCompleted": false,
+          "emittedText": false,
+          "emittedToolCall": false,
+          "emittedReasoning": false,
+          "startedToolCall": false
+        }
+      },
+      "result": {
+        "out": {
+          "value": true
+        },
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth WS error: Rate limit reached. Please try again in 210s.",
+          "props": {
+            "responseFailed": {
+              "type": "error",
+              "error": {
+                "code": "rate_limit_exceeded",
+                "message": "Rate limit reached. Please try again in 210s."
+              }
+            },
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "midstreamClassifier": "response_failed_rate_limited"
+          }
+        },
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "response_failed_rate_limited"
+          }
+        ],
+        "details": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "response_failed_rate_limited",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "OpenAI OAuth WS error: Rate limit reached. Please try again in 210s.",
+              "props": {
+                "responseFailed": {
+                  "type": "error",
+                  "error": {
+                    "code": "rate_limit_exceeded",
+                    "message": "Rate limit reached. Please try again in 210s."
+                  }
+                },
+                "wsFailurePhase": "stream",
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-oauth",
+                  "transport": "ws",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                },
+                "midstreamClassifier": "response_failed_rate_limited"
+              }
+            },
+            "waitMs": 210000
+          }
+        ],
+        "spanEvents": [],
+        "sleeps": [
+          210000
+        ],
+        "detailErrorIsTheError": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reconnect-stage-names-failure-and-counts-down-advised-wait",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:180",
+      "input": {
+        "create": {
+          "auth": {
+            "type": "xai"
+          },
+          "useModel": "gpt-6.1-sol",
+          "traceProvider": "xai"
+        },
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "http_429",
+            "error": {
+              "message": "Rate limit reached. Please try again in 210s.",
+              "props": {
+                "code": "rate_limit_exceeded"
+              }
+            },
+            "waitMs": 210000
+          },
+          {
+            "attempt": 2,
+            "max": 5,
+            "classifier": "ws_1006"
+          }
+        ]
+      },
+      "result": {
+        "clockNowMs": 1794225600000,
+        "stages": [
+          [
+            "reconnecting",
+            {
+              "reasonClass": "rate_limited",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 210000,
+              "retryAt": 1794225810000,
+              "reason": "Rate limited by the provider",
+              "classifier": "http_429",
+              "message": "Rate limited by the provider · retry 1/5 in 210s"
+            }
+          ],
+          [
+            "reconnecting",
+            {
+              "attempt": 2,
+              "max": 5,
+              "classifier": "ws_1006",
+              "message": "Reconnecting... 2/5"
+            }
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send/send-context.mjs.createWsSendContext",
+          "args": [
+            {
+              "auth": {
+                "type": "xai"
+              },
+              "body": {},
+              "sendOpts": {},
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "externalSignal": null,
+              "poolKey": "send-context-test",
+              "cacheKey": null,
+              "iteration": 0,
+              "useModel": "gpt-6.1-sol",
+              "traceProvider": "xai",
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-error-text-never-reaches-retry-trace-or-status",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:222",
+      "input": {
+        "errors": [
+          {
+            "message": "OpenAI OAuth WS error: Rate limit reached for \"PROMPT_MARKER_7f3a\" (key sk-TOKEN_MARKER_9b2c, account acct_ACCOUNT_MARKER_44d1). Please try again in 3s.",
+            "props": {
+              "responseFailed": {
+                "type": "error",
+                "status": 429,
+                "error": {
+                  "code": "rate_limit_exceeded",
+                  "message": "Rate limit reached for \"PROMPT_MARKER_7f3a\" (key sk-TOKEN_MARKER_9b2c, account acct_ACCOUNT_MARKER_44d1). Please try again in 3s."
+                }
+              },
+              "httpStatus": 429
+            }
+          },
+          {
+            "message": "Rate limit reached for \"PROMPT_MARKER_7f3a\" (key sk-TOKEN_MARKER_9b2c, account acct_ACCOUNT_MARKER_44d1). Please try again in 3s.",
+            "props": {
+              "responseFailed": {
+                "response": {
+                  "error": {
+                    "code": "bad PROMPT_MARKER_7f3a",
+                    "message": "Rate limit reached for \"PROMPT_MARKER_7f3a\" (key sk-TOKEN_MARKER_9b2c, account acct_ACCOUNT_MARKER_44d1). Please try again in 3s."
+                  }
+                }
+              }
+            }
+          },
+          {
+            "message": "Rate limit reached for \"PROMPT_MARKER_7f3a\" (key sk-TOKEN_MARKER_9b2c, account acct_ACCOUNT_MARKER_44d1). Please try again in 3s.",
+            "props": {
+              "responseFailed": {
+                "response": {
+                  "error": {
+                    "code": "acct_private-123",
+                    "message": "Rate limit reached for \"PROMPT_MARKER_7f3a\" (key sk-TOKEN_MARKER_9b2c, account acct_ACCOUNT_MARKER_44d1). Please try again in 3s."
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "markers": [
+          "PROMPT_MARKER_7f3a",
+          "sk-TOKEN_MARKER_9b2c",
+          "acct_ACCOUNT_MARKER_44d1"
+        ]
+      },
+      "result": {
+        "results": [
+          true,
+          true,
+          true
+        ],
+        "traces": [
+          {
+            "sessionId": "redaction-test",
+            "kind": "ws_retry",
+            "provider": "xai",
+            "model": "gpt-6.1-sol",
+            "transport": "websocket",
+            "attempt": 1,
+            "max": 5,
+            "classifier": "http_429",
+            "reason": "rate_limited",
+            "wait_ms": 3000,
+            "http_status": 429,
+            "code": "rate_limit_exceeded",
+            "ws_close_code": null,
+            "payload": {
+              "provider": "xai",
+              "model": "gpt-6.1-sol",
+              "transport": "websocket",
+              "attempt": 1,
+              "max": 5,
+              "classifier": "http_429",
+              "reason": "rate_limited",
+              "wait_ms": 3000,
+              "http_status": 429,
+              "code": "rate_limit_exceeded",
+              "ws_close_code": null
+            }
+          },
+          {
+            "sessionId": "redaction-test",
+            "kind": "ws_retry",
+            "provider": "xai",
+            "model": "gpt-6.1-sol",
+            "transport": "websocket",
+            "attempt": 2,
+            "max": 5,
+            "classifier": "response_failed_retryable",
+            "reason": "other",
+            "wait_ms": 387,
+            "http_status": null,
+            "code": null,
+            "ws_close_code": null,
+            "payload": {
+              "provider": "xai",
+              "model": "gpt-6.1-sol",
+              "transport": "websocket",
+              "attempt": 2,
+              "max": 5,
+              "classifier": "response_failed_retryable",
+              "reason": "other",
+              "wait_ms": 387,
+              "http_status": null,
+              "code": null,
+              "ws_close_code": null
+            }
+          },
+          {
+            "sessionId": "redaction-test",
+            "kind": "ws_retry",
+            "provider": "xai",
+            "model": "gpt-6.1-sol",
+            "transport": "websocket",
+            "attempt": 3,
+            "max": 5,
+            "classifier": "response_failed_retryable",
+            "reason": "other",
+            "wait_ms": 779,
+            "http_status": null,
+            "code": null,
+            "ws_close_code": null,
+            "payload": {
+              "provider": "xai",
+              "model": "gpt-6.1-sol",
+              "transport": "websocket",
+              "attempt": 3,
+              "max": 5,
+              "classifier": "response_failed_retryable",
+              "reason": "other",
+              "wait_ms": 779,
+              "http_status": null,
+              "code": null,
+              "ws_close_code": null
+            }
+          }
+        ],
+        "stages": [
+          [
+            "reconnecting",
+            {
+              "reasonClass": "rate_limited",
+              "attempt": 1,
+              "max": 5,
+              "waitMs": 3000,
+              "retryAt": 1794225603000,
+              "reason": "Rate limited by the provider",
+              "classifier": "http_429",
+              "message": "Rate limited by the provider · retry 1/5 in 3s"
+            }
+          ],
+          [
+            "reconnecting",
+            {
+              "reasonClass": "other",
+              "attempt": 2,
+              "max": 5,
+              "waitMs": 387,
+              "retryAt": 1794225600387,
+              "reason": "Connection interrupted",
+              "classifier": "response_failed_retryable",
+              "message": "Connection interrupted · retry 2/5 in 387ms"
+            }
+          ],
+          [
+            "reconnecting",
+            {
+              "reasonClass": "other",
+              "attempt": 3,
+              "max": 5,
+              "waitMs": 779,
+              "retryAt": 1794225600779,
+              "reason": "Connection interrupted",
+              "classifier": "response_failed_retryable",
+              "message": "Connection interrupted · retry 3/5 in 779ms"
+            }
+          ]
+        ],
+        "leaked": [
+          [
+            "PROMPT_MARKER_7f3a",
+            false
+          ],
+          [
+            "sk-TOKEN_MARKER_9b2c",
+            false
+          ],
+          [
+            "acct_ACCOUNT_MARKER_44d1",
+            false
+          ],
+          [
+            "acct_private-123",
+            false
+          ],
+          [
+            "Rate limit reached for",
+            false
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send/send-context.mjs.createWsSendContext",
+          "args": [
+            {
+              "auth": {
+                "type": "xai"
+              },
+              "body": {},
+              "sendOpts": {},
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "externalSignal": null,
+              "poolKey": "redaction-test",
+              "cacheKey": null,
+              "iteration": 0,
+              "useModel": "gpt-6.1-sol",
+              "traceProvider": "xai",
+              "_sleepFn": {
+                "callback": "_sleepFn"
+              },
+              "_sendSpanTraceFn": {
+                "callback": "_sendSpanTraceFn"
+              },
+              "_agentTraceFn": {
+                "callback": "_agentTraceFn"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "safe-retry-error-code-keeps-only-known-codes",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:284",
+      "input": {
+        "known": [
+          "rate_limit_exceeded",
+          "usage_limit_reached",
+          "server_is_overloaded",
+          "model_not_found"
+        ],
+        "unknown": [
+          "acct_private-123",
+          "user_12345",
+          "sk-abc",
+          "prompt words"
+        ]
+      },
+      "result": {
+        "rate_limit_exceeded": "rate_limit_exceeded",
+        "usage_limit_reached": "usage_limit_reached",
+        "server_is_overloaded": "server_is_overloaded",
+        "model_not_found": "model_not_found",
+        "acct_private-123": null,
+        "user_12345": null,
+        "sk-abc": null,
+        "prompt words": null
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "rate_limit_exceeded"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "usage_limit_reached"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "server_is_overloaded"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "model_not_found"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "acct_private-123"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "user_12345"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "sk-abc"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.safeRetryErrorCode",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "x",
+              "props": {
+                "responseFailed": {
+                  "error": {
+                    "code": "prompt words"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retry-stage-takes-reason-class-never-caller-text",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:297",
+      "input": {
+        "calls": [
+          {
+            "attempt": 1,
+            "maxAttempts": 5,
+            "delayMs": 1000,
+            "reason": "INJECTED_REASON_TEXT",
+            "reasonClass": "INJECTED_CLASS text"
+          },
+          {
+            "attempt": 1,
+            "maxAttempts": 5,
+            "delayMs": 1000,
+            "reasonClass": "overloaded"
+          }
+        ]
+      },
+      "result": {
+        "stages": [
+          {
+            "reasonClass": "other",
+            "attempt": 1,
+            "max": 5,
+            "waitMs": 1000,
+            "retryAt": 1794225601000,
+            "reason": "Connection interrupted",
+            "classifier": null,
+            "message": "Connection interrupted · retry 1/5 in 1s"
+          },
+          {
+            "reasonClass": "overloaded",
+            "attempt": 1,
+            "max": 5,
+            "waitMs": 1000,
+            "retryAt": 1794225601000,
+            "reason": "Provider overloaded",
+            "classifier": null,
+            "message": "Provider overloaded · retry 1/5 in 1s"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "x",
+                "props": {}
+              },
+              "delayMs": 1000,
+              "reason": "INJECTED_REASON_TEXT",
+              "reasonClass": "INJECTED_CLASS text"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "x",
+                "props": {}
+              },
+              "delayMs": 1000,
+              "reasonClass": "overloaded"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "typed-timeouts-keep-their-own-wording",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:325",
+      "input": {},
+      "result": {
+        "cursor": {
+          "reasonClass": "first_response_timeout",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "No first response 5s",
+          "classifier": null,
+          "message": "No first response 5s · retry 1/5 in 1s"
+        },
+        "anthropic": {
+          "reasonClass": "first_response_timeout",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "No first response 45s",
+          "classifier": null,
+          "message": "No first response 45s · retry 1/5 in 1s"
+        },
+        "ws": {
+          "reasonClass": "first_response_timeout",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "No first response 10s",
+          "classifier": null,
+          "message": "No first response 10s · retry 1/5 in 1s"
+        },
+        "stall": {
+          "reasonClass": "stalled",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "No progress 1m",
+          "classifier": null,
+          "message": "No progress 1m · retry 1/5 in 1s"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/stall-policy.mjs.providerTimeoutError",
+          "args": [
+            "Cursor request",
+            5000
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "ProviderTimeoutError",
+                "message": "Cursor request timed out after 5000ms",
+                "code": "EPROVIDERTIMEOUT",
+                "props": {
+                  "name": "ProviderTimeoutError"
+                }
+              },
+              "delayMs": 1000
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "Anthropic SSE stream produced no message_start within 45000ms",
+                "code": "EEMPTYSTREAM",
+                "props": {
+                  "isEmptyStream": true,
+                  "firstByteTimeout": true
+                }
+              },
+              "delayMs": 1000
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "WS stream: no first server event within 10000ms",
+                "props": {
+                  "firstByteTimeout": true
+                }
+              },
+              "delayMs": 1000
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "StreamStalledError",
+                "message": "Responses WS timed out after 60000ms of inactivity",
+                "props": {
+                  "name": "StreamStalledError"
+                }
+              },
+              "delayMs": 1000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "token-refresh-timeout-classifies-as-auth",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:354",
+      "input": {},
+      "result": {
+        "reasonClass": "auth",
+        "stage": {
+          "reasonClass": "auth",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "Provider rejected the sign-in",
+          "classifier": null,
+          "message": "Provider rejected the sign-in · retry 1/5 in 1s"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/provider-error-kind.mjs.retryReasonClass",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "OpenAI OAuth token refresh timed out after 30000ms",
+              "props": {
+                "timeoutPhase": "auth"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "OpenAI OAuth token refresh timed out after 30000ms",
+                "props": {
+                  "timeoutPhase": "auth"
+                }
+              },
+              "delayMs": 1000
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "injected-label-or-unknown-code-never-reaches-retry-stage",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:362",
+      "input": {},
+      "result": {
+        "detail": {
+          "reasonClass": "first_response_timeout",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "Model still thinking: no output in 1m; the provider sent nothing yet",
+          "classifier": null,
+          "message": "Model still thinking: no output in 1m; the provider sent nothing yet · retry 1/5 in 1s"
+        },
+        "withLabel": {
+          "reasonClass": "first_response_timeout",
+          "attempt": 1,
+          "max": 5,
+          "waitMs": 1000,
+          "retryAt": 1794225601000,
+          "reason": "Model still thinking: no output in 1m; Antigravity sent nothing yet",
+          "classifier": null,
+          "message": "Model still thinking: no output in 1m; Antigravity sent nothing yet · retry 1/5 in 1s"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "first byte timed out after 60000ms",
+                "code": "acct_INJECTED_CODE",
+                "props": {
+                  "timeoutPhase": "headers",
+                  "providerLabel": "INJECTED_LABEL"
+                }
+              },
+              "delayMs": 1000
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-executor.mjs.emitProviderRetryStage",
+          "args": [
+            {
+              "callback": ""
+            },
+            {
+              "attempt": 1,
+              "maxAttempts": 5,
+              "lastErr": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "first byte timed out after 60000ms",
+                "code": "acct_INJECTED_CODE",
+                "props": {
+                  "timeoutPhase": "headers",
+                  "providerLabel": "INJECTED_LABEL"
+                }
+              },
+              "delayMs": 1000,
+              "providerLabel": "Antigravity"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-relayed-text-latches-no-replay-and-surfaces",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:374",
+      "input": {
+        "error": {
+          "message": "gone",
+          "props": {
+            "wsCloseCode": 1006
+          }
+        },
+        "midState": {
+          "attemptIndex": 0,
+          "sawResponseCreated": true,
+          "sawCompleted": false,
+          "emittedText": true,
+          "emittedToolCall": false,
+          "emittedReasoning": false,
+          "startedToolCall": false
+        },
+        "later": {
+          "message": "later",
+          "props": {}
+        }
+      },
+      "result": {
+        "after": {
+          "rejectedWithTheError": true,
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "gone",
+            "props": {
+              "wsCloseCode": 1006,
+              "wsFailurePhase": "stream",
+              "liveTextEmitted": true,
+              "unsafeToRetry": true,
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-oauth",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": true,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": true,
+                "observedOutput": true,
+                "sideEffectDispatched": false,
+                "replayUnsafe": true,
+                "replaySafe": false,
+                "successEligible": false
+              },
+              "emittedText": true
+            }
+          },
+          "progress": [],
+          "details": [],
+          "spanEvents": [
+            [
+              "error",
+              null
+            ],
+            [
+              "error",
+              null
+            ]
+          ],
+          "sleeps": []
+        },
+        "later": {
+          "rejectedWithTheError": true,
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "later",
+            "props": {
+              "wsFailurePhase": "stream",
+              "liveTextEmitted": true,
+              "unsafeToRetry": true,
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-oauth",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": true,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": true,
+                "observedOutput": true,
+                "sideEffectDispatched": false,
+                "replayUnsafe": true,
+                "replaySafe": false,
+                "successEligible": false
+              },
+              "emittedText": true
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-duplicate-reasoning-rejection-strips-replay-once",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:392",
+      "input": {
+        "first": {
+          "message": "Duplicate item rs_abc123 already exists",
+          "props": {
+            "httpStatus": 400
+          }
+        },
+        "again": {
+          "message": "Duplicate item rs_def456 already exists",
+          "props": {
+            "httpStatus": 400
+          }
+        },
+        "entry": {
+          "replayReasoning": true
+        }
+      },
+      "result": {
+        "firstStep": {
+          "out": {
+            "value": true
+          },
+          "suppressReasoningReplay": true,
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "Duplicate item rs_abc123 already exists",
+            "cause": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "Duplicate item rs_def456 already exists",
+              "props": {
+                "httpStatus": 400,
+                "wsFailurePhase": "stream",
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-oauth",
+                  "transport": "ws",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            },
+            "props": {
+              "httpStatus": 400,
+              "wsFailurePhase": "stream",
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-oauth",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              },
+              "midstreamClassifier": "reasoning_replay_rejected",
+              "midstreamRetries": 1
+            }
+          },
+          "progress": [
+            {
+              "attempt": 1,
+              "max": 5,
+              "classifier": "reasoning_replay_rejected"
+            }
+          ],
+          "details": [
+            {
+              "attempt": 1,
+              "max": 5,
+              "classifier": "reasoning_replay_rejected",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "Duplicate item rs_abc123 already exists",
+                "cause": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "Duplicate item rs_def456 already exists",
+                  "props": {
+                    "httpStatus": 400,
+                    "wsFailurePhase": "stream",
+                    "streamOutcome": {
+                      "version": 1,
+                      "provider": "openai-oauth",
+                      "transport": "ws",
+                      "terminalObserved": false,
+                      "continuation": true,
+                      "declaredContinuation": false,
+                      "textEmitted": false,
+                      "textObservedChars": 0,
+                      "reasoningEmitted": false,
+                      "toolCallsStarted": false,
+                      "toolCallsComplete": 0,
+                      "toolCallsDispatched": 0,
+                      "dispatchAmbiguous": false,
+                      "pendingToolInput": false,
+                      "userAbort": false,
+                      "stallObserved": false,
+                      "truncatedStream": false,
+                      "visibleOutput": false,
+                      "observedOutput": false,
+                      "sideEffectDispatched": false,
+                      "replayUnsafe": false,
+                      "replaySafe": true,
+                      "successEligible": false
+                    }
+                  }
+                },
+                "props": {
+                  "httpStatus": 400,
+                  "wsFailurePhase": "stream",
+                  "streamOutcome": {
+                    "version": 1,
+                    "provider": "openai-oauth",
+                    "transport": "ws",
+                    "terminalObserved": false,
+                    "continuation": true,
+                    "declaredContinuation": false,
+                    "textEmitted": false,
+                    "textObservedChars": 0,
+                    "reasoningEmitted": false,
+                    "toolCallsStarted": false,
+                    "toolCallsComplete": 0,
+                    "toolCallsDispatched": 0,
+                    "dispatchAmbiguous": false,
+                    "pendingToolInput": false,
+                    "userAbort": false,
+                    "stallObserved": false,
+                    "truncatedStream": false,
+                    "visibleOutput": false,
+                    "observedOutput": false,
+                    "sideEffectDispatched": false,
+                    "replayUnsafe": false,
+                    "replaySafe": true,
+                    "successEligible": false
+                  },
+                  "midstreamClassifier": "reasoning_replay_rejected",
+                  "midstreamRetries": 1
+                }
+              },
+              "waitMs": 0
+            }
+          ],
+          "spanEvents": [
+            [
+              "error",
+              null
+            ]
+          ],
+          "sleeps": []
+        },
+        "second": {
+          "rejectedWithTheFirstError": true,
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "Duplicate item rs_def456 already exists",
+            "props": {
+              "httpStatus": 400,
+              "wsFailurePhase": "stream",
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-oauth",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-exhausted-budget-first-error-with-last-as-cause",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:417",
+      "input": {
+        "first": {
+          "message": "first",
+          "props": {
+            "wsCloseCode": 1006
+          }
+        },
+        "last": {
+          "message": "last",
+          "props": {
+            "wsCloseCode": 1006
+          }
+        },
+        "lastAttemptIndex": 5
+      },
+      "result": {
+        "firstOut": {
+          "value": true
+        },
+        "lastRejectedWithFirst": true,
+        "causeIsTheLast": true,
+        "first": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "first",
+          "cause": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "last",
+            "props": {
+              "wsCloseCode": 1006,
+              "wsFailurePhase": "stream",
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-oauth",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          },
+          "props": {
+            "wsCloseCode": 1006,
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "midstreamClassifier": "ws_1006",
+            "midstreamRetries": 5,
+            "wsRetriesExhausted": true,
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "openai-oauth-ws-midstream",
+            "providerRecoveryAttempts": 6
+          }
+        },
+        "last": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "last",
+          "props": {
+            "wsCloseCode": 1006,
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-server-1009-on-retry-surfaces-itself",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:443",
+      "input": {
+        "first": {
+          "message": "first",
+          "props": {
+            "wsCloseCode": 1006
+          }
+        },
+        "tooBig": {
+          "message": "too big",
+          "props": {
+            "wsCloseCode": 1009
+          }
+        }
+      },
+      "result": {
+        "firstOut": {
+          "value": true
+        },
+        "rejectedWithTooBig": true,
+        "tooBig": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "too big",
+          "props": {
+            "wsCloseCode": 1009,
+            "wsFailurePhase": "stream",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-oauth",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "progress": [
+          {
+            "attempt": 1,
+            "max": 5,
+            "classifier": "ws_1006"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stream-stored-xai-anchor-carried-into-next-attempt",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:464",
+      "input": {
+        "stored": {
+          "auth": {
+            "type": "xai"
+          },
+          "body": {
+            "store": true
+          },
+          "entry": {
+            "lastResponseId": "resp_1",
+            "lastInputLen": 3,
+            "lastResponseItems": [
+              {
+                "id": "msg_1"
+              }
+            ]
+          }
+        },
+        "notStored": {
+          "auth": {
+            "type": "xai"
+          },
+          "body": {
+            "store": false
+          },
+          "entry": {
+            "lastResponseId": "resp_2"
+          }
+        }
+      },
+      "result": {
+        "stored": {
+          "out": {
+            "value": true
+          },
+          "carryForwardCache": {
+            "lastResponseId": "resp_1",
+            "lastInputPrefixHash": {
+              "$exact": "undefined"
+            },
+            "lastInputLen": 3,
+            "lastRequestSansInput": {
+              "$exact": "undefined"
+            },
+            "lastRequestInput": {
+              "$exact": "undefined"
+            },
+            "lastResponseItems": [
+              {
+                "id": "msg_1"
+              }
+            ]
+          }
+        },
+        "notStored": {
+          "out": {
+            "value": true
+          },
+          "carryForwardCache": null
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": {
+                "type": "xai"
+              },
+              "body": {
+                "store": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": {
+                "type": "xai"
+              },
+              "body": {
+                "store": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "exhausted-falls-back-to-first-error-or-unreachable-marker",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.test.mjs:478",
+      "input": {
+        "first": {
+          "message": "first",
+          "props": {
+            "code": "ECONNRESET"
+          }
+        }
+      },
+      "result": {
+        "unreachable": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "sendViaWebSocket: unreachable",
+          "props": {}
+        },
+        "afterFirstIsTheFirstError": true,
+        "afterFirst": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "first",
+          "code": "ECONNRESET",
+          "props": {
+            "wsFailurePhase": "handshake",
+            "midstreamClassifier": "reset"
+          }
+        },
+        "maxMidstreamRetries": 5,
+        "limit": 5
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.createStreamSafetyStamps",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs.createWsSendAttempts",
+          "args": [
+            {
+              "externalSignal": null,
+              "sleepFn": {
+                "callback": "sleepFn"
+              },
+              "sendSpan": {
+                "retryBackoffMs": 0,
+                "poolAcquireMs": 0,
+                "poolOwnerWaitMs": 0,
+                "emit": {
+                  "callback": "emit"
+                }
+              },
+              "emitReconnectProgress": {
+                "callback": "emitReconnectProgress"
+              },
+              "safetyStamps": {
+                "markText": {
+                  "callback": "markText"
+                },
+                "markTool": {
+                  "callback": "markTool"
+                },
+                "stampText": {
+                  "callback": "stampText"
+                },
+                "stampTool": {
+                  "callback": "stampTool"
+                },
+                "stampAll": {
+                  "callback": "stampAll"
+                }
+              },
+              "handshakeErrorPolicy": null,
+              "retry429": true,
+              "stallRetryBudget": {
+                "allowStallRetry": {
+                  "callback": "allowStallRetry"
+                }
+              },
+              "trace": {
+                "poolKey": "send-attempts-test",
+                "traceProvider": "openai-oauth",
+                "useModel": "gpt-5"
+              },
+              "auth": null,
+              "body": {}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
