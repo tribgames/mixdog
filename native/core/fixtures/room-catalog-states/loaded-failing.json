@@ -6,6 +6,7 @@
     "update",
     "reset"
   ],
+  "resetRefresh": "in-io",
   "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-failing\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",

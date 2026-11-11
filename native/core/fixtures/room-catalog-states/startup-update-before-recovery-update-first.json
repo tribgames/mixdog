@@ -1,0 +1,121 @@
+{
+  "scenario": "startup-update-before-recovery-update-first",
+  "listFirst": false,
+  "calls": [
+    "create",
+    "restart-and-update"
+  ],
+  "startup": "update-before-recovery",
+  "startupOrder": "update-first",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-startup-update-before-recovery-update-first\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mq3i4vkg00000043",
+    "roomId": "mq3i4vkg00000043"
+  },
+  "steps": [
+    {
+      "step": "create",
+      "listingFails": true,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mq3i4vkg00000043",
+            "roomId": "mq3i4vkg00000043"
+          }
+        }
+      ]
+    },
+    {
+      "step": "restart-and-update",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "prune-checked",
+          "ids": [
+            "alpha",
+            "beta",
+            "gamma"
+          ]
+        },
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "published",
+          "origin": "room-call-background-listing",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000043",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-startup-update-before-recovery-update-first\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg00000043",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 4,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mq3i4vkg00000043",
+            "name": "Room One",
+            "members": [
+              "alpha",
+              "beta",
+              "gamma"
+            ],
+            "maxRounds": 4,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta",
+              "gamma": "Gamma"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

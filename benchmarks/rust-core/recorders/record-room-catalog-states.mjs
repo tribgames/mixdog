@@ -86,12 +86,23 @@ const SCENARIOS = {
   'not-loaded-failing': { listFirst: false, failing: () => true, calls: ['create', 'update'] },
   // The failing listing also fails the host's session deletions (they read the daemon's list), which the room calls that delete
   // sessions (member removal, remove) then report; those are recorded in the loaded scenario only.
-  'loaded-failing': { listFirst: true, failing: (step) => step !== 'list', calls: ['create', 'update', 'reset'] },
+  // Its reset's store refresh is forced into the reset's I/O (`resetRefresh: 'in-io'`, see `FORCED`); its own listing fails at once, so no
+  // daemon read races (no `resetRead`).
+  'loaded-failing': { listFirst: true, failing: (step) => step !== 'list', calls: ['create', 'update', 'reset'], resetRefresh: 'in-io' },
   'not-loaded-large': { listFirst: false, failing: (step) => step < LARGE, calls: [...Array(LARGE).fill('create'), 'update-rounds'] },
   'pruned-at-load': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-after-agent-deletion', 'update-rounds', 'restart-and-list'] },
   'prune-held': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-held-at-save', 'update-rounds-and-list-while-held'] },
   'prune-failed-then-update': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-save-fails', 'update-rounds', 'restart-and-list'] },
   'prune-failed': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-save-fails', 'list-sessions', 'restart-and-list'] },
+  // The start-up's recovery against a room update that awaited the same first load (see `STARTUP`), each way the two meet in both orders:
+  // the update registered first (it starts the first load), the recovery joining a first load another call (a member forgotten) started,
+  // and the recovery with an interrupted room to mark (a `continue` held in its exchange, then the host made again).
+  'startup-update-before-recovery': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-and-update'], startup: 'update-before-recovery', startupOrder: 'recovery-first' },
+  'startup-update-before-recovery-update-first': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'restart-and-update'], startup: 'update-before-recovery', startupOrder: 'update-first' },
+  'startup-recovery-joins': { listFirst: false, failing: (step) => step === 0, spare: true, calls: ['create', 'restart-and-update'], startup: 'recovery-joins', startupOrder: 'recovery-first' },
+  'startup-recovery-joins-update-first': { listFirst: false, failing: (step) => step === 0, spare: true, calls: ['create', 'restart-and-update'], startup: 'recovery-joins', startupOrder: 'update-first' },
+  'startup-interrupted': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'recovery-first' },
+  'startup-interrupted-update-first': { listFirst: false, failing: (step) => step === 0, calls: ['create', 'continue-held', 'restart-and-update'], startup: 'interrupted', startupOrder: 'update-first' },
 };
 // How a scenario's reset forces the order of its catalog publications, each order its own scenario, forced, never sampled. A room
 // reset starts the room log's own listing without awaiting it (`session-host-lifecycle.ts:401`, inside `startOver`,
@@ -105,7 +116,7 @@ const FORCED = {
   },
   resetRefresh: {
     'after-answer': "the store refresh's start is gated from the reset's start until its answer is recorded",
-    'in-io': "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end",
+    'in-io': "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end (loaded-failing: the daemon's session.list fails, so the reset's own listing ends at once and only the store refresh is awaited)",
   },
 };
 // The race of a reset with the catalog loaded, which Node leaves to timing: the reset's own listing (`void publishCatalogs()`,
@@ -129,6 +140,35 @@ const RESET_READ = {
       "both holds reached, the clear's summary flush and the index rebuild landed: the daemon's index read is released, the reset's own listing (its read of the cleared log included) runs to its end, published or dropped, and only then the room records' save goes on to the room call's publication",
     'after-answer':
       "both holds reached, the clear's summary flush and the index rebuild landed: the room records' save goes on to the room call's publication and the reset answers; once its answer is recorded the daemon's index read is released and the reset's own listing (its read of the cleared log included) runs to its end, before the store refresh may start (resetRefresh in-io: the store refresh fires and starts while the reset awaits its member check, and its listing, answered by the daemon behind the held one, ends after the reset's own listing)",
+  },
+};
+// The start-up's recovery against a room update, which Node leaves to I/O. `SessionHost.create` starts `recover` and does not await it
+// (`session-host.ts:430-432`); it reads the room records (`agent-rooms.ts:466` loadRecords, `agent-room-records.ts:31-43`), awaits the first
+// load (`agent-rooms.ts:469` ready, `:354-361`: records, names, `pruneDeleted`), marks each room a dead process left running interrupted
+// (`:470-478`: `running` cleared, the interrupted row posted through the daemon, `:474`, the records saved, `:478`) and republishes the
+// catalog (`:479` → `session-host.ts:353-356`; after a restart the catalog is not loaded: a whole listing, `session-host-catalog.ts:217-238`,
+// whose rows are read when its daemon answer lands, `session-host.ts:789-812`). A room update awaits the same first load (`agent-rooms.ts:294`),
+// refreshes the names (`:302`, listAgents: daemon I/O), changes the record (`:308-309`), saves it (`:310`) and republishes (`:312`). Whichever
+// registered first on the first load (a promise runs its reactions in order), the update's change comes after a daemon round trip, and the
+// recovery's listing (with an interrupted room, its post and save first) is daemon and file I/O too: the recovery's catalog is read before
+// or after the update's change. Each order is forced by holds released on events.
+const RECOVER_FRAME = /\brecover \(/;
+const STARTUP = {
+  recovery: "agent-rooms.ts:465-480 (recover: loadRecords :466, ready :469, the interrupted rooms :470-478, deps.republishCatalog :479), started by session-host.ts:430-432; republishCatalog → session-host.ts:353-356 (not loaded: void publishCatalogs, session-host-catalog.ts:217-238, rows read at session-host.ts:806-809)",
+  update: 'agent-rooms.ts:293-320 (update: ready :294, refreshNames :302, the change :308-309, persist :310, deps.republishCatalog :312)',
+  waiters: {
+    'update-before-recovery':
+      "the start-up's read of the room records (fs/promises.readFile of agent-rooms.json under loadRecords, agent-rooms.ts:466) is held; the update is called: its ready() starts the first load (agent-rooms.ts:355) and registers on it first; the read is released, and the recovery joins (agent-rooms.ts:469)",
+    'recovery-joins':
+      "the start-up's read of the room records is held; a bot in no room is forgotten (forgetMember, agent-rooms.ts:339-341, as the agent deletion calls it, session-host.ts:253): its ready() starts the first load; the read is released and the recovery joins it; the update is called while the first load is held at its member check (agentDefinitionPresence under pruneDeleted, agent-room-membership.ts:67) and registers after the recovery",
+    interrupted:
+      "a continue (agent-rooms.ts:408-414) starts the room's exchange, held at its read of the room's rows (agent-room-exchange.ts:186) after its start saved the room running (:135-137); the host is made again over those files, so its recovery has the room to mark interrupted; the update is called while the first load is held at its member check and registers after the recovery",
+  },
+  orders: {
+    'recovery-first':
+      "the update's names refresh (listAgents under refreshNames, agent-rooms.ts:302) is held until the recovery's republish (agent-rooms.ts:479) has run to its end (its listing published): the recovery's catalog is read before the update's change",
+    'update-first':
+      "update-before-recovery, recovery-joins: the recovery's listing is held at its daemon call (session.list) until the update's save of its change (agent-rooms.ts:310, the room records' temp file open) is reached, then runs to its end, and the save goes on: the recovery's catalog is read after the update's change. interrupted: the recovery's post of the interrupted row (appendRoomRows, agent-rooms.ts:474) is held until the update has answered and its own listing (agent-rooms.ts:312, the catalog not loaded) has run to its end; then the recovery saves and republishes",
   },
 };
 // The store watcher's refresh against a room call's own listing, for every call but a reset (whose two orders are `resetRefresh`). The
@@ -170,6 +210,12 @@ const names = only ? [only] : Object.keys(SCENARIOS);
 
 const { daemonEnv, isolatedPaths } = await hload('env.mjs');
 const { createDeadline, HangError, latch } = await hload('deadline.mjs');
+/** A hold a step arms: `arrived` resolves when the held call reaches it, which goes on once the step calls `release`. */
+const gateOf = () => {
+  const reached = latch();
+  const released = latch();
+  return { reached, released, arrived: reached.promise, release: () => released.resolve() };
+};
 const sessionClient = await load('src/standalone/session-client.mjs');
 const { createSessionProtocolClient } = await load('src/standalone/session-protocol.mjs');
 const { createDesktopRuntime } = await load('src/standalone/daemon-desktop-runtime.mjs');
@@ -194,10 +240,22 @@ const { roomMemberSessionId } = await load('src/runtime/agent/orchestrator/sessi
 // when a step arms it, the next such open says it was reached and then fails, or waits until the step releases it. The ESM bindings
 // of `node:fs/promises` follow the patched export (`syncBuiltinESMExports`).
 let roomSave = null;
+let roomsRead = null;
 {
   const fsPromises = (await import('node:fs/promises')).default;
   const { syncBuiltinESMExports } = await import('node:module');
   const { basename } = await import('node:path');
+  // The start-up's read of the room records (`readJsonState` → `readFile` of `agent-rooms.json`), held when a step arms it.
+  const readFile = fsPromises.readFile;
+  fsPromises.readFile = async function (path, ...rest) {
+    const hook = roomsRead;
+    if (hook && basename(String(path)) === 'agent-rooms.json') {
+      roomsRead = null;
+      hook.reached.resolve();
+      await hook.released.promise;
+    }
+    return readFile.call(this, path, ...rest);
+  };
   const open = fsPromises.open;
   fsPromises.open = async function (path, ...rest) {
     const hook = roomSave;
@@ -382,6 +440,22 @@ async function record(name) {
     // the index row that changed is what the listing re-reconciles, `:851-853`); before that its answer is the log's earlier row, and the
     // log is read by the next listing. Every recorded reset's own listing loads the index after the clear's summary flush (`roomLogFlushed`).
     let resetFlushed = null;
+    // The start-up race (`STARTUP`): the recovery's listing runs in `recoveryListing`'s context, and its daemon call is held while
+    // `recoveryListingHold` is set; `recoveryRepublished` is told the recovery's republish (its listing's run, or null when the catalog
+    // was loaded and published from the rows in hand). The host's control calls held: the first load's member check (`presenceHold`),
+    // the update's names refresh (`namesHold`) and the recovery's post of an interrupted row (`recoveryPostHold`).
+    const recoveryListing = new AsyncLocalStorage();
+    let recoveryListingHold = null;
+    let recoveryRepublished = null;
+    let presenceHold = null;
+    let namesHold = null;
+    let recoveryPostHold = null;
+    const recoveryReported = (listing) => {
+      const told = recoveryRepublished;
+      recoveryRepublished = null;
+      // Boxed: a latch resolved with the listing's promise would wait for the listing.
+      told?.resolve({ listing });
+    };
     const runtime = {
       ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
       attachSessionClient: async (options) => {
@@ -413,6 +487,12 @@ async function record(name) {
                 }
                 return attached.call(method, params, callOptions);
               })();
+            } else if (recoveryListingHold && recoveryListing.getStore()) {
+              // The recovery's listing, held at its daemon call (`STARTUP`, update-first).
+              const hold = recoveryListingHold;
+              recoveryListingHold = null;
+              hold.reached.resolve();
+              asked = hold.released.promise.then(() => attached.call(method, params, callOptions));
             } else if (listingHold) {
               // The reset's own listing held until the clear has reached the summary index (`listing-first`).
               const hold = listingHold;
@@ -490,11 +570,29 @@ async function record(name) {
       // The rooms' first load's member check (`pruneDeleted`, `agent-room-membership.ts:67`, through `agentPresence`,
       // `session-host.ts:296`): each check is an event with the ids it asks about, so a step shows whether a first load ran in it.
       const invokeControl = host.transport.invokeControl.bind(host.transport);
+      // The start-up race's holds (`STARTUP`) are on the same calls: the member check, the update's names refresh, the recovery's post.
       host.transport.invokeControl = (name, params, ...rest) => {
+        let hold = null;
         if (name === 'agentDefinitionPresence' && (new Error().stack ?? '').includes('pruneDeleted')) {
           events.push({ kind: 'prune-checked', ids: plain(params[0]) });
+          hold = presenceHold;
+          presenceHold = null;
+        } else if (name === 'listAgents' && namesHold && (new Error().stack ?? '').includes('refreshNames')) {
+          hold = namesHold;
+          namesHold = null;
+        } else if (name === 'appendRoomRows' && recoveryPostHold && RECOVER_FRAME.test(new Error().stack ?? '')) {
+          hold = recoveryPostHold;
+          recoveryPostHold = null;
         }
-        return invokeControl(name, params, ...rest);
+        if (!hold) return invokeControl(name, params, ...rest);
+        hold.reached.resolve();
+        return hold.released.promise.then(() => invokeControl(name, params, ...rest));
+      };
+      // The recovery's republish with the catalog loaded publishes the rows in hand (`session-host.ts:354`).
+      const publishSessionCatalog = host.publishSessionCatalog.bind(host);
+      host.publishSessionCatalog = (sessions) => {
+        if (recoveryRepublished && RECOVER_FRAME.test(new Error().stack ?? '')) recoveryReported(null);
+        return publishSessionCatalog(sessions);
       };
       const renameSession = host.lifecycle.renameSession.bind(host.lifecycle);
       host.lifecycle.renameSession = (sessionId, title) => origin.run('room-rename', () => renameSession(sessionId, title));
@@ -561,8 +659,12 @@ async function record(name) {
         const fromRoomCall = stack.includes('republishCatalog');
         if (!fromRoomCall) return publishCatalogs();
         events.push({ kind: 'background-listing-started' });
-        const done = origin.run('room-call-background-listing', () => publishCatalogs());
+        const run = () => origin.run('room-call-background-listing', () => publishCatalogs());
+        // The start-up recovery's listing (`agent-rooms.ts:479`) runs in its own context, which its daemon call's hold reads.
+        const recovery = RECOVER_FRAME.test(stack);
+        const done = recovery ? recoveryListing.run(true, run) : run();
         background.push(done);
+        if (recovery) recoveryReported(done);
         return done;
       };
     };
@@ -575,6 +677,13 @@ async function record(name) {
     for (const label of ['Alpha', 'Beta', 'Gamma']) {
       const saved = await saveBot(label);
       bots.push(saved.id);
+      botNames[saved.id] = saved.name;
+    }
+    // A bot in no room, which `recovery-joins` forgets at start-up (its first load's starter).
+    let spareBot = null;
+    if (scenario.spare) {
+      const saved = await saveBot('Delta');
+      spareBot = saved.id;
       botNames[saved.id] = saved.name;
     }
     events.splice(0);
@@ -616,6 +725,7 @@ async function record(name) {
         // `in-io` with the listing failing (`loaded-failing`: the daemon's session.list is never asked, so its read cannot race): the
         // reset held at its first member check (`agent-rooms.ts:391`, `deps.sessionExists` → `readSession`, `session-host.ts:299-301`,
         // daemon I/O) until the refresh has fired and run to its end.
+        if (scenario.resetRefresh !== 'in-io') throw new RecorderError(`scenario ${name}: its reset declares no order of its store refresh`);
         if (!listingFails) throw new RecorderError(`scenario ${name}: a reset with the store refresh in its I/O and a listing that lists is recorded in a read order only`);
         const fired = nextRefresh();
         const check = holdMemberCheck();
@@ -672,6 +782,17 @@ async function record(name) {
         return await updating;
       },
       'list-sessions': () => host.listSessions(),
+      // The room's exchange started (`proceed`, `agent-rooms.ts:408-414`) and held at its read of the room's rows
+      // (`agent-room-exchange.ts:186`), after its start saved the room running (`:135-137`); it never goes on (its host is made again next).
+      'continue-held': async () => {
+        const read = holdRoomLogRead();
+        const answer = await host.agentRoomAction('continue', [room.roomId]);
+        await deadline.race(read.arrived, "the room's exchange reading the room's rows after its start's save");
+        events.push({ kind: 'exchange-held' });
+        return answer;
+      },
+      // The host made again (no definition deleted), its start-up's recovery against a room update (`STARTUP`).
+      'restart-and-update': () => startupRace(scenario.startup, scenario.startupOrder),
       'restart-and-list': async () => {
         await restart(false);
         await deadline.race(host.agentRooms.ready(), 'the first load after the restart');
@@ -749,6 +870,85 @@ async function record(name) {
         };
       }
       return await resetting;
+    };
+    // The start-up's recovery and a room update that awaited the same first load, in `order` (`STARTUP`): the update's answer.
+    const startupRace = async (waiters, order) => {
+      const read = gateOf();
+      roomsRead = read;
+      const presence = gateOf();
+      presenceHold = presence;
+      await restart(false);
+      await deadline.race(read.arrived, "the start-up's read of the room records");
+      const update = () => {
+        const call = CALLS['update-rounds']();
+        call.catch(() => {});
+        return call;
+      };
+      // `agentRoomAction` reaches `ready()` synchronously; a forgotten member reaches it in the room writes' queue (`writer`,
+      // `agent-rooms.ts:198-203`), the job of a promise already settled, which runs before this function's next continuation.
+      let updating = waiters === 'update-before-recovery' ? update() : null;
+      let forgetting = null;
+      if (waiters === 'recovery-joins') {
+        forgetting = host.agentRooms.forgetMember(spareBot);
+        forgetting.catch(() => {});
+        await null;
+      }
+      read.release();
+      await deadline.race(presence.arrived, "the first load's member check");
+      updating ??= update();
+      const recovered = latch();
+      recoveryRepublished = recovered;
+      if (order === 'recovery-first') {
+        const names = gateOf();
+        namesHold = names;
+        presence.release();
+        await deadline.race(names.arrived, "the update's names refresh");
+        const { listing } = await deadline.race(recovered.promise, "the recovery's republish");
+        if (listing) await deadline.race(listing, "the recovery's listing to its end");
+        names.release();
+      } else if (waiters !== 'interrupted') {
+        const list = gateOf();
+        recoveryListingHold = list;
+        const save = armRoomSave(false);
+        presence.release();
+        await deadline.race(save.arrived, "the update's save of its change");
+        const { listing } = await deadline.race(recovered.promise, "the recovery's republish");
+        if (!listing) throw new RecorderError("the recovery published the rows in hand: the catalog was loaded before it");
+        await deadline.race(list.arrived, "the recovery's listing at its daemon call");
+        list.release();
+        await deadline.race(listing, "the recovery's listing to its end");
+        save.release();
+      } else {
+        const post = gateOf();
+        recoveryPostHold = post;
+        presence.release();
+        await deadline.race(post.arrived, "the recovery's post of the interrupted row");
+        const ordered = afterAnswer;
+        afterAnswer = async () => {
+          await deadline.race(Promise.all(background.splice(0)), "the update's own listing");
+          post.release();
+          const { listing } = await deadline.race(recovered.promise, "the recovery's republish");
+          if (listing) await deadline.race(listing, "the recovery's listing to its end");
+          await ordered?.();
+        };
+      }
+      if (forgetting) await deadline.race(forgetting, 'the member forgotten');
+      return await updating;
+    };
+    // The host's next read of the room log's session (the exchange's rows, `agent-room-exchange.ts:186` → `readItems`,
+    // `session-host.ts:325`), held until released.
+    const holdRoomLogRead = () => {
+      const readSession = host.readSession;
+      const gate = gateOf();
+      host.readSession = async (sessionId, ...rest) => {
+        if (sessionId === room.sessionId) {
+          host.readSession = readSession;
+          gate.reached.resolve();
+          await gate.released.promise;
+        }
+        return readSession.call(host, sessionId, ...rest);
+      };
+      return gate;
     };
     // The host's next existence check of a room member's session (`sessionExists` reads it, `session-host.ts:299-301`), held until
     // released: `arrived` resolves when it is reached.
@@ -836,7 +1036,7 @@ async function record(name) {
     // The host's task workspace, where a room log is made (`agent-rooms.ts:284`), as the host itself names it.
     const taskWorkspace = await deadline.race(host.taskWorkspace(), 'the task workspace');
     const { failing: _, ...shape } = scenario;
-    return { scenario: name, ...shape, taskWorkspace, bots, botNames, room, steps };
+    return { scenario: name, ...shape, taskWorkspace, bots, ...(spareBot ? { spareBot } : {}), botNames, room, steps };
   } finally {
     logEvents = null;
     roomSave = null;
@@ -907,9 +1107,25 @@ if (!only) {
             ...(s.resetRead ? { resetRead: { order: s.resetRead, how: RESET_READ.orders[s.resetRead] } } : {}),
             ...(s.resetListings ? { resetListings: { order: s.resetListings, how: FORCED.resetListings[s.resetListings] } } : {}),
             ...(s.resetRefresh ? { resetRefresh: { order: s.resetRefresh, how: FORCED.resetRefresh[s.resetRefresh] } } : {}),
+            ...(s.startupOrder ? { startupOrder: { waiters: s.startup, order: s.startupOrder, how: `${STARTUP.waiters[s.startup]}; ${STARTUP.orders[s.startupOrder]}` } } : {}),
           },
         ])
       ),
+      // The start-up's recovery against a room update (`STARTUP`): its Node source lines, and per scenario how its order was forced.
+      startupRace: {
+        recovery: STARTUP.recovery,
+        update: STARTUP.update,
+        holds: {
+          recordsRead: "fs/promises.readFile of agent-rooms.json (readJsonState, atomic-file.mjs:551-553, under loadRecords)",
+          memberCheck: "the host's control call agentDefinitionPresence on a stack through pruneDeleted (agent-room-membership.ts:67)",
+          namesRefresh: "the host's control call listAgents on a stack through refreshNames (agent-room-records.ts:56-59), armed after the first load's own refresh",
+          recoveryListing: "the daemon call session.list of the listing the recovery's republish starts (its publishCatalogs on a stack through recover)",
+          recoveryPost: "the host's control call appendRoomRows on a stack through recover (agent-room-log.ts:61)",
+          updateSave: "the room records' save (atomic-file.mjs temp open of agent-rooms.json), agent-rooms.ts:310",
+          exchange: "the host's read of the room log's session (readItems, session-host.ts:325) from the exchange's rows (agent-room-exchange.ts:186)",
+        },
+        cases: Object.fromEntries(Object.entries(SCENARIOS).filter(([, s]) => s.startupOrder).map(([n, s]) => [n, { waiters: s.startup, order: s.startupOrder }])),
+      },
       // The race a reset with the catalog loaded leaves to timing, its Node source lines, and the holds that order it (`RESET_READ`).
       resetReadRace: {
         daemonRead: RESET_READ.daemonRead,
@@ -922,6 +1138,8 @@ if (!only) {
           hostPublication: "the room records' save (atomic-file.mjs temp open of agent-rooms.json), the last await before republishCatalog (agent-rooms.ts:387-388)",
         },
         cases: Object.fromEntries(Object.entries(SCENARIOS).filter(([, s]) => s.resetRead).map(([n, s]) => [n, { order: s.resetRead, resetRefresh: s.resetRefresh, how: RESET_READ.orders[s.resetRead] }])),
+        // What the replay compares for the after-answer read order.
+        core: "The core has no daemon read to race: a reset publishes its room's row in its room pass, at a fixed point before its answer (native/core/crates/mixdog-core-session/src/session/thread_list.rs:545), and its own listing reads the core's index, not a daemon. Its order is the read-before-publication one, with nothing published after the answer, which Node also produces: the reset's own listing (session-host-lifecycle.ts:401, its daemon read store-summary-catalog.mjs:623-625 from reconcileSessionFile :377) ending before the room call's publication (agent-rooms.ts:387-388), the store refresh inside the reset's I/O (loaded-reset-refresh-in-io). So for the two -read-after-answer cases the replay compares the core's reset, after the answer, whole with loaded-reset-refresh-in-io's same step and part (coreDifferences entries with compareWith), and every other part with the case's own recording.",
       },
       // Normalised after the run, the one place (see fixDaemonStamps).
       normalized: {
