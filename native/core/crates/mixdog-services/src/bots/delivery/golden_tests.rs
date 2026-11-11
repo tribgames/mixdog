@@ -61,6 +61,8 @@ struct World {
     /// Every delay a retry was asked for, in order.
     scheduled: Mutex<Vec<u64>>,
     uuids: AtomicU64,
+    /// The process's sensitive values (the `mark` op).
+    marks: Arc<crate::memory::sensitive::SensitiveStore>,
 }
 
 struct Threads(Arc<World>);
@@ -201,7 +203,7 @@ fn build(world: &Arc<World>, clock: &Arc<FixedClock>, dir: &std::path::Path, lim
     let queue = Arc::new(RoutineResultQueue::new(state, limit, QUEUE_CAPS, clock.clone(), Arc::new(NoHandoffs)).with_uuids(uuids));
     let live = LiveSlot::new();
     live.set(Some(Arc::new(Live(world.clone()))));
-    AgentHomeDelivery::new(
+    let delivery = AgentHomeDelivery::new(
         Arc::new(Threads(world.clone())),
         Arc::new(Directory(world.clone())),
         live,
@@ -210,7 +212,9 @@ fn build(world: &Arc<World>, clock: &Arc<FixedClock>, dir: &std::path::Path, lim
         clock.clone(),
         Arc::new(Retries(world.clone())),
         DeliveryConfig::node(),
-    )
+    );
+    assert!(delivery.redact_with(world.marks.clone()));
+    delivery
 }
 
 impl Replay {
@@ -224,6 +228,7 @@ impl Replay {
             retries: Mutex::default(),
             scheduled: Mutex::default(),
             uuids: AtomicU64::new(0),
+            marks: Arc::default(),
         });
         let clock = Arc::new(FixedClock(Mutex::new(T0)));
         let dir = tempfile::tempdir().unwrap();
@@ -289,6 +294,12 @@ impl Replay {
             }
             "before" => {
                 d.post_before_turn(&text(o, "home")).await;
+                Value::Null
+            }
+            "mark" => {
+                let fields: Vec<Value> = o["values"].as_array().unwrap().iter().map(|text| json!({ "text": text })).collect();
+                let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": fields } } });
+                assert!(self.world.marks.remember(&text(o, "session"), &[fill]));
                 Value::Null
             }
             "thread" => {
@@ -374,41 +385,30 @@ impl Replay {
             other => panic!("unknown op {other}"),
         }
     }
-
-    /// The queue file and every thread, as one text.
-    fn everything(&self) -> String {
-        format!("{}{:?}", self.queue_file(), self.world.threads.lock().unwrap())
-    }
 }
 
-/// A task's report and a routine run's result leave the session they come from: a value that session marked sensitive
-/// is the marker in the queued item and in the home row (Node `agent-home-delivery.mjs` `taskReportItem`,
-/// `routineResultItem`).
+/// A task's report and a routine run's result leaving their session against `fixtures/sensitive-gaps/golden.json`
+/// (`home`), recorded from Node with the sensitive-value patches (`record-sensitive-gaps.mjs`): the script with its
+/// `mark` ops, the same per-step values as the delivery script below.
 #[tokio::test(start_paused = true)]
-async fn a_task_report_and_a_routine_result_reach_the_home_with_their_sessions_sensitive_values_as_the_marker() {
-    const CODE: &str = "482913";
-    let replay = Replay::new();
-    let marks = Arc::new(crate::memory::sensitive::SensitiveStore::default());
-    let fill = |code: &str| json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": code } } });
-    assert!(marks.remember("sess_task", &[fill(CODE)]));
-    assert!(marks.remember("sess_run", &[fill(CODE)]));
-    assert!(replay.delivery.redact_with(marks));
-    let report = task_report(&json!({ "runId": "t1", "taskSessionId": "sess_task", "title": "T", "status": "done", "text": format!("the code is {CODE}") }));
-    replay.delivery.enqueue_task("reviewer", &report).await.unwrap();
-    let item = delivery_item(&json!({ "runId": "r1", "kind": "schedule", "ok": true, "text": format!("ran with {CODE}"), "runSessionId": "sess_run" }));
-    replay.delivery.enqueue("reviewer", "nightly", &item).await.unwrap();
-    replay.quiesce().await;
-    let all = replay.everything();
-    assert!(!all.contains(CODE), "{all}");
-    assert!(all.contains("the code is [redacted]") && all.contains("ran with [redacted]"), "{all}");
+async fn replays_the_patched_node_script_of_reports_from_marked_sessions() {
+    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sensitive-gaps/golden.json"))).unwrap();
+    let steps = golden["home"].as_array().unwrap();
+    assert_eq!(steps.len(), 18);
+    replay_steps(steps).await;
 }
 
 #[tokio::test(start_paused = true)]
 async fn replays_the_node_delivery_script() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    replay_steps(golden["steps"].as_array().unwrap()).await;
+}
+
+/// Each step's operation, then the same result, queue file, threads, notices, wakes and retry delays as recorded.
+async fn replay_steps(steps: &[Value]) {
     let mut replay = Replay::new();
     let (mut seen_notices, mut seen_wakes, mut seen_delays) = (0, 0, 0);
-    for (index, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
+    for (index, step) in steps.iter().enumerate() {
         let out = replay.run(step).await;
         replay.quiesce().await;
         let label = format!("step {index} {}", step["op"]);
