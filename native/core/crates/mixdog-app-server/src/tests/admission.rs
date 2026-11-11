@@ -50,6 +50,36 @@ async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_response
     assert!(rest.iter().all(|wire| wire.body.get("result").is_some()));
 }
 
+/// Node's model-proxy host refused a payload past its aggregate in-flight bound (`MODEL_PROXY_BUSY`, status 429; recording
+/// `model-proxy-host-trust-cases`, "payloads past the aggregate in-flight limit are refused"). On the typed protocol the bound
+/// is the C2 cap of `modelProxy/run`: eight runs of one connection in flight, the ninth answered at once, `-32001 inflightLimit`.
+#[tokio::test(start_paused = true)]
+async fn a_ninth_model_proxy_run_is_refused_as_in_flight_limit() {
+    use mixdog_app_protocol::v2::model_proxy::{ProxyCall, ProxyOptions, ProxyRequest};
+
+    let rig = Rig::gated(&["modelProxy"]);
+    let client = rig.ready(1, json!({}));
+    let call = ProxyCall::Send {
+        provider: "openai".into(),
+        request: Box::new(ProxyRequest { model: "gpt".into(), messages: Vec::new(), tools: Vec::new(), options: ProxyOptions::default() }),
+    };
+    let run = |id: i64| client.request(id, "modelProxy/run", json!({ "runId": format!("r{id}"), "call": call, "allowedProviders": null }));
+    for id in 1..=8 {
+        run(id);
+    }
+    settle().await;
+    assert_eq!(rig.gate("modelProxy").log().len(), 8);
+    assert!(client.drain().is_empty());
+
+    run(9);
+    let refused = client.drain();
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0].body["id"], json!(9));
+    assert_eq!(refused[0].body["error"]["code"], json!(-32001));
+    assert_eq!(refused[0].body["error"]["data"], json!({ "reason": "inflightLimit", "class": "C2", "limit": 8 }));
+    assert_eq!(rig.gate("modelProxy").log().len(), 8, "the ninth never reached the domain");
+}
+
 #[tokio::test(start_paused = true)]
 async fn control_requests_stay_admitted_while_a_class_is_saturated() {
     let rig = Rig::gated(&["terminal"]);
