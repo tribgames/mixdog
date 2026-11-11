@@ -478,8 +478,11 @@ fn a_published_core_that_does_not_answer_is_not_attached_as_healthy() {
 }
 
 /// A run attaching to a published core whose control listener is `listener`; `answer` plays the core's side of the
-/// probe's connection (the request already read) on the run's clock, which moves only when it advances it.
-fn probe_through(answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::IdleWatch, &str)) -> Report {
+/// probe's connection (the request already read) on the run's clock, which moves only when it advances it. Returns the
+/// report with the core's end of the connection and the clock, as they are when the run has returned.
+fn probe_through(
+    answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::IdleWatch, &str),
+) -> (Report, std::net::TcpStream, std::sync::Arc<super::idle::IdleWatch>) {
     use std::io::Read;
     let env = env();
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -508,16 +511,25 @@ fn probe_through(answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::Idl
     // Bounds only a failing run (a probe that never gives up); a passing one has already answered. The connection stays
     // open until then, so the run cannot have seen its end instead of the limit.
     let report = report.recv_timeout(Duration::from_secs(60)).expect("the probe is still waiting for the core");
-    drop(conn);
-    report
+    (report, conn, watch)
 }
 
 /// Node's `daemonRequest` gives up after 1,500 ms without a byte: a core that accepts the probe and stays silent is not
-/// attached as healthy, and no second core is started beside it.
+/// attached as healthy, and no second core is started beside it. Giving up ends the read: by the time the run returns
+/// its reader has finished and the core sees its connection closed.
 #[test]
 fn a_core_that_accepts_the_probe_and_stays_silent_is_not_healthy_after_the_idle_limit() {
-    let report = probe_through(|_, watch, _| watch.advance(super::idle::ANSWER_IDLE));
+    use std::io::Read;
+    let (report, mut conn, watch) = probe_through(|_, watch, _| watch.advance(super::idle::ANSWER_IDLE));
     assert!(!report.healthy && !report.core_current && !report.started, "{report:?}");
+    assert_eq!(watch.readers(), 0, "the probe's reader outlived the run");
+    // Bounds only a failing run, whose connection stays open.
+    conn.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+    match conn.read(&mut [0u8; 1]) {
+        Ok(0) => {}
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => {}
+        other => panic!("the probe's connection is still open after the run: {other:?}"),
+    }
 }
 
 /// The limit is on inactivity, not on the whole answer: a core that answers in two parts, each just inside the limit,
@@ -525,7 +537,7 @@ fn a_core_that_accepts_the_probe_and_stays_silent_is_not_healthy_after_the_idle_
 #[test]
 fn a_core_that_answers_slowly_within_the_idle_limit_is_attached() {
     use std::io::Write;
-    let report = probe_through(|conn, watch, body| {
+    let (report, ..) = probe_through(|conn, watch, body| {
         let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
         let (first, rest) = reply.split_at(reply.len() / 2);
         let just_inside = super::idle::ANSWER_IDLE - Duration::from_millis(1);
