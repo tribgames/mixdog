@@ -80,7 +80,12 @@
       "mixdog-app-protocol/src/inventory.rs:1115-1145: prefetchSession -> thread/read, readTranscriptHistory -> thread/items/list, setVisibleSessions -> thread/resume, submitToSession -> turn/start"
     ],
     "rustTargets": [],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "replayedBy": "apps/desktop/src/main/session-host-transport-read-set-replay.test.mjs: the K1 desktop SessionHostTransport.invokeSession (the lane is the desktop's choice; the core serves whichever method the action maps to). readActions, configureActions and configureActionSent compared whole.",
+    "recordingQuestioned": {
+      "path": "cases[0].observed.lanes",
+      "reason": "the recorded lanes send 12 of the recorded readActions (isSessionTerminal, agentDefinitionPresence, getChannelSettings, getChannelWorkerStatus, getSettingsSnapshot, searchLocalProviderModels, inspectHuggingFaceModel, getTurnLiveness, getSessionWorktreeWork, hooksStatus, listShellJobs, listStoppableShellJobs) on configure, contradicting the case's own statement; that is the old transport's copied read list (DESKTOP_READ_CAPABILITIES), which K1 replaced with SESSION_READ_ACTION_SET. The replay compares the lanes against the case's rule over the recorded readActions."
+    }
   },
   "set": "session-host-transport-read-set-cases",
   "totalBytes": 18151,
