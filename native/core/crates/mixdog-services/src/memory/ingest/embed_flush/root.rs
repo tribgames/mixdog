@@ -295,7 +295,7 @@ impl RawEmbedFlush {
         let texts: Vec<String> =
             rows.iter().map(|(_, element, summary, content, role)| root_embed_text(element.as_deref(), summary.as_deref(), role.as_deref(), content.as_deref())).collect();
         let wanted: Vec<String> = texts.iter().filter(|text| !text.is_empty()).cloned().collect();
-        let vectors = self.cached_embed_batch(client, &wanted).await?;
+        let vectors = self.cached_embed_batch(client, &wanted, &mut None).await?;
         check(cancel)?;
         let mut updates: Vec<Update> = Vec::new();
         let mut next = 0usize;

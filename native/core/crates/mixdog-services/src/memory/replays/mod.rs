@@ -2,6 +2,7 @@
 //! `mixdog_testkit::Exact`). One test per recorded case; each loads its set's golden and drives the public Rust entry
 //! its MANIFEST.json names.
 
+mod cache_retention;
 mod chunk_quality_handoff;
 mod hybrid_sql_exact;
 mod light_ko_morph;
