@@ -502,7 +502,10 @@
             "toolCallId": "toolu_1",
             "content": "file body"
           }
-        ]
+        ],
+        "env": {
+          "MIXDOG_OAI_TRANSPORT": "http"
+        }
       },
       "result": {
         "sent": {
@@ -631,7 +634,15 @@
           ]
         },
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth.mjs.buildRequestBody",
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-ws.mjs.OpenAIDirectProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws.mjs.OpenAIDirectProvider#send",
           "args": [
             [
               {
@@ -677,83 +688,6 @@
             ],
             {}
           ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs.sendViaHttpSse",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-direct",
-                "apiKey": "k"
-              },
-              "body": {
-                "model": "gpt-5.5",
-                "instructions": "You are a helpful assistant.",
-                "input": [
-                  {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                      {
-                        "type": "input_text",
-                        "text": "read a.txt then summarize"
-                      }
-                    ],
-                    "internal_chat_message_metadata_passthrough": {}
-                  },
-                  {
-                    "type": "function_call",
-                    "call_id": "toolu_1",
-                    "name": "read",
-                    "arguments": "{\"path\":\"a.txt\"}"
-                  },
-                  {
-                    "type": "function_call_output",
-                    "call_id": "toolu_1",
-                    "output": "file body"
-                  }
-                ],
-                "tools": [
-                  {
-                    "type": "function",
-                    "name": "read",
-                    "description": "Read a file",
-                    "parameters": {
-                      "type": "object",
-                      "properties": {
-                        "path": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "path"
-                      ]
-                    },
-                    "strict": false
-                  }
-                ],
-                "tool_choice": "auto",
-                "parallel_tool_calls": true,
-                "reasoning": {
-                  "effort": "medium",
-                  "summary": "auto"
-                },
-                "store": false,
-                "stream": true,
-                "stream_options": {
-                  "reasoning_summary_delivery": "sequential_cutoff"
-                },
-                "include": [
-                  "reasoning.encrypted_content"
-                ],
-                "prompt_cache_key": "mixdog-codex",
-                "text": {
-                  "verbosity": "low"
-                }
-              },
-              "useModel": "gpt-5.5"
-            }
-          ]
         }
       ],
       "requests": [
@@ -772,7 +706,7 @@
             ],
             [
               "Authorization",
-              "Bearer k"
+              "Bearer fixture-key"
             ],
             [
               "Content-Type",
@@ -804,10 +738,10 @@
             ],
             [
               "content-length",
-              "866"
+              "783"
             ]
           ],
-          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"read a.txt then summarize\"}],\"internal_chat_message_metadata_passthrough\":{}},{\"type\":\"function_call\",\"call_id\":\"toolu_1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"toolu_1\",\"output\":\"file body\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":false,\"stream\":true,\"stream_options\":{\"reasoning_summary_delivery\":\"sequential_cutoff\"},\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-codex\",\"text\":{\"verbosity\":\"low\"}}",
+          "body": "{\"model\":\"gpt-5.5\",\"instructions\":\"You are a helpful assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"read a.txt then summarize\"}]},{\"type\":\"function_call\",\"call_id\":\"toolu_1\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"toolu_1\",\"output\":\"file body\"}],\"tools\":[{\"type\":\"function\",\"name\":\"read\",\"description\":\"Read a file\",\"parameters\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]},\"strict\":false}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":true,\"stream\":true,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-openai-9c931a3e9565cb950c\",\"text\":{\"verbosity\":\"low\"},\"prompt_cache_retention\":\"24h\"}",
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
