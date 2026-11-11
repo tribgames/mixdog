@@ -1975,19 +1975,25 @@
     {
       "id": "turn-state-never-enters-connection-handshake",
       "source": "scripts/provider-toolcall/transport-policy.test.mjs:370",
-      "input": {},
+      "input": {
+        "server": "the first connection's 101 response carries x-codex-turn-state: tok-shard-1; later connections carry none",
+        "steps": [
+          "acquire (poolKey sess-turn-state-1)",
+          "release keep, server closes that socket",
+          "acquire again (replacement)",
+          "parallel acquire for the same session, 1 ms of virtual time",
+          "release replacement keep",
+          "acquire another session",
+          "release both without keep"
+        ]
+      },
       "result": {
         "firstState": {
-          "opened": [
-            null
-          ],
+          "opened": 1,
           "turnState": null
         },
         "replacementState": {
-          "opened": [
-            null,
-            null
-          ],
+          "opened": 2,
           "turnState": null
         },
         "waiting": {
@@ -1999,119 +2005,313 @@
           "opened": 2
         },
         "otherState": {
-          "opened": [
-            null,
-            null,
-            null
-          ]
-        }
+          "opened": 3
+        },
+        "events": [
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-1"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "thread-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "x-client-request-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "K5TQeiIznWnIjx59KWcutg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: jus6pkoT0jpYqz8cLtcpldb2z1c=",
+              "x-codex-turn-state: tok-shard-1"
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "server-ends-first-socket"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "server-ends-first-socket"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-1"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "thread-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "x-client-request-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "FVZKu/WbTdHtP9oPq0w0pQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 1Rk+ydpPRHaCez5ZlcKuGjxcU4k="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-1"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "thread-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "x-client-request-id",
+                "cache-turn-state-1"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "+lzvFCYSnwAZ8j22rvFRnw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: DJDnsUhH0JnmpIHFCKUxWU/HSAs="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          }
+        ]
       },
-      "calls": [
+      "clock": [
         {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
-          "args": []
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
-          "args": [
-            {
-              "callback": ""
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-oauth",
-                "account_id": "acct-1"
-              },
-              "poolKey": "sess-turn-state-1",
-              "cacheKey": "cache-turn-state-1"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "Maximum call stack size exceeded"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-oauth",
-                "account_id": "acct-1"
-              },
-              "poolKey": "sess-turn-state-1",
-              "cacheKey": "cache-turn-state-1"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-oauth",
-                "account_id": "acct-1"
-              },
-              "poolKey": "sess-turn-state-1",
-              "cacheKey": "cache-turn-state-1"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "Maximum call stack size exceeded"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-oauth",
-                "account_id": "acct-1"
-              },
-              "poolKey": "sess-turn-state-2",
-              "cacheKey": "cache-turn-state-1"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "Maximum call stack size exceeded"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
-          "args": [
-            {
-              "unrecordable": "Maximum call stack size exceeded"
-            }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
-          "args": [
-            null
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
-          "args": []
+          "advanceMs": 1,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 1,
+          "armed": []
         }
       ]
     }
