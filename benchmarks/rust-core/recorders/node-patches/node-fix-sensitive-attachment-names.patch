@@ -1,0 +1,267 @@
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-projection.mjs b/src/runtime/agent/orchestrator/session/sensitive-projection.mjs
+index e02d9b9..3bfa5e3 100644
+--- a/src/runtime/agent/orchestrator/session/sensitive-projection.mjs
++++ b/src/runtime/agent/orchestrator/session/sensitive-projection.mjs
+@@ -1,100 +1,128 @@
+-// The stored form of a message once its session has sensitive values
+-// (sensitive-values.mjs): only what a message carries as text changes —
+-//   - its content's text (media-normalization.mjs mapContentText: a string,
+-//     text parts, a part's string content; media and attachment references
+-//     stay as they are), tool results included;
+-//   - its tool calls' argument values (the arguments object, or the JSON text
+-//     a provider sends them as, parsed and written again).
+-// Ids, roles, timestamps and every other field stay as they are. Text that is
+-// a JSON document stays one: its string values are redacted inside it, a
+-// number that spells a value becomes the marker string, and its keys are kept.
+-// A message that changes, or whose provider replay state holds a value, is
+-// stored without that state (manager/provider-replay.mjs): the state belongs
+-// to the exact message the provider produced, and a provider would check it
+-// against what it sent — as after a route change, the text and tool calls stay.
+-import { mapContentText } from '../providers/media-normalization.mjs';
+-import { providerReplayState, stripProviderReplayMessage } from './manager/provider-replay.mjs';
+-import { MARKER, containsSensitive, redactSensitiveText, sensitiveValuesVersion } from './sensitive-values.mjs';
+-
+-function redactJsonValue(sessionId, value) {
+-  if (typeof value === 'string') return redactTextOrJson(sessionId, value);
+-  if (typeof value === 'number') return containsSensitive(sessionId, String(value)) ? MARKER : value;
+-  if (!value || typeof value !== 'object') return value;
+-  const list = Array.isArray(value);
+-  const out = list ? [] : {};
+-  let changed = false;
+-  for (const [key, item] of Object.entries(value)) {
+-    const next = redactJsonValue(sessionId, item);
+-    if (next !== item) changed = true;
+-    out[key] = next;
+-  }
+-  return changed ? out : value;
+-}
+-
+-/** Text redacted as text, or — when it is a JSON object, array or string (RFC 8259) —
+- *  as the JSON document it is, so it still parses afterwards. */
+-function redactTextOrJson(sessionId, text) {
+-  // A JSON document is judged by its decoded values, never its raw text: an
+-  // escape (`\u0036…`) spells a value the raw text does not contain.
+-  const head = text.trimStart()[0];
+-  if (head === '{' || head === '[' || head === '"') {
+-    let parsed;
+-    try {
+-      parsed = JSON.parse(text);
+-    } catch {
+-      parsed = undefined;
+-    }
+-    if ((parsed && typeof parsed === 'object') || typeof parsed === 'string') {
+-      const redacted = redactJsonValue(sessionId, parsed);
+-      return redacted === parsed ? text : JSON.stringify(redacted);
+-    }
+-  }
+-  return redactSensitiveText(sessionId, text);
+-}
+-
+-/** Message content with the session's values redacted in its text. */
+-export function redactSensitiveContent(sessionId, content) {
+-  if (!sensitiveValuesVersion(sessionId)) return content;
+-  return mapContentText(content, (text) => redactTextOrJson(sessionId, text));
+-}
+-
+-/** A tool call with the session's values redacted in its argument values. */
+-export function redactSensitiveToolCall(sessionId, call) {
+-  if (!sensitiveValuesVersion(sessionId) || !call || typeof call !== 'object' || !('arguments' in call)) return call;
+-  const args = redactJsonValue(sessionId, call.arguments);
+-  return args === call.arguments ? call : { ...call, arguments: args };
+-}
+-
+-/** `message` as it is stored for `sessionId`; the same object when unchanged. */
+-export function redactSensitiveMessage(sessionId, message) {
+-  if (!sensitiveValuesVersion(sessionId) || !message || typeof message !== 'object') return message;
+-  const out = { ...message };
+-  let changed = false;
+-  if ('content' in message) {
+-    out.content = redactSensitiveContent(sessionId, message.content);
+-    changed = out.content !== message.content;
+-  }
+-  if (Array.isArray(message.toolCalls)) {
+-    const calls = message.toolCalls.map((call) => redactSensitiveToolCall(sessionId, call));
+-    if (calls.some((call, index) => call !== message.toolCalls[index])) {
+-      out.toolCalls = calls;
+-      changed = true;
+-    }
+-  }
+-  const replay = providerReplayState(message);
+-  const replayHolds = replay !== null && containsSensitive(sessionId, JSON.stringify(replay));
+-  if (!changed && !replayHolds) return message;
+-  return replay === null ? out : stripProviderReplayMessage(out);
+-}
+-
+-/** Messages as they are stored for `sessionId`; the same array when unchanged. */
+-export function redactSensitiveMessages(sessionId, messages) {
+-  if (!sensitiveValuesVersion(sessionId) || !Array.isArray(messages)) return messages;
+-  let changed = false;
+-  const out = messages.map((message) => {
+-    const next = redactSensitiveMessage(sessionId, message);
+-    if (next !== message) changed = true;
+-    return next;
+-  });
+-  return changed ? out : messages;
+-}
++// The stored form of a message once its session has sensitive values
++// (sensitive-values.mjs): only what a message carries as text changes —
++//   - its content's text (media-normalization.mjs mapContentText: a string,
++//     text parts, a part's string content; media and attachment references
++//     stay as they are), tool results included;
++//   - its tool calls' argument values (the arguments object, or the JSON text
++//     a provider sends them as, parsed and written again).
++// Ids, roles, timestamps and every other field stay as they are. Text that is
++// a JSON document stays one: its string values are redacted inside it, a
++// number that spells a value becomes the marker string, and its keys are kept.
++// A message that changes, or whose provider replay state holds a value, is
++// stored without that state (manager/provider-replay.mjs): the state belongs
++// to the exact message the provider produced, and a provider would check it
++// against what it sent — as after a route change, the text and tool calls stay.
++import { mapContentText } from '../providers/media-normalization.mjs';
++import { providerReplayState, stripProviderReplayMessage } from './manager/provider-replay.mjs';
++import { MARKER, containsSensitive, redactSensitiveText, sensitiveValuesVersion } from './sensitive-values.mjs';
++
++function redactJsonValue(sessionId, value) {
++  if (typeof value === 'string') return redactTextOrJson(sessionId, value);
++  if (typeof value === 'number') return containsSensitive(sessionId, String(value)) ? MARKER : value;
++  if (!value || typeof value !== 'object') return value;
++  const list = Array.isArray(value);
++  const out = list ? [] : {};
++  let changed = false;
++  for (const [key, item] of Object.entries(value)) {
++    const next = redactJsonValue(sessionId, item);
++    if (next !== item) changed = true;
++    out[key] = next;
++  }
++  return changed ? out : value;
++}
++
++/** Text redacted as text, or — when it is a JSON object, array or string (RFC 8259) —
++ *  as the JSON document it is, so it still parses afterwards. */
++function redactTextOrJson(sessionId, text) {
++  // A JSON document is judged by its decoded values, never its raw text: an
++  // escape (`\u0036…`) spells a value the raw text does not contain.
++  const head = text.trimStart()[0];
++  if (head === '{' || head === '[' || head === '"') {
++    let parsed;
++    try {
++      parsed = JSON.parse(text);
++    } catch {
++      parsed = undefined;
++    }
++    if ((parsed && typeof parsed === 'object') || typeof parsed === 'string') {
++      const redacted = redactJsonValue(sessionId, parsed);
++      return redacted === parsed ? text : JSON.stringify(redacted);
++    }
++  }
++  return redactSensitiveText(sessionId, text);
++}
++
++// Parts whose file name a person gave: an attachment or a media part. The name
++// can spell the value, and mapContentText leaves these parts as they are.
++const NAMED_PARTS = new Set(['attachment', 'image', 'image_url', 'input_image', 'file', 'input_file', 'document', 'audio', 'input_audio', 'video']);
++const NAME_KEYS = ['name', 'filename', 'title'];
++
++function redactPartNames(sessionId, part) {
++  if (!part || typeof part !== 'object' || !(NAMED_PARTS.has(part.type) || part.attachmentRef)) return part;
++  let next = part;
++  for (const key of NAME_KEYS) {
++    if (typeof part[key] !== 'string') continue;
++    const redacted = redactSensitiveText(sessionId, part[key]);
++    if (redacted === part[key]) continue;
++    if (next === part) next = { ...part };
++    next[key] = redacted;
++  }
++  return next;
++}
++
++/** Message content with the session's values redacted in its text and its attachments' names. */
++export function redactSensitiveContent(sessionId, content) {
++  if (!sensitiveValuesVersion(sessionId)) return content;
++  const mapped = mapContentText(content, (text) => redactTextOrJson(sessionId, text));
++  const parts = Array.isArray(mapped) ? mapped : Array.isArray(mapped?.content) ? mapped.content : null;
++  if (!parts) return mapped;
++  let changed = false;
++  const named = parts.map((part) => {
++    const next = redactPartNames(sessionId, part);
++    if (next !== part) changed = true;
++    return next;
++  });
++  if (!changed) return mapped;
++  return Array.isArray(mapped) ? named : { ...mapped, content: named };
++}
++
++/** A tool call with the session's values redacted in its argument values. */
++export function redactSensitiveToolCall(sessionId, call) {
++  if (!sensitiveValuesVersion(sessionId) || !call || typeof call !== 'object' || !('arguments' in call)) return call;
++  const args = redactJsonValue(sessionId, call.arguments);
++  return args === call.arguments ? call : { ...call, arguments: args };
++}
++
++/** `message` as it is stored for `sessionId`; the same object when unchanged. */
++export function redactSensitiveMessage(sessionId, message) {
++  if (!sensitiveValuesVersion(sessionId) || !message || typeof message !== 'object') return message;
++  const out = { ...message };
++  let changed = false;
++  if ('content' in message) {
++    out.content = redactSensitiveContent(sessionId, message.content);
++    changed = out.content !== message.content;
++  }
++  if (Array.isArray(message.toolCalls)) {
++    const calls = message.toolCalls.map((call) => redactSensitiveToolCall(sessionId, call));
++    if (calls.some((call, index) => call !== message.toolCalls[index])) {
++      out.toolCalls = calls;
++      changed = true;
++    }
++  }
++  const replay = providerReplayState(message);
++  const replayHolds = replay !== null && containsSensitive(sessionId, JSON.stringify(replay));
++  if (!changed && !replayHolds) return message;
++  return replay === null ? out : stripProviderReplayMessage(out);
++}
++
++/** Messages as they are stored for `sessionId`; the same array when unchanged. */
++export function redactSensitiveMessages(sessionId, messages) {
++  if (!sensitiveValuesVersion(sessionId) || !Array.isArray(messages)) return messages;
++  let changed = false;
++  const out = messages.map((message) => {
++    const next = redactSensitiveMessage(sessionId, message);
++    if (next !== message) changed = true;
++    return next;
++  });
++  return changed ? out : messages;
++}
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-projection.test.mjs b/src/runtime/agent/orchestrator/session/sensitive-projection.test.mjs
+new file mode 100644
+index 0000000..240b3be
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/sensitive-projection.test.mjs
+@@ -0,0 +1,28 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { redactSensitiveMessages } from './sensitive-projection.mjs';
++import { rememberSensitiveValues } from './sensitive-values.mjs';
++
++test("a marked value in an attachment's or file's name is stored redacted, as in its text and tool results", () => {
++  const session = 'sess_sensitive_names';
++  rememberSensitiveValues(session, [{ name: 'browser', arguments: { action: 'fill', input: { sensitive: true, text: 'hunter2' } } }]);
++  const stored = redactSensitiveMessages(session, [
++    {
++      role: 'user',
++      content: [
++        { type: 'text', text: 'here is hunter2' },
++        { type: 'attachment', attachmentRef: 'att_1', name: 'hunter2-notes.pdf', mimeType: 'application/pdf' },
++        { type: 'file', data: 'AAAA', mimeType: 'application/pdf', filename: 'hunter2.pdf' },
++      ],
++    },
++    { role: 'tool', toolCallId: 'c1', content: 'read hunter2' },
++    { role: 'user', content: 'Conversation summary: hunter2', meta: { source: 'compact-summary' } },
++  ]);
++  assert.deepEqual(stored[0].content, [
++    { type: 'text', text: 'here is [redacted]' },
++    { type: 'attachment', attachmentRef: 'att_1', name: '[redacted]-notes.pdf', mimeType: 'application/pdf' },
++    { type: 'file', data: 'AAAA', mimeType: 'application/pdf', filename: '[redacted].pdf' },
++  ]);
++  assert.equal(stored[1].content, 'read [redacted]');
++  assert.equal(stored[2].content, 'Conversation summary: [redacted]');
++});
