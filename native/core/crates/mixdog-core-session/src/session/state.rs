@@ -126,9 +126,7 @@ pub(crate) struct SessionState {
     pub prompt_session: Vec<String>,
     pub prompt_persisted: Vec<String>,
     pub prompt_history: Vec<String>,
-    /// A thread created here, before its first status pass: Node's runtime has no conversation yet
-    /// (`runtime.sessionProvider`/`sessionModel`: `state.session?.provider ?? null`, runtime-facade.mjs:67-72),
-    /// and the route and context windows reach the store only by the pass (context-state.mjs `routeState`).
+    /// A thread created here, before its first status pass (a status signal tells no listener before it).
     pub status_pending: bool,
 }
 
@@ -501,8 +499,8 @@ impl SessionState {
     pub fn route(&self) -> ThreadRoute {
         let header_text = |key: &str| self.header.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
         let initial = ThreadRoute {
-            session_provider: header_text("provider").filter(|_| !self.status_pending),
-            session_model: header_text("model").filter(|_| !self.status_pending),
+            session_provider: header_text("provider"),
+            session_model: header_text("model"),
             fast: Some(false),
             fast_capable: Some(false),
             auto_effort: Some(true),
@@ -526,8 +524,8 @@ impl SessionState {
             display_context_window: Some(0),
             auto_compact_token_limit: Some(0),
             compact_boundary_tokens: Some(0),
-            raw_context_window: header_number("rawContextWindow").filter(|_| !self.status_pending),
-            effective_context_window_percent: header_number("effectiveContextWindowPercent").filter(|_| !self.status_pending),
+            raw_context_window: header_number("rawContextWindow"),
+            effective_context_window_percent: header_number("effectiveContextWindowPercent"),
             stats: Some(super::stats::SessionStats::default().json(0)),
             ..Default::default()
         };
