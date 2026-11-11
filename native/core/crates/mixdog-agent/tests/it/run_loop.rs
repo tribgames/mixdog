@@ -2030,60 +2030,130 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::Image(_))));
 }
 
-/// `image-strip-recovery.test.mjs` "agent loop heals one rejected tail image and the next turn
-/// stays usable": the provider's 400 names an invalid image, the adapter classifies it as an
-/// invalid request, and the one new stored image is healed out of the transcript.
+/// Node's agent loop (`sendWithRecovery` → `retryWithImageStrip`, `settleImageStrip`) over each case of
+/// `fixtures/session-gaps/image-strip.json` (`record-session-gaps.mjs`): the run loop is sent what Node's provider was
+/// sent at every attempt, ends as Node's did, leaves the transcript Node left (a healed image is gone from it, a
+/// request-local strip is not), and the text-only next turn over that transcript is sent what Node's was.
 #[tokio::test]
-async fn a_confirmed_rejection_of_one_new_image_heals_it_out_of_the_transcript() {
+async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
     use mixdog_core_api::domain::provider::BinarySource;
     use mixdog_core_api::domain::provider::ContentPart;
-    let stored = |r: &str| ContentPart::File {
-        source: BinarySource::AttachmentRef(r.into()),
-        mime_type: "image/png".into(),
-        filename: None,
-        text: None,
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/image-strip.json");
+    let recorded: JsonValue = serde_json::from_slice(&std::fs::read(path).expect("the recording")).expect("json");
+    let content_of = |value: &JsonValue| match value {
+        JsonValue::String(text) => Content::Text(text.clone()),
+        JsonValue::Array(parts) => Content::Parts(
+            parts
+                .iter()
+                .map(|p| match p["type"].as_str() {
+                    Some("text") => ContentPart::Text(p["text"].as_str().expect("text").into(), None),
+                    Some("image") => ContentPart::File {
+                        source: BinarySource::AttachmentRef(p["attachmentRef"].as_str().expect("ref").into()),
+                        mime_type: p["mimeType"].as_str().expect("mimeType").into(),
+                        filename: p["filename"].as_str().map(str::to_owned),
+                        text: None,
+                    },
+                    other => panic!("part {other:?}"),
+                })
+                .collect(),
+        ),
+        other => panic!("content {other}"),
     };
-    let images = |content: &Content| match content {
-        Content::Parts(parts) => parts.iter().filter(|p| matches!(p, ContentPart::File { .. })).cloned().collect(),
-        Content::Text(_) => Vec::new(),
+    let message_of = |row: &JsonValue| match row["role"].as_str().expect("role") {
+        "user" => AgentMessage::user_content(content_of(&row["content"])),
+        "assistant" => {
+            let calls = row["toolCalls"]
+                .as_array()
+                .map(|calls| {
+                    calls
+                        .iter()
+                        .map(|c| ToolCall {
+                            id: c["id"].as_str().expect("id").into(),
+                            name: c["name"].as_str().expect("name").into(),
+                            arguments: c["arguments"].clone(),
+                            native_type: None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            AgentMessage::assistant(row["content"].as_str().expect("text"), calls)
+        }
+        "tool" => AgentMessage::tool_result(row["toolCallId"].as_str().expect("id"), content_of(&row["content"]), ToolKind::Normal),
+        other => panic!("role {other}"),
     };
-    let sent_images = |request: &ModelRequest| request.messages.iter().flat_map(|m| images(&m.content)).collect::<Vec<_>>();
-    let mut invalid = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
-    invalid.status = Some(400);
-    invalid.message =
-        "The image data you provided does not represent a valid image. Please check your input and try again.".into();
-    let h = Harness::new(vec![Attempt::Reject(invalid), turn(vec![text("recovered"), done(StopReason::EndTurn)])]);
-    let messages = vec![
-        AgentMessage::user_content(Content::Parts(vec![stored("old-valid")])),
-        AgentMessage::assistant("seen", Vec::new()),
-        AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("inspect".into(), None), stored("new-bad")])),
-    ];
-    let output = finish(h.run(config(), vec![], messages)).await;
-    assert_eq!(output.response.content, "recovered");
-    let requests = h.provider.requests();
-    assert_eq!(sent_images(&requests[0]), [stored("old-valid"), stored("new-bad")]);
-    assert_eq!(sent_images(&requests[1]), [stored("old-valid")]);
-    let kept: Vec<ContentPart> = output.transcript.iter().flat_map(|m| images(&m.message.content)).collect();
-    assert_eq!(kept, [stored("old-valid")], "the rejected image leaves the transcript");
-    let replaced = h.sink.replaced.lock().unwrap();
-    assert_eq!(replaced.len(), 1, "the heal is persisted");
-    assert_eq!(replaced[0].1, Rewrite::default());
-    assert_eq!(
-        replaced[0].0[2].message.content,
-        Content::Parts(vec![
-            ContentPart::Text("inspect".into(), None),
-            ContentPart::Text(mixdog_agent::recovery_placeholder().into(), None),
-        ])
-    );
-    drop(replaced);
+    let content_row = |content: &Content| match content {
+        Content::Text(text) => json!(text),
+        Content::Parts(parts) => JsonValue::Array(
+            parts
+                .iter()
+                .map(|p| match p {
+                    ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
+                    ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, filename, .. } => {
+                        let mut row = json!({ "type": "image", "attachmentRef": r, "mimeType": mime_type });
+                        if let Some(name) = filename {
+                            row["filename"] = json!(name);
+                        }
+                        row
+                    }
+                    other => panic!("part {other:?}"),
+                })
+                .collect(),
+        ),
+    };
+    let sent_row = |m: &Message| {
+        let mut row = json!({ "role": format!("{:?}", m.role).to_lowercase(), "content": content_row(&m.content) });
+        if !m.tool_calls.is_empty() {
+            row["toolCalls"] =
+                m.tool_calls.iter().map(|c| json!({ "id": c.id, "name": c.name, "arguments": c.arguments })).collect();
+        }
+        if let Some(id) = &m.tool_call_id {
+            row["toolCallId"] = json!(id);
+        }
+        row
+    };
+    let sent = |h: &Harness| -> Vec<JsonValue> {
+        h.provider
+            .requests()
+            .iter()
+            .map(|r| r.messages.iter().filter(|m| m.role != Role::System).map(sent_row).collect())
+            .collect()
+    };
+    let attempt_of = |step: &JsonValue| match (&step["error"], &step["reply"]) {
+        (JsonValue::Object(e), _) => {
+            let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+            error.status = e.get("status").and_then(JsonValue::as_u64).map(|s| s as u16);
+            error.code = e.get("code").and_then(JsonValue::as_str).map(str::to_owned);
+            error.message = e["message"].as_str().expect("message").into();
+            Attempt::Reject(error)
+        }
+        (_, JsonValue::String(reply)) => turn(vec![text(reply), done(StopReason::EndTurn)]),
+        other => panic!("step {other:?}"),
+    };
+    let cases = recorded["cases"].as_array().expect("cases");
+    assert_eq!(cases.len(), 6);
+    for case in cases {
+        let name = case["name"].as_str().expect("name");
+        let messages: Vec<AgentMessage> = case["messages"].as_array().expect("messages").iter().map(message_of).collect();
+        let first = &case["first"];
+        let h = Harness::new(case["script"].as_array().expect("script").iter().map(attempt_of).collect());
+        let (result, mut transcript) = match h.run(config(), vec![], messages).run().await {
+            Ok(output) => (Some(output.response.content), output.transcript),
+            Err(failure) => (None, failure.transcript),
+        };
+        assert_eq!(JsonValue::Array(sent(&h)), first["sends"], "{name}: what the provider was sent");
+        assert_eq!(result.as_deref(), first["result"].as_str(), "{name}: how the turn ended");
+        let kept: Vec<JsonValue> =
+            transcript.iter().map(|m| json!({ "role": format!("{:?}", m.role()).to_lowercase(), "content": content_row(&m.message.content) })).collect();
+        assert_eq!(JsonValue::Array(kept), first["transcript"], "{name}: the transcript the turn left");
 
-    let mut next_turn = output.transcript.clone();
-    next_turn.push(AgentMessage::user("next turn"));
-    let next = Harness::new(vec![turn(vec![text("still usable"), done(StopReason::EndTurn)])]);
-    let output = finish(next.run(config(), vec![], next_turn)).await;
-    assert_eq!(output.response.content, "still usable");
-    assert_eq!(next.provider.requests().len(), 1);
-    assert_eq!(sent_images(&next.provider.requests()[0]), [stored("old-valid")]);
+        transcript.push(AgentMessage::user("next turn"));
+        let next = Harness::new(vec![turn(vec![text("still usable"), done(StopReason::EndTurn)])]);
+        let output = finish(next.run(config(), vec![], transcript)).await;
+        assert_eq!(output.response.content, case["next"]["result"].as_str().expect("next result"), "{name}");
+        assert_eq!(JsonValue::Array(sent(&next)), case["next"]["sends"], "{name}: the next turn's request");
+    }
 }
 
 #[tokio::test]

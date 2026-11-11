@@ -1,0 +1,953 @@
+{
+  "scenario": "image-strip",
+  "cases": [
+    {
+      "name": "one-new-image-confirmed",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "seen"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "inspect"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "message": "The image data you provided does not represent a valid image. Please check your input and try again."
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "seen"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "inspect"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "seen"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "inspect"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "seen"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "inspect"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "seen"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "inspect"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "seen"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "inspect"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "one-image-two-filenames",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "compare"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "mimeType": "image/png",
+              "filename": "left.png"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "mimeType": "image/png",
+              "filename": "right.png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "code": "invalid_image",
+            "message": "Invalid image."
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "mimeType": "image/png",
+                  "filename": "left.png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "mimeType": "image/png",
+                  "filename": "right.png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "compare"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "compare"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "two-distinct-images",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "image",
+              "attachmentRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "code": "invalid_image",
+            "message": "Invalid image."
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "attachmentRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "attachmentRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "image",
+                  "attachmentRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "image",
+                "attachmentRef": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unconfirmed-could-not-process",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "message": "Could not process image"
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "error-naming-no-image",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "message": "Invalid request: the field temperature is out of range."
+          }
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": null,
+        "error": "Invalid request: the field temperature is out of range.",
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "image-in-tool-result",
+      "messages": [
+        {
+          "role": "user",
+          "content": "take a screenshot"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "toolCallId": "call_1",
+          "content": [
+            {
+              "type": "text",
+              "text": "screenshot"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "message": "The image data you provided does not represent a valid image. Please check your input and try again."
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": "take a screenshot"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "call_1",
+                  "name": "read",
+                  "arguments": {}
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "screenshot"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+                  "mimeType": "image/png"
+                }
+              ],
+              "toolCallId": "call_1"
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": "take a screenshot"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "call_1",
+                  "name": "read",
+                  "arguments": {}
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "screenshot"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ],
+              "toolCallId": "call_1"
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": "take a screenshot"
+          },
+          {
+            "role": "assistant",
+            "content": ""
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "text",
+                "text": "screenshot"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": "take a screenshot"
+            },
+            {
+              "role": "assistant",
+              "content": "",
+              "toolCalls": [
+                {
+                  "id": "call_1",
+                  "name": "read",
+                  "arguments": {}
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "screenshot"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ],
+              "toolCallId": "call_1"
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": "take a screenshot"
+          },
+          {
+            "role": "assistant",
+            "content": ""
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "type": "text",
+                "text": "screenshot"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    }
+  ]
+}
