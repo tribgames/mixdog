@@ -78,7 +78,7 @@ static CLEARABLE: std::sync::Mutex<Vec<(String, mixdog_rt::TimerHandle)>> = std:
 static CLASS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn next_class() -> TaskClass {
-    if CLASS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 2 == 0 { TaskClass::Control } else { TaskClass::Work }
+    if CLASS.fetch_add(1, std::sync::atomic::Ordering::SeqCst).is_multiple_of(2) { TaskClass::Control } else { TaskClass::Work }
 }
 
 fn millis(action: &serde_json::Value) -> Duration {
