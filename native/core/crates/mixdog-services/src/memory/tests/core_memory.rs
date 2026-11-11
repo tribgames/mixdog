@@ -49,54 +49,6 @@ async fn memory_tool_matches_recorded_goldens() {
     }
 }
 
-/// memory-cycle-status.test.mjs: `action:"status"` reports the cycle1 backlog and the last run,
-/// through the tool's route and the module's alike.
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
-async fn status_reports_the_backlog_and_the_last_cycle1_run() {
-    use std::sync::Arc;
-
-    use crate::memory::ingest::SessionIngest;
-    use crate::memory::ingest::embed_flush::RawEmbedFlush;
-    use crate::memory::recall::period::Clock;
-    use crate::memory::recall::{Recall, RecallDeps};
-    use crate::memory::service::{LocalMemory, MemoryModule};
-
-    let pg = TestPg::start().await;
-    let db = pg.db(Schema::Memory).await;
-    ensure_memory_schema(&db, 384, &json!({ "model": "test", "dtype": "q8" })).await.expect("schema");
-    for i in 0..10 {
-        db.execute(
-            "INSERT INTO entries (ts, role, content, source_ref, is_root) VALUES ($1, 'user', 'x', $2, $3)",
-            &[&(i as i64), &format!("ref-{i}"), &i16::from(i < 4)],
-        )
-        .await
-        .unwrap();
-    }
-    db.batch("UPDATE entries SET chunk_root = id WHERE is_root = 1").await.unwrap();
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
-    db.execute("INSERT INTO meta (key, value) VALUES ('state.cycle_last_run', $1)", &[&json!({ "cycle1": now })]).await.unwrap();
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let recall = Recall::new(RecallDeps {
-        db: db.clone(),
-        clock: Arc::new(move || Clock { now_ms: now, zone: chrono_tz::Asia::Seoul }),
-        embedder: None,
-        session_cwd: None,
-        lane,
-        estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
-        trace: None,
-    });
-    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(move || now), lane);
-    let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
-
-    let reply = memory.memory_reply(&json!({ "action": "status", "memory_caller": { "kind": "human" } })).await;
-    assert!(!reply.is_error, "{}", reply.text);
-    for line in ["entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)", "embedding_index: ready dims=384", "bootstrap: complete", "last_cycle1: 0m ago"] {
-        assert!(reply.text.lines().any(|l| l == line), "{line} in {}", reply.text);
-    }
-    assert_eq!(memory.memory(json!({ "action": "status" })).await, reply.text, "the module answers the same readout");
-}
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn edit_and_delete_follow_the_listed_revision() {

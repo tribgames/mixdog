@@ -67,9 +67,9 @@ async fn readout(db: &Db, now: f64) -> Result<String> {
     .join("\n"))
 }
 
-pub async fn status(db: &Db) -> ToolReply {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
-    match readout(db, now).await {
+/// The readout at `now_ms` (Node's `Date.now()`).
+pub async fn status(db: &Db, now_ms: i64) -> ToolReply {
+    match readout(db, now_ms as f64).await {
         Ok(text) => ToolReply::ok(text),
         Err(error) => ToolReply::error(format!("status failed: {}", error.message())),
     }
