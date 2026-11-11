@@ -1245,6 +1245,10 @@ impl ProcessManager for LocalProcessManager {
         self.write_input(handle, bytes)
     }
 
+    async fn write_stdin_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        self.write_input_wait(handle, bytes).await
+    }
+
     fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
         let proc = self.inner.lookup(handle)?;
         if proc.pty.is_some() {

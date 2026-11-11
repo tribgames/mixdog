@@ -844,9 +844,10 @@ impl ShellTool {
             if job.handle != fresh {
                 script.insert_str(0, &hand_off);
             }
-            // One write, then end of input: the bootstrap reads to the end before it compiles. A
-            // process that is already gone has nothing to read; its exit is reported as it is.
-            let _ = ctx.processes.write_stdin(&job.handle, script.into_bytes()).await;
+            // The whole script, of any size, then end of input: the bootstrap reads to the end before it compiles
+            // (Node hands the helper the whole string in one `stdinWrite`). A process that is already gone has
+            // nothing to read; its exit is reported as it is.
+            let _ = ctx.processes.write_stdin_whole(&job.handle, script.into_bytes()).await;
             let _ = ctx.processes.close_stdin(&job.handle);
         }
         ctx.progress.progress(ToolProgress::ProcessStarted(job.handle.clone()));

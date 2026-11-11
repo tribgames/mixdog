@@ -43,14 +43,26 @@ fn idle_limit() -> Duration {
     }
 }
 
-/// `envSignature`: the environment a standby can serve, less the scratch variables.
+/// `envSignature`: the whole environment a process spawned with `env` now would get (what it inherits from this
+/// process as it is now, then the request's removals and values), less the scratch variables. Node hashes the full
+/// spawn environment it builds from `process.env` per call, so a variable changed after a standby was parked makes
+/// it drift.
 fn signature(env: &EnvSpec) -> String {
-    let mut set: Vec<String> =
-        env.set.iter().filter(|(key, _)| !SCRATCH_KEYS.contains(&key.as_str())).map(|(key, value)| format!("{key}={value}")).collect();
-    set.sort();
-    let mut removed: Vec<&str> = env.remove.iter().map(String::as_str).filter(|key| !SCRATCH_KEYS.contains(key)).collect();
-    removed.sort_unstable();
-    format!("{}\n{}\n-{}", env.inherit, set.join("\n"), removed.join("\n"))
+    use sha2::Digest;
+    let mut effective: std::collections::BTreeMap<String, String> = if env.inherit {
+        std::env::vars_os().map(|(key, value)| (key.to_string_lossy().into_owned(), value.to_string_lossy().into_owned())).collect()
+    } else {
+        std::collections::BTreeMap::new()
+    };
+    for key in &env.remove {
+        effective.remove(key);
+    }
+    for (key, value) in &env.set {
+        effective.insert(key.clone(), value.clone());
+    }
+    let entries: Vec<String> =
+        effective.iter().filter(|(key, _)| !SCRATCH_KEYS.contains(&key.as_str())).map(|(key, value)| format!("{key}={value}")).collect();
+    sha2::Sha256::digest(entries.join("\n")).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// `psStringExpr`: a PowerShell expression yielding `value`, which travels as UTF-8 Base64 (PowerShell quoting has no
@@ -121,6 +133,8 @@ struct State {
 pub struct Standby {
     state: Mutex<State>,
     seq: AtomicU64,
+    /// Signalled whenever a standby is parked.
+    parked_signal: tokio::sync::Notify,
 }
 
 impl Standby {
@@ -189,6 +203,8 @@ impl Standby {
             }
             let idle = standby.end_when_idle(handle.clone());
             state.parked = Some(Parked { handle, processes, shell, env, started: tokio::time::Instant::now(), idle });
+            drop(state);
+            standby.parked_signal.notify_waiters();
         });
     }
 
@@ -221,5 +237,18 @@ impl Standby {
     /// The parked standby's handle, for tests.
     pub fn parked(&self) -> Option<ProcessHandle> {
         self.state().parked.as_ref().map(|parked| parked.handle.clone())
+    }
+
+    /// The parked standby's handle once one is parked, for tests; the caller bounds the wait.
+    pub async fn wait_parked(&self) -> ProcessHandle {
+        loop {
+            let mut signal = std::pin::pin!(self.parked_signal.notified());
+            // Registered before the state is read, so a standby parked in between is not missed.
+            signal.as_mut().enable();
+            if let Some(handle) = self.parked() {
+                return handle;
+            }
+            signal.await;
+        }
     }
 }

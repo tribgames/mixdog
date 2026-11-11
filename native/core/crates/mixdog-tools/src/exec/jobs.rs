@@ -1114,6 +1114,11 @@ impl ExecRuntime {
         self.standby.parked()
     }
 
+    /// The parked PowerShell standby's handle once one is parked, for tests; the caller bounds the wait.
+    pub async fn wait_parked_standby(&self) -> ProcessHandle {
+        self.standby.wait_parked().await
+    }
+
     /// Shutdown: ends the parked PowerShell standby, removes the shell snapshots this runtime made, and the hoisted
     /// scripts and tee captures of commands that never settled (Node's exit hooks), once the log sweep has ended.
     pub async fn drain_snapshots(&self, cancel: &CancellationToken) {
