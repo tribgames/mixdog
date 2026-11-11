@@ -185,7 +185,7 @@ pub fn assert_send(set: &CaseSet, id: &str, recorded: &Recorded<'_>, got: &Send)
             "toolCalls" => want.assert_eq(&what, &got.tool_calls),
             // Node's `onStreamDelta` kinds, less `transport` where the manifest declares it not compared.
             "streamDeltas" if set.excludes(TRANSPORT_DELTAS) => {
-                want.assert_filtered(&what, TRANSPORT_DELTAS, |kind| kind.as_str() != "transport", &got.stream_deltas)
+                want.assert_filtered(&what, TRANSPORT_DELTAS, &got.stream_deltas)
             }
             "streamDeltas" => want.assert_eq(&what, &got.stream_deltas),
             other => want.assert_eq(&what, &derived(other, &got.result, &got.tool_calls)),

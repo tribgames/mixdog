@@ -100,7 +100,17 @@
         ],
         "stderr": [
           "[anthropic] retry attempt 2 after 503 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}, delay 2000ms (retry-after)\n"
-        ]
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 1,
+          "count": 2,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
       },
       "calls": [
         {
@@ -406,7 +416,17 @@
         ],
         "stderr": [
           "[xai:responses] retry attempt 2 after 503 busy, delay 2305ms (retry-after)\n"
-        ]
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 3,
+          "count": 3,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
       },
       "calls": [
         {
@@ -693,7 +713,17 @@
         ],
         "stderr": [
           "[xai] retry attempt 2 after 503 busy, delay 1897ms (retry-after)\n"
-        ]
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 6,
+          "count": 3,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
       },
       "calls": [
         {
@@ -980,7 +1010,17 @@
             "stage": "streaming"
           }
         ],
-        "stderr": []
+        "stderr": [],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 9,
+          "count": 0,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
       },
       "calls": [
         {
@@ -1130,6 +1170,2229 @@
             "status": 400,
             "contentType": "application/json",
             "body": "{\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth-request.mjs:140",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "overloaded",
+              "attempt": 2,
+              "max": 11,
+              "waitMs": 2000,
+              "retryAt": 1794225609202,
+              "reason": "Provider overloaded",
+              "classifier": "overloaded_error",
+              "message": "Provider overloaded · retry 2/11 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[anthropic-oauth] retry attempt 2/11 after 503, backoff 2000ms (retry-after)\n",
+          "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}\n"
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 9,
+          "count": 0,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 7202,
+          "fired": [
+            {
+              "dueMs": 9202
+            }
+          ],
+          "toMs": 9202
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "gateway-messages-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs:200",
+      "input": {
+        "provider": "openrouter",
+        "credentials": {}
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "workspaceID": null,
+            "error": {
+              "type": "error",
+              "error": {
+                "type": "invalid_request_error",
+                "message": "bad field"
+              }
+            },
+            "type": "invalid_request_error",
+            "httpStatus": 400,
+            "initialResponseError": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "anthropic",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "overloaded",
+              "attempt": 2,
+              "max": 11,
+              "waitMs": 2000,
+              "retryAt": 1794225611202,
+              "reason": "Provider overloaded",
+              "classifier": "overloaded_error",
+              "message": "Provider overloaded · retry 2/11 in 2s"
+            }
+          }
+        ],
+        "stderr": [
+          "[openrouter] retry attempt 2 after 503 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}, delay 2000ms (retry-after)\n"
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 9,
+          "count": 2,
+          "uuidFirst": 1,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openrouter.mjs.OpenRouterProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "anthropic/claude-sonnet-5",
+            [],
+            {
+              "modelMaxOutputTokens": 65536,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 9202,
+          "fired": [
+            {
+              "dueMs": 11202
+            }
+          ],
+          "toMs": 11202
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/messages",
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "207"
+            ]
+          ],
+          "body": "{\"model\":\"anthropic/claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/messages",
+          "headers": [
+            [
+              "host",
+              "openrouter.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "User-Agent",
+              "Anthropic/JS 0.137.0"
+            ],
+            [
+              "X-Stainless-Retry-Count",
+              "0"
+            ],
+            [
+              "X-Stainless-Timeout",
+              "600"
+            ],
+            [
+              "X-Stainless-Lang",
+              "js"
+            ],
+            [
+              "X-Stainless-Package-Version",
+              "0.137.0"
+            ],
+            [
+              "X-Stainless-OS",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "X-Stainless-Arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "X-Stainless-Runtime",
+              "node"
+            ],
+            [
+              "X-Stainless-Runtime-Version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "HTTP-Referer",
+              "https://github.com/tribgames/mixdog"
+            ],
+            [
+              "X-OpenRouter-Title",
+              "mixdog"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "207"
+            ]
+          ],
+          "body": "{\"model\":\"anthropic/claude-sonnet-5\",\"max_tokens\":65536,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "grok-oauth-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs:13",
+      "input": {
+        "provider": "grok-oauth",
+        "credentials": {
+          "grok-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000,
+            "account_id": "acct-fixture",
+            "email": "fixture@example.invalid"
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 bad field",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "error": {
+              "message": "bad field",
+              "type": "invalid_request_error"
+            },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "invalid_request_error"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 15,
+              "waitMs": 1985,
+              "retryAt": 1794225613187,
+              "reason": "Provider server error",
+              "classifier": "server_error",
+              "message": "Provider server error · retry 2/15 in 2s"
+            }
+          }
+        ],
+        "stderr": [
+          "[xai:responses] retry attempt 2 after 503 busy, delay 1985ms (retry-after)\n"
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 11,
+          "count": 3,
+          "uuidFirst": 1,
+          "uuidCount": 1
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/grok-oauth.mjs.GrokOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/grok-oauth.mjs.GrokOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1985,
+          "fromMs": 11202,
+          "fired": [
+            {
+              "dueMs": 13187
+            }
+          ],
+          "toMs": 13187
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "160"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"error\":{\"message\":\"busy\",\"type\":\"server_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-req-id",
+              "81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "160"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"bad field\",\"type\":\"invalid_request_error\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "antigravity-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/antigravity-transport.mjs:185",
+      "input": {
+        "provider": "antigravity-oauth",
+        "credentials": {
+          "antigravity-oauth.json": {
+            "access_token": "fixture-access-token",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000,
+            "account_id": "acct-fixture",
+            "email": "fixture@example.invalid",
+            "project_id": "fixture-project"
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Antigravity 400 (https://daily-cloudcode-pa.googleapis.com): bad field",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "bad field",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "bad field",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT",
+            "attempts": 2
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "model_thinking"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "overloaded",
+              "attempt": 2,
+              "max": 4,
+              "waitMs": 2000,
+              "retryAt": 1794225615187,
+              "reason": "Provider overloaded",
+              "classifier": "model_capacity_exhausted",
+              "message": "Provider overloaded · retry 2/4 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "model_thinking"
+          }
+        ],
+        "stderr": [
+          "[antigravity] retry 2 after Antigravity 503 (https://daily-cloudcode-pa.googleapis.com): overloaded\n"
+        ],
+        "attemptRequests": [
+          1,
+          2
+        ],
+        "draws": {
+          "first": 14,
+          "count": 1,
+          "uuidFirst": 2,
+          "uuidCount": 1
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/antigravity-oauth.mjs.AntigravityOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/antigravity-oauth.mjs.AntigravityOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 13187,
+          "fired": [
+            {
+              "dueMs": 15187
+            }
+          ],
+          "toMs": 15187
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app",
+          "path": "/manifest/latest-arm64-mac.yml",
+          "headers": [
+            [
+              "host",
+              "antigravity-hub-auto-updater-974169037036.us-central1.run.app"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Cache-Control",
+              "no-cache"
+            ],
+            [
+              "User-Agent",
+              "electron-builder"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"object\":\"list\",\"data\":[]}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://daily-cloudcode-pa.googleapis.com",
+          "path": "/v1internal:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "daily-cloudcode-pa.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "320"
+            ]
+          ],
+          "body": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-1099796703622425495\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-670491a4-985c-4c8c-81a2-d4a13c6bca2e\"}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://daily-cloudcode-pa.googleapis.com",
+          "path": "/v1internal:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "daily-cloudcode-pa.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Accept",
+              "text/event-stream"
+            ],
+            [
+              "User-Agent",
+              "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "320"
+            ]
+          ],
+          "body": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-1099796703622425495\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-670491a4-985c-4c8c-81a2-d4a13c6bca2e\"}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vertex-claude-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/vertex-ai.mjs:516",
+      "input": {
+        "provider": "vertex-ai",
+        "credentials": {
+          "adc.json": {
+            "type": "authorized_user",
+            "client_id": "fixture-client",
+            "client_secret": "fixture-secret",
+            "refresh_token": "fixture-refresh-token"
+          }
+        },
+        "adcFile": "adc.json"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Vertex AI Claude streamRawPredict 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "data": {
+              "type": "error",
+              "error": {
+                "type": "invalid_request_error",
+                "message": "bad field"
+              }
+            },
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "response": {
+              "status": 400,
+              "headers": {
+                "headers": [
+                  [
+                    "connection",
+                    "keep-alive"
+                  ],
+                  [
+                    "content-type",
+                    "application/json"
+                  ],
+                  [
+                    "date",
+                    "Thu, 01 Jan 2026 00:00:00 GMT"
+                  ],
+                  [
+                    "keep-alive",
+                    "timeout=5"
+                  ],
+                  [
+                    "transfer-encoding",
+                    "chunked"
+                  ]
+                ]
+              }
+            },
+            "initialResponseError": true
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "overloaded",
+              "attempt": 2,
+              "max": 11,
+              "waitMs": 2000,
+              "retryAt": 1794225617187,
+              "reason": "Provider overloaded",
+              "classifier": "overloaded_error",
+              "message": "Provider overloaded · retry 2/11 in 2s"
+            }
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          1,
+          2
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/vertex-ai.mjs.VertexAIProvider",
+          "args": [
+            {
+              "authMode": "adc",
+              "projectId": "fixture-project",
+              "location": "global"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/vertex-ai.mjs.VertexAIProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 15187,
+          "fired": [
+            {
+              "dueMs": 17187
+            }
+          ],
+          "toMs": 17187
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://oauth2.googleapis.com",
+          "path": "/token",
+          "headers": [
+            [
+              "host",
+              "oauth2.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "114"
+            ]
+          ],
+          "body": "grant_type=refresh_token&client_id=fixture-client&client_secret=fixture-secret&refresh_token=fixture-refresh-token",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"access_token\":\"fixture-token-1\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://aiplatform.googleapis.com",
+          "path": "/v1/projects/fixture-project/locations/global/publishers/anthropic/models/claude-sonnet-4-6:streamRawPredict",
+          "headers": [
+            [
+              "host",
+              "aiplatform.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-token-1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "211"
+            ]
+          ],
+          "body": "{\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true,\"anthropic_version\":\"vertex-2023-10-16\"}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://aiplatform.googleapis.com",
+          "path": "/v1/projects/fixture-project/locations/global/publishers/anthropic/models/claude-sonnet-4-6:streamRawPredict",
+          "headers": [
+            [
+              "host",
+              "aiplatform.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-token-1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "211"
+            ]
+          ],
+          "body": "{\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true,\"anthropic_version\":\"vertex-2023-10-16\"}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"bad field\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vertex-maas-raises-the-stage",
+      "source": "src/runtime/agent/orchestrator/providers/vertex-ai-maas.mjs:130",
+      "input": {
+        "provider": "vertex-ai",
+        "credentials": {
+          "adc.json": {
+            "type": "authorized_user",
+            "client_id": "fixture-client",
+            "client_secret": "fixture-secret",
+            "refresh_token": "fixture-refresh-token"
+          }
+        },
+        "adcFile": "adc.json"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "400 bad field",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "requestID": null,
+            "error": {
+              "message": "bad field",
+              "type": "invalid_request_error"
+            },
+            "param": {
+              "$exact": "undefined"
+            },
+            "type": "invalid_request_error"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 5,
+              "waitMs": 2000,
+              "retryAt": 1794225619187,
+              "reason": "Provider server error",
+              "classifier": "server_error",
+              "message": "Provider server error · retry 2/5 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[vertex-ai] retry attempt 2 after 503 busy, delay 2000ms (retry-after)\n"
+        ],
+        "attemptRequests": [
+          1,
+          2
+        ],
+        "draws": {
+          "first": 15,
+          "count": 2,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/vertex-ai.mjs.VertexAIProvider",
+          "args": [
+            {
+              "authMode": "adc",
+              "projectId": "fixture-project",
+              "location": "global"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/vertex-ai.mjs.VertexAIProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "zai-org/glm-5-maas",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 2000,
+          "fromMs": 17187,
+          "fired": [
+            {
+              "dueMs": 19187
+            }
+          ],
+          "toMs": 19187
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://oauth2.googleapis.com",
+          "path": "/token",
+          "headers": [
+            [
+              "host",
+              "oauth2.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/x-www-form-urlencoded"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "114"
+            ]
+          ],
+          "body": "grant_type=refresh_token&client_id=fixture-client&client_secret=fixture-secret&refresh_token=fixture-refresh-token",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"access_token\":\"fixture-token-2\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://aiplatform.googleapis.com",
+          "path": "/v1/projects/fixture-project/locations/global/endpoints/openapi/chat/completions",
+          "headers": [
+            [
+              "host",
+              "aiplatform.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-token-2"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "128"
+            ]
+          ],
+          "body": "{\"model\":\"zai-org/glm-5-maas\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"error\":{\"message\":\"busy\",\"type\":\"server_error\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://aiplatform.googleapis.com",
+          "path": "/v1/projects/fixture-project/locations/global/endpoints/openapi/chat/completions",
+          "headers": [
+            [
+              "host",
+              "aiplatform.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-token-2"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "128"
+            ]
+          ],
+          "body": "{\"model\":\"zai-org/glm-5-maas\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"bad field\",\"type\":\"invalid_request_error\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "devin-surfaces-the-first-failure",
+      "source": "src/runtime/agent/orchestrator/providers/devin.mjs:383",
+      "input": {
+        "provider": "devin-oauth",
+        "credentials": {
+          "devin-oauth.json": {
+            "access_token": "fixture-access-token",
+            "expires_at": 4000000000000
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "DevinWireError",
+          "message": "Devin GetChatMessage unavailable (HTTP 503): busy",
+          "code": "unavailable",
+          "props": {
+            "name": "DevinWireError",
+            "status": 503,
+            "retryable": true,
+            "connectCode": "unavailable",
+            "detail": "busy",
+            "retryAfterMs": 2000,
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "streaming"
+          }
+        ],
+        "stderr": [],
+        "attemptRequests": [
+          2
+        ],
+        "draws": {
+          "first": 17,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 2
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/devin.mjs.DevinOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin.mjs.DevinOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "devin-fixture",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.api_server_pb.ApiServerService/GetCliModelConfigs",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "103"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "CmUKBmNoaXNlbBIJMC4wLjAtZGV2GihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMC4wLjAtZGV2YgZjaGlzZWzyAQUDBAYHCA=="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Uint8Array",
+              "base64": "CkQKDURldmluIEZpeHR1cmWQAcCaDLIBDWRldmluLWZpeHR1cmW6AR0gwJoMMgRgAXgBigENZGV2aW4tZml4dHVyZbABCA=="
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "107"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJGZpeHR1cmUtYWNjZXNzLXRva2VuIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Uint8Array",
+              "base64": "ChBmaXh0dXJlLXVzZXItand0"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.api_server_pb.ApiServerService/GetChatMessage",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/connect+proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "connect-content-encoding",
+              "gzip"
+            ],
+            [
+              "connect-accept-encoding",
+              "gzip"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ],
+            [
+              "user-agent",
+              "connect-go/1.18.1 (go1.26.3)"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "content-length",
+              "286"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "AQAAARkfiwgAAAAAAAAKRY8xTsMwGIXjFEobCaliQpFYUIaC+Cs7dm2HpYJTMBI7v1WXKpHqhDIwIE7AEZg7ciQOgBg4AIIW8cbv6T29lzwmwwrvfQ126Y+GnFI6YWzC0/GWBgzBNzW0zR3WmfMPbbdCKK3FELbwNMb6/GDt66pZh8v/BtO3cx9wuSGjv1gXcAWLdftOdl56kWSKGeYkGlBcORBSlpBLK4C5QguBgvFCjEgaz73evz4ZkNHTV+/4pXcW/epzpsdXURTdOvcxuyGmn+yVXdss4gF5JpmbohbaSKBoKAihBGhTGci1khS50bmlr4RsyOH27W7oG8m4ZTIvxM9VbkFUVoKeIgWryorZQhVo1Tdg82n9PAEAAA=="
+          },
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"code\":\"unavailable\",\"message\":\"busy\"}"
           }
         }
       ]

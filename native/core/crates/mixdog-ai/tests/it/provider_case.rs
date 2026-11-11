@@ -483,6 +483,18 @@ fn excluded(exclusions: &[String], name: &str) -> bool {
     })
 }
 
+/// Whether `item` is of the kind the exclusion line `exclusion` declares not compared. Each line a replay filters by is
+/// read here, once; a line this does not know fails.
+fn excluded_kind(exclusion: &str, item: &Exact) -> bool {
+    match exclusion {
+        // `onStreamDelta('transport')`: the delta kinds Node recorded as strings.
+        "onStreamDelta('transport')" => item.as_str() == "transport",
+        // The stages the run loop raises around the send: every stage but the ladder's `reconnecting`.
+        "requesting and streaming stages" => item.get("stage").as_str() != "reconnecting",
+        other => panic!("no kind is known for the exclusion `{other}`"),
+    }
+}
+
 /// `path` with every array index written `[]`, as an exclusion line names it.
 fn generic_of(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
@@ -653,11 +665,13 @@ impl<'c> Recorded<'c> {
     }
 
     /// A recorded array whose items of one kind the manifest declares not compared (`exclusion`, a line the manifest
-    /// must hold): the items `keep` holds, in order, equal `got` whole; marks the path.
+    /// must hold): the items outside that kind, in order, equal `got` whole; marks the path. The kind is the driver's
+    /// own reading of the named line ([`excluded_kind`]), never a predicate the replay brings, so nothing beyond what
+    /// the line declares is left out.
     #[track_caller]
-    pub fn assert_filtered(&self, what: &str, exclusion: &str, keep: impl Fn(&Exact) -> bool, got: &Exact) {
+    pub fn assert_filtered(&self, what: &str, exclusion: &str, got: &Exact) {
         assert!(excluded(&self.case.exclusions, exclusion), "{what}: the manifest declares no `{exclusion}` exclusion");
-        let kept = Exact::Array(self.declared().as_array().iter().filter(|item| keep(item)).cloned().collect());
+        let kept = Exact::Array(self.declared().as_array().iter().filter(|item| !excluded_kind(exclusion, item)).cloned().collect());
         assert_exact(what, &kept, got);
         self.case.mark(&self.path);
     }
@@ -2016,12 +2030,24 @@ fn a_whole_comparison_leaves_out_only_declared_members() {
 
     let filtered = std::panic::catch_unwind(|| {
         let set = synthetic_set(object(&[("deltas", Exact::Array(vec![Exact::String("text".into()), Exact::String("transport".into())]))]), &[]);
-        let keep = |item: &Exact| item.as_str() != "transport";
-        set.cases[0].recorded().get("deltas").assert_filtered("deltas", "onStreamDelta('transport')", keep, &Exact::Array(vec![Exact::String("text".into())]));
+        set.cases[0].recorded().get("deltas").assert_filtered("deltas", "onStreamDelta('transport')", &Exact::Array(vec![Exact::String("text".into())]));
     })
     .map_err(panic_text)
     .expect_err("a filter needs its exclusion line");
     assert!(filtered.contains("declares no `onStreamDelta('transport')` exclusion"), "{filtered}");
+
+    // With its line declared, a filter leaves out only that kind: an actual with nothing in it still differs from the
+    // recorded `text`, and the array is not marked compared.
+    let excessive = std::panic::catch_unwind(|| {
+        let set = synthetic_set(
+            object(&[("deltas", Exact::Array(vec![Exact::String("text".into()), Exact::String("transport".into())]))]),
+            &["`onStreamDelta('transport')` is not compared: synthetic"],
+        );
+        set.cases[0].recorded().get("deltas").assert_filtered("deltas", "onStreamDelta('transport')", &Exact::Array(Vec::new()));
+    })
+    .map_err(panic_text)
+    .expect_err("a filter leaves out only its declared kind");
+    assert!(excessive.contains("deltas"), "{excessive}");
 }
 
 /// An error is marked compared only by its table comparison: a recorded field the table does not hold fails it, and
@@ -2040,7 +2066,7 @@ fn an_error_is_compared_only_through_every_field() {
     };
     let mut core = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
     core.message = "boom".into();
-    let left = crate::replay_errors::Left { error: Some(&core), cancelled: false, exhausted: false, events: &[] };
+    let left = crate::replay_errors::Left { error: Some(&core), cancelled: false, exhausted: false, events: &[], attempts: None };
     let set = synthetic_set(object(&[("error", recorded)]), &[]);
     let field = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| set.cases[0].recorded().get("error").assert_error("error", ErrorSide::Send(&left))))
         .map_err(panic_text)
