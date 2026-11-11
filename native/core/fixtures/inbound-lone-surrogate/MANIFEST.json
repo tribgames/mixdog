@@ -17,13 +17,14 @@
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs --tree D:\\mixdog-build\\tmp\\b6f-tree",
   "coreOnly": [
     {
-      "comparedWith": "the core's own refusal of {\"id\":900,\"method\":\"project/list�\",\"params\":{}} (a method name that does not exist), whole; and {\"id\":901,\"method\":\"project/list\",\"params\":{}} answered on the same connection",
+      "check": "answered with an error and no result, the connection open: {\"id\":901,\"method\":\"project/list\",\"params\":{}} is then answered with a result; no effect (the project folder and preferences compared at the end)",
       "nodeAnswered": {
         "error": "unknown method: listProjects\ud83d",
         "ok": false
       },
+      "sent": "{\"id\":900,\"method\":\"project/list\\ud83d\",\"params\":{}}",
       "step": "method-name-lone",
-      "why": "the core's method names are its own; a method name holding a lone unit is no name a shipped client sends"
+      "why": "the core's method names are its own; a method name holding a lone unit is no name a shipped client sends, so the rule asks only that it be refused with no side effect (decisions.md \"Lone UTF-16 surrogates in client strings\")"
     }
   ],
   "exact": true,
@@ -235,15 +236,15 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs",
-      "sha256": "7a69ae851a10dc3934149c6bc8514911ba9c4d13b8c4629dff08b8a5f7401d82"
+      "sha256": "b0b7112bd30957cb41dd3e891c5d70296b1bc1b1fef307680babf382b414c8b7"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-cases.mjs",
-      "sha256": "c76fa09c1196c9437779a535652882db276fd1d429da4e591a093d0e22aa1baf"
+      "sha256": "37ac017dbcc9e607842ad305b33ec23970bb797ab18d73ea587763c8b78cc277"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs",
-      "sha256": "1270921e4c1b2f4d4fce9f33bfe8708010427059bf805d93ca11ad4b8df03052"
+      "sha256": "844727e33bfef0b55f7b0b9ee32371f7eb5b7ad05e2e6252be839ca8160a44af"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/raw-frame-bytes.mjs",

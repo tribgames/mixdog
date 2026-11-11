@@ -179,7 +179,6 @@ export const STEPS = [
     params: [],
     coreRaw: '{"id":900,"method":"project/list\\ud83d","params":{}}',
     coreId: 900,
-    coreStandIn: { raw: '{"id":900,"method":"project/list\ufffd","params":{}}' },
     coreNext: { raw: '{"id":901,"method":"project/list","params":{}}', id: 901 },
   },
   // ── frames Node refuses: what the phone is told ──

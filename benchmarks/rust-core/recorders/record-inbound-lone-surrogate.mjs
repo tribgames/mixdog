@@ -343,12 +343,13 @@ writeSetManifest(stage, {
       check:
         "the phone's outcome equals, whole, coreMustAnswer: the TypeError of the core's sentence naming the field, and its cause, the core's JSON-RPC error (code, reason, message, data with the field's path); the connection stays open; no effect: Node's effect was put back after each of these steps, so the project folder and preferences compared at the end are the world the core must leave",
     },
-    // Steps with no Node counterpart: compared with the core's own answer to a stand-in, whole.
-    coreOnly: STEPS.filter((step) => step.coreStandIn).map((step) => ({
+    // Steps with no Node counterpart, declared: nothing expected of them comes from Node or from another answer of the core.
+    coreOnly: STEPS.filter((step) => step.coreRaw).map((step) => ({
       step: step.name,
       nodeAnswered: steps.find((recorded) => recorded.name === step.name)?.answer,
-      comparedWith: `the core's own refusal of ${step.coreStandIn.raw} (a method name that does not exist), whole; and ${step.coreNext.raw} answered on the same connection`,
-      why: "the core's method names are its own; a method name holding a lone unit is no name a shipped client sends",
+      sent: step.coreRaw,
+      check: `answered with an error and no result, the connection open: ${step.coreNext.raw} is then answered with a result; no effect (the project folder and preferences compared at the end)`,
+      why: "the core's method names are its own; a method name holding a lone unit is no name a shipped client sends, so the rule asks only that it be refused with no side effect (decisions.md \"Lone UTF-16 surrogates in client strings\")",
     })),
     accepted: STEPS.filter((step) => step.accepted).map((step) => ({
       step: step.name,
