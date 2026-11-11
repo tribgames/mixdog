@@ -14,7 +14,7 @@
 //   node benchmarks/rust-core/recorders/record-session-tool-control.mjs --tree <git clone at b6f10295a with node_modules> [--only <scenario>]
 //
 // Output: native/core/fixtures/session-tool-control/golden.json (with --only: that scenario printed, nothing written).
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -49,6 +49,8 @@ const { createLifecycleApi } = await importFrom(tree, 'src/session-runtime/lifec
 const { createAgentTaskSessions } = await importFrom(tree, 'src/session-runtime/agent-task-sessions.mjs');
 const { createBotStatus } = await importFrom(tree, 'src/session-runtime/bot-status.mjs');
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
+const { listProjects } = await importFrom(tree, 'src/runtime/shared/projects.mjs');
+const { getPluginData } = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
@@ -239,11 +241,27 @@ const sendTo = (sessionId, extra = {}) => ({ action: 'send', session_id: session
 // gives the task session it creates; `create.catalog` is what the session catalog lists for the last-used model,
 // `create.worktree` how the new session answers its worktree request, `create.drop` its deletion.
 const CREATED_ID = 'sess_task_new';
+// The registry document `listProjects` reads (`<MIXDOG_HOME>/projects.json`, the real `projects.mjs`): an entry's
+// `alias` is stored as a user might write it, and a Project is named as an existing directory (`C:/Windows`).
 const PROJECTS = [
-  { name: 'proj', path: 'C:/proj' },
+  { name: 'proj', path: 'C:/proj', alias: 'pa' },
   { name: 'dup', path: 'C:/dup1' },
   { name: 'Dup', path: 'C:/dup2' },
+  { name: 'C:/Windows', path: 'C:/shadow' },
 ];
+const PROJECTS_FILE = { projects: PROJECTS };
+writeFileSync(join(process.env.MIXDOG_HOME, 'projects.json'), JSON.stringify(PROJECTS_FILE));
+// The saved openai-oauth catalog `migrateCodexRoute` reads (`savedCatalog()`): `gpt-old` retired into `gpt-new`.
+const CODEX_CATALOG = {
+  version: 7,
+  fetchedAt: 1700000000000,
+  models: [
+    { id: 'gpt-old', upgrade: { model: 'gpt-new', retirementAt: '2020-01-01T00:00:00Z' } },
+    { id: 'gpt-new' },
+  ],
+};
+mkdirSync(getPluginData(), { recursive: true });
+writeFileSync(join(getPluginData(), 'openai-oauth-models.json'), JSON.stringify(CODEX_CATALOG));
 const LEAD_ROUTE = { provider: 'anthropic', model: 'opus' };
 // How the new session answers its worktree request (`configureSession({ action: 'requestWorktree' })`): a value, or a
 // typed failure; and why its deletion fails.
@@ -504,6 +522,10 @@ const SCENARIOS = [
     ['create-project', { args: createWith({ project: 'PROJ' }) }],
     ['create-project-ambiguous', { args: createWith({ project: 'dup' }) }],
     ['create-project-unknown', { args: createWith({ project: 'nowhere-xyz' }) }],
+    ['create-project-alias', { args: createWith({ project: 'pa' }) }],
+    ['create-project-shadowed', { args: createWith({ project: 'c:/windows' }) }],
+    ['create-model-retired', { args: createWith({ model: 'openai-oauth/gpt-old' }) }],
+    ['create-model-current', { args: createWith({ model: 'openai-oauth/gpt-new' }) }],
     ['create-model-ref', { args: createWith({ model: 'openai/gpt' }) }],
     ['create-model-ref-options', { args: createWith({ model: 'anthropic/opus@high+fast+noauto?temperature=0.2' }) }],
     ['create-model-display', { args: createWith({ model: 'opus' }) }],
@@ -645,7 +667,7 @@ function sendWorldOf(scenario) {
       },
     },
     loadSession: async (id) => clone(SEND_TARGETS[id] ?? null),
-    listProjects: async () => clone(PROJECTS),
+    listProjects: async () => listProjects(),
     newTaskDefault: async () => creating?.newTaskDefault,
     leadRoute: async () => clone(creating ? (creating.lead === undefined ? LEAD_ROUTE : creating.lead) : null),
     agentName: async (agentId) => BOTS.find((bot) => bot.id === agentId)?.name ?? agentId,
@@ -738,13 +760,25 @@ async function record(scenario) {
       const answer = { ok: true, text, pendingCompact: scheduled() };
       // A bot's send: what its turn's end delivered (or, reporting nothing, dropped) once it settled.
       if (sending) {
-        if (sending.seen.submitted.some((entry) => entry.reports)) await sending.settled;
+        if (sending.seen.submitted.some((entry) => entry.reports)) {
+          let timer;
+          const late = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`recorder: ${scenario.name}: the reporting turn did not settle within 10s`)), 10_000);
+          });
+          try {
+            await Promise.race([sending.settled, late]);
+          } finally {
+            clearTimeout(timer);
+          }
+        }
         return masked({ ...answer, send: sending.seen });
       }
       // The heir a fork created: its id, and the conversation it holds.
       if (scenario.fork) {
         const heir = JSON.parse(text).sessionId;
-        answer.heir = { id: heir, conversation: loadSession(heir).messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: m.content })) };
+        // Minted per run: named by its place, not its value.
+        answer.text = text.replaceAll(heir, 'sess_<heir>');
+        answer.heir = { id: 'sess_<heir>', conversation: loadSession(heir).messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: m.content })) };
       }
       return answer;
     } catch (error) {
@@ -771,7 +805,7 @@ if (only) {
     bots: BOTS,
     compaction: compacted.result,
     send: { targets: SEND_TARGETS, modelRows: MODEL_ROWS, final: SEND_FINAL },
-    create: { sessionId: CREATED_ID, projects: PROJECTS, lead: LEAD_ROUTE, worktree: WORKTREE_OUTCOMES, dropFailure: DROP_FAILURE },
+    create: { sessionId: CREATED_ID, projectsFile: PROJECTS_FILE, codexCatalog: CODEX_CATALOG, lead: LEAD_ROUTE, worktree: WORKTREE_OUTCOMES, dropFailure: DROP_FAILURE },
     scenarios,
   });
   writeSetManifest(stage, {
@@ -785,9 +819,9 @@ if (only) {
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
         "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
         'Room sends, members and asks are not recorded (out of scope).',
-        "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
-        "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded.",
-        "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above plus: `listProjects` (`create.projects`), `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
+        "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run and recorded as `sess_<heir>`.",
+        "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded. The stand-in replaces the recipient session's intake (`submitSession`, `materializeSession`): what is recorded is what the send path gives the recipient (each submission whole) and what it does with the turn's end; the recipient's own handling of a submission (its queue, a busy or closed session) is the session runtime's, which the core's replay runs for real (its own intake over its session directory) and which this recording does not cover.",
+        "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above, with the real `listProjects` (`projects.mjs`) reading `create.projectsFile` from the sandbox's MIXDOG_HOME and the real `migrateCodexRoute` reading the saved openai-oauth catalog `create.codexCatalog` from its data dir (`Date.now()` past the catalog's retirement), plus: `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
         "A bots call runs the real `createBotStatus` over the scenario's catalog (the session service's page read above, with `liveSessionAwaitingApproval` true for `bots.approvals`) and the scenario's `bots` sources in place of their process stores: `listBots` (`bots.list`), `taskWatches` (`bots.watches`), `heldRequests` (`bots.held`), `routines` (`bots.routines`, rows already of their kind, or a throw of `bots.routinesError`), `mixyName` (`bots.mixy`) and `now` (`bots.now`). A failing bot list, watch store, held requests or name read, and the over-budget refusal (no bot status a model can ask for reaches it), are not recorded.",
         "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",
       ],

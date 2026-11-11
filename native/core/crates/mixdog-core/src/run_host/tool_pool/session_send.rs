@@ -162,6 +162,10 @@ impl TurnSubmit for DirectorySubmit {
             return Ok(None);
         };
         let (tx, rx) = oneshot::channel();
+        // Nobody follows this turn's end: accepted, and nothing waits on it.
+        if !submission.settled {
+            return Ok(Some(rx));
+        }
         drop(mixdog_rt::spawn("session-send-settle", mixdog_rt::TaskClass::Work, async move {
             let end = settled.await.map_or_else(|_| TurnEnd { status: "cancelled".into(), text: String::new() }, |s| TurnEnd { status: s.status.to_owned(), text: s.text });
             let _ = tx.send(end);
@@ -362,7 +366,8 @@ impl SessionSend {
         self.rebind.rebind(session_id, caller).await?;
         let meta = Map::from_iter([("sender".to_owned(), json!("lead"))]);
         let id = format!("send_{}", uuid::Uuid::new_v4());
-        let accepted = self.directory.submit_chained_turn(&ThreadId::from(session_id), &prompt, &id, hop, &bot_chain, &meta, "").await.is_some();
+        let submission = mixdog_services::task_reports::send::Submission { hop, bot_chain, meta, settled: false };
+        let accepted = self.tasks.intake().submit(session_id, prompt.clone(), &id, submission).await?.is_some();
         Ok(unreported(session_id, accepted, hop))
     }
 }

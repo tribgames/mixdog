@@ -70,6 +70,9 @@ pub trait CreateHost: Send + Sync {
     async fn new_task_default(&self) -> Option<String>;
     /// `loadConfig().presets`.
     async fn presets(&self) -> Vec<Value>;
+    /// `migrateCodexRoute(route)`: a route on a model the saved openai-oauth catalog has
+    /// superseded moved to its successor, any other route as it is.
+    async fn codex_route(&self, route: Value) -> Value;
     /// `configLeadRoute()`: the Main route's fields, `None` while none is chosen.
     async fn lead_route(&self) -> Result<Option<Value>, String>;
     /// `listSessionCatalog({ page: { limit, cursor } })`: a page of catalog rows and the next cursor.
@@ -372,7 +375,8 @@ impl SessionSend {
         let model = clean(args.get("model"));
         let route = if !model.is_empty() {
             match parse_schedule_model_ref(&model) {
-                Ok(route) => Some(route_fields(&route)),
+                // `modelRouteFields(migrateCodexRoute(ref))`: only an explicit provider/model ref is migrated.
+                Ok(route) => Some(route_fields(self.create.codex_route(Value::Object(route)).await.as_object().unwrap_or(&Map::new()))),
                 Err(name) => {
                     let presets = self.create.presets().await;
                     let preset = presets.iter().find(|p| p.get("id").and_then(Value::as_str) == Some(&name) || p.get("name").and_then(Value::as_str) == Some(&name));
@@ -557,6 +561,8 @@ pub struct DirectoryCreate {
     pub config: mixdog_core_config::config::Config,
     pub routes: Arc<dyn mixdog_core_domains::domains::ai_admin::chain::RouteContext>,
     pub listing: Arc<dyn super::session_control::SessionListing>,
+    /// Where the saved openai-oauth catalog lives (`getPluginData()`).
+    pub data_dir: std::path::PathBuf,
     pub io: mixdog_rt::InteractiveIo,
 }
 
@@ -585,6 +591,17 @@ impl CreateHost for DirectoryCreate {
 
     async fn presets(&self) -> Vec<Value> {
         self.config.agent().get("presets").and_then(Value::as_array).cloned().unwrap_or_default()
+    }
+
+    async fn codex_route(&self, route: Value) -> Value {
+        let (data_dir, now) = (self.data_dir.clone(), self.directory.deps().clock.now_ms());
+        let cancel = mixdog_rt::CancellationToken::new();
+        let unchanged = route.clone();
+        let job = mixdog_rt::LaneToken::submit(self.io, &cancel, move |_| mixdog_core_config::config::migrate_codex_route(&route, &data_dir, now));
+        match job {
+            Ok(job) => job.await.unwrap_or(unchanged),
+            Err(_) => unchanged,
+        }
     }
 
     async fn lead_route(&self) -> Result<Option<Value>, String> {

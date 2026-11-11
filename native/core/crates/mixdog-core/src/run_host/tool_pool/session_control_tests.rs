@@ -459,9 +459,21 @@ struct CreateRecords {
 
 #[async_trait]
 impl super::super::session_create::CreateHost for CreateRecords {
+    /// The registry document Node's `listProjects` read (`golden.projectsFile`), read by the core's own registry
+    /// (`Registry::list`, as the daemon's `RegistryProjects` reads it).
     async fn projects(&self) -> Vec<mixdog_tools::orch::session::ProjectRow> {
-        let rows = self.golden["projects"].as_array().expect("projects");
-        rows.iter().map(|p| mixdog_tools::orch::session::ProjectRow { name: p["name"].as_str().expect("name").to_owned(), path: p["path"].as_str().expect("path").to_owned() }).collect()
+        let dir = tempfile::tempdir().expect("registry dir");
+        let path = dir.path().join("projects.json");
+        std::fs::write(&path, serde_json::to_vec(&self.golden["projectsFile"]).expect("registry document")).expect("registry written");
+        let registry = Arc::new(mixdog_store::registry::Registry::new(path));
+        let entries = mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| registry.list(lane)).await.expect("registry read");
+        entries.into_iter().map(|entry| mixdog_tools::orch::session::ProjectRow { name: entry.name, path: entry.path }).collect()
+    }
+    async fn codex_route(&self, route: Value) -> Value {
+        let models = self.golden["codexCatalog"]["models"].as_array().cloned().unwrap_or_default();
+        // Node's `codexModelSuccessor` reads `Date.now()`; the recorded retirement lies in the past of both runs.
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("after the epoch").as_millis() as i64;
+        mixdog_core_config::config::migrate_codex_route_over(&route, &models, now)
     }
     async fn directory(&self, path: &str) -> Option<String> {
         std::path::Path::new(path).is_dir().then(|| path.to_owned())
@@ -542,6 +554,42 @@ async fn session_create_answers_as_node() {
     replay_sends("create-").await;
 }
 
+/// The sessions' intake as the send path submits through it, each submission kept as Node's recorder
+/// keeps `submitSession({ sessionId, prompt, options })`: `options.id` is the send's id when the sender
+/// follows the turn (Node passes an id only with `onSettled`), `mode` is a prompt's, and `transcriptMeta`
+/// is the sender's meta with the chain's hop and bots (`chainedOrigin`'s transcript meta).
+struct Submits {
+    inner: super::super::session_send::DirectorySubmit,
+    seen: Mutex<Vec<Value>>,
+}
+
+#[async_trait]
+impl mixdog_services::task_reports::send::TurnSubmit for Submits {
+    async fn submit(
+        &self,
+        session_id: &str,
+        content: Value,
+        id: &str,
+        submission: mixdog_services::task_reports::send::Submission,
+    ) -> Result<Option<tokio::sync::oneshot::Receiver<mixdog_services::task_reports::send::TurnEnd>>, String> {
+        let mut meta = submission.meta.clone();
+        if submission.hop > 0 {
+            meta.insert("hop".into(), json!(submission.hop));
+        }
+        if !submission.bot_chain.is_empty() {
+            meta.insert("botChain".into(), json!(submission.bot_chain));
+        }
+        let mut options = Map::new();
+        if submission.settled {
+            options.insert("id".into(), masked_value(&json!(id)));
+        }
+        options.insert("mode".into(), json!("prompt"));
+        options.insert("transcriptMeta".into(), Value::Object(meta));
+        self.seen.lock().expect("submits").push(json!({ "sessionId": session_id, "prompt": content, "options": options, "reports": submission.settled }));
+        self.inner.submit(session_id, content, id, submission).await
+    }
+}
+
 async fn replay_sends(prefix: &str) {
     use mixdog_core_session::session::SessionDirectory;
     use mixdog_core_session::session::testing::Rig;
@@ -605,9 +653,10 @@ async fn replay_sends(prefix: &str) {
             Arc::new(mixdog_services::task_reports::host::BotWork::new(Arc::new(|_: &str| {}))),
             Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
         );
+        let submits = Arc::new(Submits { inner: super::super::session_send::DirectorySubmit(directory.clone()), seen: Mutex::default() });
         let tasks = TaskSends::with_timing(
             host,
-            Arc::new(super::super::session_send::DirectorySubmit(directory.clone())),
+            submits.clone(),
             "process".into(),
             Arc::new(|| 0),
             std::time::Duration::ZERO,
@@ -701,14 +750,12 @@ async fn replay_sends(prefix: &str) {
             let users: Vec<&Value> = messages.iter().filter(|m| m["role"] == "user").collect();
             assert_eq!(users.len(), 1, "{name}: one turn in {target:?}");
             assert_eq!(users[0]["content"], submitted["prompt"], "{name}: the prompt {target:?} took");
-            let meta = &users[0]["meta"]["transcript"];
-            let sent: Map<String, Value> = ["sender", "fromAgent", "hop", "botChain"].iter().filter_map(|key| meta.get(*key).map(|v| ((*key).to_owned(), v.clone()))).collect();
-            assert_eq!(Value::Object(sent), submitted["options"]["transcriptMeta"], "{name}: the transcript meta of the turn in {target:?}");
-            if let Some(id) = submitted["options"].get("id") {
-                // The turn's only submission is the recorded send's id.
-                assert_eq!(masked_value(&meta["submissionIds"]).as_array().map(Vec::as_slice), Some(std::slice::from_ref(id)), "{name}: the turn takes the send's submission");
+            for (key, value) in submitted["options"]["transcriptMeta"].as_object().expect("transcript meta") {
+                assert_eq!(users[0]["meta"]["transcript"][key], *value, "{name}: the stored turn in {target:?} carries the submission's {key}");
             }
         }
+        // Every submission, whole, as Node's session service was given it.
+        assert_eq!(json!(*submits.seen.lock().expect("submits")), recorded["submitted"], "{name}: the submissions");
         // A reporting turn's end is delivered (or, reporting nothing, its record dropped) after the turn settles.
         let reports = |records: &HomeRecords| records.delivered.lock().expect("delivered").len() + records.disowned.lock().expect("disowned").len();
         let owed = recorded["delivered"].as_array().expect("delivered").len() + recorded["disowned"].as_array().expect("disowned").len();

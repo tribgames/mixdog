@@ -2864,6 +2864,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     config: config.clone(),
                     routes: route_context.clone(),
                     listing: late_listing.clone(),
+                    data_dir: b.data_dir.clone(),
                     io: b.tokens.interactive_io,
                 }),
             }))
