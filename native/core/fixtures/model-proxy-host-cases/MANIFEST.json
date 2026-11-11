@@ -1,0 +1,120 @@
+{
+  "cases": 32,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
+    "notRun": "no real provider: the PC providers and registry modules are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock",
+    "runs": "apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe) over the real ModelProxyChannel, ModelProxyProvider and loadModelProxyProviderConfig of the daemon side, joined through a JSON hop as the session connection does; resolveWireRoute / pinSessionWireRoute; the real provider-api-key helpers",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order"
+    },
+    "standIns": {
+      "AbortSignal": "an AbortSignal is stored as { aborted, reason } (reason through exact); a function inside provider options is stored as { function: <name> }"
+    }
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 414694,
+      "path": "golden.json",
+      "sha256": "8c2ed3ab9d62dde901bb884af9ad8e54fa5abf94bf692fc2e1ca86b74c5be76d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "3e1301689dcce08b5ceaf1a0a7c0d0e6b29e6cf26b0c2eba10b58cfcd38ccb52"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs",
+  "recorderSha256": "ae9b4d2320c5765d2508f42176a14f4c2e1937da0d649b9c8bb9fc9dade3539f",
+  "replay": {
+    "compare": "mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case's observed fields whole",
+    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references; mixdog-core/src/run_host/model_proxy_pc.rs:80 PcQuotaProbe; mixdog-core/src/run_host/model_proxy_pc.rs:250 PcProviderConfig.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "the PC host (createModelProxyHost: claim, heartbeat and lease, abort of a claimed call, the request-event stream): mixdog-core/src/run_host/model_proxy_pc.rs holds the quota probe and the provider config reads only; request dispatch is the ProxyCall match at mixdog-core-domains/.../ai_admin/model_proxy.rs:917-930"
+    ],
+    "normalised": {
+      "secretShapedInputs": "the test strings sk-abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnop1234 are recorded with the sk-DUMMY- marker (the fixture secret scan refuses the original shape); the redactor treats both alike",
+      "transportScope": "the PC scope is <session>#proxy:<uuid>; the uuid is a counter (scripted crypto.randomUUID), recorded as it came"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 76,
+        "name": "without_attachment_references",
+        "path": "native/core/crates/mixdog-ai/src/service/model_proxy.rs"
+      },
+      {
+        "line": 80,
+        "name": "PcQuotaProbe",
+        "path": "native/core/crates/mixdog-core/src/run_host/model_proxy_pc.rs"
+      },
+      {
+        "line": 250,
+        "name": "PcProviderConfig",
+        "path": "native/core/crates/mixdog-core/src/run_host/model_proxy_pc.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "model-proxy-host-cases",
+  "totalBytes": 414694,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

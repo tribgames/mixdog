@@ -145,17 +145,19 @@ impl CompatChatCodec {
             .trim_end_matches('/')
     }
 
-    fn headers(&self, request: &ModelRequest) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest) -> Result<Vec<(String, String)>, ProviderError> {
         let mut headers: Vec<(String, String)> = vec![
             ("content-type".into(), "application/json".into()),
             ("accept".into(), "application/json".into()),
         ];
-        headers.extend(
-            self.profile
-                .headers
-                .iter()
-                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
-        );
+        // The SDK client merges its default headers with the provider's case-insensitively, the later value winning:
+        // a profile header of a default's name replaces it (Command Code's and MiMo's `Accept`).
+        for (name, value) in self.profile.headers {
+            match headers.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+                Some(slot) => slot.1 = (*value).to_owned(),
+                None => headers.push(((*name).to_owned(), (*value).to_owned())),
+            }
+        }
         let dialect = &self.profile.chat;
         if dialect.session_affinity_headers {
             headers.push((
@@ -182,7 +184,8 @@ impl CompatChatCodec {
             headers.push(("x-grok-conv-id".into(), routing.chat_key(request)));
         }
         headers.extend(self.config.extra_headers.iter().cloned());
-        headers
+        headers.extend(super::session_header(&self.profile, request));
+        Ok(headers)
     }
 }
 
@@ -210,7 +213,7 @@ impl WireCodec for CompatChatCodec {
             transport: TransportKind::Http1,
             method: "POST".into(),
             url: format!("{}/chat/completions", self.base_url()),
-            headers: self.headers(request),
+            headers: self.headers(request)?,
             // A JSON object always serializes.
             body: serde_json::to_vec(&body).unwrap_or_default(),
         })
