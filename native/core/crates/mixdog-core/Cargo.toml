@@ -83,6 +83,7 @@ mixdog-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }

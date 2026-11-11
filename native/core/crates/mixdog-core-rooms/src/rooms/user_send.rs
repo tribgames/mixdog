@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_js::js_trim;
-use serde_json::{Map, Value};
+use mixdog_js::{js_trim, slice_utf16, utf16_len};
+use serde_json::{Map, Value, json};
 
 use super::RoomError;
 use super::calls::{CallRunner, RoomCalls};
@@ -27,24 +27,258 @@ pub struct UserMessage {
 }
 
 impl UserMessage {
-    /// `room/send`'s input `{ threadId, prompt, options }`, `options` as `turn/start` takes them (`clientSubmissionId`,
-    /// `pastedImages`, `pastedTexts`; the others say nothing to a room).
+    /// `room/send`'s input `{ threadId, prompt, options }`, `options` as `turn/start` takes them (`clientSubmissionId` for
+    /// Node's `id`, `pastedImages`, `pastedTexts`; the others say nothing to a room). Read as Node's handlers read
+    /// `submitToSession`'s arguments before anything happens, the desktop's (`ipc-sessions.ts:221-222`) and the phone's
+    /// (`remote-session-methods.ts:155-158`) alike: `requiredSessionId`, `requiredPromptContent` and `requiredSubmitOptions`
+    /// (`desktop-state.ts:58-65`, `ipc-validation.ts:1123-1266`). Anything else is refused before the room is looked at; the
+    /// prompt goes on as those checks return it (an image's type lowercased, a file's canonical, its name cut at 160 units).
     pub fn of(input: &Value) -> Result<Self, RoomError> {
-        let session_id = input.get("threadId").and_then(Value::as_str).ok_or_else(|| RoomError::Invalid("threadId is required.".into()))?;
-        let prompt = input
-            .get("prompt")
-            .filter(|prompt| prompt.is_string() || prompt.is_array())
-            .cloned()
-            .ok_or_else(|| RoomError::Invalid("prompt is a text or a list of parts.".into()))?;
-        let option = |key: &str| input.get("options").and_then(|options| options.get(key)).filter(|value| !value.is_null()).cloned();
+        let input = input.as_object().ok_or_else(|| invalid("room/send input is invalid."))?;
+        if input.keys().any(|key| !matches!(key.as_str(), "threadId" | "prompt" | "options")) {
+            return Err(invalid("room/send input contains an unsupported field."));
+        }
+        let session_id = required_session_id(input.get("threadId"))?;
+        let prompt = required_prompt_content(input.get("prompt"))?;
+        let options = required_submit_options(input.get("options"))?;
+        let option = |key: &str| options.get(key).cloned();
         Ok(Self {
-            session_id: session_id.to_owned(),
+            session_id,
             prompt,
             submission_id: option("clientSubmissionId").and_then(|id| id.as_str().map(str::to_owned)).unwrap_or_default(),
             pasted_images: option("pastedImages"),
             pasted_texts: option("pastedTexts"),
         })
     }
+}
+
+/// Node's validators throw a plain `TypeError`, which reaches the caller as its message alone (no code).
+fn invalid(message: &str) -> RoomError {
+    RoomError::Refused(message.to_owned())
+}
+
+/// `MAX_PROMPT_LENGTH` (`ipc-validation.ts:315`), in UTF-16 units as every length below.
+const MAX_PROMPT_LENGTH: usize = 1_000_000;
+/// `MAX_STRUCTURED_STRING_TOTAL` (`ipc-validation.ts:316`).
+const MAX_STRUCTURED_STRING_TOTAL: usize = 32_000_000;
+/// `shared/prompt-limits.ts:3-14`.
+const MAX_PROMPT_FILES: usize = 8;
+const MAX_PROMPT_IMAGES: usize = 8;
+const MAX_PROMPT_IMAGE_BASE64_LENGTH: usize = 16_000_000;
+const MAX_PROMPT_IMAGE_BASE64_TOTAL: usize = 30_000_000;
+const MAX_PROMPT_FILE_BASE64_LENGTH: usize = 28_000_000;
+const MAX_PROMPT_FILE_BASE64_TOTAL: usize = 28_000_000;
+const MAX_PROMPT_FILE_MIME_LENGTH: usize = 128;
+/// `MAX_SESSION_ID_LENGTH` (`desktop-state.ts:51`).
+const MAX_SESSION_ID_LENGTH: usize = 256;
+/// `SUBMIT_OPTION_KEYS` (`ipc-validation.ts:339-349`), `id` as the wire names it.
+const SUBMIT_OPTION_KEYS: [&str; 9] =
+    ["clientSubmissionId", "submittedAt", "displayText", "goalCommand", "retryFailedTurn", "priority", "pastedImages", "pastedTexts", "kickoff"];
+/// `OFFICE_MIME_TYPES` (`shared/prompt-limits.ts:21-31`).
+const OFFICE_MIME_TYPES: [&str; 7] = [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "application/msword",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.ms-excel",
+];
+
+/// `requiredSessionId` (`desktop-state.ts:58-65`).
+fn required_session_id(value: Option<&Value>) -> Result<String, RoomError> {
+    let Some(Value::String(value)) = value else { return Err(invalid("session id must be a string.")) };
+    let id = js_trim(value);
+    if id.is_empty() || utf16_len(id) > MAX_SESSION_ID_LENGTH || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        return Err(invalid("session id is invalid."));
+    }
+    Ok(id.to_owned())
+}
+
+/// `requiredString(value, name, maximum)` (`ipc-validation.ts:656-660`): trimmed.
+fn required_string(value: Option<&Value>, name: &str, maximum: usize) -> Result<String, RoomError> {
+    let Some(Value::String(value)) = value else { return Err(invalid(&format!("{name} must be a string."))) };
+    let text = js_trim(value);
+    if text.is_empty() || utf16_len(text) > maximum {
+        return Err(invalid(&format!("{name} is invalid.")));
+    }
+    Ok(text.to_owned())
+}
+
+/// `/^[A-Za-z0-9+/]*={0,2}$/`.
+fn base64_shaped(data: &str) -> bool {
+    let body = data.trim_end_matches('=');
+    data.len() - body.len() <= 2 && body.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+}
+
+/// `canonicalPromptFileMimeType` (`shared/prompt-limits.ts:35-42`).
+fn canonical_file_mime(mime: &str) -> Option<&'static str> {
+    let base = mime.split(';').next().unwrap_or_default();
+    let base = mixdog_js::js_to_lowercase(js_trim(base));
+    if base == "application/pdf" {
+        return Some("application/pdf");
+    }
+    OFFICE_MIME_TYPES.into_iter().find(|candidate| mixdog_js::js_to_lowercase(candidate) == base)
+}
+
+/// A part's `data`: a non-empty base64 text of at most `maximum` units.
+fn part_data(part: &Map<String, Value>, maximum: usize, refusal: &str) -> Result<String, RoomError> {
+    match part.get("data") {
+        Some(Value::String(data)) if !data.is_empty() && data.len() <= maximum && base64_shaped(data) => Ok(data.clone()),
+        _ => Err(invalid(refusal)),
+    }
+}
+
+/// `requiredPromptContent` (`ipc-validation.ts:1152-1222`): the prompt as it goes on.
+fn required_prompt_content(value: Option<&Value>) -> Result<Value, RoomError> {
+    if let Some(Value::String(text)) = value {
+        if js_trim(text).is_empty() || utf16_len(text) > MAX_PROMPT_LENGTH {
+            return Err(invalid("prompt is invalid."));
+        }
+        return Ok(Value::String(text.clone()));
+    }
+    let parts = match value {
+        Some(Value::Array(parts)) if !parts.is_empty() && parts.len() <= 32 => parts,
+        _ => return Err(invalid("prompt content is invalid.")),
+    };
+    let (mut text_length, mut image_length, mut images, mut file_length, mut files) = (0, 0, 0, 0, 0);
+    let mut has_content = false;
+    let mut content = Vec::with_capacity(parts.len());
+    for entry in parts {
+        let Value::Object(part) = entry else { return Err(invalid("prompt part is invalid.")) };
+        match part.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                let Some(Value::String(text)) = part.get("text") else { return Err(invalid("prompt text part is invalid.")) };
+                text_length += utf16_len(text);
+                if text_length > MAX_PROMPT_LENGTH {
+                    return Err(invalid("prompt text is too large."));
+                }
+                has_content |= !js_trim(text).is_empty();
+                content.push(json!({ "type": "text", "text": text }));
+            }
+            Some("image") => {
+                images += 1;
+                if images > MAX_PROMPT_IMAGES {
+                    return Err(invalid("too many prompt images."));
+                }
+                let mime = mixdog_js::js_to_lowercase(&required_string(part.get("mimeType"), "image mime type", 64)?);
+                if !matches!(mime.as_str(), "image/png" | "image/jpg" | "image/jpeg" | "image/gif" | "image/webp") {
+                    return Err(invalid("image type is unsupported."));
+                }
+                let data = part_data(part, MAX_PROMPT_IMAGE_BASE64_LENGTH, "image data is invalid.")?;
+                image_length += data.len();
+                if image_length > MAX_PROMPT_IMAGE_BASE64_TOTAL {
+                    return Err(invalid("prompt images are too large."));
+                }
+                has_content = true;
+                content.push(json!({ "type": "image", "data": data, "mimeType": mime }));
+            }
+            Some("file") => {
+                files += 1;
+                if files > MAX_PROMPT_FILES {
+                    return Err(invalid("too many prompt files."));
+                }
+                let mime = required_string(part.get("mimeType"), "file mime type", MAX_PROMPT_FILE_MIME_LENGTH)?;
+                let mime = canonical_file_mime(&mime).ok_or_else(|| invalid("file type is unsupported."))?;
+                let data = part_data(part, MAX_PROMPT_FILE_BASE64_LENGTH, "file data is invalid.")?;
+                file_length += data.len();
+                if file_length > MAX_PROMPT_FILE_BASE64_TOTAL {
+                    return Err(invalid("prompt files are too large."));
+                }
+                has_content = true;
+                let filename = part.get("filename").and_then(Value::as_str).map(|name| slice_utf16(name, 160)).unwrap_or_default();
+                let mut file = json!({ "type": "file", "data": data, "mimeType": mime });
+                if !filename.is_empty() {
+                    file["filename"] = json!(filename);
+                }
+                content.push(file);
+            }
+            _ => return Err(invalid("prompt part type is unsupported.")),
+        }
+    }
+    if !has_content {
+        return Err(invalid("prompt is empty."));
+    }
+    Ok(Value::Array(content))
+}
+
+/// `validateStructuredValue` (`ipc-validation.ts:1123-1150`).
+fn validate_structured(value: &Value, strings: &mut usize, nodes: &mut usize, depth: usize) -> Result<(), RoomError> {
+    *nodes += 1;
+    if *nodes > 20_000 || depth > 12 {
+        return Err(invalid("structured input is too large."));
+    }
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) => Ok(()),
+        Value::String(text) => {
+            *strings += utf16_len(text);
+            if *strings > MAX_STRUCTURED_STRING_TOTAL {
+                return Err(invalid("structured input is too large."));
+            }
+            Ok(())
+        }
+        Value::Array(entries) => {
+            if entries.len() > 5_000 {
+                return Err(invalid("structured input contains too many entries."));
+            }
+            entries.iter().try_for_each(|entry| validate_structured(entry, strings, nodes, depth + 1))
+        }
+        Value::Object(fields) => {
+            if fields.len() > 5_000 {
+                return Err(invalid("structured input contains too many fields."));
+            }
+            for (key, entry) in fields {
+                if matches!(key.as_str(), "__proto__" | "prototype" | "constructor") {
+                    return Err(invalid("structured input contains an invalid field."));
+                }
+                validate_structured(entry, strings, nodes, depth + 1)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// `Number.isSafeInteger(value) && value > 0`.
+fn positive_safe_integer(value: &Value) -> bool {
+    value.as_f64().is_some_and(|n| n.fract() == 0.0 && n > 0.0 && n <= 9_007_199_254_740_991.0)
+}
+
+/// `requiredSubmitOptions` (`ipc-validation.ts:1225-1266`); absent is none.
+fn required_submit_options(value: Option<&Value>) -> Result<Map<String, Value>, RoomError> {
+    let options = match value {
+        None => return Ok(Map::new()),
+        Some(Value::Object(options)) => options,
+        Some(_) => return Err(invalid("submit options are invalid.")),
+    };
+    validate_structured(&Value::Object(options.clone()), &mut 0, &mut 0, 0)?;
+    if options.keys().any(|key| !SUBMIT_OPTION_KEYS.contains(&key.as_str())) {
+        return Err(invalid("submit options contains an unsupported field."));
+    }
+    let control = |text: &str| text.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}');
+    let string = |key: &str| options.get(key).map(|value| value.as_str());
+    if let Some(id) = string("clientSubmissionId")
+        && !id.is_some_and(|id| !js_trim(id).is_empty() && utf16_len(id) <= 256 && !control(id))
+    {
+        return Err(invalid("submit id is invalid."));
+    }
+    if options.get("submittedAt").is_some_and(|at| !positive_safe_integer(at)) {
+        return Err(invalid("submit timestamp is invalid."));
+    }
+    for (key, refusal) in [("retryFailedTurn", "submit retryFailedTurn is invalid."), ("kickoff", "submit kickoff is invalid.")] {
+        if options.get(key).is_some_and(|flag| !flag.is_boolean()) {
+            return Err(invalid(refusal));
+        }
+    }
+    if string("priority").is_some_and(|priority| !matches!(priority, Some("now" | "next" | "later"))) {
+        return Err(invalid("submit priority is invalid."));
+    }
+    if string("displayText").is_some_and(|text| !text.is_some_and(|text| utf16_len(text) <= MAX_PROMPT_LENGTH)) {
+        return Err(invalid("submit display text is invalid."));
+    }
+    if string("goalCommand").is_some_and(|text| !text.is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_PROMPT_LENGTH)) {
+        return Err(invalid("goal command is invalid."));
+    }
+    Ok(options.clone())
 }
 
 /// `promptText(prompt)`: a text trimmed, or the text parts joined by line breaks and trimmed.
