@@ -7,11 +7,15 @@ import { T0, startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  pure: {
+    'sanitizer-*': 'mixdog-ai/src/catalog/sanitize.rs sanitize_model_list (pub, re-exported at catalog/mod.rs:70) with SanitizeContext (mod.rs:69)',
+    '*': 'RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function',
+  },
   set: 'provider-model-catalog-projection',
   net: false,
   entry: 'model-catalog-projection.mjs projectModelsDevCatalog(catalog) / projectLitellmCatalog(catalog) and model-list-sanitize.mjs sanitizeModelList(models, { provider, _testCatalog }). Not run: a catalog fetch.',
   compare: 'mixdog-ai catalog::lookup projection (projection.rs:98, :158): feed `input.source` (the published payload) and compare the projected `result` whole, key presence included; the sanitizer verdict (`survivors`) is the same with the full and the projected catalog.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::catalog::lookup project_litellm and project_models_dev (catalog/lookup/projection.rs:98, :158).",
+  replay: "PURE. Projection cases: Rust work - mixdog-ai/src/catalog/lookup/projection.rs:158 project_models_dev and :98 project_litellm have the recorded input and output but are not public (`mod lookup`, catalog/mod.rs:12; make them reachable with `pub use lookup::{project_models_dev, project_litellm}` in catalog/mod.rs). Sanitizer case: mixdog-ai/src/catalog/sanitize.rs sanitize_model_list (pub, catalog/mod.rs:70).",
 });
 const { projectLitellmCatalog, projectModelsDevCatalog } = await rec.P('agent/orchestrator/providers/model-catalog-projection.mjs');
 const { sanitizeModelList } = await rec.P('agent/orchestrator/providers/model-list-sanitize.mjs');
