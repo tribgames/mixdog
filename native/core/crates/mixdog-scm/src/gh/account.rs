@@ -232,25 +232,19 @@ impl Scm {
         let spec_args = args.clone();
         spec.args = args;
         spec.time_limit = Some(INSTALL_LIMIT);
+        // Node's `run` (`cli-run.ts`) reports a failed run's stderr, and execFile's own message
+        // (`Command failed: <program> <args>\n<stderr>`) when stderr is empty, so stdout is never the detail;
+        // `installWithPackageManager` names the last line of that text once trimmed whole.
+        let failed = |stderr: String| {
+            let text = if stderr.is_empty() { format!("Command failed: {program} {}\n", spec_args.join(" ")) } else { stderr };
+            let detail = mixdog_js::js_trim(&text).rsplit('\n').next().unwrap_or("").to_owned();
+            ScmFailure::refused("INSTALL_FAILED", format!("{program} could not install {label}: {detail}"))
+        };
         match self.git.exec().run(spec, cancel).await {
             Ok(output) if output.success() => Ok(()),
-            Ok(output) => {
-                // Node's `run` (`cli-run.ts`) reports stderr, and execFile's own message when stderr is empty
-                // (`Command failed: <program> <args>`); stdout is never the detail.
-                let text = if output.stderr.is_empty() {
-                    format!("Command failed: {program} {}", spec_args.join(" "))
-                } else {
-                    output.stderr_text()
-                };
-                let detail = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_owned();
-                Err(ScmFailure::refused(
-                    "INSTALL_FAILED",
-                    format!(
-                        "{program} could not install {label}: {}",
-                        if detail.is_empty() { format!("exit code {}", output.code.unwrap_or(-1)) } else { detail }
-                    ),
-                ))
-            }
+            Ok(output) => Err(failed(output.stderr_text())),
+            // execFile kills at its timeout and fails the run like any other; the killed child's stderr is not kept.
+            Err(ScmFailure::TimedOut { .. }) => Err(failed(String::new())),
             Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::refused(
                 "INSTALL_UNAVAILABLE",
                 format!("{manager} is unavailable. Install {label} from {homepage} and try again."),
@@ -265,16 +259,15 @@ impl Scm {
     }
 
     /// Node's `runGh` (`desktop-operations.ts`): the star calls spawn a bare `gh` from `PATH` (no install place is
-    /// probed) with an 8 s limit; a missing program reads as stderr `ENOENT`.
+    /// probed) with an 8 s limit, and keeps only the child's stderr.
     async fn run_bare_gh(&self, cancel: &CancellationToken, args: &[&str]) -> Result<(bool, String), ScmFailure> {
         let mut spec = ExecSpec::new("gh", process_dir());
         spec.args = args.iter().map(|arg| (*arg).to_owned()).collect();
         spec.time_limit = Some(Duration::from_secs(8));
         match self.git.exec().run(spec, cancel).await {
             Ok(output) => Ok((output.success(), output.stderr_text())),
-            Err(ScmFailure::Unavailable { .. }) => Ok((false, "ENOENT".to_owned())),
-            // `runGh` keeps only the child's stderr: a start the system refused has none.
-            Err(ScmFailure::TimedOut { .. } | ScmFailure::Spawn { .. }) => Ok((false, String::new())),
+            // A start that failed (a missing program too) has no stderr.
+            Err(ScmFailure::Unavailable { .. } | ScmFailure::TimedOut { .. } | ScmFailure::Spawn { .. }) => Ok((false, String::new())),
             Err(other) => Err(other),
         }
     }
@@ -296,7 +289,7 @@ impl Scm {
         let endpoint = format!("user/starred/{STAR_REPOSITORY}");
         let (ok, stderr) = self.run_bare_gh(cancel, &["api", "-X", "PUT", &endpoint, "--silent"]).await?;
         if !ok {
-            let detail = stderr.trim();
+            let detail = mixdog_js::js_trim(&stderr);
             return Err(ScmFailure::Command {
                 domain: crate::error::GITHUB_DOMAIN,
                 text: if detail.is_empty() { "gh could not star the repository.".into() } else { detail.to_owned() },
@@ -314,5 +307,121 @@ mod tests {
         assert_eq!(login_from_auth_output("✓ Logged in to github.com account octo (keyring)"), "octo");
         assert_eq!(login_from_auth_output("✓ Logged in to github.com as octo (oauth_token)"), "octo");
         assert_eq!(login_from_auth_output("not signed in"), "");
+    }
+
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::common::EventSource;
+    use mixdog_core_api::domain::mock::VecSource;
+    use mixdog_core_api::domain::process::ExitStatus;
+    use mixdog_core_api::domain::process::OutputStream;
+    use mixdog_core_api::domain::process::ProcessError;
+    use mixdog_core_api::domain::process::ProcessEvent;
+    use mixdog_core_api::domain::process::ProcessExit;
+    use mixdog_core_api::domain::process::ProcessInfo;
+    use mixdog_core_api::domain::process::ProcessManager;
+    use mixdog_core_api::domain::process::PtySize;
+    use mixdog_core_api::domain::process::SpawnRequest;
+    use mixdog_core_api::domain::process::SpawnedProcess;
+    use mixdog_protocol::ProcessHandle;
+
+    /// How every start of a scripted run ends.
+    #[derive(Clone)]
+    enum Start {
+        Missing,
+        Refused,
+        Exits { code: i32, stderr: &'static str },
+    }
+
+    struct Scripted(Start);
+
+    #[async_trait]
+    impl ProcessManager for Scripted {
+        async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+            match self.0 {
+                Start::Missing => Err(ProcessError::ProgramNotFound { program: format!("{:?}", request.command) }),
+                Start::Refused => Err(ProcessError::PermissionDenied),
+                Start::Exits { .. } => Ok(SpawnedProcess { handle: request.handle, pid: 1 }),
+            }
+        }
+        fn subscribe(&self, _handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let Start::Exits { code, stderr } = self.0 else { return Err(ProcessError::UnknownHandle) };
+            Ok(Box::new(VecSource::new([
+                ProcessEvent::Output { seq: 0, stream: OutputStream::Stdout, bytes: b"progress on stdout\n".to_vec() },
+                ProcessEvent::Output { seq: 1, stream: OutputStream::Stderr, bytes: stderr.as_bytes().to_vec() },
+                ProcessEvent::Exited { seq: 2, exit: ProcessExit { status: ExitStatus::Code(code), killed: None } },
+            ])))
+        }
+        async fn write_stdin(&self, _handle: &ProcessHandle, _bytes: Vec<u8>) -> Result<(), ProcessError> {
+            Ok(())
+        }
+        fn close_stdin(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+        fn resize_pty(&self, _handle: &ProcessHandle, _size: PtySize) -> Result<(), ProcessError> {
+            Err(ProcessError::NotPty)
+        }
+        fn kill(&self, _handle: &ProcessHandle) -> Result<(), ProcessError> {
+            Ok(())
+        }
+        fn list(&self) -> Vec<ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    fn scm(start: Start) -> Arc<Scm> {
+        Scm::new(Arc::new(Scripted(start)), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir())
+    }
+
+    fn text(failure: ScmFailure) -> String {
+        match failure {
+            ScmFailure::Refused { message, .. } => message,
+            ScmFailure::Command { text, .. } => text,
+            other => panic!("not a worded failure: {other:?}"),
+        }
+    }
+
+    /// `installWithPackageManager` (cli-run.ts) over `run`: a missing manager is unavailable; a refused start's detail is
+    /// execFile's `spawn <file> <code>`; a failed run's is the last line of its stderr trimmed whole (its leading blanks kept,
+    /// stdout never), or of execFile's `Command failed: <file> <args>` when stderr is empty.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_failed_install_answers_cli_runs_text() {
+        let cancel = CancellationToken::new();
+        let install = |start: Start| {
+            let cancel = cancel.clone();
+            async move {
+                let scm = scm(start);
+                text(scm.install_with_package_manager(&cancel, "Git", "https://git-scm.com", "Git.Git", &["install", "git"]).await.unwrap_err())
+            }
+        };
+        assert_eq!(
+            [
+                install(Start::Missing).await,
+                install(Start::Refused).await,
+                install(Start::Exits { code: 5, stderr: "first\n  last line \r\n\n" }).await,
+                install(Start::Exits { code: 5, stderr: "" }).await,
+            ],
+            [
+                "winget is unavailable. Install Git from https://git-scm.com and try again.".to_owned(),
+                "winget could not install Git: spawn winget EPERM".to_owned(),
+                "winget could not install Git:   last line".to_owned(),
+                "winget could not install Git: Command failed: winget install --id Git.Git --exact --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity".to_owned(),
+            ]
+        );
+    }
+
+    /// `starGithub` (desktop-operations.ts) over `runGh`: a failed run's trimmed stderr, else its own sentence; a start that
+    /// failed (the program missing or refused) has no stderr.
+    #[tokio::test]
+    async fn a_failed_star_answers_run_ghs_text() {
+        let cancel = CancellationToken::new();
+        let mut texts = Vec::new();
+        for start in [Start::Missing, Start::Refused, Start::Exits { code: 1, stderr: "" }, Start::Exits { code: 1, stderr: " HTTP 401: Bad credentials\n" }] {
+            texts.push(text(scm(start).gh_star(&cancel).await.unwrap_err()));
+        }
+        assert_eq!(
+            texts,
+            ["gh could not star the repository.", "gh could not star the repository.", "gh could not star the repository.", "HTTP 401: Bad credentials"]
+        );
     }
 }
