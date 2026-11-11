@@ -4,9 +4,11 @@
   "entry": {
     "nativeSpawnBinary": {
       "bytes": 1441792,
-      "note": "a debug build of native/mixdog-spawn made by another worker from a tree whose native/mixdog-spawn sources equal o1 6bf0a5bbf (the working copy of its Cargo.lock differs); copied unchanged, not built here",
+      "note": "a debug build made by another worker; its sources are the committed tree above (its working-copy Cargo.lock differed, so the build is not bit-reproducible from o1). Nothing in golden.json depends on it: no path, version or build string is recorded, only job rows, statuses and exit codes. A replay must build native/mixdog-spawn from o1 6bf0a5bbf itself (cargo build, not run here) and must not compare the sha256 of this binary, which is provenance only.",
       "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\k1\\mixdog-spawn-o1-debug.exe",
-      "sha256": "b01d3545e0be52bf73aa8b92b687a393b9b1b61dd7a93334537dc123c372de16"
+      "sha256": "b01d3545e0be52bf73aa8b92b687a393b9b1b61dd7a93334537dc123c372de16",
+      "sourceCommit": "6bf0a5bbf (o1)",
+      "sourceTree": "native/mixdog-spawn tree 6d9cf9666bdf622151ae5d9ff78c4bbdbe560baa at 6bf0a5bbf; the same tree id is at HEAD of the branch (w11) that built the binary"
     },
     "notRun": "no Electron; the session runtime is the test's scripted object (state, stopShellJob, dispose); timers are virtual",
     "runs": "standalone/session-service.mjs createSessionService (idle eviction), daemon-local-session-bridge.mjs, daemon-desktop-runtime.mjs, the desktop SessionHost (setVisibleSessions, subscribeSessionStates, stopShellJob), tools/shell-command.mjs execShellCommand (auto background), builtin/shell-jobs.mjs, builtin/task-tool.mjs stopBackgroundShellJob, native-spawn-client.mjs over the REAL native spawn server",
@@ -54,7 +56,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
-      "sha256": "1ad866793937f0ec91631efb98090cfad3508da5453e21c64a51dc9d8e79db00"
+      "sha256": "f01774e9437804ec261de5fe208d19c472fd1193c4df8b9f202030aaae558676"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -103,7 +105,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
-  "recorderSha256": "aaaea2bea3c09718a054e70120670334ae188cb640022d2e9d669050ab778688",
+  "recorderSha256": "ca7c7da5d33917e56550932e89d7f2ec5b531df55b72c6789b99b0183c571d3e",
   "replay": {
     "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
     "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs.",
