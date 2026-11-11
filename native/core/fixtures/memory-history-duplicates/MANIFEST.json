@@ -1,5 +1,6 @@
 {
   "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "PostgreSQL: db.query is the test file's SQLite stand-in (it translates ANY($n::bigint[]) and casts, and answers the hybrid candidate CTE with every root row); candidate retrieval SQL is replayed by the recall goldens",
     "runs": "retrieveEntries (memory-retrievers.mjs), searchRelevantHybrid and preferLatestConceptRows (memory-recall-store.mjs), collapseHistoryDuplicates, buildRecallScopeFilter, makeChunkQuality/assessChunkQuality"
@@ -8,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 56292,
+      "bytes": 76069,
       "path": "golden.json",
-      "sha256": "331adea72e6f40a597c604199e83426a7c73fb08f4d11ac67bf7179b316ff4bd"
+      "sha256": "2f186e0cbc197aaae15a45d37577fca260a10df76f17bccac040744ed724e154"
     }
   ],
   "inputs": [
@@ -20,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +50,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-history-duplicates.mjs",
-  "recorderSha256": "4dd29543c2762f9be472a6b299d38880b73c1cac9532cbdd7345d2660efc0d81",
+  "recorderSha256": "dbf4ce63830cd02bd720286be1290339b94b061bbc820e6d98e82f3e33aa6e29",
   "replay": "mixdog-services memory: mem/recall (retrieve_entries/browse, search_by_query + page_rows collapse, collapse_history_duplicates in ranking.rs) over a db seam holding the same entries rows; compares returned ids (or members), the ordered statements the handler sends (text and params) and the table after. Statement text is the Node SQL; a Rust replay maps it to its own statements and compares ids, order and params only",
   "set": "memory-history-duplicates",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 56292,
+  "totalBytes": 76069,
   "uuidsNormalised": "none"
 }

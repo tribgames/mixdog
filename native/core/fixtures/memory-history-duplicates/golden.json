@@ -111,6 +111,17 @@
               "project"
             ]
           },
+          "rows": [
+            {
+              "id": 1
+            },
+            {
+              "id": 2
+            },
+            {
+              "id": 3
+            }
+          ],
           "ids": [
             1,
             2,
@@ -119,9 +130,33 @@
         },
         {
           "label": "retrieveEntries project, sort date",
-          "result": [
-            2
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -321,9 +356,33 @@
       "steps": [
         {
           "label": "retrieveEntries common",
-          "result": [
-            2
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -342,9 +401,33 @@
         },
         {
           "label": "retrieveEntries ts_to 150",
-          "result": [
-            1
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -368,18 +451,116 @@
         },
         {
           "label": "collapse [old, current]",
+          "rows": [
+            {
+              "id": 2,
+              "ts": 200,
+              "project_id": "project",
+              "summary": "Current summary",
+              "content": "Current response",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 2,
+              "status": "pending",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": null,
+              "chunk_quality": null
+            }
+          ],
           "ids": [
             2
           ]
         },
         {
           "label": "collapse [old]",
+          "rows": [
+            {
+              "id": 1,
+              "ts": 100,
+              "project_id": "project",
+              "summary": "Original summary",
+              "content": "Original request",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 1,
+              "status": "archived",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": 2,
+              "chunk_quality": null
+            }
+          ],
           "ids": [
             1
           ]
         },
         {
           "label": "collapse [old, current in another project]",
+          "rows": [
+            {
+              "id": 1,
+              "ts": 100,
+              "project_id": "project",
+              "summary": "Original summary",
+              "content": "Original request",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 1,
+              "status": "archived",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": 2,
+              "chunk_quality": null
+            },
+            {
+              "id": 2,
+              "ts": 200,
+              "project_id": "other",
+              "summary": "Current summary",
+              "content": "Current response",
+              "element": "subject",
+              "is_root": 1,
+              "chunk_root": 2,
+              "status": "pending",
+              "concept_id": null,
+              "supersedes_id": null,
+              "role": null,
+              "source_ref": null,
+              "session_id": null,
+              "source_turn": null,
+              "time_source": null,
+              "category": null,
+              "score": null,
+              "last_seen_at": null,
+              "duplicate_of": null,
+              "chunk_quality": null
+            }
+          ],
           "ids": [
             1,
             2
@@ -387,9 +568,39 @@
         },
         {
           "label": "searchRelevantHybrid \"request\"",
-          "result": [
-            2
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -427,9 +638,39 @@
         },
         {
           "label": "searchRelevantHybrid \"request\" ts_to 150",
-          "result": [
-            1
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2,
+                "rrf": 0.01639344262295082,
+                "retrievalScore": 0.01639344262295082,
+                "retrievalRank": 1,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -483,9 +724,33 @@
         },
         {
           "label": "retrieveEntries project, sort date",
-          "result": [
-            1
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -509,10 +774,66 @@
       "steps": [
         {
           "label": "hybrid limit 2",
-          "result": [
-            2,
-            4
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical"
+              },
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.015873015873015872,
+                "retrievalScore": 0.015873015873015872,
+                "retrievalRank": 3,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              2,
+              4
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -548,9 +869,39 @@
         },
         {
           "label": "hybrid limit 1",
-          "result": [
-            2
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -586,10 +937,54 @@
         },
         {
           "label": "retrieveEntries limit 2",
-          "result": [
-            2,
-            4
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null
+              },
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2,
+              4
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -607,9 +1002,33 @@
         },
         {
           "label": "retrieveEntries limit 1 offset 0",
-          "result": [
-            2
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -627,9 +1046,33 @@
         },
         {
           "label": "retrieveEntries limit 1 offset 1",
-          "result": [
-            4
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              4
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -647,7 +1090,10 @@
         },
         {
           "label": "retrieveEntries limit 1 offset 2",
-          "result": [],
+          "result": {
+            "rows": [],
+            "ids": []
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -672,10 +1118,54 @@
       "steps": [
         {
           "label": "retrieveEntries limit 2",
-          "result": [
-            2,
-            4
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null
+              },
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null
+              }
+            ],
+            "ids": [
+              2,
+              4
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -693,7 +1183,10 @@
         },
         {
           "label": "retrieveEntries limit 2 offset 2",
-          "result": [],
+          "result": {
+            "rows": [],
+            "ids": []
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -711,10 +1204,66 @@
         },
         {
           "label": "hybrid limit 2",
-          "result": [
-            2,
-            4
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": 3,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical"
+              },
+              {
+                "id": 4,
+                "ts": 300,
+                "role": null,
+                "content": "Private request",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 4,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Other project",
+                "project_id": "other",
+                "status": "active",
+                "score": 1,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.015873015873015872,
+                "retrievalScore": 0.015873015873015872,
+                "retrievalRank": 3,
+                "_retrievalEvidence": "lexical"
+              }
+            ],
+            "ids": [
+              2,
+              4
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -781,9 +1330,33 @@
       "steps": [
         {
           "label": "retrieveEntries session older limit 1",
-          "result": [
-            1
-          ],
+          "result": {
+            "rows": [
+              {
+                "id": 1,
+                "ts": 100,
+                "role": null,
+                "content": "Original request",
+                "source_ref": null,
+                "session_id": "older",
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 1,
+                "is_root": 1,
+                "element": "subject",
+                "category": null,
+                "summary": "Original summary",
+                "project_id": "project",
+                "status": "archived",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": 2
+              }
+            ],
+            "ids": [
+              1
+            ]
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -803,7 +1376,10 @@
         },
         {
           "label": "retrieveEntries session older limit 1 offset 1",
-          "result": [],
+          "result": {
+            "rows": [],
+            "ids": []
+          },
           "statements": [
             {
               "sql": "SET LOCAL statement_timeout = '30s'",
@@ -829,6 +1405,48 @@
         {
           "label": "hybrid limit 1 includeMembers",
           "result": {
+            "rows": [
+              {
+                "id": 2,
+                "ts": 200,
+                "role": null,
+                "content": "Current response",
+                "source_ref": null,
+                "session_id": null,
+                "source_turn": null,
+                "time_source": null,
+                "chunk_root": 2,
+                "is_root": 1,
+                "concept_id": null,
+                "supersedes_id": null,
+                "element": "subject",
+                "category": null,
+                "summary": "Current summary",
+                "project_id": "project",
+                "status": "pending",
+                "score": null,
+                "last_seen_at": null,
+                "duplicate_of": null,
+                "rrf": 0.016129032258064516,
+                "retrievalScore": 0.016129032258064516,
+                "retrievalRank": 2,
+                "_retrievalEvidence": "lexical",
+                "members": [
+                  {
+                    "id": 5,
+                    "ts": 210,
+                    "role": null,
+                    "content": "Full selected-member source",
+                    "source_ref": null,
+                    "session_id": null,
+                    "source_turn": null,
+                    "time_source": null,
+                    "project_id": "project",
+                    "chunk_root": 2
+                  }
+                ]
+              }
+            ],
             "ids": [
               2
             ],

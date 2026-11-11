@@ -67,7 +67,7 @@ function fixture() {
 
 const ids = (rows) => rows.map((row) => row.id);
 // One step: the call, what it returned (ids, or the whole value) and the statements it sent.
-async function step(f, label, fn, project = ids) {
+async function step(f, label, fn, project = (rows) => ({ rows, ids: ids(rows) })) {
   const before = f.statements.length;
   const out = await capture(async () => project(await fn()));
   return { label, ...out, statements: f.statements.slice(before) };
@@ -81,7 +81,7 @@ const cases = [];
   const filter = buildRecallScopeFilter(1, { projectScope: 'project' });
   const matches = await f.db.query(`SELECT id FROM entries WHERE 1=1 ${filter.clause} ORDER BY id`, filter.params);
   const steps = [
-    { label: 'scope filter selects every status of the project', filter, ids: ids(matches.rows) },
+    { label: 'scope filter selects every status of the project', filter, rows: matches.rows, ids: ids(matches.rows) },
     await step(f, 'retrieveEntries project, sort date', () => retrieveEntries(f.db, { projectScope: 'project', sort: 'date' })),
   ];
   cases.push({ name: 'records of every status are searchable and stored aliases stay read-only (test line 76)', before, steps, after: f.rows() });
@@ -108,9 +108,9 @@ for (const secondSession of ['session-a', 'session-b']) {
   ];
   const [old, current] = f.rows();
   steps.push({ label: 'old row content unchanged', content: f.sqlite.prepare('SELECT content FROM entries WHERE id=1').get().content });
-  steps.push({ label: 'collapse [old, current]', ids: ids(collapseHistoryDuplicates([old, current])) });
-  steps.push({ label: 'collapse [old]', ids: ids(collapseHistoryDuplicates([old])) });
-  steps.push({ label: 'collapse [old, current in another project]', ids: ids(collapseHistoryDuplicates([old, { ...current, project_id: 'other' }])) });
+  steps.push({ label: 'collapse [old, current]', rows: collapseHistoryDuplicates([old, current]), ids: ids(collapseHistoryDuplicates([old, current])) });
+  steps.push({ label: 'collapse [old]', rows: collapseHistoryDuplicates([old]), ids: ids(collapseHistoryDuplicates([old])) });
+  steps.push({ label: 'collapse [old, current in another project]', rows: collapseHistoryDuplicates([old, { ...current, project_id: 'other' }]), ids: ids(collapseHistoryDuplicates([old, { ...current, project_id: 'other' }])) });
   steps.push(await step(f, 'searchRelevantHybrid "request"', () => searchRelevantHybrid(f.db, 'request', common)));
   steps.push(await step(f, 'searchRelevantHybrid "request" ts_to 150', () => searchRelevantHybrid(f.db, 'request', { ...common, ts_to: 150 })));
   cases.push({ name: 'duplicate representatives collapse only inside the requested history window and project (test line 150)', steps });
@@ -167,7 +167,7 @@ for (const secondSession of ['session-a', 'session-b']) {
   const expanded = [];
   const query = f.db.query;
   f.db.query = async (sql, args = []) => { if (sql.includes('WHERE chunk_root = ANY')) expanded.push(args[0]); return query(sql, args); };
-  const steps = [await step(f, 'hybrid limit 1 includeMembers', () => searchRelevantHybrid(f.db, 'request', { projectScope: 'all', limit: 1, includeMembers: true }), (rows) => ({ ids: ids(rows), memberContents: rows[0].members.map((row) => row.content) }))];
+  const steps = [await step(f, 'hybrid limit 1 includeMembers', () => searchRelevantHybrid(f.db, 'request', { projectScope: 'all', limit: 1, includeMembers: true }), (rows) => ({ rows, ids: ids(rows), memberContents: rows[0].members.map((row) => row.content) }))];
   cases.push({ name: 'hybrid member expansion reads only selected distinct roots (test line 242)', steps, expandedRootLists: expanded });
 }
 {
