@@ -1,0 +1,44 @@
+diff --git a/src/runtime/shared/transcript-writer.mjs b/src/runtime/shared/transcript-writer.mjs
+index 57a8a76..cecfcda 100644
+--- a/src/runtime/shared/transcript-writer.mjs
++++ b/src/runtime/shared/transcript-writer.mjs
+@@ -22,6 +22,7 @@ import { createRotationTracker } from './transcript-writer/rotation.mjs';
+ import { conversationText, createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
+ import { createFailureLog, createSessionRecord } from './transcript-writer/session-record.mjs';
+ import { isSessionTranscriptPurged, noteSessionTranscript } from './transcript-writer/purge.mjs';
++import { redactSensitiveContent } from '../agent/orchestrator/session/sensitive-projection.mjs';
+ 
+ // A user prompt with pasted images arrives as a content block array; only its
+ // text reaches the transcript (String(array) would store "[object Object]").
+@@ -77,7 +78,8 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid, memory
+   }
+ 
+   function appendText(type, text) {
+-    const value = textOrEmpty(text);
++    // The session's sensitive values never reach the transcript (and so memory) in plain text.
++    const value = redactSensitiveContent(sessionId, textOrEmpty(text));
+     if (!value.trim()) return;
+     appendLine({ type, sessionId, message: { content: [{ type: 'text', text: value }] } });
+   }
+diff --git a/src/session-runtime/lifecycle/memory-ingest.mjs b/src/session-runtime/lifecycle/memory-ingest.mjs
+index 7ff8432..1e06a96 100644
+--- a/src/session-runtime/lifecycle/memory-ingest.mjs
++++ b/src/session-runtime/lifecycle/memory-ingest.mjs
+@@ -2,6 +2,8 @@
+  * src/session-runtime/lifecycle/memory-ingest.mjs - best-effort persist of a
+  * closing session's conversation into the memory DB.
+  */
++import { redactSensitiveMessages } from '../../runtime/agent/orchestrator/session/sensitive-projection.mjs';
++
+ const INGEST_DEADLINE_MS = 2500;
+ 
+ // Sessions that never compacted have no session-sourced rows unless ingested
+@@ -27,7 +29,7 @@ export function createMemoryIngest({ getMemoryModPromise, getCurrentCwd, withTea
+                   action: 'ingest_session',
+                   sessionId: session.id,
+                   cwd: session.cwd || getCurrentCwd(),
+-                  messages,
++                  messages: redactSensitiveMessages(session.id, messages),
+                 })
+               : null
+           )
