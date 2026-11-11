@@ -54,7 +54,7 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-query-ranking.mjs",
   "recorderSha256": "70c0e72d37b74c7413a4b534d662bac1ffe3e12351058e37b9d40dae55d633f4",
-  "replay": "mixdog-services memory/recall/ranking.rs (pub): rank_latest_rows (:162), merge_historical_rows (:217), bound_rows_to_temporal (:311), and memory/recall/browse.rs merge_event_rows (:986, the interleave); all reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay feeds the recorded rows and compares the returned rows whole, in returned order",
+  "replay": "mixdog-services memory/recall/ranking.rs (pub): rank_latest_rows (:162), merge_historical_rows (:217), bound_rows_to_temporal (:311), topic_term_coverage, memory/recall/row.rs unique_rows_by_id and memory/recall/format.rs interleave_raw_rows; all reached by the `memory/recall` request (Recall::recall). A replay feeds the recorded rows and compares the returned rows whole, in returned order; the two uniqueRowsById probes whose ids no typed row holds (empty, null, string) run through the same unique_rows_by_id over the recorded rows keyed as Node keys them (`String(row?.id ?? '')`). All 32 probes are compared",
   "set": "memory-query-ranking",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 26862,
