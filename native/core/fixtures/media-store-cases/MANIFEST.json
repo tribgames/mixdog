@@ -12,9 +12,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 20558,
+      "bytes": 20524,
       "path": "golden.json",
-      "sha256": "9c2daf0c9281399b1671ac6e14d146b0a073c8815ca1dd820af58de85ab88074"
+      "sha256": "096858dd08b8d00acc70558acd01a32baf1e16399c0f70940a0bca078330abf2"
     }
   ],
   "inputs": [
@@ -78,7 +78,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-media-store-cases.mjs",
-  "recorderSha256": "638066c8f1528be719acef5378e8c031bc5d8ecfbb464c415a467ebf54ac0d87",
+  "recorderSha256": "7b9aa5ad6cddaceb354461397ab7d7f5bf43dc475fe2123459e2b5c59ed2224f",
   "replay": {
     "compare": "mixdog-store media: write the case's start files into a temp data dir and compare each result whole; the date folder of a saved asset is the local date of the fixed clock",
     "entry": "Drive these public items on o1: mixdog-services/src/media/store.rs:317 list_assets; mixdog-services/src/media/store.rs:436 delete_assets; mixdog-services/src/media/store.rs:472 list_boards; mixdog-services/src/media/store.rs:498 create_board; mixdog-services/src/media/store.rs:523 delete_board; media/listMediaAssets; media/deleteMediaAssets; media/listMediaBoards; media/createMediaBoard.",
@@ -123,6 +123,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "media-store-cases",
-  "totalBytes": 20558,
+  "totalBytes": 20524,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

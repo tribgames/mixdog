@@ -49,9 +49,9 @@ await set.run('media assets are organized by kind, provider, model, and local da
     const store = await freshStore();
     const out = { files: ['assets/legacy-image.jpg (image)', 'assets/legacy-video.mp4 (video)'], startIndex };
     out.openCommands = [store.mediaOpenCommand('C:\\Media Assets\\clip.mp4', { reveal: true, platform: 'win32' }), store.mediaOpenCommand('/Users/me/Media Assets/image.png', { reveal: true, platform: 'darwin' })];
-    out.beforeMigration = store.listMediaAssets({ limit: 10 }).assets;
-    const saved = store.saveMediaAsset({ kind: 'video', lane: 'gemini', model: 'veo:3/preview', prompt: 'new clip', options: { aspectRatio: '16:9' }, mime: 'video/mp4', bytes: Buffer.from('new-video') });
-    const migrated = store.listMediaAssets({ limit: 10 }).assets;
+    out.beforeMigration = structuredClone(store.listMediaAssets({ limit: 10 }).assets);
+    const saved = structuredClone(store.saveMediaAsset({ kind: 'video', lane: 'gemini', model: 'veo:3/preview', prompt: 'new clip', options: { aspectRatio: '16:9' }, mime: 'video/mp4', bytes: Buffer.from('new-video') }));
+    const migrated = structuredClone(store.listMediaAssets({ limit: 10 }).assets); // snapshot at return time: the cache rows are live objects that cacheMediaThumbnail changes later
     const listed = ['legacy-image', 'legacy-video'].map((id) => migrated.find((entry) => entry.id === id));
     out.migrated = listed;
     out.migratedFilesExist = listed.map((e) => existsSync(join(assetsDir, ...e.file.split('/'))));
@@ -89,9 +89,9 @@ await set.run('a failed duration write leaves the cached index row untouched', a
     store.listMediaAssets({ limit: 10 });
     const indexFile = join(root, 'media', 'index.json');
     chmodSync(indexFile, 0o444);
-    const cachedRow = store.listMediaAssets({ limit: 10 }).assets[0];
+    const cachedRow = structuredClone(store.listMediaAssets({ limit: 10 }).assets[0]);
     const error = thrown(() => store.cacheMediaThumbnail('clip', { mime: 'image/jpeg', base64: Buffer.from('thumb').toString('base64'), durationSeconds: 7 }));
-    const out = { startIndex, indexMadeReadOnly: true, cacheMediaThumbnail: error, cachedRow, listedAfter: store.listMediaAssets({ limit: 10 }) };
+    const out = { startIndex, indexMadeReadOnly: true, cacheMediaThumbnail: error, cachedRow, listedAfter: structuredClone(store.listMediaAssets({ limit: 10 })) };
     chmodSync(indexFile, 0o644);
     return out;
   } finally { done(root); }
@@ -130,7 +130,7 @@ await set.run('a NUL-filled media index lists an empty gallery, is kept aside, a
   try {
     const store = await freshStore();
     const out = { indexFile: '128 NUL bytes' };
-    out.listed = store.listMediaAssets({ limit: 10 });
+    out.listed = structuredClone(store.listMediaAssets({ limit: 10 }));
     out.mediaDirNames = readdirSync(join(root, 'media'));
     const save = (prompt, bytes) => store.saveMediaAsset({ kind: 'image', lane: 'lane', model: 'model', prompt, mime: 'image/png', bytes: Buffer.from(bytes) });
     const saved = save('p', 'png-bytes');
@@ -147,24 +147,24 @@ await set.run('boards persist with their results; deleting a board keeps its res
     const save = (prompt, meta = {}) => store.saveMediaAsset({ kind: 'image', lane: 'gemini', model: 'm', prompt, mime: 'image/png', bytes: Buffer.from(prompt), meta });
     const out = {};
     const board = store.createMediaBoard('  Gacha   sprites ');
-    out.board = board;
+    out.board = structuredClone(board);
     const loose = save('loose');
     const inBoard = save('in board', { boardId: board.id });
-    out.inBoardList = store.listMediaAssets({ boardId: board.id });
+    out.inBoardList = structuredClone(store.listMediaAssets({ boardId: board.id }));
     out.addLoose = store.setMediaAssetBoard([loose.id], board.id);
     store.renameMediaBoard(board.id, 'Icons');
     const reopened = await freshStore();
     const listed = reopened.listMediaBoards();
-    out.reopened = listed;
+    out.reopened = structuredClone(listed);
     out.setUnknownBoard = thrown(() => reopened.setMediaAssetBoard([loose.id], 'missing'));
     out.typeChecks = { createWithObject: thrown(() => reopened.createMediaBoard({ name: 'x' })), renameWithNumber: thrown(() => reopened.renameMediaBoard(17, 'x')), setBoardFalse: thrown(() => reopened.setMediaAssetBoard([loose.id], false)), setObjectId: thrown(() => reopened.setMediaAssetBoard([{}], board.id)) };
-    out.assetsOfBoardAfterRefusals = reopened.listMediaAssets({ boardId: board.id });
+    out.assetsOfBoardAfterRefusals = structuredClone(reopened.listMediaAssets({ boardId: board.id }));
     out.removeFromBoard = reopened.setMediaAssetBoard([loose.id], null);
     reopened.setMediaAssetBoard([loose.id], board.id);
     out.deleteBoard = reopened.deleteMediaBoard(board.id);
     out.boardsAfterDelete = reopened.listMediaBoards();
     const all = reopened.listMediaAssets();
-    out.assetsAfterDelete = all;
+    out.assetsAfterDelete = structuredClone(all);
     return { ...out, ids: { board: board.id, loose: loose.id, inBoard: inBoard.id } };
   } finally { done(root); }
 });
