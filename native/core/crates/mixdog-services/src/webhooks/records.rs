@@ -182,6 +182,31 @@ impl StateWebhookStore {
         Some((row.status, row.error))
     }
 
+    /// Every delivery row with the columns webhooks-db.mjs reads (`DELIVERY_COLS`), ordered by delivery id as Node's
+    /// `ORDER BY delivery_id`; the stamps as JSON writes a PostgreSQL `timestamptz` (ISO, milliseconds, `Z`).
+    #[cfg(test)]
+    pub(crate) async fn delivery_rows(&self) -> Vec<Value> {
+        let stamp = |at: Ts| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let mut rows: Vec<Value> = self
+            .state
+            .meta_prefix(DELIVERY_PREFIX)
+            .await
+            .unwrap()
+            .iter()
+            .map(|(key, text)| {
+                let (endpoint, id) = key[DELIVERY_PREFIX.len()..].split_once(':').unwrap();
+                let row: DeliveryRow = serde_json::from_str(text).unwrap();
+                serde_json::json!({
+                    "endpoint": endpoint, "delivery_id": id, "status": row.status, "event": row.event, "error": row.error,
+                    "headers_summary": row.headers_summary, "payload_preview": row.payload_preview,
+                    "created_at": stamp(row.created_at), "updated_at": stamp(row.updated_at),
+                })
+            })
+            .collect();
+        rows.sort_by(|a, b| a["delivery_id"].as_str().cmp(&b["delivery_id"].as_str()));
+        rows
+    }
+
     async fn edit<R: Send + 'static>(
         &self,
         name: &str,

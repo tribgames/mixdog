@@ -185,39 +185,12 @@ async fn content_type_json_and_self_comment_gates() {
     assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
 }
 
-/// The delivery table as PostgreSQL keeps it (`webhooks-db.mjs`): the claim's columns, then each status update, whose
-/// error is `COALESCE`d.
-#[derive(Default)]
-struct DeliveryRows(Mutex<std::collections::BTreeMap<String, Value>>);
+/// The virtual clock the replay sets before each case, as the recording's `virtualClock` places its cases.
+struct CaseClock(std::sync::atomic::AtomicI64);
 
-#[async_trait]
-impl WebhookStore for DeliveryRows {
-    async fn load_endpoint(&self, _name: &str) -> Result<Option<Endpoint>, String> {
-        Ok(None)
-    }
-    async fn read_secret(&self, _name: &str) -> Result<Option<String>, String> {
-        Ok(None)
-    }
-    async fn claim_delivery(&self, endpoint: &str, id: &str, claim: Claim<'_>) -> Result<bool, String> {
-        let mut rows = self.0.lock().unwrap();
-        if rows.contains_key(id) {
-            return Ok(false);
-        }
-        rows.insert(
-            id.into(),
-            json!({"endpoint": endpoint, "delivery_id": id, "status": claim.status, "event": claim.event, "error": null,
-                   "headers_summary": claim.headers_summary, "payload_preview": claim.payload_preview}),
-        );
-        Ok(true)
-    }
-    async fn update_delivery_status(&self, _endpoint: &str, id: &str, status: &str, error: Option<&str>) -> Result<(), String> {
-        let mut rows = self.0.lock().unwrap();
-        let row = rows.get_mut(id).unwrap();
-        row["status"] = json!(status);
-        if let Some(error) = error {
-            row["error"] = json!(error);
-        }
-        Ok(())
+impl crate::scheduler::Clock for CaseClock {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp_millis(self.0.load(std::sync::atomic::Ordering::SeqCst)).unwrap()
     }
 }
 
@@ -236,16 +209,24 @@ impl WebhookDispatch for Reached {
 /// Node's receiver answering bodies that are not valid UTF-8, recorded by `record-webhook-invalid-utf8.mjs`
 /// (`fixtures/webhook-invalid-utf8`): each recorded request is sent as its bytes over TCP to the real listener with the
 /// recorded config (a config endpoint, the global secret); per case the reply and what reached the dispatch (Node's
-/// `handleWebhook`, the seam both sides answer `accepted` at) equal Node's, and so does the whole delivery table after.
+/// `handleWebhook`, the seam both sides answer `accepted` at) equal Node's, and so do the delivery rows the core's real
+/// store persisted, every column with its stamps, case `i` run at the recording's virtual instant `start + i * step`.
 #[tokio::test]
 async fn bodies_with_invalid_utf8_are_answered_as_node_answers_them() {
     let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-invalid-utf8/golden.json")).unwrap();
     let config: WebhookConfig = serde_json::from_value(golden["config"].clone()).unwrap();
-    let rows = Arc::new(DeliveryRows::default());
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let (state, _) =
+        mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let clock = Arc::new(CaseClock(std::sync::atomic::AtomicI64::new(0)));
+    let rows = Arc::new(super::records::StateWebhookStore::new(state, clock.clone()));
     let dispatched = Arc::new(Reached::default());
     let service = Arc::new(WebhookService::new(rows.clone(), dispatched.clone(), config, RunningWork::new(), Arc::new(|| 0)));
     let listener = WebhookListener::start(service, 0).await.unwrap();
-    for case in golden["cases"].as_array().unwrap() {
+    let (start, step) = (golden["virtualClock"]["start"].as_i64().unwrap(), golden["virtualClock"]["step"].as_i64().unwrap());
+    for (index, case) in golden["cases"].as_array().unwrap().iter().enumerate() {
+        clock.0.store(start + index as i64 * step, std::sync::atomic::Ordering::SeqCst);
         let body: Vec<u8> = (0..case["request"]["bodyHex"].as_str().unwrap().len() / 2)
             .map(|i| u8::from_str_radix(&case["request"]["bodyHex"].as_str().unwrap()[2 * i..2 * i + 2], 16).unwrap())
             .collect();
@@ -262,8 +243,7 @@ async fn bodies_with_invalid_utf8_are_answered_as_node_answers_them() {
             json!({"name": case["name"], "reply": case["reply"], "dispatched": case["dispatched"]}),
         );
     }
-    let table: Vec<Value> = rows.0.lock().unwrap().values().cloned().collect();
-    assert_eq!(Value::Array(table), golden["deliveries"]);
+    assert_eq!(Value::Array(rows.delivery_rows().await), golden["deliveries"]);
     listener.stop().await;
 }
 
