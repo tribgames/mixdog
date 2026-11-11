@@ -60,6 +60,9 @@ pub struct GoogleAdapter {
     claude_policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     http: Arc<dyn HttpSend>,
+    /// An open model's sends: Node posts them through the OpenAI client (`vertex-ai-maas.mjs`, no default headers),
+    /// whose head the SDK writes.
+    maas_http: Arc<dyn HttpSend>,
     auth: Arc<dyn RequestAuth>,
     /// The account the codec's target was built for.
     identity: String,
@@ -92,6 +95,9 @@ impl GoogleAdapter {
             maas_policy: crate::providers::compat::retry::unprofiled(),
             claude_policy: crate::providers::anthropic::retry_policy(true),
             keepalive: KeepaliveSchedule::SPEC,
+            maas_http: Arc::new(
+                crate::registry::gateway::GatewayHttp::new(http.clone()).through_sdk(crate::registry::gateway::Sdk::OpenAi, &[]),
+            ),
             http,
             auth,
             identity,
@@ -247,19 +253,17 @@ impl GoogleAdapter {
 
     /// One authorized send, with the single credential-recovery resend of a 401.
     async fn dispatch(&self, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
+        self.dispatch_on(&*self.http, wire).await
+    }
+
+    async fn dispatch_on(&self, http: &dyn HttpSend, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
         let mut authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
-        let mut response = self
-            .http
-            .send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH)
-            .await?;
+        let mut response = http.send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH).await?;
         if response.status == 401 && self.auth.rejected(&authorization).await {
             authorization = self.auth.authorize().await?;
             self.check_identity(&authorization)?;
-            response = self
-                .http
-                .send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH)
-                .await?;
+            response = http.send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH).await?;
         }
         Ok(response)
     }
@@ -466,10 +470,10 @@ impl GoogleAdapter {
         let mut queue = VecDeque::new();
         // An open model on Vertex AI (`_sendMaas`): the Chat Completions engine, no explicit cache.
         if let Some(model) = self.codec.maas_model(&request.model) {
-            let mut response = self.dispatch(&self.codec.maas_wire(request, &model, false)?).await?;
+            let mut response = self.dispatch_on(&*self.maas_http, &self.codec.maas_wire(request, &model, false)?).await?;
             let global = response.status == 404 && self.codec.falls_back_to_global(request);
             if global {
-                response = self.dispatch(&self.codec.maas_wire(request, &model, true)?).await?;
+                response = self.dispatch_on(&*self.maas_http, &self.codec.maas_wire(request, &model, true)?).await?;
             }
             return Ok(Exchanged { response, queue, global });
         }

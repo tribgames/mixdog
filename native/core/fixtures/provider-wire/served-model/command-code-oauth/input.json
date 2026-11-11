@@ -11,6 +11,7 @@
       "userName": "fixture"
     }
   },
+  "clientVersion": "1.4.5",
   "model": "cc-fixture",
   "messages": [
     {

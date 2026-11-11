@@ -12,6 +12,7 @@
       "project_id": "fixture-project"
     }
   },
+  "clientVersion": "1.4.5",
   "model": "claude-sonnet-4-6",
   "messages": [
     {

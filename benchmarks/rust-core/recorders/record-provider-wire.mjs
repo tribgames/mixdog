@@ -51,6 +51,9 @@ process.env.HOME = process.env.USERPROFILE = join(dataDir, 'home');
 for (const k of Object.keys(process.env)) if (/API_KEY|TOKEN|SECRET|GOOGLE|VERTEX|CLOUD/.test(k) && !/^MIXDOG_(DATA|HOME)/.test(k)) delete process.env[k];
 process.env.MIXDOG_OAI_TRANSPORT = 'http';
 
+// The mixdog build the providers name as their client version (MiMo's `mimocode/<version>` user agent).
+const { PACKAGE_VERSION } = await at('src/runtime/web-search/lib/package-version.mjs');
+
 const { install } = await import(pathToFileURL(join(import.meta.dirname, 'lib/intercept.mjs')).href);
 const hub = await install(tree);
 // Wall-clock reads (ledger ts/day, durations, first-output times, the session id's base-36 stamp) all read START; the
@@ -701,6 +704,7 @@ for (const s of selected) {
     provider: s.provider,
     config: CONFIGS[s.provider],
     ...(credential ? { credential: { file: credential[0], document: credential[1] } } : {}),
+    clientVersion: PACKAGE_VERSION,
     model: s.model,
     messages: s.messages,
     tools: s.tools,
@@ -719,9 +723,8 @@ writeSetManifest(stage, {
   identity,
   extra: {
     exclusions: [
-      'request header values x-stainless-runtime-version, x-stainless-os, x-stainless-arch: the Node running the product and its host, not the recorder; their place in the head is compared',
+      'request header value x-stainless-runtime-version: the Node that runs the SDK client, the recorder\'s here (checked equal to nodeVersion) and the desktop\'s Electron runtime in the product (checked equal to grok::SDK_RUNTIME_VERSION); its place in the head is compared',
       'request header value x-grok-req-id: randomUUID() per request; its place in the head is compared',
-      'request headers of a send Node makes through the OpenAI or Anthropic JS SDK (its head carries x-stainless-lang): the SDK\'s own headers (x-stainless-*, its user-agent) and the order it merges the head in belong to the client library, which the core does not embed (gaps-providers.md row 37); every other header and value is compared, duplicates kept',
       'credential header values (authorization, x-api-key, x-goog-api-key, ...): redacted by lib/headers.mjs to the scheme word; a token minted during the send is checked against the token grant\'s recorded answer',
       'requestId of an Antigravity body: agent-<randomUUID> drawn per send; its presence is compared',
       'GET requests (catalog listings such as /v1/models, client-version lookups): reads beside the send, which the core makes from its catalog services outside the send',

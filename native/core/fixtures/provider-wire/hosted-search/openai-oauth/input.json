@@ -11,6 +11,7 @@
       "email": "fixture@example.invalid"
     }
   },
+  "clientVersion": "1.4.5",
   "model": "gpt-5.2",
   "messages": [
     {

@@ -435,10 +435,30 @@ pub(crate) fn assert_same_events(events: &[StreamEvent], recorded: &Recorded, na
 }
 
 /// Header values that cannot be equal, each declared in the manifest: their place in the head is compared, not their
-/// value. The OpenAI client's `x-stainless-runtime-version` is the Node that runs the product (the desktop's Electron),
-/// not the recorder's; `x-stainless-os` and `x-stainless-arch` are the host's platform; `x-grok-req-id` is a
-/// `randomUUID()` per request.
-const UNEQUAL_HEADERS: [&str; 4] = ["x-stainless-runtime-version", "x-stainless-os", "x-stainless-arch", "x-grok-req-id"];
+/// value. `x-grok-req-id` is a `randomUUID()` per request.
+const UNEQUAL_HEADERS: [&str; 1] = ["x-grok-req-id"];
+
+/// The Node runtime the recorder ran under (the manifest's `nodeVersion`).
+#[allow(clippy::disallowed_methods, reason = "test-only read of the checked-in manifest")]
+fn recorder_node() -> String {
+    let manifest: Value = serde_json::from_slice(&std::fs::read(root().join("MANIFEST.json")).expect("manifest")).expect("json");
+    manifest["nodeVersion"].as_str().expect("nodeVersion").to_owned()
+}
+
+/// The SDK's `x-stainless-runtime-version` names the Node that runs the client: the recorder's on Node's side (checked
+/// equal to the manifest's `nodeVersion`), the product's own runtime on the core's (`grok::SDK_RUNTIME_VERSION`, the
+/// desktop's Electron); each is checked to be its runtime, declared in the manifest.
+fn runtime_named(head: Vec<(String, String)>, runtime: &str, name: &str) -> Vec<(String, String)> {
+    head.into_iter()
+        .map(|(n, v)| {
+            if n == "x-stainless-runtime-version" {
+                assert_eq!(v, runtime, "{name}: the SDK names its runtime");
+                return (n, "<the client's Node runtime>".to_owned());
+            }
+            (n, v)
+        })
+        .collect()
+}
 
 /// The recorder's normalization of a header (`lib/headers.mjs` `cleanHeaders`), applied to the core's head as to
 /// Node's: a credential's value is its scheme word only, and a request id drawn per request is its shape.
@@ -511,19 +531,8 @@ pub(crate) fn assert_same_request(sent: &WireRequest, record: &Value, drawn: &[&
     assert_eq!(sent.method, record["method"].as_str().expect("method"), "{name}: method");
     assert_eq!(sent.url, format!("{}{}", record["origin"].as_str().expect("origin"), record["path"].as_str().expect("path")), "{name}: url");
     let unequal = |(n, v): (String, String)| if UNEQUAL_HEADERS.contains(&n.as_str()) { (n, "<not compared>".to_owned()) } else { (n, v) };
-    let mut core: Vec<_> = sent_head(sent).into_iter().map(unequal).collect();
-    let mut node: Vec<_> = recorded_head(record).into_iter().map(unequal).collect();
-    // A request Node sent through the OpenAI or Anthropic JS SDK (its head carries `x-stainless-lang`): the SDK's own
-    // headers (`x-stainless-*`, its `user-agent`, which replaces fetch's) and the order it merges the head in are the
-    // client library's, which the core does not embed (gaps-providers.md row 37); declared in the manifest. Every
-    // other header and its value is compared, duplicates kept.
-    if node.iter().any(|(n, _)| n == "x-stainless-lang") {
-        let sdk = |(n, _): &(String, String)| n.starts_with("x-stainless-") || n == "user-agent";
-        core.retain(|h| !sdk(h));
-        node.retain(|h| !sdk(h));
-        core.sort();
-        node.sort();
-    }
+    let core: Vec<_> = runtime_named(sent_head(sent), crate::providers::grok::SDK_RUNTIME_VERSION, name).into_iter().map(unequal).collect();
+    let node: Vec<_> = runtime_named(recorded_head(record), &recorder_node(), name).into_iter().map(unequal).collect();
     assert_eq!(core, node, "{name}: headers");
     let body = String::from_utf8(sent.body.clone()).expect("a text body");
     let node_body = record["bodyText"].as_str().unwrap_or_default();
@@ -787,7 +796,8 @@ pub(crate) async fn built(
         codex_identity: inputs.codex,
         pace: Arc::new(crate::oauth::pace::FakePace::default()),
         gzip_lane: tokens.cpu_bulk,
-        client_version: String::new(),
+        // The mixdog build the recorder's tree names (its `package.json` version).
+        client_version: input["clientVersion"].as_str().expect("clientVersion").to_owned(),
         client_versions: None,
         grok_client_version: None,
         cursor_client_version: None,

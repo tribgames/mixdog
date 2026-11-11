@@ -14,6 +14,7 @@
       "refresh_token": "fixture-refresh-token"
     }
   },
+  "clientVersion": "1.4.5",
   "model": "zai-org/glm-5-maas",
   "messages": [
     {

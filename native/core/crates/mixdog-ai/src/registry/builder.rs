@@ -608,6 +608,9 @@ impl DefaultProviderBuilder {
         let http = self.env.http.clone();
         if name == "anthropic" {
             let keys = self.key_source(name, cfg);
+            // The API-key provider posts through the Anthropic client, the user's headers as its `defaultHeaders`
+            // (anthropic.mjs:116-125).
+            let http = Arc::new(GatewayHttp::new(http).through_sdk(Sdk::Anthropic, &config.extra_headers));
             return Ok(adapter(AnthropicAdapter::api_key(config, http, keys, self.env.gzip_lane)));
         }
         let session = Arc::new(OAuthSession::new(self.file(name)?, http.clone()));
@@ -751,13 +754,11 @@ impl DefaultProviderBuilder {
             other => return Err(format!("unknown enabled provider: {other}")),
         };
         let config = self.compat_config(&profile, cfg, base_url, login_headers);
-        // The OpenAI client's `defaultHeaders`: the gateway's own headers and the user's (MiMo posts on its own).
+        // The OpenAI client's `defaultHeaders`: the gateway's own headers and the user's (MiMo's through its
+        // `extraHeaders`, mimo-oauth.mjs:172).
         let defaults: Vec<(String, String)> =
             profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).chain(config.extra_headers.iter().cloned()).collect();
-        let http: Arc<dyn crate::transport::HttpSend> = Arc::new(match name {
-            "mimo-oauth" => GatewayHttp::new(self.env.http.clone()),
-            _ => GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &defaults),
-        });
+        let http: Arc<dyn crate::transport::HttpSend> = Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &defaults));
         let codec = CompatChatCodec::new(profile.clone(), config.clone());
         let chat_base = codec.base_url().to_owned();
         let model_wires = cfg
