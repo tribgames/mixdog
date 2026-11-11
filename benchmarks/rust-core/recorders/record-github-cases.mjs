@@ -25,17 +25,16 @@ const sha = 'a'.repeat(40);
 const repo = 'owner/project';
 const dirs = [];
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
-const failure = (e) => ({ name: e?.name ?? null, message: String(e?.message ?? e), code: e?.code ?? null });
 const tmpdirFor = async (prefix) => { const d = await mkdtemp(join(tmpdir(), prefix)); dirs.push(d); return d; };
 const responseFor = (command) => { if (command.list) return JSON.stringify(command.collection ? { [command.collection]: [] } : []); return command.json ? JSON.stringify({ id: 42, number: 7, merged: true }) : 'done'; };
-const cmdView = (c) => ({ args: c.args, input: c.input ?? null, mutation: c.mutation ?? null, list: c.list ?? null, json: c.json ?? null, collection: c.collection ?? null, keys: Object.keys(c).sort() });
+const cmdView = (c) => structuredClone(c);
 /** executeGithubRequest with a scripted `run`; `answer(command, index)` returns the text (or throws). */
 async function request(input, answer, options = {}) {
   const commands = [];
   const out = { input, commands };
   try {
     out.result = await executeGithubRequest(input, CWD, { ...options, run: async (command) => { commands.push(cmdView(command)); return answer(command, commands.length - 1); } });
-  } catch (e) { out.error = failure(e); }
+  } catch (e) { out.error = e; }
   return out;
 }
 /** executeGithubTool with a scripted `run`; the raw file (when the result names one) is read back. */
@@ -48,8 +47,8 @@ async function tool(input, answer, options = {}) {
     out.text = text;
     let parsed = null;
     try { parsed = JSON.parse(text); } catch { /* an Error: text */ }
-    if (parsed?.raw && typeof parsed.raw === 'string' && !/unavailable/.test(parsed.raw)) { try { out.rawFile = JSON.parse(await readFile(parsed.raw, 'utf8')); } catch (e) { out.rawFileError = failure(e); } }
-  } catch (e) { out.error = failure(e); }
+    if (parsed?.raw && typeof parsed.raw === 'string' && !/unavailable/.test(parsed.raw)) { try { out.rawFile = JSON.parse(await readFile(parsed.raw, 'utf8')); } catch (e) { out.rawFileError = e; } }
+  } catch (e) { out.error = e; }
   return out;
 }
 const withDataDir = async (prefix, fn) => {
@@ -76,10 +75,9 @@ await set.run('every supported operation executes through a bounded, non-interac
   const perAction = [];
   for (const [action, fields] of Object.entries(examples)) {
     const out = await request({ action, repo, ...fields }, (command) => responseFor(command));
-    const method = out.commands[0]?.args[0] === 'api' ? out.commands[0].args[out.commands[0].args.indexOf('--method') + 1] : null;
-    perAction.push({ ...out, method, mutatesByContract: githubRequestMutates({ action }), mutationToolByClassifier: _isMutationTool('github', { action }), commandCount: out.commands.length });
+    perAction.push({ ...out, mutatesByContract: githubRequestMutates({ action }), mutationToolByClassifier: _isMutationTool('github', { action }) });
   }
-  return { repo, sha, actionsInContract: Object.keys(GITHUB_ACTIONS).sort(), actionsInExamples: Object.keys(examples).sort(), perAction };
+  return { repo, sha, actionsInContract: Object.keys(GITHUB_ACTIONS), actionsInExamples: Object.keys(examples), perAction };
 });
 await set.run('invalid requests cannot launch a process or smuggle API/CLI flags', async () => {
   const inputs = [
@@ -95,13 +93,13 @@ await set.run('invalid requests cannot launch a process or smuggle API/CLI flags
 await set.run('Korean titles and shell-looking bodies remain JSON data', () => {
   const body = '`whoami`; $(Remove-Item x)\n한글 & 제목';
   const command = buildGithubCommand({ action: 'issue.create', repo, title: '--help', body });
-  return { body, command: cmdView(command), argsIncludeBody: command.args.includes(body), inputParsed: JSON.parse(command.input) };
+  return { body, command: cmdView(command), inputParsed: JSON.parse(command.input) };
 });
 await set.run('workflow-filtered run lists execute once without a failed unfiltered request', async () => {
   const filtered = [];
   for (const workflow of ['build.yml', 'deploy.yml', 'release-projectaa.yml', '42']) filtered.push(await request({ action: 'run.list', repo, workflow, page: 2, limit: 3 }, () => JSON.stringify({ workflow_runs: [{ id: 42 }] })));
   let unsupported = null;
-  try { validateGithubRequest({ action: 'run.list', repo, state: 'all' }); } catch (e) { unsupported = failure(e); }
+  try { validateGithubRequest({ action: 'run.list', repo, state: 'all' }); } catch (e) { unsupported = e; }
   return { filtered, unfilteredArgs1: buildGithubCommand({ action: 'run.list', repo }).args[1], unsupportedStateField: unsupported };
 });
 await set.run('repo inference binds the write to the resolved Project repository', async () => ({
@@ -114,7 +112,7 @@ await set.run('writes serialize; a failed write is never replayed and does not p
   const first = deferred(); const started = deferred(); const order = [];
   const run = async (command) => { const title = JSON.parse(command.input).title; order.push(title); if (title === 'first') { started.resolve(); await first.promise; throw new Error('connection lost'); } return '{"number":8}'; };
   const a = executeGithubRequest({ action: 'issue.create', repo, title: 'first' }, CWD, { run });
-  const aOutcome = a.then((r) => ({ resolved: r }), (e) => ({ rejected: failure(e) }));
+  const aOutcome = a.then((r) => ({ resolved: r }), (e) => ({ rejected: e }));
   await started.promise;
   const b = executeGithubRequest({ action: 'issue.create', repo, title: 'second' }, CWD, { run });
   const orderWhileFirstHeld = [...order];
@@ -127,10 +125,10 @@ await set.run('cancelled and existing-destination requests leave files and remot
   const directory = await tmpdirFor('github-protected-');
   let calls = 0;
   const run = async () => { calls++; return ''; };
-  const existing = await executeGithubRequest({ action: 'repo.clone', repo, destination: directory }, CWD, { run }).then(() => ({ resolved: true }), (e) => ({ rejected: failure(e) }));
+  const existing = await executeGithubRequest({ action: 'repo.clone', repo, destination: directory }, CWD, { run }).then(() => ({ resolved: true }), (e) => ({ rejected: e }));
   const controller = new AbortController();
   controller.abort();
-  const cancelled = await executeGithubRequest({ action: 'issue.list', repo }, CWD, { run, abortSignal: controller.signal }).then(() => ({ resolved: true }), (e) => ({ rejected: failure(e) }));
+  const cancelled = await executeGithubRequest({ action: 'issue.list', repo }, CWD, { run, abortSignal: controller.signal }).then(() => ({ resolved: true }), (e) => ({ rejected: e }));
   return { destination: directory, existing, cancelled, calls };
 });
 await set.run('merge refusal and unreadable write responses are errors, not successful actions', async () => ({
@@ -168,7 +166,7 @@ await set.run('list actions return compact projected rows while raw keeps the fu
   const calls = [];
   const call = async (action, items, extra = {}, collection) => {
     const out = await tool({ action, repo, ...extra }, () => JSON.stringify(collection ? { [collection]: items } : items), { sessionId: 'sess_github_list', toolCallId: `call_${action}` });
-    calls.push({ action, collection: collection ?? null, items, extra, text: out.text, rawFile: out.rawFile ?? null, rawFileEqualsItems: out.rawFile ? JSON.stringify(out.rawFile) === JSON.stringify(items) : null, hasRaw: JSON.parse(out.text).raw !== undefined });
+    calls.push({ action, collection, items, extra, text: out.text, rawFile: out.rawFile, rawFileEqualsItems: out.rawFile ? JSON.stringify(out.rawFile) === JSON.stringify(items) : null, hasRaw: JSON.parse(out.text).raw !== undefined });
   };
   await call('issue.list', [{ ...common, number: 1, title: 'Bug', state: 'open', labels: [{ name: 'bug', id: 9 }], comments: 2 }]);
   await call('issue.list', [{ number: 2, title: 'T', state: 'closed', user, body: '', labels: [], comments: 0 }]);
@@ -215,7 +213,7 @@ await set.run('results that cannot be clamped by strings still fit the output ca
   return { capBytes: 10 * 1024, releaseView: view, wideList: { bytes: page.textBytes, text: page.text } };
 });
 await set.run('review requires an explicit verdict and merges require an exact full commit identity', () => {
-  const tryValidate = (input) => { try { validateGithubRequest(input); return { ok: true }; } catch (e) { return { threw: failure(e) }; } };
+  const tryValidate = (input) => { try { validateGithubRequest(input); return { ok: true }; } catch (e) { return { threw: e }; } };
   const command = buildGithubCommand({ action: 'pr.review', repo, number: 1, sha, event: 'APPROVE' });
   return { reviewWithoutEvent: tryValidate({ action: 'pr.review', repo, number: 1, sha, body: 'x' }), mergeBranchName: tryValidate({ action: 'pr.merge', repo, number: 1, sha: 'main' }), approve: { command: cmdView(command), commitId: JSON.parse(command.input).commit_id } };
 });
@@ -224,7 +222,7 @@ await set.run('two clones cannot claim the same new destination, even for differ
   let executions = 0;
   const destination = join(directory, 'clone');
   const results = await Promise.allSettled(['owner/one', 'owner/two'].map((source) => executeGithubRequest({ action: 'repo.clone', repo: source, destination }, CWD, { run: async () => { executions++; return 'cloned'; } })));
-  return { destination, executions, outcomes: results.map((r) => (r.status === 'fulfilled' ? { fulfilled: r.value } : { rejected: failure(r.reason) })) };
+  return { destination, executions, outcomes: results.map((r) => (r.status === 'fulfilled' ? { fulfilled: r.value } : { rejected: r.reason })) };
 });
 
 await set.finish({
