@@ -4081,7 +4081,10 @@ impl SessionActor {
         };
         let request =
             ApprovalBook::request(aid, &self.id, &self.lineage, ask, self.deps.clock.now_ms());
-        let params = request_params(&request, &turn);
+        let mut params = request_params(&request, &turn);
+        // Node's card of the request (`state.toolApproval`, `normalizeToolApprovalRequest` of the hook request:
+        // `room_approval.rs` `tool_approval`), which the phone shows as Node's did.
+        params["card"] = super::room_approval::tool_approval(&request);
         let method = request.ask.kind.method();
         let pending = PendingServerRequest {
             id: aid.request_id(),

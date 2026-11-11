@@ -261,6 +261,9 @@ function liveFields(live: Live): Obj {
 
 /** The card of a server request, shaped like today's `toolApproval`: the request's own content plus its id. */
 function approvalCard(r: ServerRequest): Obj {
+  // The core's copy of Node's card (`normalizeToolApprovalRequest` of the hook request), its id the request's.
+  const card = asObj(r.params).card;
+  if (card && typeof card === 'object' && !Array.isArray(card)) return { ...(card as Obj), id: String(r.id) };
   const { threadId: _t, turnId: _u, itemId: _i, surfaceThreadId: _s, chain: _c, requestedAt: _r, expiresAt: _e, order: _o, request, kind: _k, ...rest } = asObj(r.params);
   // An `ask_user` question carries no kind on the wire (its method says it); Node's card said `kind: 'question'` (the push notifier
   // and the card's Allow rules tell a question from an approval by it).
