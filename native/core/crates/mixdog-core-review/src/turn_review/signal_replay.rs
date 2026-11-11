@@ -266,21 +266,28 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
     // split into the deliveries by the feed position each delivery ended at.
     let mut frames_of_era: Vec<Vec<Value>> = Vec::new();
     let mut snapshot = Value::Null;
+    // Each era's frames count from the position its tap's snapshot was taken at, which the snapshot carries: a composed core's boot
+    // publications (the provider accounts) may still land between the position read at `begin` and the tap's attach, and those are in the snapshot.
+    let mut snapshot_seqs: Vec<u64> = Vec::new();
     for (era, (app, tap, base)) in eras.feeds.iter().enumerate() {
-        let published = app.position().seq - base;
-        let seen = within(&format!("the snapshot and {published} frames of the app feed of core {era}"), tap.notifications_until(|seen| seen.len() as u64 > published)).await;
-        let (first, frames) = seen.split_first().expect("the feed's snapshot comes first");
+        let first = within(&format!("the snapshot of the app feed of core {era}"), tap.notifications_until(|seen| !seen.is_empty())).await[0].clone();
         assert_eq!(first["method"], "app/snapshot");
+        let at = first["feed"]["seq"].as_u64().unwrap_or_else(|| panic!("the app feed snapshot of core {era} carries its position: {first}"));
+        assert!(at >= *base, "core {era}: the tap's snapshot at {at} precedes the position {base} read before it attached");
+        let published = app.position().seq - at;
+        let seen = within(&format!("the snapshot and {published} frames of the app feed of core {era} (snapshot at {at})"), tap.notifications_until(|seen| seen.len() as u64 > published)).await;
         if era == 0 {
             snapshot = first.clone();
         }
-        frames_of_era.push(frames.to_vec());
+        frames_of_era.push(seen[1..].to_vec());
+        snapshot_seqs.push(at);
     }
     let mut delivery_frames: Vec<Vec<Value>> = Vec::new();
     let mut from = vec![0usize; frames_of_era.len()];
     for (era, upto) in eras.deliveries.lock().unwrap().iter() {
-        delivery_frames.push(frames_of_era[*era][from[*era]..(*upto - eras.feeds[*era].2) as usize].to_vec());
-        from[*era] = (*upto - eras.feeds[*era].2) as usize;
+        let upto = (*upto - snapshot_seqs[*era]) as usize;
+        delivery_frames.push(frames_of_era[*era][from[*era]..upto].to_vec());
+        from[*era] = upto;
     }
     // Past the last delivery of a core (up to its stop, for the last one the closing signal) no review tell is published: Node's last
     // delivery of the scenario is the recording's last, so a tell made after it is one Node did not make.
