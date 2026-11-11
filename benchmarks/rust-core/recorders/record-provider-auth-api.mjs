@@ -6,15 +6,20 @@
 // (collaborator effects in the order they happened) and the API's return values.
 //   node benchmarks/rust-core/recorders/record-provider-auth-api.mjs --tree <exact export of b6f10295a>
 import { register } from 'node:module';
-import { setImmediate } from 'node:timers/promises';
-// Waits for an effect the API starts in the background (no fixed number of turns): polls once per event-loop turn until `predicate`, failing after 5 s.
-const until = async (predicate, what) => {
-  const end = process.hrtime.bigint() + 5_000_000_000n;
-  while (!predicate()) {
-    if (process.hrtime.bigint() > end) throw new Error(`recorder: ${what} did not happen within 5 s`);
-    await setImmediate();
-  }
-};
+import { setTimeout as realTimeout, clearTimeout as realClearTimeout } from 'node:timers';
+// Waits for an effect the API starts in the background ON THE EVENT: every stubbed call is a push to `calls`, which wakes the waiters; each wait has a 5 s deadline (real clock).
+const waiters = new Set();
+const until = (predicate, what) => new Promise((resolve, reject) => {
+  const check = () => {
+    if (!predicate()) return;
+    waiters.delete(check);
+    realClearTimeout(timer);
+    resolve();
+  };
+  const timer = realTimeout(() => { waiters.delete(check); reject(new Error(`recorder: ${what} did not happen within 5 s`)); }, 5000);
+  waiters.add(check);
+  check();
+});
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
@@ -39,6 +44,8 @@ export async function load(url, context, next) {
 register(`data:text/javascript,${encodeURIComponent(hooks)}`);
 
 const calls = [];
+const realPush = calls.push.bind(calls);
+calls.push = (...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; };
 let pendingCallback = null;
 const admin = {
   keychainIssueFor: () => null,

@@ -11,15 +11,15 @@
   "entry": "src/session-runtime/provider-auth-api.mjs createProviderAuthApi(deps) over stubbed ./services/provider-admin.mjs, providers/admission-scheduler.mjs, providers/registry.mjs, providers/oauth-usage.mjs (loader hook; the stubs record every call into `calls`). The test flushes with timers/promises setImmediate (polled per event-loop turn up to a 5 s deadline, never a fixed number of turns), as the recorder does; no timer is waited on.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 34145,
+      "bytes": 24605,
       "path": "cases.json",
-      "sha256": "2aa3d20ce5641eb27bcc8e1c1bd7cfb5069f1fee6ff5094fd4316628b73b8f18"
+      "sha256": "99effdc13e85cb49d2ab97c103a6d30e87a29934876ddd0c2acd4886bdd3fb51"
     }
   ],
   "inputs": [
@@ -41,11 +41,63 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "save-api-key-reload-cooldowns-catalogs-then-caches",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "vertex-credentials-forward-location-and-project",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "authenticate-saves-secret-or-runs-oauth-login",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "custom-provider-save-remove-refresh-like-credentials",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "usage-only-credentials-skip-admission-cooldowns",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "begin-oauth-login-wraps-callback-and-code-completion",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "account-roster-paints-immediately-one-usage-sweep",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "switching-selected-account-releases-cooldowns-prefetches-usage",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "provider-setup-quick-snapshot-then-forced",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "catalog-preset-dashboard-reset-credit-surfaces",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +119,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-auth-api.mjs",
-  "recorderSha256": "c18ac9d2b2d2294016320d6dee4510053f3ed202b573636e99bdfb277f4edf9d",
+  "recorderSha256": "13b44263405947a43d0d1ab22f8326af6c997ae81be97896c14161a0cbc062ea",
   "replay": "Rust entry (pub, on o1): mixdog_core_domains ai_admin AccountActions (account_actions.rs:61, constructors new/over :113/:117) and ai_account spawn_provider_changes (provider_changes.rs:96) with LiveProviderEffects (provider_changes.rs:71). The catalog refresh after a key save is OPEN (K1 G8, dec:828): work for the Rust side.",
   "set": "provider-auth-api",
-  "totalBytes": 34145,
+  "totalBytes": 24605,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
