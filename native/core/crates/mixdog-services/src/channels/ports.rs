@@ -187,7 +187,9 @@ impl WebhookAutomation {
             return Ok(());
         }
         if bound.is_some() {
-            // The old listener closes before the new one binds.
+            // The old listener closes before the new one binds; once closed it is no longer bound, so a start
+            // that fails leaves nothing recorded (Node nulls a failed listener, `listener-lifecycle.mjs:43`).
+            self.listening.lock().unwrap().take();
             self.listener.stop().await?;
         }
         self.listener.start(&settings).await?;
