@@ -22,7 +22,7 @@ fn the_decoder_recovers_leaked_calls_as_node_does() {
     assert!(!scenarios.is_empty());
     for scenario in scenarios {
         let label = format!("anthropic / {}", scenario["name"]);
-        let mut decoder = AnthropicDecoder::new(ProviderId::from("anthropic")).with_known_tools(known(&scenario));
+        let mut decoder = AnthropicDecoder::for_model(ProviderId::from("anthropic"), "").with_known_tools(known(&scenario));
         let mut steps: Vec<Vec<StreamEvent>> = scenario["wire"]
             .as_array()
             .expect("wire")

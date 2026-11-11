@@ -1,0 +1,68 @@
+{
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "method": "POST",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "headers": {
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "connection": "keep-alive",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept": "text/event-stream",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)",
+        "anthropic-beta": "interleaved-thinking-2025-05-14",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "927"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "anthropic-beta",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"claude-sonnet-4-6\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"go\"}]},{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"name\":\"glob\",\"args\":{\"pattern\":\"*\"},\"id\":\"toolu_9\"}}]},{\"role\":\"user\",\"parts\":[{\"functionResponse\":{\"name\":\"glob\",\"response\":{\"result\":\"ok\"},\"id\":\"toolu_9\"}}]},{\"role\":\"user\",\"parts\":[{\"text\":\"next\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are a fixture assistant.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"glob\",\"description\":\"Find files\",\"parametersJsonSchema\":{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\"}},\"required\":[\"pattern\"]}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"VALIDATED\"}},\"generationConfig\":{\"maxOutputTokens\":64000,\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-5535172545919554977\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-4c7a12f0-c74a-45b0-810f-6af055c023a4\"}",
+      "served": "data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The answer \"}]}}],\"modelVersion\":\"fixture\"}}\n\ndata: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}}\n\n"
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "antigravity-claude/interrupted-unsigned-run",
+      "seed": 3366888545,
+      "samples": []
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "4c7a12f0c74af5b0410f6af055c023a4",
+          "site": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs#buildAntigravityRequest",
+          "n": 1
+        }
+      ]
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#Object.resetIdle",
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#createRestStreamWatchdogs",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
+}
