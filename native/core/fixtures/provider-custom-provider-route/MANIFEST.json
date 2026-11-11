@@ -1,7 +1,7 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-custom-provider-route.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider` and `result.routeProvider`, and `validatorCalls` (provider id, whether the config passed is the same object as the input).",
+  "compare": "mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider`, the whole `result.route` and `validatorCalls` (provider id and the config the validator received, whole).",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
@@ -11,15 +11,15 @@
   "entry": "src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs makeResolveDefaultProvider(validate)(config) and makeResolveRoute(resolve)(config, { model }). The validator is the test's callback (providers[id].type === \"custom\"); the recorder records the arguments it received.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1513,
+      "bytes": 2635,
       "path": "cases.json",
-      "sha256": "d4bf23fd4b4302ea2fa155e6624e6aef04716fe186e60e4abb3fe32fe3c8deaa"
+      "sha256": "29311f54cc46dd438199f737d526999d7e466dc4070445759944578feb0abe1e"
     }
   ],
   "inputs": [
@@ -41,11 +41,18 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "default-provider-validation-gets-saved-config",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +74,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-custom-provider-route.mjs",
-  "recorderSha256": "462758efe4e2640e5889aef2521333d5f554dd19c837b8520fe8f04ef7361a89",
+  "recorderSha256": "c69c012c15732c67298022de94e88aa3b79e110af440f7f9c7f1eb09de4266ba",
   "replay": "Rust entry (pub, on o1): mixdog_ai::service::admin_route::resolve_route (service/admin_route.rs:311).",
   "set": "provider-custom-provider-route",
-  "totalBytes": 1513,
+  "totalBytes": 2635,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

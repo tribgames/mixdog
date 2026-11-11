@@ -26,14 +26,57 @@
       },
       "result": {
         "defaultProvider": "custom-test",
-        "routeProvider": "custom-test",
+        "route": {
+          "provider": "custom-test",
+          "model": "m2",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {},
+          "contextPercent": {
+            "$exact": "undefined"
+          }
+        },
         "validatorCalls": [
           {
             "id": "custom-test",
+            "config": {
+              "default": "main",
+              "presets": [
+                {
+                  "id": "main",
+                  "provider": "custom-test",
+                  "model": "m1"
+                }
+              ],
+              "providers": {
+                "custom-test": {
+                  "type": "custom",
+                  "enabled": true
+                }
+              }
+            },
             "sameConfigObject": true
           },
           {
             "id": "custom-test",
+            "config": {
+              "default": "main",
+              "presets": [
+                {
+                  "id": "main",
+                  "provider": "custom-test",
+                  "model": "m1"
+                }
+              ],
+              "providers": {
+                "custom-test": {
+                  "type": "custom",
+                  "enabled": true
+                }
+              }
+            },
             "sameConfigObject": true
           }
         ]
