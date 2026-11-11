@@ -713,7 +713,8 @@ impl FileService for LocalFileService {
         .await?
     }
 
-    /// The walker runs on its own thread, at most [`QUEUE`] entries ahead of the consumer (see [`Streamed`]).
+    /// The walker runs on its own thread, at most [`QUEUE`] entries and [`QUEUE_BYTES`] ahead of the consumer (see
+    /// [`Streamed`]).
     fn walk(&self, _lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
         let root = request.root.as_path();
         let mut builder = WalkBuilder::new(root);
@@ -733,7 +734,8 @@ impl FileService for LocalFileService {
         streamed(&PRODUCERS, Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs }), Deadline::default())
     }
 
-    /// The search runs on its own thread, at most [`QUEUE`] matches ahead of the consumer (see [`Streamed`]).
+    /// The search runs on its own thread, at most [`QUEUE`] matches and [`QUEUE_BYTES`] ahead of the consumer (see
+    /// [`Streamed`]).
     fn search_text(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         let root = request.root.as_path();
         // ripgrep's rule: later globs win, so the excludes follow the includes.
@@ -863,17 +865,12 @@ const MAX_COLUMNS: usize = 500;
 /// grep-printer `write_exceeded_line`'s mark when no match is coloured.
 const LONG_LINE_MARK: &str = " [... omitted end of long line]";
 
-/// The most bytes of a long line's preview: 500 grapheme clusters are kept unless they take more than this (an average
-/// cluster over 131 bytes, which only a run of combining marks makes), where the preview ends instead, so an item holds
-/// at most `PREVIEW_BYTES` + the mark of text however long the line. Node's printer has no such bound.
-const PREVIEW_BYTES: usize = 64 * 1024;
-
 /// A match line as the search server prints it and splits its output (grep-printer, then `str::lines`), the matcher
 /// having run on the whole line: a line whose bytes with its `\n` are at most [`MAX_COLUMNS`] loses its terminator, `\n`
 /// or `\r\n`; a longer one is its first [`MAX_COLUMNS`] extended grapheme clusters, a `\r` before the `\n` among them
 /// (ripgrep's line ends at the `\n`; the mark that follows keeps the `\r` from `str::lines`), and [`LONG_LINE_MARK`]. A
-/// file's last line without a terminator is long past [`MAX_COLUMNS`] bytes. Bytes past [`PREVIEW_BYTES`] are never
-/// decoded.
+/// file's last line without a terminator is long past [`MAX_COLUMNS`] bytes. The preview is not cut short however many
+/// bytes its clusters take: the queue's memory is bounded by [`QUEUE_BYTES`] instead.
 fn match_text(bytes: &[u8]) -> String {
     use unicode_segmentation::UnicodeSegmentation as _;
     let terminated = bytes.ends_with(b"\n");
@@ -882,12 +879,8 @@ fn match_text(bytes: &[u8]) -> String {
         let line = if terminated { line.strip_suffix(b"\r").unwrap_or(line) } else { line };
         return String::from_utf8_lossy(line).into_owned();
     }
-    let head = String::from_utf8_lossy(&line[..line.len().min(PREVIEW_BYTES)]);
-    // The decoded preview is held to PREVIEW_BYTES too: a replacement character is longer than the byte it stands for.
-    let mut end = head.grapheme_indices(true).nth(MAX_COLUMNS).map_or(head.len(), |(at, _)| at).min(PREVIEW_BYTES);
-    while !head.is_char_boundary(end) {
-        end -= 1;
-    }
+    let head = String::from_utf8_lossy(line);
+    let end = head.grapheme_indices(true).nth(MAX_COLUMNS).map_or(head.len(), |(at, _)| at);
     let mut text = head[..end].to_owned();
     text.push_str(LONG_LINE_MARK);
     text
@@ -932,10 +925,40 @@ impl Sink for Collect<'_> {
     }
 }
 
-/// Items a stream holds ahead of its consumer, the capacity of its queue. A search item is one match: its path and at
-/// most [`PREVIEW_BYTES`] + 31 bytes of text ([`match_text`]), so a full queue holds at most `QUEUE` × (65,567 bytes +
-/// one path), about 16 MiB, whatever the files hold; the producer waits while it is full.
+/// Items a stream holds ahead of its consumer, the capacity of its queue; the producer waits while it is full.
 pub const QUEUE: usize = 256;
+
+/// The bytes of items a stream holds ahead of its consumer ([`Weigh`]: a match's text and path, an entry's path): the
+/// producer waits to queue an item that would take the queue past this. An item larger than this alone waits for an
+/// empty queue, so the queue holds at most `QUEUE_BYTES`, or one item when one is larger, whatever the files hold; a
+/// long line's preview (its first 500 grapheme clusters, [`match_text`]) is kept whole, as Node's server prints it.
+pub const QUEUE_BYTES: usize = 1 << 20;
+
+/// What a queued item weighs against [`QUEUE_BYTES`].
+trait Weigh {
+    fn weight(&self) -> usize;
+}
+
+impl Weigh for SearchMatch {
+    fn weight(&self) -> usize {
+        self.text.len() + self.path.as_path().as_os_str().len()
+    }
+}
+
+impl Weigh for DirEntry {
+    fn weight(&self) -> usize {
+        self.path.as_path().as_os_str().len()
+    }
+}
+
+impl<T: Weigh> Weigh for Result<T, FsError> {
+    fn weight(&self) -> usize {
+        match self {
+            Ok(item) => item.weight(),
+            Err(error) => error.path.as_ref().map_or(0, |p| p.as_path().as_os_str().len()),
+        }
+    }
+}
 
 /// How long `close` waits for a stopped producer to end (Node's `CANCEL_GRACE_MS`, after which its client ends the
 /// search server).
@@ -1073,8 +1096,12 @@ struct Deadline {
 
 /// What a stream and its producer thread share.
 struct Control {
-    /// Set by `close` and by dropping the stream: the producer ends at its next check.
+    /// Set by `close` and by dropping the stream ([`Control::halt`]): the producer ends at its next check.
     stop: AtomicBool,
+    /// The bytes of the items in the queue ([`QUEUE_BYTES`]).
+    queued: Mutex<usize>,
+    /// Notified when the queue's bytes go down and when the stream stops.
+    room: Condvar,
     deadline: Deadline,
     /// Files searched that had matches (for [`Deadline::after_files`]).
     #[cfg(feature = "replay-controls")]
@@ -1088,6 +1115,8 @@ impl Control {
     fn new(deadline: Deadline) -> Self {
         Self {
             stop: AtomicBool::new(false),
+            queued: Mutex::new(0),
+            room: Condvar::new(),
             deadline,
             #[cfg(feature = "replay-controls")]
             files_with_lines: AtomicUsize::new(0),
@@ -1097,6 +1126,37 @@ impl Control {
 
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    /// Stops the producer, waking it if it waits for room in the queue.
+    fn halt(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
+        self.room.notify_all();
+    }
+
+    /// Takes `weight` bytes of the queue, waiting while they would take it past [`QUEUE_BYTES`] (an item larger than
+    /// that waits for an empty queue); `false` once the stream is stopped.
+    fn reserve(&self, weight: usize) -> bool {
+        let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if self.stopped() {
+                return false;
+            }
+            if *queued == 0 || *queued + weight <= QUEUE_BYTES {
+                *queued += weight;
+                return true;
+            }
+            queued = self.room.wait(queued).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// The consumer took an item of `weight` bytes off the queue.
+    fn taken(&self, weight: usize) {
+        let mut queued = self.queued.lock().unwrap_or_else(PoisonError::into_inner);
+        // A stream that is one error ([`one_item`]) queued it without reserving it.
+        *queued = queued.saturating_sub(weight);
+        self.room.notify_all();
     }
 
     fn expired(&self) -> bool {
@@ -1129,10 +1189,10 @@ struct Out<T> {
     ctl: Arc<Control>,
 }
 
-impl<T> Out<T> {
-    /// Queues `item`, waiting while the queue is full; `false` once the stream is stopped or gone.
+impl<T: Weigh> Out<T> {
+    /// Queues `item`, waiting while the queue is full, in items or in bytes; `false` once the stream is stopped or gone.
     fn send(&self, item: Result<T, FsError>) -> bool {
-        !self.ctl.stopped() && self.tx.blocking_send(item).is_ok()
+        self.ctl.reserve(item.weight()) && !self.ctl.stopped() && self.tx.blocking_send(item).is_ok()
     }
 }
 
@@ -1318,8 +1378,8 @@ impl Produce<SearchMatch> for Searching {
     }
 }
 
-/// A stream fed by a producer thread through a queue of [`QUEUE`] items: the producer runs ahead of the consumer by at
-/// most that many and waits while the queue is full.
+/// A stream fed by a producer thread through a queue of [`QUEUE`] items and [`QUEUE_BYTES`]: the producer runs ahead of
+/// the consumer by at most that much and waits while the queue is full.
 ///
 /// [`EventSource::close`] stops the producer and waits for its thread to end, at most [`CLOSE_GRACE`]: a producer
 /// checks the stop between entries, before every read of a file and at every item it queues, so it ends at once unless
@@ -1369,7 +1429,7 @@ fn one_item<T>(item: Result<T, FsError>) -> mpsc::Receiver<Result<T, FsError>> {
 }
 
 /// A stream that is one error: no producer.
-fn failed<T: Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, FsError>>> {
+fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, FsError>>> {
     Box::new(Streamed {
         rx: Some(one_item(Err(error))),
         ctl: Arc::new(Control::new(Deadline::default())),
@@ -1382,7 +1442,7 @@ fn failed<T: Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, Fs
     })
 }
 
-fn streamed<T: Send + 'static>(
+fn streamed<T: Weigh + Send + 'static>(
     producers: &Arc<Producers>,
     producer: Box<dyn Produce<T>>,
     deadline: Deadline,
@@ -1405,7 +1465,7 @@ fn streamed<T: Send + 'static>(
     Box::new(stream)
 }
 
-impl<T: Send + 'static> Streamed<T> {
+impl<T: Weigh + Send + 'static> Streamed<T> {
     /// Starts the waiting producer if a slot is free; `false` while it still waits.
     fn try_start(&mut self) -> bool {
         if self.waiting.is_none() {
@@ -1449,26 +1509,33 @@ impl<T: Send + 'static> Streamed<T> {
 }
 
 #[async_trait]
-impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
+impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
     async fn next(&mut self) -> Option<Result<T, FsError>> {
         self.rx.as_ref()?;
         self.started().await;
         let rx = self.rx.as_mut()?;
+        let ctl = &self.ctl;
+        let taken = |item: Option<Result<T, FsError>>| {
+            if let Some(item) = &item {
+                ctl.taken(item.weight());
+            }
+            item
+        };
         let item = match self.ctl.deadline.at.filter(|_| !self.late) {
             Some(at) => tokio::select! {
                 biased;
-                item = rx.recv() => item,
+                item = rx.recv() => taken(item),
                 () = tokio::time::sleep_until(at.into()) => {
                     if self.ctl.in_file.load(Ordering::SeqCst) {
                         self.late = true;
-                        rx.recv().await
+                        taken(rx.recv().await)
                     } else {
-                        self.ctl.stop.store(true, Ordering::SeqCst);
+                        self.ctl.halt();
                         Some(Err(timed_out(None)))
                     }
                 }
             },
-            None => rx.recv().await,
+            None => taken(rx.recv().await),
         };
         if matches!(item, None | Some(Err(FsError { kind: FsErrorKind::TimedOut, .. }))) {
             self.rx = None;
@@ -1477,7 +1544,7 @@ impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
     }
 
     async fn close(&mut self) {
-        self.ctl.stop.store(true, Ordering::SeqCst);
+        self.ctl.halt();
         // A producer waiting on a full queue is released; one waiting for a slot never starts.
         self.rx = None;
         self.waiting = None;
@@ -1491,7 +1558,7 @@ impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
 
 impl<T> Drop for Streamed<T> {
     fn drop(&mut self) {
-        self.ctl.stop.store(true, Ordering::SeqCst);
+        self.ctl.halt();
         self.producers.release(&self.state, self.thread.take());
     }
 }
@@ -2249,36 +2316,49 @@ mod tests {
         (listing, open, read)
     }
 
-    /// The memory a search holds ahead of its consumer is its queue: [`QUEUE`] matches, each at most [`PREVIEW_BYTES`] +
-    /// the mark (65,567) bytes of text however long its line, so at most 256 × 65,567 bytes = 16,785,152 bytes of text
-    /// plus one path per match. A consumer that stops reading without dropping the stream holds the producer there.
+    /// The memory a search holds ahead of its consumer is its queue: at most [`QUEUE_BYTES`] (1,048,576) bytes of
+    /// matches' text and paths, or one match when one is larger, however long its line: a long line's preview is kept
+    /// whole. A consumer that stops reading without dropping the stream holds the producer there.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_consumer_that_stops_reading_holds_the_producer_at_its_queue() {
+    async fn a_consumer_that_stops_reading_holds_the_producer_at_its_queue_bytes() {
         let (_dir, root) = root();
-        // 300 matching lines of 80,208 bytes each: 200 clusters of a letter and 200 combining marks, whose 500-cluster
-        // preview would take more than PREVIEW_BYTES.
+        // 300 matching lines of 80,208 bytes each: 207 grapheme clusters (200 of a letter and 200 combining marks), so
+        // the whole line is its preview.
         let line = format!("needle {}\n", format!("e{}", "\u{301}".repeat(200)).repeat(200));
         std::fs::write(root.join("a.txt").as_path(), line.repeat(300)).unwrap();
         let fs = LocalFileService::new();
         let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
-        assert!(stream.next().await.unwrap().is_ok());
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first.text, format!("{}{LONG_LINE_MARK}", &line[..line.len() - 1]), "the preview is not cut short");
+        let fits = QUEUE_BYTES / first.weight();
         let found = || probe::search(root.as_path()).found;
-        assert!(eventually(|| found() == QUEUE as u64 + 1).await, "found {}", found());
+        assert!(eventually(|| found() == fits as u64 + 1).await, "found {}", found());
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(found(), QUEUE as u64 + 1, "the producer waits while the queue is full");
+        assert_eq!(found(), fits as u64 + 1, "the producer waits while the queue's bytes are taken");
         let mut queued_bytes = 0;
-        for _ in 0..QUEUE {
+        for _ in 0..fits {
             let item = stream.next().await.unwrap().unwrap();
-            assert!(item.text.len() <= PREVIEW_BYTES + LONG_LINE_MARK.len(), "{}", item.text.len());
-            assert!(item.text.ends_with(LONG_LINE_MARK));
-            queued_bytes += item.text.len();
+            assert_eq!(item.text, first.text);
+            queued_bytes += item.weight();
         }
-        assert!(queued_bytes <= QUEUE * (PREVIEW_BYTES + LONG_LINE_MARK.len()), "{queued_bytes}");
-        assert_eq!(QUEUE * (PREVIEW_BYTES + LONG_LINE_MARK.len()), 16_785_152);
+        assert!(queued_bytes <= QUEUE_BYTES, "{queued_bytes}");
         let started = Instant::now();
         stream.close().await;
         assert!(started.elapsed() < CLOSE_GRACE, "{:?} found {}", started.elapsed(), found());
         assert_eq!(probe::search(root.as_path()).live, 0, "close returns once the producer has ended");
+
+        // A preview larger than the whole queue's bytes (1,200,008 bytes in 8 clusters) is queued whole, alone.
+        let (_other, root) = self::root();
+        let line = format!("needle {}", format!("e{}", "\u{301}".repeat(600_000)));
+        assert!(line.len() > QUEUE_BYTES);
+        std::fs::write(root.join("b.txt").as_path(), format!("{line}\n{line}\n")).unwrap();
+        let mut stream = fs.search_text(lanes().maintenance, needle_request(&root, None));
+        for _ in 0..2 {
+            let item = within("a match larger than the queue", stream.next()).await.unwrap().unwrap();
+            assert_eq!(item.text, format!("{line}{LONG_LINE_MARK}"));
+        }
+        assert!(within("the search's end", stream.next()).await.is_none());
+        stream.close().await;
     }
 
     /// A file of 1 GiB with no match is read in checked chunks: a stop or a deadline that arrives mid-file ends the
