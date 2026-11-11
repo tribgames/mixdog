@@ -596,15 +596,69 @@ async fn automation_is_present_while_something_enabled_exists() {
     assert!(e.admin.has_active_automation().await);
 }
 
+/// Every schedule, endpoint and delivery row, keyed and ordered as `record-bot-routines-purge.mjs` reads Node's tables.
+async fn routine_tables(e: &Env) -> Value {
+    use crate::webhooks::records::DELIVERY_PREFIX;
+    let mut schedules = e.schedules.list().await.unwrap();
+    schedules.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut endpoints = e.webhooks.list().await.unwrap();
+    endpoints.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut deliveries: Vec<(String, String)> = e.state.meta_prefix(DELIVERY_PREFIX).await.unwrap().into_iter()
+        .map(|(key, _)| {
+            let (endpoint, id) = key[DELIVERY_PREFIX.len()..].split_once(':').unwrap();
+            (endpoint.to_string(), id.to_string())
+        })
+        .collect();
+    deliveries.sort();
+    json!({
+        "schedules": schedules.iter().map(|s| json!({"name": s.name, "ownerAgentId": s.owner_agent_id})).collect::<Vec<_>>(),
+        "endpoints": endpoints.iter().map(|w| json!({"name": w.name, "ownerAgentId": w.owner_agent_id})).collect::<Vec<_>>(),
+        "deliveries": deliveries.iter().map(|(endpoint, id)| json!({"endpoint": endpoint, "deliveryId": id})).collect::<Vec<_>>(),
+    })
+}
+
+/// Node's bot deletion (`deleteOwnedRoutines` over routines-db.mjs on a real PostgreSQL store), recorded by
+/// `record-bot-routines-purge.mjs` (`fixtures/bot-routines-purge`): the same seed through the stores, the same calls through
+/// the admin, and every reply and the whole remaining tables after each equal Node's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn deleting_a_bots_routines_removes_only_its_own() {
+async fn deleting_a_bots_routines_replays_node() {
+    use crate::webhooks::handler::{Claim, WebhookStore};
+    let rec: Value = serde_json::from_str(include_str!("../../../../fixtures/bot-routines-purge/golden.json")).unwrap();
     let e = env().await;
-    e.schedules.upsert(&sched("mine")).await.unwrap();
-    e.schedules.upsert(&Schedule { owner_agent_id: "other".into(), ..sched("theirs") }).await.unwrap();
-    e.webhooks.upsert(&EndpointRecord { name: "hook".into(), owner_agent_id: "gh-bot".into(), ..Default::default() }).await.unwrap();
-    assert_eq!(e.admin.delete_owned_routines("gh-bot").await.unwrap(), json!({"schedules": ["mine"], "webhooks": ["hook"]}));
-    assert_eq!(e.schedules.list().await.unwrap().len(), 1);
-    assert_eq!(message(e.admin.delete_owned_routines("lead").await.unwrap_err()), "the routines of \"lead\" cannot be deleted with a bot");
+    let seed = &rec["seed"];
+    for def in seed["schedules"].as_array().unwrap() {
+        let schedule = Schedule {
+            name: def["name"].as_str().unwrap().into(),
+            prompt: def["prompt"].as_str().unwrap().into(),
+            when_cron: Some(def["whenCron"].as_str().unwrap().into()),
+            owner_agent_id: def["ownerAgentId"].as_str().unwrap().into(),
+            ..Default::default()
+        };
+        e.schedules.upsert(&schedule).await.unwrap();
+    }
+    for def in seed["endpoints"].as_array().unwrap() {
+        let endpoint = EndpointRecord {
+            name: def["name"].as_str().unwrap().into(),
+            instructions: def["instructions"].as_str().unwrap().into(),
+            owner_agent_id: def["ownerAgentId"].as_str().unwrap().into(),
+            ..Default::default()
+        };
+        e.webhooks.upsert(&endpoint).await.unwrap();
+    }
+    for d in seed["deliveries"].as_array().unwrap() {
+        let claim = Claim { status: "pending", event: None, headers_summary: Value::Null, payload_preview: String::new() };
+        assert!(e.webhooks.claim_delivery(d["endpoint"].as_str().unwrap(), d["deliveryId"].as_str().unwrap(), claim).await.unwrap());
+    }
+    assert_eq!(routine_tables(&e).await, rec["before"]);
+    for call in rec["calls"].as_array().unwrap() {
+        let agent = call["agentId"].as_str().unwrap();
+        let mut outcome = match e.admin.delete_owned_routines(agent).await {
+            Ok(reply) => json!({"agentId": agent, "reply": reply}),
+            Err(error) => json!({"agentId": agent, "error": message(error)}),
+        };
+        outcome["after"] = routine_tables(&e).await;
+        assert_eq!(&outcome, call);
+    }
 }
 
 /// All or nothing (routines-db.mjs: one statement): a purge that fails partway leaves every
