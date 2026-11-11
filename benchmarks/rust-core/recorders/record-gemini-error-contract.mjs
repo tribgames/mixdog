@@ -7,11 +7,15 @@ import { T0, startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  pure: {
+    'safety-recitation-finish-codes': 'mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub; the policy finish codes are what `feed` returns for a SAFETY / RECITATION finishReason chunk)',
+    '*': 'mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk',
+  },
   set: 'provider-gemini-error-contract',
   net: false,
   entry: 'gemini-error-contract.mjs geminiErrorContract / geminiPolicyFinishCode, gemini.mjs geminiRestError(res, bodyText, "Gemini"), antigravity-transport.mjs antigravityError(res, bodyText, endpoint), gemini-response.mjs geminiIncompleteError, provider-error-kind.mjs providerErrorKind, antigravity-retry-policy.mjs isAntigravityCapacityError, over scripted bodies. Not run: a network call.',
-  compare: 'mixdog-ai providers::google error.rs (:115-216, :386, :441-487) and decode.rs:610 policy finish codes, mixdog-ai retry::classify: feed `input` (the error body / contract arguments / finish reason) and compare `result` whole; resetAt is the recorded virtual clock (clockStartMs) plus the advice.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Classification: mixdog_ai::retry::classify::kind_of (retry/classify.rs:142).",
+  compare: 'feed `input` (the error status and body, as `classify` receives them as an ErrorResponse) to the public classify / in_band and compare `result`/`error` whole (typed code, retry advice, scope, resetAt); resetAt is the recorded virtual clock (clockStartMs) plus the advice. The contract-field rows (geminiErrorContract over details arrays) are reached through a body carrying those details.',
+  replay: "PURE (every case, see `levels`): mixdog-ai/src/providers/google/error.rs:336 `pub fn classify(response: &ErrorResponse, dialect: ErrorDialect) -> ProviderError` (status + body bytes in, typed error with retry advice, quota scope and reset out) and :386 `pub fn in_band`; the finish-reason case through the public GeminiDecoder (google/decode.rs:193). Retry classification: mixdog_ai::retry::classify::kind_of (retry/classify.rs:142).",
 });
 const P = 'agent/orchestrator/providers/';
 const { geminiErrorContract, geminiPolicyFinishCode } = await rec.P(`${P}gemini-error-contract.mjs`);

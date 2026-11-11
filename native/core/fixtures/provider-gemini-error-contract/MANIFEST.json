@@ -1,7 +1,7 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-gemini-error-contract.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-ai providers::google error.rs (:115-216, :386, :441-487) and decode.rs:610 policy finish codes, mixdog-ai retry::classify: feed `input` (the error body / contract arguments / finish reason) and compare `result` whole; resetAt is the recorded virtual clock (clockStartMs) plus the advice.",
+  "compare": "feed `input` (the error status and body, as `classify` receives them as an ErrorResponse) to the public classify / in_band and compare `result`/`error` whole (typed code, retry advice, scope, resetAt); resetAt is the recorded virtual clock (clockStartMs) plus the advice. The contract-field rows (geminiErrorContract over details arrays) are reached through a body carrying those details.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
@@ -11,7 +11,7 @@
   "entry": "gemini-error-contract.mjs geminiErrorContract / geminiPolicyFinishCode, gemini.mjs geminiRestError(res, bodyText, \"Gemini\"), antigravity-transport.mjs antigravityError(res, bodyText, endpoint), gemini-response.mjs geminiIncompleteError, provider-error-kind.mjs providerErrorKind, antigravity-retry-policy.mjs isAntigravityCapacityError, over scripted bodies. Not run: a network call.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
@@ -41,11 +41,143 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "reads-retryinfo-quotafailure-errorinfo",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "errorDetails-status-fallback-uncapped",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "no-scope-without-evidence",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "geminiRestError-details-mapping",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "geminiRestError-lowercases-status",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravityError-errorinfo-reset",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravity-capacity:errorinfo-reason",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravity-capacity:server-busy-message",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravity-capacity:no-capacity-message",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "safety-recitation-finish-codes",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/decode.rs:193 GeminiDecoder (pub; the policy finish codes are what `feed` returns for a SAFETY / RECITATION finishReason chunk)"
+    },
+    {
+      "id": "per-minute-without-retryinfo-60s",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "long-advice-never-quota",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "zero-retryinfo-no-advice",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "spent-quotas-no-window",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "limit-zero-in-message-not-evidence",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "typed-reason-on-503-529-not-capacity",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "delay-read-from-message",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "compound-go-durations",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "capacity-overload-not-quota",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravityError:503-capacity-by-status",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravityError:529-capacity-by-status",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravityError:429-overloaded-wording",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravityError:429-per-minute-wording",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravityError:429-quota-wording-alone",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "antigravity-typed-reason-outranks-wording",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
+    },
+    {
+      "id": "rejected-api-key-is-auth",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/google/error.rs:336 classify(&ErrorResponse, ErrorDialect) -> ProviderError (pub fn; `pub mod error` at providers/google/mod.rs:20), with `in_band` :386 for an in-body error chunk"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,8 +199,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-error-contract.mjs",
-  "recorderSha256": "fdd4c33fb306ad6ae890ebdb125e0831291d0f3e5e09a6e32092daf619ceddf5",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Classification: mixdog_ai::retry::classify::kind_of (retry/classify.rs:142).",
+  "recorderSha256": "9bafe33510638b17f311b474ea9772e14503256dc9df2b1cd0af3f01ad21ebc4",
+  "replay": "PURE (every case, see `levels`): mixdog-ai/src/providers/google/error.rs:336 `pub fn classify(response: &ErrorResponse, dialect: ErrorDialect) -> ProviderError` (status + body bytes in, typed error with retry advice, quota scope and reset out) and :386 `pub fn in_band`; the finish-reason case through the public GeminiDecoder (google/decode.rs:193). Retry classification: mixdog_ai::retry::classify::kind_of (retry/classify.rs:142).",
   "set": "provider-gemini-error-contract",
   "totalBytes": 83298,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
