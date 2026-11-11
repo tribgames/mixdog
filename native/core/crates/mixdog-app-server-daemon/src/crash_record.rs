@@ -102,6 +102,34 @@ fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
+/// `process.memoryUsage()`'s `rss` and `heapUsed`: the working set, and the memory the process allocated for itself
+/// (its private bytes; a native process has no garbage-collected heap, this is what its allocations hold).
+#[cfg(windows)]
+fn memory() -> (Option<u64>, Option<u64>) {
+    use windows_sys::Win32::System::ProcessStatus::GetProcessMemoryInfo;
+    use windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: a plain query of the current process into an out struct of the declared size.
+    unsafe {
+        let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+        counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        if GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) == 0 {
+            return (None, None);
+        }
+        (Some(counters.WorkingSetSize as u64), Some(counters.PagefileUsage as u64))
+    }
+}
+
+/// `/proc/self/statm`: resident and data pages; elsewhere neither is known.
+#[cfg(not(windows))]
+fn memory() -> (Option<u64>, Option<u64>) {
+    let Ok(statm) = std::fs::read_to_string("/proc/self/statm") else { return (None, None) };
+    let pages: Vec<u64> = statm.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+    // SAFETY: sysconf has no preconditions.
+    let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap_or(4096);
+    (pages.get(1).map(|n| n * page), pages.get(5).map(|n| n * page))
+}
+
 /// `installDaemonExitRecorder`'s `write`, for one process.
 pub struct ExitRecorder {
     dir: PathBuf,
@@ -129,6 +157,7 @@ impl ExitRecorder {
         let Some(file) = located.as_ref() else { return false };
         let at = mixdog_agent::agent_tool::stamp::iso_from_ms(at_ms);
         let uptime = (at_ms - self.started_ms).max(0);
+        let (rss, heap_used) = memory();
         let exit = json!({
             "reason": bounded(reason),
             "code": code,
@@ -136,6 +165,8 @@ impl ExitRecorder {
             "error": error.map(bounded),
             "at": at,
             "uptimeMs": uptime,
+            "rssBytes": rss,
+            "heapUsedBytes": heap_used,
         });
         // Re-read: the launcher may have updated the sidecar since it was found.
         let Some(mut next) = read_record(file) else { return false };
@@ -259,7 +290,8 @@ pub fn serve_recorded<E: std::fmt::Display>(run: impl FnOnce() -> Result<(), E> 
     let code = match std::panic::catch_unwind(run) {
         Ok(Ok(())) => 0,
         Ok(Err(error)) => {
-            eprintln!("mixdogd: {error}");
+            // Not `eprintln!`: with a launcher's pipe gone a failed write would panic and replace this end's record.
+            let _ = writeln!(std::io::stderr(), "mixdogd: {error}");
             settle_exit("fatal boot error", 2)
         }
         Err(_) => {
