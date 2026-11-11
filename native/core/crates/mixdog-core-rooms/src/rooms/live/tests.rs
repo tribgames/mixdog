@@ -36,6 +36,8 @@ struct Daemon {
     appended: StdMutex<Vec<Value>>,
     aborted: StdMutex<Vec<String>>,
     catalog: StdMutex<u32>,
+    /// The process's sensitive values.
+    marks: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
 }
 #[async_trait]
 impl RoomDaemon for Daemon {
@@ -59,9 +61,8 @@ impl RoomDaemon for Daemon {
     fn republish_catalog(&self) {
         *self.catalog.lock().unwrap() += 1;
     }
-    /// Member `a`'s session in room01 marked `482913`.
     fn redact_text(&self, session_id: &str, text: &str) -> String {
-        if Some(session_id) == room_member_session_id("room01", "a").as_deref() { text.replace("482913", "[redacted]") } else { text.to_owned() }
+        self.marks.redact_text(session_id, text)
     }
 }
 
@@ -385,22 +386,32 @@ async fn a_post_stores_the_canonical_row_and_the_list_preview_follows_the_spoken
     assert!(host.post(vec![json!({ "id": "bad id", "kind": "pass" })]).await.is_err());
 }
 
-/// A member's speech leaves its session: the values that session marked sensitive are the marker in the log, in the
-/// rows the other members are shown and in the list preview; another speaker's text is its own.
+/// A member's speech posted into a room against `fixtures/sensitive-gaps/golden.json` (`room`), recorded from Node with the
+/// sensitive-value patches (`record-sensitive-gaps.mjs`: the desktop's room log over the daemon's room delivery): the
+/// same marks and posts; after each post the same log contents, rows shown and list preview.
 #[tokio::test]
-async fn a_members_speech_is_posted_with_its_sessions_sensitive_values_as_the_marker() {
+async fn a_members_speech_is_posted_as_patched_node_posted_it() {
+    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sensitive-gaps/golden.json"))).unwrap();
     let rig = rig(&["a", "b"]).await;
     rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
     let host = rig.live.host("room01").unwrap();
-    host.post(vec![json!({ "id": "row_1", "kind": "speech", "speaker": "a", "text": "the code is 482913", "at": 5 })]).await.unwrap();
-    host.post(vec![json!({ "id": "row_2", "kind": "speech", "speaker": "b", "text": "b says 482913", "at": 6 })]).await.unwrap();
-    let appended = rig.daemon.appended.lock().unwrap().clone();
-    assert_eq!(appended.iter().map(|m| m["content"].as_str().unwrap()).collect::<Vec<_>>(), ["the code is [redacted]", "b says 482913"]);
-    let rows = host.rows().await.unwrap();
-    assert_eq!(rows[0]["text"], "the code is [redacted]");
-    host.post(vec![json!({ "id": "row_3", "kind": "speech", "speaker": "a", "text": "again 482913", "at": 7 })]).await.unwrap();
-    host.persist().await.unwrap();
-    assert_eq!(rig.rooms.get("room01").await.unwrap().last_preview.as_deref(), Some("again [redacted]"));
+    let steps = golden["room"].as_array().unwrap();
+    assert_eq!(steps.len(), 5);
+    for (index, step) in steps.iter().enumerate() {
+        if let Some(mark) = step.get("mark") {
+            let fields: Vec<Value> = mark["values"].as_array().unwrap().iter().map(|text| json!({ "text": text })).collect();
+            let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": fields } } });
+            assert!(rig.daemon.marks.remember(mark["session"].as_str().unwrap(), &[fill]), "step {index}");
+            continue;
+        }
+        host.post(step["post"].as_array().unwrap().clone()).await.unwrap();
+        host.persist().await.unwrap();
+        let contents: Vec<Value> = rig.daemon.appended.lock().unwrap().iter().map(|m| m["content"].clone()).collect();
+        assert_eq!(Value::Array(contents), step["contents"], "step {index}: log contents");
+        let rows: Vec<Value> = host.rows().await.unwrap().iter().map(|row| row["text"].clone()).collect();
+        assert_eq!(Value::Array(rows), step["rows"], "step {index}: rows shown");
+        assert_eq!(rig.rooms.get("room01").await.unwrap().last_preview.as_deref(), step["preview"].as_str(), "step {index}: preview");
+    }
 }
 
 #[tokio::test]
