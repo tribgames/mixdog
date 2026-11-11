@@ -92,20 +92,26 @@ await rec.run('non-streaming-network-error-never-normalizes-to-success', `${SRC}
     return { error };
   }
 });
-// The malformed frames are SERVED: the endpoint writes the invalid JSON as an SSE data frame and the real provider (real SDK client, real send) reads it from the socket; the Node test hands the
-// consumer a constructed stream that throws the JSON.parse error, the recording shows what the product does with the bytes.
+// The malformed frames are SERVED: the endpoint writes the invalid JSON as an SSE data frame and the real SDK client (real socket) hands back its stream, which is passed to the consumer exactly as the Node
+// test passes its constructed one (same function, same label `gateway`, same options): the Node test's case, with the bytes read from the socket instead of a generator that throws.
+const { default: OpenAI } = await rec.load('node_modules/openai/index.mjs');
 const wireFrame = (name, event) => (name === 'Responses' ? `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n` : `data: ${JSON.stringify(event)}\n\n`);
 const serveRaw = (chunks) => { rec.net.reply = () => ({ status: 200, contentType: 'text/event-stream', chunks }); };
-for (const { name, event } of protocols) {
+const sdkStream = async (name) => {
+  const client = new OpenAI({ apiKey: 'fixture-key', baseURL: 'https://gateway.example/v1', maxRetries: 0 });
+  const stream = await (name === 'Responses' ? client.responses.create({ model: 'gpt-5.5', input: 'hi', stream: true }) : client.chat.completions.create({ model: 'm1', messages: [{ role: 'user', content: 'hi' }], stream: true }));
+  return rec.describe(stream, { $sdkStream: 'the OpenAI SDK stream of the response read from the loopback endpoint (the served script is the case input)' });
+};
+for (const { name, consume, event } of protocols) {
   const slug = name.split(' ')[0].toLowerCase();
   const malformedWithOutput = '{"choices": [';
-  await rec.run(`${slug}-malformed-json-frame-typed-with-exposure`, `${SRC}:213`, { label: name, served: [event, { rawDataFrame: malformedWithOutput }] }, async () => {
+  await rec.run(`${slug}-malformed-json-frame-typed-with-exposure`, `${SRC}:213`, { label: 'gateway', served: [event, { rawDataFrame: malformedWithOutput }], options: { label: 'gateway', providerName: 'gateway' } }, async () => {
     serveRaw([wireFrame(name, event), `data: ${malformedWithOutput}\n\n`]);
-    return rec.clock.followRetries(rejection(sendOver(name, {})));
+    return rejection(consume(await sdkStream(name), { label: 'gateway', providerName: 'gateway', onTextDelta() {}, parseToolCalls: () => [] }));
   });
-  await rec.run(`${slug}-malformed-json-before-output-replay-safe`, `${SRC}:234`, { label: name, served: [{ rawDataFrame: 'not json' }] }, async () => {
+  await rec.run(`${slug}-malformed-json-before-output-replay-safe`, `${SRC}:234`, { label: 'gateway', served: [{ rawDataFrame: 'not json' }], options: { label: 'gateway', providerName: 'gateway' } }, async () => {
     serveRaw(['data: not json\n\n']);
-    return rec.clock.followRetries(rejection(sendOver(name, {})));
+    return rejection(consume(await sdkStream(name), { label: 'gateway', providerName: 'gateway' }));
   });
 }
 await rec.run('responses-failure-constructors-carry-the-provider-label', `${SRC}:246`, { label: 'custom-gw:responses' }, async () => {
