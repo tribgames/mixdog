@@ -1,6 +1,7 @@
 {
   "set": "provider-mimo-oauth",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "lists-models-with-bearer-and-source-header",
@@ -21,10 +22,34 @@
             "contextWindow": 1048576,
             "outputTokens": 131072,
             "created": null,
+            "inputCostPerM": {
+              "$exact": "undefined"
+            },
+            "outputCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheReadCostPerM": {
+              "$exact": "undefined"
+            },
+            "cacheWriteCostPerM": {
+              "$exact": "undefined"
+            },
             "pricingTiers": [],
             "pricingModel": "mimo-v2.6-pro",
             "pricingProvider": "xiaomi",
+            "pricingSource": {
+              "$exact": "undefined"
+            },
             "supportsVision": true,
+            "supportsFunctionCalling": {
+              "$exact": "undefined"
+            },
+            "supportsWebSearch": {
+              "$exact": "undefined"
+            },
+            "supportsPromptCaching": {
+              "$exact": "undefined"
+            },
             "supportsReasoning": true,
             "reasoningOptions": [],
             "reasoningContentField": "reasoning_content",
@@ -44,22 +69,63 @@
           }
         ]
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#listModels",
+          "args": []
+        }
+      ],
       "requests": [
         {
           "method": "GET",
           "origin": "https://mimo.invalid",
           "path": "/v1/models",
-          "headers": {
-            "host": "mimo.invalid",
-            "connection": "keep-alive",
-            "authorization": "Bearer sk-1",
-            "x-mimo-source": "mimocode-cli",
-            "accept": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "user-agent": "node",
-            "accept-encoding": "gzip, deflate"
-          },
+          "headers": [
+            [
+              "host",
+              "mimo.invalid"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer sk-1"
+            ],
+            [
+              "X-Mimo-Source",
+              "mimocode-cli"
+            ],
+            [
+              "Accept",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
           "body": "",
           "reply": {
             "status": 200,
@@ -71,15 +137,36 @@
           "method": "GET",
           "origin": "https://raw.githubusercontent.com",
           "path": "/BerriAI/litellm/main/model_prices_and_context_window.json",
-          "headers": {
-            "host": "raw.githubusercontent.com",
-            "connection": "keep-alive",
-            "accept": "*/*",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "user-agent": "node",
-            "accept-encoding": "gzip, deflate"
-          },
+          "headers": [
+            [
+              "host",
+              "raw.githubusercontent.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
           "body": "",
           "reply": {
             "status": 200,
@@ -91,15 +178,36 @@
           "method": "GET",
           "origin": "https://models.dev",
           "path": "/api.json",
-          "headers": {
-            "host": "models.dev",
-            "connection": "keep-alive",
-            "accept": "*/*",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "user-agent": "node",
-            "accept-encoding": "gzip, deflate"
-          },
+          "headers": [
+            [
+              "host",
+              "models.dev"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
           "body": "",
           "reply": {
             "status": 200,
@@ -116,9 +224,30 @@
         "credential": null
       },
       "error": {
+        "$exact": "error",
         "name": "Error",
-        "message": "[mimo-oauth] credentials not found — open /providers in mixdog to sign in first"
-      }
+        "message": "[mimo-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "props": {}
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs.MimoOAuthProvider#send",
+          "args": [
+            [],
+            "mimo-v2.6-pro",
+            [],
+            {}
+          ]
+        }
+      ]
     }
   ]
 }
