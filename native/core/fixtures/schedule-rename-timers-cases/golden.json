@@ -1,0 +1,555 @@
+{
+  "cases": [
+    {
+      "case": "after a rename: the new name is taken (SCHEDULE_NAME_TAKEN)",
+      "observed": {
+        "outcome": "nameTaken",
+        "start": "2025-01-01T08:00:00.000Z",
+        "loaded": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "stored": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "renamed",
+            "prompt": "later",
+            "whenAt": "2025-02-01T08:00:00.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "renamedTo": {
+          "name": "renamed",
+          "prompt": "once",
+          "whenAt": "2025-01-01T08:00:10.000Z",
+          "enabled": true,
+          "status": "active",
+          "ownerAgentId": "lead"
+        },
+        "steps": [
+          {
+            "renameAdvancesTo": [
+              "2025-01-01T08:00:10.000Z",
+              "2025-01-01T08:00:15.000Z"
+            ]
+          },
+          {
+            "advanceTo": "2025-01-01T08:00:15.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T08:00:15.000Z",
+            "runs": [
+              {
+                "name": "other",
+                "at": "2025-01-01T08:00:15.000Z"
+              }
+            ]
+          },
+          {
+            "advanceTo": "2025-01-01T09:00:00.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T09:00:00.000Z",
+            "runs": [
+              {
+                "name": "keep",
+                "at": "2025-01-01T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "refused": {
+          "at": "2025-01-01T08:00:15.000Z",
+          "error": {
+            "code": "SCHEDULE_NAME_TAKEN",
+            "message": "A schedule named \"renamed\" already exists.",
+            "details": {
+              "name": "renamed"
+            }
+          },
+          "renameRan": true,
+          "status": [
+            {
+              "name": "other",
+              "time": "2025-01-01T08:00:10.000Z",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T08:00:10.000Z"
+            },
+            {
+              "name": "keep",
+              "time": "0 9 * * *",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T09:00:00.000Z"
+            }
+          ]
+        },
+        "runs": [
+          {
+            "name": "other",
+            "at": "2025-01-01T08:00:15.000Z"
+          },
+          {
+            "name": "keep",
+            "at": "2025-01-01T09:00:00.000Z"
+          }
+        ],
+        "statusAtEnd": [
+          {
+            "name": "other",
+            "time": "2025-01-01T08:00:10.000Z",
+            "running": false,
+            "lastFired": "2025-01-01T08:00:15.000Z",
+            "lastSuccess": "2025-01-01T08:00:15.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-01T08:00:10.000Z"
+          },
+          {
+            "name": "keep",
+            "time": "0 9 * * *",
+            "running": false,
+            "lastFired": "2025-01-01T09:00:00.000Z",
+            "lastSuccess": "2025-01-01T09:00:00.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-02T09:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "case": "after a rename: a run of the schedule is in flight (SCHEDULE_RENAME_RUNNING)",
+      "observed": {
+        "outcome": "running",
+        "start": "2025-01-01T08:00:00.000Z",
+        "loaded": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "stored": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "renamedTo": {
+          "name": "renamed",
+          "prompt": "once",
+          "whenAt": "2025-01-01T08:00:10.000Z",
+          "enabled": true,
+          "status": "active",
+          "ownerAgentId": "lead"
+        },
+        "steps": [
+          {
+            "advanceTo": "2025-01-01T08:00:10.000Z"
+          },
+          {
+            "advanceTo": "2025-01-01T08:00:15.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T08:00:15.000Z",
+            "runs": []
+          },
+          {
+            "advanceTo": "2025-01-01T09:00:00.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T09:00:00.000Z",
+            "runs": [
+              {
+                "name": "keep",
+                "at": "2025-01-01T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "refused": {
+          "at": "2025-01-01T08:00:10.000Z",
+          "error": {
+            "code": "SCHEDULE_RENAME_RUNNING",
+            "message": "Schedule \"other\" is running. Rename it after the run finishes.",
+            "details": {
+              "name": "other"
+            }
+          },
+          "renameRan": false,
+          "status": [
+            {
+              "name": "other",
+              "time": "2025-01-01T08:00:10.000Z",
+              "running": true,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T08:00:10.000Z"
+            },
+            {
+              "name": "keep",
+              "time": "0 9 * * *",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T09:00:00.000Z"
+            }
+          ]
+        },
+        "runs": [
+          {
+            "name": "other",
+            "at": "2025-01-01T08:00:10.000Z"
+          },
+          {
+            "name": "keep",
+            "at": "2025-01-01T09:00:00.000Z"
+          }
+        ],
+        "statusAtEnd": [
+          {
+            "name": "other",
+            "time": "2025-01-01T08:00:10.000Z",
+            "running": false,
+            "lastFired": "2025-01-01T08:00:10.000Z",
+            "lastSuccess": "2025-01-01T08:00:10.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-01T08:00:10.000Z"
+          },
+          {
+            "name": "keep",
+            "time": "0 9 * * *",
+            "running": false,
+            "lastFired": "2025-01-01T09:00:00.000Z",
+            "lastSuccess": "2025-01-01T09:00:00.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-02T09:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "case": "after a rename: the row moved and the reload failed (SCHEDULE_RENAME_RELOAD_FAILED)",
+      "observed": {
+        "outcome": "reloadFailed",
+        "start": "2025-01-01T08:00:00.000Z",
+        "loaded": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "stored": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "renamedTo": {
+          "name": "renamed",
+          "prompt": "once",
+          "whenAt": "2025-01-01T08:00:10.000Z",
+          "enabled": true,
+          "status": "active",
+          "ownerAgentId": "lead"
+        },
+        "steps": [
+          {
+            "renameAdvancesTo": [
+              "2025-01-01T08:00:10.000Z",
+              "2025-01-01T08:00:15.000Z"
+            ]
+          },
+          {
+            "advanceTo": "2025-01-01T08:00:15.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T08:00:15.000Z",
+            "runs": []
+          },
+          {
+            "advanceTo": "2025-01-01T09:00:00.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T09:00:00.000Z",
+            "runs": [
+              {
+                "name": "keep",
+                "at": "2025-01-01T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "refused": {
+          "at": "2025-01-01T08:00:15.000Z",
+          "error": {
+            "code": "SCHEDULE_RENAME_RELOAD_FAILED",
+            "message": "Renamed to \"renamed\", but reloading the scheduler failed (timeout); it is armed on the next reload.",
+            "details": {
+              "name": "renamed"
+            }
+          },
+          "renameRan": true,
+          "status": [
+            {
+              "name": "keep",
+              "time": "0 9 * * *",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T09:00:00.000Z"
+            }
+          ]
+        },
+        "runs": [
+          {
+            "name": "keep",
+            "at": "2025-01-01T09:00:00.000Z"
+          }
+        ],
+        "statusAtEnd": [
+          {
+            "name": "keep",
+            "time": "0 9 * * *",
+            "running": false,
+            "lastFired": "2025-01-01T09:00:00.000Z",
+            "lastSuccess": "2025-01-01T09:00:00.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-02T09:00:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "case": "after a rename: the rename applied and its answer was lost (SCHEDULE_RENAME_UNCERTAIN in Node, opOutcomeUnknown in K1)",
+      "observed": {
+        "outcome": "applied",
+        "start": "2025-01-01T08:00:00.000Z",
+        "loaded": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "stored": [
+          {
+            "name": "other",
+            "prompt": "once",
+            "whenAt": "2025-01-01T08:00:10.000Z",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          },
+          {
+            "name": "keep",
+            "prompt": "do it",
+            "whenCron": "0 9 * * *",
+            "timezone": "UTC",
+            "enabled": true,
+            "status": "active",
+            "ownerAgentId": "lead"
+          }
+        ],
+        "renamedTo": {
+          "name": "renamed",
+          "prompt": "once",
+          "whenAt": "2025-01-01T08:00:10.000Z",
+          "enabled": true,
+          "status": "active",
+          "ownerAgentId": "lead"
+        },
+        "steps": [
+          {
+            "renameAdvancesTo": [
+              "2025-01-01T08:00:10.000Z",
+              "2025-01-01T08:00:15.000Z"
+            ]
+          },
+          {
+            "advanceTo": "2025-01-01T08:00:15.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T08:00:15.000Z",
+            "runs": [
+              {
+                "name": "renamed",
+                "at": "2025-01-01T08:00:15.000Z"
+              }
+            ]
+          },
+          {
+            "advanceTo": "2025-01-01T09:00:00.000Z"
+          },
+          {
+            "ranBy": "2025-01-01T09:00:00.000Z",
+            "runs": [
+              {
+                "name": "keep",
+                "at": "2025-01-01T09:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "refused": {
+          "at": "2025-01-01T08:00:15.000Z",
+          "error": null,
+          "renameRan": true,
+          "status": [
+            {
+              "name": "keep",
+              "time": "0 9 * * *",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T09:00:00.000Z"
+            },
+            {
+              "name": "renamed",
+              "time": "2025-01-01T08:00:10.000Z",
+              "running": false,
+              "lastFired": null,
+              "lastSuccess": null,
+              "lastFailed": null,
+              "nextFire": "2025-01-01T08:00:10.000Z"
+            }
+          ]
+        },
+        "runs": [
+          {
+            "name": "renamed",
+            "at": "2025-01-01T08:00:15.000Z"
+          },
+          {
+            "name": "keep",
+            "at": "2025-01-01T09:00:00.000Z"
+          }
+        ],
+        "statusAtEnd": [
+          {
+            "name": "keep",
+            "time": "0 9 * * *",
+            "running": false,
+            "lastFired": "2025-01-01T09:00:00.000Z",
+            "lastSuccess": "2025-01-01T09:00:00.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-02T09:00:00.000Z"
+          },
+          {
+            "name": "renamed",
+            "time": "2025-01-01T08:00:10.000Z",
+            "running": false,
+            "lastFired": "2025-01-01T08:00:15.000Z",
+            "lastSuccess": "2025-01-01T08:00:15.000Z",
+            "lastFailed": null,
+            "nextFire": "2025-01-01T08:00:10.000Z"
+          }
+        ]
+      }
+    }
+  ]
+}
