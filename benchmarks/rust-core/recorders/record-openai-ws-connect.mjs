@@ -12,10 +12,10 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openai-ws-connect',
   net: false,
-  entry: 'openai-ws-pool.mjs acquireWebSocket / releaseWebSocket (with openai-ws-connect.mjs openHedged inside, over the real ws client) against a loopback WebSocket server (lib/ws-world.mjs): a stuck upgrade is an upgrade request the server never answers; the hedge (3000 ms) and acquire deadline (15000 ms) run on the virtual clock, each step waiting for the dial it causes. cachedLookup is called directly (the host resolver). Not run: a live endpoint, a proxy.',
+  entry: 'openai-ws-pool.mjs acquireWebSocket / releaseWebSocket (with openai-ws-connect.mjs openHedged inside, over the real ws client) against a loopback WebSocket server (lib/ws-world.mjs): a stuck upgrade is an upgrade request the server never answers; the hedge (3000 ms) and acquire deadline (15000 ms) run on the virtual clock, each step waiting for the dial it causes. The concurrent-lookup case opens 20 sockets through the provider with the dial honouring the client lookup function (world.honorLookup), so cachedLookup runs over the scripted dns.lookup. Not run: a live endpoint, a proxy.',
   compare: 'mixdog-ai providers::openai pool.rs (:178-230 sessionless sockets), transport/ws.rs connect (:280-288 lookup): serve each case\'s `input.answers` per upgrade request and compare the ordered `events` (dial, upgrade request with every header, response or refusal, closes), the clock steps and the outcome (entry or error whole).',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai WsPool::checkout (openai/pool.rs:178) and mixdog_ai::transport::ws::connect (transport/ws.rs:237). There is no hedge or acquire deadline and no shared DNS resolution in Rust (K1 G6, G15): work for the Rust side.",
-  exclusions: ['the server answers upgrade request n with input.answers[n-1] (null = never answered, absent = accepted); the 1006/terminate conventions are those of lib/ws-world.mjs'],
+  exclusions: ['the ONE scripted seam below the product in the concurrent-lookups-share-one-resolution case is node:dns `lookup`: it is replaced before the product loads, answers fixed addresses ([127.0.0.1 v4, ::1 v6]) and every call is recorded (hostname, options) in `result.resolverCalls`, in order; the operating system resolver is the outside world, like the socket; everything above it (cachedLookup, the pool, the ws client) is the product code', 'the server answers upgrade request n with input.answers[n-1] (null = never answered, absent = accepted); the 1006/terminate conventions are those of lib/ws-world.mjs'],
 });
 const P = 'agent/orchestrator/providers/';
 // The product resolves names with node:dns `lookup` (bound at import). The recorder installs a SCRIPTED resolver before the product loads - never this PC's DNS: `localhost` answers the
@@ -63,12 +63,26 @@ await rec.run('deadline-surfaces-acquire-timeout-when-no-leg-opens', `${SRC}:83`
   const outcome = await race;
   return { outcome, upgradeRequests: upgrades(), events: snapshot() };
 });
-await rec.run('concurrent-lookups-share-one-resolution', `${SRC}:94`, { host: 'localhost', concurrent: 20, scriptedResolver: SCRIPTED_ADDRESSES }, async () => {
+// :94 - concurrent lookups for one host share a single resolution. The Node test calls cachedLookup 20 times; here 20 sockets are opened through the provider (acquireWebSocket -> the ws client ->
+// the product DNS cache `cachedLookup` -> dns.lookup): the world honours the client's `lookup` function for this case, so the only scripted layer below the product is `dns.lookup` itself (fixed
+// answers, every call recorded in order with its arguments); the 20 upgrade requests that reach the loopback server are the wire observation.
+await rec.run('concurrent-lookups-share-one-resolution', `${SRC}:94`, { host: 'chatgpt.com', concurrent: 20, dnsLookupAnswer: SCRIPTED_ADDRESSES }, async () => {
   _clearConnectCachesForTest();
+  _clearWebSocketPoolForTest();
   dnsCalls.length = 0;
-  const results = await Promise.all(Array.from({ length: 20 }, () => new Promise((resolve, reject) => cachedLookup('localhost', { all: true }, (err, addresses) => (err ? reject(err) : resolve(addresses))))));
-  const single = await new Promise((resolve, reject) => cachedLookup('localhost', {}, (err, address, family) => (err ? reject(err) : resolve({ address, family }))));
-  return { allSameArrayInstance: results.every((addresses) => addresses === results[0]), addresses: results[0], single, singleIsFirstAddress: single.address === results[0][0].address, resolverCalls: dnsCalls.map((c) => ({ ...c })) };
+  world.reset({});
+  world.honorLookup = true;
+  try {
+    const sockets = await Promise.all(Array.from({ length: 20 }, () => settle(acquireWebSocket(ACQUIRE))));
+    const resolverCalls = dnsCalls.map((c) => ({ ...c }));
+    const opened = sockets.filter((s) => s.value).length;
+    for (const s of sockets) if (s.value) rec.describe(s.value.entry, { $connection: 'the provider client socket (real WebSocket to the loopback server)' });
+    for (const conn of world.conns) conn.close?.(1000, 'recorder-end');
+    await world.until((x) => x.filter((e) => e.event === 'closed').length >= opened, 'every socket closed');
+    return { resolverCalls, opened, errors: sockets.filter((s) => s.error).map((s) => s.error), dials: world.dials.map((d) => ({ ...d })), upgradeRequestEvents: world.trace.filter((e) => e.event === 'upgrade-request') };
+  } finally {
+    world.honorLookup = false;
+  }
 });
 await rec.run('sessionless-sends-share-idle-sockets-no-owner-wait-no-chain', `${SRC}:112`, { args: { auth: { type: 'openai-direct', apiKey: 'fixture-key' }, poolKey: null, cacheKey: 'shared', codexHeaders: {} }, steps: ['two concurrent acquires', 'a.lastResponseId = resp-from-caller-a', 'release both keep', 'acquire again', 'acquire other cacheKey', 'release both without keep'] }, async () => {
   world.reset({});

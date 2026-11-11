@@ -8,8 +8,9 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "openai-ws-pool.mjs acquireWebSocket / releaseWebSocket (with openai-ws-connect.mjs openHedged inside, over the real ws client) against a loopback WebSocket server (lib/ws-world.mjs): a stuck upgrade is an upgrade request the server never answers; the hedge (3000 ms) and acquire deadline (15000 ms) run on the virtual clock, each step waiting for the dial it causes. cachedLookup is called directly (the host resolver). Not run: a live endpoint, a proxy.",
+  "entry": "openai-ws-pool.mjs acquireWebSocket / releaseWebSocket (with openai-ws-connect.mjs openHedged inside, over the real ws client) against a loopback WebSocket server (lib/ws-world.mjs): a stuck upgrade is an upgrade request the server never answers; the hedge (3000 ms) and acquire deadline (15000 ms) run on the virtual clock, each step waiting for the dial it causes. The concurrent-lookup case opens 20 sockets through the provider with the dial honouring the client lookup function (world.honorLookup), so cachedLookup runs over the scripted dns.lookup. Not run: a live endpoint, a proxy.",
   "exclusions": [
+    "the ONE scripted seam below the product in the concurrent-lookups-share-one-resolution case is node:dns `lookup`: it is replaced before the product loads, answers fixed addresses ([127.0.0.1 v4, ::1 v6]) and every call is recorded (hostname, options) in `result.resolverCalls`, in order; the operating system resolver is the outside world, like the socket; everything above it (cachedLookup, the pool, the ws client) is the product code",
     "the server answers upgrade request n with input.answers[n-1] (null = never answered, absent = accepted); the 1006/terminate conventions are those of lib/ws-world.mjs",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -18,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 37825,
+      "bytes": 71036,
       "path": "cases.json",
-      "sha256": "06bebf8b3c473aa9efd818f66b36b685a30457ffc80fe18886808f00d305e24b"
+      "sha256": "82510c3719b6ddd5c54328c61388a31839b1e7266e6b21e23599cf30675841d5"
     }
   ],
   "inputs": [
@@ -42,11 +43,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
+      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "636c8a2a61f1766d1a8700f7e40ce3f90c1e93d5e551e31aaa4b47044768509b"
+      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
     }
   ],
   "levels": [
@@ -64,8 +65,7 @@
     },
     {
       "id": "concurrent-lookups-share-one-resolution",
-      "level": "pure",
-      "rust": null
+      "level": "wire"
     },
     {
       "id": "sessionless-sends-share-idle-sockets-no-owner-wait-no-chain",
@@ -91,9 +91,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-connect.mjs",
-  "recorderSha256": "e7985d3a8df90a1be41912f9056556c9add4e3ce59ac3cfcffbe9eb70a293fb8",
+  "recorderSha256": "e89f2ac5a52751c34a45fbd2f838403d852e14a038b84a296abaf81dae189b77",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai WsPool::checkout (openai/pool.rs:178) and mixdog_ai::transport::ws::connect (transport/ws.rs:237). There is no hedge or acquire deadline and no shared DNS resolution in Rust (K1 G6, G15): work for the Rust side.",
   "set": "provider-openai-ws-connect",
-  "totalBytes": 37825,
+  "totalBytes": 71036,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
