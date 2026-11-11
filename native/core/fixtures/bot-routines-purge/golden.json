@@ -1,166 +1,605 @@
 {
   "seed": {
+    "bots": [
+      {
+        "name": "GH Bot",
+        "body": "I triage GitHub.",
+        "kind": "bot"
+      },
+      {
+        "name": "Other Bot",
+        "body": "I am the other one.",
+        "kind": "bot"
+      }
+    ],
+    "config": {
+      "agents": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-6"
+        }
+      },
+      "disabledAgents": true
+    },
     "schedules": [
       {
-        "name": "alpha",
+        "name": "daily-mine",
         "prompt": "Check the build",
         "whenCron": "0 9 * * *",
-        "ownerAgentId": "gh-bot"
+        "timezone": "UTC",
+        "owner": 0
       },
       {
-        "name": "theirs",
+        "name": "daily-theirs",
         "prompt": "Check the build",
         "whenCron": "0 9 * * *",
-        "ownerAgentId": "other-bot"
-      },
-      {
-        "name": "zeta",
-        "prompt": "Check the build",
-        "whenCron": "0 9 * * *",
-        "ownerAgentId": "gh-bot"
+        "timezone": "UTC",
+        "owner": 1
       }
     ],
     "endpoints": [
       {
-        "name": "hook",
+        "name": "hook-mine",
         "instructions": "Triage.",
-        "ownerAgentId": "gh-bot"
+        "secret": "s3cret-mine",
+        "owner": 0
       },
       {
-        "name": "their-hook",
+        "name": "hook-theirs",
         "instructions": "Triage.",
-        "ownerAgentId": "other-bot"
+        "secret": "s3cret-theirs",
+        "owner": 1
       }
     ],
     "deliveries": [
       {
-        "endpoint": "hook",
-        "deliveryId": "d1"
+        "endpoint": "hook-mine",
+        "deliveryId": "delivery-mine"
       },
       {
-        "endpoint": "their-hook",
-        "deliveryId": "d2"
-      }
-    ]
-  },
-  "before": {
-    "schedules": [
-      {
-        "name": "alpha",
-        "ownerAgentId": "gh-bot"
-      },
-      {
-        "name": "theirs",
-        "ownerAgentId": "other-bot"
-      },
-      {
-        "name": "zeta",
-        "ownerAgentId": "gh-bot"
+        "endpoint": "hook-theirs",
+        "deliveryId": "delivery-theirs"
       }
     ],
-    "endpoints": [
-      {
-        "name": "hook",
-        "ownerAgentId": "gh-bot"
+    "claim": {
+      "status": "pending",
+      "event": "issues",
+      "headersSummary": {
+        "x-github-event": "issues"
       },
-      {
-        "name": "their-hook",
-        "ownerAgentId": "other-bot"
-      }
-    ],
-    "deliveries": [
-      {
-        "endpoint": "hook",
-        "deliveryId": "d1"
-      },
-      {
-        "endpoint": "their-hook",
-        "deliveryId": "d2"
-      }
+      "payloadPreview": "{\"action\":\"opened\"}"
+    }
+  },
+  "virtualClock": {
+    "start": 1700000000000,
+    "step": 1000
+  },
+  "saved": {
+    "reply": [
+      "gh-bot",
+      "other-bot"
     ]
   },
-  "calls": [
+  "phases": [
     {
-      "agentId": "gh-bot",
-      "reply": {
-        "schedules": [
-          "alpha",
-          "zeta"
-        ],
-        "webhooks": [
-          "hook"
-        ]
-      },
-      "after": {
+      "step": "seeded",
+      "state": {
         "schedules": [
           {
-            "name": "theirs",
-            "ownerAgentId": "other-bot"
+            "name": "daily-mine",
+            "description": "",
+            "when_at": null,
+            "when_cron": "0 9 * * *",
+            "timezone": "UTC",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "prompt": "Check the build",
+            "enabled": true,
+            "status": "active",
+            "last_fired_at": null,
+            "last_scheduled_at": null,
+            "last_started_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "owner_agent_id": "gh-bot",
+            "executor_agent_id": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "next_fire_at": null,
+            "deferred_until": null,
+            "skipped_until": null,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          },
+          {
+            "name": "daily-theirs",
+            "description": "",
+            "when_at": null,
+            "when_cron": "0 9 * * *",
+            "timezone": "UTC",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "prompt": "Check the build",
+            "enabled": true,
+            "status": "active",
+            "last_fired_at": null,
+            "last_scheduled_at": null,
+            "last_started_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "next_fire_at": null,
+            "deferred_until": null,
+            "skipped_until": null,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
         ],
         "endpoints": [
           {
-            "name": "their-hook",
-            "ownerAgentId": "other-bot"
+            "name": "hook-mine",
+            "description": "",
+            "parser": null,
+            "secret": "s3cret-mine",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "instructions": "Triage.",
+            "enabled": true,
+            "owner_agent_id": "gh-bot",
+            "executor_agent_id": null,
+            "last_event_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "has_last_payload": false,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          },
+          {
+            "name": "hook-theirs",
+            "description": "",
+            "parser": null,
+            "secret": "s3cret-theirs",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "instructions": "Triage.",
+            "enabled": true,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "last_event_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "has_last_payload": false,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
         ],
         "deliveries": [
           {
-            "endpoint": "their-hook",
-            "deliveryId": "d2"
+            "endpoint": "hook-mine",
+            "delivery_id": "delivery-mine",
+            "status": "pending",
+            "event": "issues",
+            "error": null,
+            "headers_summary": {
+              "x-github-event": "issues"
+            },
+            "payload_preview": "{\"action\":\"opened\"}",
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          },
+          {
+            "endpoint": "hook-theirs",
+            "delivery_id": "delivery-theirs",
+            "status": "pending",
+            "event": "issues",
+            "error": null,
+            "headers_summary": {
+              "x-github-event": "issues"
+            },
+            "payload_preview": "{\"action\":\"opened\"}",
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
-        ]
+        ],
+        "agents": {
+          "gh-bot/AGENT.md": "---\nname: GH Bot\nkind: bot\n---\n\nI triage GitHub.\n",
+          "gh-bot/agent.json": "{\n  \"name\": \"GH Bot\"\n}\n",
+          "other-bot/AGENT.md": "---\nname: Other Bot\nkind: bot\n---\n\nI am the other one.\n",
+          "other-bot/agent.json": "{\n  \"name\": \"Other Bot\"\n}\n"
+        },
+        "config": {
+          "agents": {
+            "gh-bot": {
+              "provider": "openai",
+              "model": "gpt-6"
+            },
+            "other-bot": {
+              "provider": "openai",
+              "model": "gpt-6"
+            }
+          },
+          "disabledAgents": [
+            "gh-bot",
+            "other-bot"
+          ]
+        }
       }
     },
     {
-      "agentId": "lead",
-      "error": "the routines of \"lead\" cannot be deleted with a bot",
-      "after": {
+      "step": "deleteAgentDefinition",
+      "agentId": "gh-bot",
+      "reply": {
+        "id": "gh-bot",
+        "deleted": true,
+        "revertedToBuiltIn": false
+      },
+      "state": {
         "schedules": [
           {
-            "name": "theirs",
-            "ownerAgentId": "other-bot"
+            "name": "daily-mine",
+            "description": "",
+            "when_at": null,
+            "when_cron": "0 9 * * *",
+            "timezone": "UTC",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "prompt": "Check the build",
+            "enabled": true,
+            "status": "active",
+            "last_fired_at": null,
+            "last_scheduled_at": null,
+            "last_started_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "owner_agent_id": "gh-bot",
+            "executor_agent_id": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "next_fire_at": null,
+            "deferred_until": null,
+            "skipped_until": null,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          },
+          {
+            "name": "daily-theirs",
+            "description": "",
+            "when_at": null,
+            "when_cron": "0 9 * * *",
+            "timezone": "UTC",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "prompt": "Check the build",
+            "enabled": true,
+            "status": "active",
+            "last_fired_at": null,
+            "last_scheduled_at": null,
+            "last_started_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "next_fire_at": null,
+            "deferred_until": null,
+            "skipped_until": null,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
         ],
         "endpoints": [
           {
-            "name": "their-hook",
-            "ownerAgentId": "other-bot"
+            "name": "hook-mine",
+            "description": "",
+            "parser": null,
+            "secret": "s3cret-mine",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "instructions": "Triage.",
+            "enabled": true,
+            "owner_agent_id": "gh-bot",
+            "executor_agent_id": null,
+            "last_event_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "has_last_payload": false,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          },
+          {
+            "name": "hook-theirs",
+            "description": "",
+            "parser": null,
+            "secret": "s3cret-theirs",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "instructions": "Triage.",
+            "enabled": true,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "last_event_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "has_last_payload": false,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
         ],
         "deliveries": [
           {
-            "endpoint": "their-hook",
-            "deliveryId": "d2"
+            "endpoint": "hook-mine",
+            "delivery_id": "delivery-mine",
+            "status": "pending",
+            "event": "issues",
+            "error": null,
+            "headers_summary": {
+              "x-github-event": "issues"
+            },
+            "payload_preview": "{\"action\":\"opened\"}",
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          },
+          {
+            "endpoint": "hook-theirs",
+            "delivery_id": "delivery-theirs",
+            "status": "pending",
+            "event": "issues",
+            "error": null,
+            "headers_summary": {
+              "x-github-event": "issues"
+            },
+            "payload_preview": "{\"action\":\"opened\"}",
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
-        ]
+        ],
+        "agents": {
+          "gh-bot/.deleted": "deleted\n",
+          "gh-bot/AGENT.md.archived": "---\nname: GH Bot\nkind: bot\n---\n\nI triage GitHub.\n",
+          "gh-bot/agent.json": "{\n  \"name\": \"GH Bot\"\n}\n",
+          "other-bot/AGENT.md": "---\nname: Other Bot\nkind: bot\n---\n\nI am the other one.\n",
+          "other-bot/agent.json": "{\n  \"name\": \"Other Bot\"\n}\n"
+        },
+        "config": {
+          "agents": {
+            "gh-bot": {
+              "provider": "openai",
+              "model": "gpt-6"
+            },
+            "other-bot": {
+              "provider": "openai",
+              "model": "gpt-6"
+            }
+          },
+          "disabledAgents": [
+            "gh-bot",
+            "other-bot"
+          ]
+        }
       }
     },
     {
+      "step": "purgeAgentDefinition",
       "agentId": "gh-bot",
       "reply": {
-        "schedules": [],
-        "webhooks": []
+        "id": "gh-bot",
+        "purged": true,
+        "routines": {
+          "schedules": [
+            "daily-mine"
+          ],
+          "webhooks": [
+            "hook-mine"
+          ]
+        }
       },
-      "after": {
+      "state": {
         "schedules": [
           {
-            "name": "theirs",
-            "ownerAgentId": "other-bot"
+            "name": "daily-theirs",
+            "description": "",
+            "when_at": null,
+            "when_cron": "0 9 * * *",
+            "timezone": "UTC",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "prompt": "Check the build",
+            "enabled": true,
+            "status": "active",
+            "last_fired_at": null,
+            "last_scheduled_at": null,
+            "last_started_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "next_fire_at": null,
+            "deferred_until": null,
+            "skipped_until": null,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
         ],
         "endpoints": [
           {
-            "name": "their-hook",
-            "ownerAgentId": "other-bot"
+            "name": "hook-theirs",
+            "description": "",
+            "parser": null,
+            "secret": "s3cret-theirs",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "instructions": "Triage.",
+            "enabled": true,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "last_event_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "has_last_payload": false,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
         ],
         "deliveries": [
           {
-            "endpoint": "their-hook",
-            "deliveryId": "d2"
+            "endpoint": "hook-theirs",
+            "delivery_id": "delivery-theirs",
+            "status": "pending",
+            "event": "issues",
+            "error": null,
+            "headers_summary": {
+              "x-github-event": "issues"
+            },
+            "payload_preview": "{\"action\":\"opened\"}",
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
           }
-        ]
+        ],
+        "agents": {
+          "other-bot/AGENT.md": "---\nname: Other Bot\nkind: bot\n---\n\nI am the other one.\n",
+          "other-bot/agent.json": "{\n  \"name\": \"Other Bot\"\n}\n"
+        },
+        "config": {
+          "agents": {
+            "other-bot": {
+              "provider": "openai",
+              "model": "gpt-6"
+            }
+          },
+          "disabledAgents": [
+            "other-bot"
+          ]
+        }
+      }
+    },
+    {
+      "step": "purgeAgentDefinition again",
+      "agentId": "gh-bot",
+      "reply": {
+        "id": "gh-bot",
+        "purged": false
+      },
+      "state": {
+        "schedules": [
+          {
+            "name": "daily-theirs",
+            "description": "",
+            "when_at": null,
+            "when_cron": "0 9 * * *",
+            "timezone": "UTC",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "prompt": "Check the build",
+            "enabled": true,
+            "status": "active",
+            "last_fired_at": null,
+            "last_scheduled_at": null,
+            "last_started_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "next_fire_at": null,
+            "deferred_until": null,
+            "skipped_until": null,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          }
+        ],
+        "endpoints": [
+          {
+            "name": "hook-theirs",
+            "description": "",
+            "parser": null,
+            "secret": "s3cret-theirs",
+            "cwd": null,
+            "attachments": null,
+            "delivery": null,
+            "instructions": "Triage.",
+            "enabled": true,
+            "owner_agent_id": "other-bot",
+            "executor_agent_id": null,
+            "last_event_at": null,
+            "last_success_at": null,
+            "last_failed_at": null,
+            "last_skipped_at": null,
+            "consecutive_failures": 0,
+            "result_delivery": null,
+            "has_last_payload": false,
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          }
+        ],
+        "deliveries": [
+          {
+            "endpoint": "hook-theirs",
+            "delivery_id": "delivery-theirs",
+            "status": "pending",
+            "event": "issues",
+            "error": null,
+            "headers_summary": {
+              "x-github-event": "issues"
+            },
+            "payload_preview": "{\"action\":\"opened\"}",
+            "created_at": "2023-11-14T22:13:20.000Z",
+            "updated_at": "2023-11-14T22:13:20.000Z"
+          }
+        ],
+        "agents": {
+          "other-bot/AGENT.md": "---\nname: Other Bot\nkind: bot\n---\n\nI am the other one.\n",
+          "other-bot/agent.json": "{\n  \"name\": \"Other Bot\"\n}\n"
+        },
+        "config": {
+          "agents": {
+            "other-bot": {
+              "provider": "openai",
+              "model": "gpt-6"
+            }
+          },
+          "disabledAgents": [
+            "other-bot"
+          ]
+        }
       }
     }
   ]
