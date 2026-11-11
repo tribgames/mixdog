@@ -3,7 +3,7 @@
   "entry": "Case 12: ran src/standalone/session-service.mjs createSessionService().handleCall for every project.* route with a scripted project store (desktopRuntime.loadProjects). Case 144: ran the real session transport (HTTP on 127.0.0.1) behind a TCP tap that records every HTTP exchange (status line, headers in order, body), the real src/standalone/session-client.mjs createSession() remote runtime and the same service/stub runtime as the test (scripts/session-transport/_shared.mjs of the tree), logging every call the service received. Did not run the TUI project picker (line 85, see header of the recorder) nor a real project registry (see the store-registry set for projects.json).",
   "exclusions": [
     "line 85 (TUI project picker) not recorded: TUI client code with no Rust counterpart",
-    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised",
+    "wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths; and this machine's roots (the checkout process.cwd() -> <CWD>, the OS temp dir -> <TMP>, the user home -> <HOME>, in every spelling found: as written, forward slashes, JSON-escaped, URL-encoded, each also lower-cased; text after the root, separators included, is kept) in every request/response startLine, header value, body and event-stream frame (lib/tmp-mark.mjs). The Content-Length is the one Node sent: a message that had a root replaced carries `rewrites` {label: {originalLength, count}} (a label for a spelling other than as written reads \"<CWD> (JSON-escaped)\"), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. No other value is normalised",
     "crypto.randomUUID returns 00000000-0000-4000-8000-<12-digit counter> in call order (client tokens, registration ids, server tokens, daemon session ids, call ids all come from it)",
     "crypto.randomBytes(n) (without a callback) returns the next n values of a running byte counter modulo 256",
     "Date.now() is 1700000000000 and performance.now() is 0 for the whole run (revisions are Date.now()*1000, queuedMs is 0) unless a case moves the virtual clock by a recorded step",
@@ -42,7 +42,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
+      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -63,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-project-surface.mjs",
-  "recorderSha256": "b965f9ee5072c738d6a5c8e5b0935b6514a42e143ebd0a93fc76b42e0f43a634",
+  "recorderSha256": "d2c16c9ffd6ba9e91175bed523926af72ce1d2fff59b4cc9014786c22bff14f6",
   "replay": "App-server protocol methods of the Rust core (native/core/crates/mixdog-app-protocol methods.rs, served by mixdog-app-server) over a scripted project store: project.list -> project/list, project.inspect -> project/read, project.add -> project/create, project.touch -> project/touch, project.rename -> project/update, project.remove -> project/delete, project.ensureDirectory -> project/ensureDirectory, and the remote runtime's setCwd -> thread/setCwd. Feed each case's calls (name, args as recorded in exactArgs form) and compare every result/error and the store's own call list; for case 144 compare the ordered service calls (name, args, context) a client makes for listProjects, addProject, setCwd. The HTTP exchange log (`wire`) documents the Node transport only (the Rust transport is the app-server WebSocket).",
   "set": "session-transport-project-surface",
   "testFile": "scripts/session-transport/project-surface.test.mjs",
