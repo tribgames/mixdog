@@ -54,6 +54,15 @@ pub trait QueryEmbedder: Send + Sync {
     async fn query_vector(&self, text: &str) -> Option<Vec<f32>>;
 }
 
+#[cfg(test)]
+pub(crate) type SearchSeam = std::rc::Rc<dyn Fn(&str, &SearchOptions) -> Vec<Row>>;
+
+#[cfg(test)]
+thread_local! {
+    /// A search a replay puts in place of the hybrid search for recalls on this thread.
+    pub(crate) static SEARCH_SEAM: std::cell::RefCell<Option<SearchSeam>> = const { std::cell::RefCell::new(None) };
+}
+
 /// A recall that hit a stored entry, for the trace store.
 #[derive(Debug, Clone)]
 pub struct RecallTrace {
@@ -425,6 +434,16 @@ impl Recall {
         Ok(format!("{}{latest_note}{semantic_note}{body}", plan.cap_prefix))
     }
 
+    /// The hybrid search, or in test builds the search a replay put in its place (Node's recordings replace
+    /// `searchRelevantHybrid` at the module boundary).
+    async fn hybrid_search(&self, query: &str, options: &SearchOptions) -> Result<Vec<Row>> {
+        #[cfg(test)]
+        if let Some(seam) = SEARCH_SEAM.with(|s| s.borrow().clone()) {
+            return Ok(seam(query, options));
+        }
+        search_relevant_hybrid(&self.deps.db, query, options).await
+    }
+
     async fn retrieve_candidates(&self, args: &SearchArgs, plan: &SearchPlan, vector: Option<Vec<f32>>) -> Result<Candidates> {
         let db = &self.deps.db;
         let window = plan.window();
@@ -445,13 +464,12 @@ impl Recall {
             if vague_latest_root_mode {
                 retrieve_entries(db, &EntryFilters { limit: Some(retrieval_limit), ..window_filters.clone() }).await
             } else {
-                search_relevant_hybrid(db, &plan.retrieval_query, &options).await
+                self.hybrid_search(&plan.retrieval_query, &options).await
             }
         };
         let historical = async {
             if plan.bounded_historical {
-                search_relevant_hybrid(
-                    db,
+                self.hybrid_search(
                     &plan.retrieval_query,
                     &SearchOptions { include_members: false, root_only: true, ..options.clone() },
                 )
