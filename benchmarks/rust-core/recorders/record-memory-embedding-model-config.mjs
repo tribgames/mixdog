@@ -68,8 +68,8 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'every export of embedding-model-config.mjs, with MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE set per probe (restored after)', notRun: 'the model load and the worker that uses these answers' },
-    replay: 'mixdog-services memory: mem/embed/config.rs (DEFAULT_MODEL_ID, profiles, graph_file, prepare_input, pooling); compares every answer exactly. Rust has no environment-selected model override unless the daemon keeps MIXDOG_EMBED_MODEL: the replay compares the env-driven rows only where it supports them',
-    exclusions: 'the final case holds probes the test file does not run',
+    replay: 'mixdog-services memory: mem/embed/config.rs (DEFAULT_MODEL_ID, known_dims, normalize_dtype, graph_file, pooling, prepare_input, profile, identity; the daemon takes the model from compose.rs:241 / tool_modules/host.rs); every answer is compared exactly, none is skipped. The `defaults` list (case 1, the six env settings of MIXDOG_EMBED_MODEL / MIXDOG_EMBED_DTYPE: configured model id, dims, default dtype, default device, graph file, pooling) has NO Rust counterpart: Rust reads neither variable (grep of native/core/crates finds only DEFAULT_MODEL_ID). Those five of six env settings are work for the Rust side (an env override, or a decision that the core ignores it); only the unset row (default model) maps today',
+    exclusions: 'the final case holds probes the test file does not run; no environment-driven answer is left out of the recording (list for the Rust side: see replay)',
     normalised: { 'undefined arguments': 'written as {"absent":true}' },
   },
 });
