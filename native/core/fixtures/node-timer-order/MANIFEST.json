@@ -2,24 +2,27 @@
   "attempts": {
     "a-promise-queued-before-a-tick": 1,
     "a-rearmed-unrefed-watchdog-joins-its-old-list": 1,
-    "a-requeued-list-after-an-older-list": 2,
+    "a-requeued-list-after-an-older-list": 1,
+    "a-self-requeuing-immediate-lets-due-timers-fire-between-turns": 1,
+    "a-self-requeuing-immediate-runs-once-a-turn": 1,
     "a-timer-armed-by-an-immediate": 1,
+    "an-immediate-from-a-timers-promise-continuation": 1,
     "an-immediate-from-the-start-before-a-1ms-timer": 1,
     "an-interval-rearms-after-its-callback": 1,
-    "armed-inside-a-timer-for-an-instant-already-queued": 1,
+    "armed-inside-a-timer-for-an-instant-already-queued": 2,
     "clearing-a-refed-timer-recreates-its-list": 1,
     "clearing-a-reref-ed-timer-recreates-its-list": 1,
     "clearing-an-unrefed-interval-keeps-its-list": 1,
-    "clearing-an-unrefed-timer-keeps-its-list": 3,
+    "clearing-an-unrefed-timer-keeps-its-list": 1,
     "clearing-due-timers-from-an-earlier-one": 1,
     "fractions-of-a-millisecond-are-cut": 1,
-    "immediates-after-all-timers-of-a-turn": 2,
+    "immediates-after-all-timers-of-a-turn": 1,
     "immediates-of-two-lists-in-the-order-queued": 1,
     "immediates-queued-by-immediates-run-a-loop-turn-later": 1,
     "many-lists-due-at-once": 2,
-    "reviewer-with-first100": 1,
+    "reviewer-with-first100": 2,
     "reviewer-without-first100": 1,
-    "same-due-armed-in-order": 1,
+    "same-due-armed-in-order": 2,
     "ticks-and-promises-between-timers": 1,
     "unref-keeps-the-order": 1,
     "zero-and-one-ms-inside-a-timer": 1
@@ -31,9 +34,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 20405,
+      "bytes": 22625,
       "path": "golden.json",
-      "sha256": "bec77db168eea3512c4f1263550f276710e37b5563ead42907d21ed004e319b8"
+      "sha256": "26ce068d256b9acf3ef259a028ac99e9520ab8a271f6c3e0d00288a2907accf8"
     }
   ],
   "inputs": [
@@ -66,6 +69,46 @@
       "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
+  "nextTickEvidence": {
+    "processNextTick": {
+      "product": [],
+      "tests": [
+        "src/runtime/tidy/install.test.mjs:418"
+      ]
+    },
+    "queueMicrotask": {
+      "client": [
+        "src/tui/components/PromptInput.jsx:335,420,425",
+        "src/tui/components/TextEntryPanel.jsx:125,163,319,325",
+        "src/tui/components/prompt-input/immediate-render.mjs:13",
+        "src/tui/session/agent-job-feed/pending-resume.mjs:128",
+        "src/tui/session/draft-store.mjs:72",
+        "src/tui/session/frame-batched-store.mjs:14,61",
+        "src/tui/session/transcript-spill/spill-writer.mjs:166"
+      ],
+      "product": [
+        "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs:260",
+        "src/runtime/agent/orchestrator/providers/cursor-wire.mjs:98",
+        "src/runtime/agent/orchestrator/runtime-core/goal-deadlines.mjs:240",
+        "src/runtime/agent/orchestrator/runtime-core/goal-deadlines.mjs:246",
+        "src/runtime/agent/orchestrator/session/store/session-log-writer.mjs:1177",
+        "src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs:602",
+        "src/runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs:431",
+        "src/runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs:595",
+        "src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs:292",
+        "src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs:350",
+        "src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs:357",
+        "src/runtime/shared/turn-boundary-signal.mjs:44",
+        "src/runtime/shared/worktrees/git-head.mjs:353",
+        "src/standalone/session-transport/routes.mjs:237"
+      ],
+      "rule": "same FIFO queue as promise jobs: ordered by queueing, no priority over a promise continuation"
+    },
+    "searches": [
+      "rg -n \"process\\.nextTick\" src  (tree b6f10295a)",
+      "rg -n \"queueMicrotask\" src -g \"!**/*.test.mjs\"  (tree b6f10295a)"
+    ]
+  },
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -85,7 +128,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-node-timer-order.mjs",
-  "recorderSha256": "2a409f9501f5c6cd10f2f2256a77be489aaefea5cd0901ff1b018550b2694f95",
+  "recorderSha256": "2e6bc2efd3daebdcce00858cbaa59756dbfd7fcaa16d66308c18334f9692bd9c",
   "set": "node-timer-order",
-  "totalBytes": 20405
+  "totalBytes": 22625
 }

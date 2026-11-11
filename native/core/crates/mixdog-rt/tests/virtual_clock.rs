@@ -149,10 +149,18 @@ fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClas
         } else if let Some(name) = action["immediate"].as_str().map(str::to_owned) {
             let immediate = time::immediate();
             let class = next_class();
+            // `again`: it queues itself again that many more times (`step` is the recorder's: Node's next turn is a
+            // millisecond later, which the replay's `advance` makes it).
+            let again = action["again"].as_u64().unwrap_or(0);
+            let mut requeued = action.clone();
+            requeued["again"] = serde_json::Value::from(again.saturating_sub(1));
             drop(mixdog_rt::spawn("immediate", class, async move {
                 immediate.await;
                 event(&name);
                 run_script(&then, &cleared_too, class);
+                if again > 0 {
+                    run_script(&[requeued], &cleared_too, class);
+                }
             }));
         } else if let Some(name) = action["timeout"].as_str().map(str::to_owned) {
             if cleared.contains(&name) {
@@ -191,7 +199,10 @@ fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClas
             let at = clearable.iter().position(|(armed, _)| armed == name).unwrap_or_else(|| panic!("{name} is not armed"));
             let _ = clearable.remove(at).1.cancel();
         } else if let Some(name) = action["tick"].as_str().or_else(|| action["promise"].as_str()).map(str::to_owned) {
-            drop(mixdog_rt::spawn("job", class, async move { event(&name) }));
+            drop(mixdog_rt::spawn("job", class, async move {
+                event(&name);
+                run_script(&then, &cleared_too, class);
+            }));
         } else {
             panic!("the core has no counterpart for {action}");
         }
@@ -428,8 +439,17 @@ fn core() {
     let Ok(role) = std::env::var(ROLE) else { return };
     let (_executors, tokens) = mixdog_rt::exec::boot(RtConfig::for_cores(4)).expect("the executors");
     gates();
+    // A recorded case's script queues immediates the check driver may run at once (Node's first turn): `ready` goes first.
+    let ready_first = role == "node-case";
+    if ready_first {
+        event("ready");
+    }
     match role.as_str() {
-        "node-case" => node_case(),
+        "node-case" => {
+            node_case();
+            // The script is armed: the replay may turn the loop (a `pause` line, which the event reads pass over).
+            mixdog_rt::node_stderr!("pause script-armed");
+        }
         "hops" => hops(tokens),
         "io" => io(),
         "stuck" => stuck(tokens),
@@ -446,7 +466,9 @@ fn core() {
         }
         _ => {}
     }
-    event("ready");
+    if !ready_first {
+        event("ready");
+    }
     if role == "log-lines" {
         for line in LOG_LINES {
             mixdog_rt::node_stderr!("{line}");
@@ -617,9 +639,18 @@ impl Control {
 
     /// `advance <ms>`, and the V it answers.
     fn advance(&mut self, ms: u64) -> u64 {
+        self.turns(ms).0
+    }
+
+    /// `advance <ms>`: the V it answers and the immediates it says are left for the next turn.
+    fn turns(&mut self, ms: u64) -> (u64, u64) {
         let answer = self.ask(&format!("advance {ms}"));
-        let wall: u64 = answer.strip_prefix("now ").and_then(|ms| ms.parse().ok()).unwrap_or_else(|| panic!("advance {ms} answered {answer:?}"));
-        wall - WALL
+        let parsed = answer.strip_prefix("now ").and_then(|rest| match rest.split_once(" immediates ") {
+            Some((wall, left)) => Some((wall.parse::<u64>().ok()?, left.parse().ok()?)),
+            None => Some((rest.parse::<u64>().ok()?, 0)),
+        });
+        let (wall, left) = parsed.unwrap_or_else(|| panic!("advance {ms} answered {answer:?}"));
+        (wall - WALL, left)
     }
 }
 
@@ -743,9 +774,13 @@ fn an_io_completion_counts_from_its_runtimes_unpark_hook_on() {
 #[test]
 fn a_wake_from_a_thread_of_its_own_counts_from_its_push_on() {
     let io = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
-    let (core, mut control, mut gates) = gated("thread-wake", &[io_env(&io)], "unparking RT-W");
+    let (core, mut control, mut gates) = gated("thread-wake", &[io_env(&io)], "");
     let mut peer = accept(io, "the core's thread");
-    core.until_line("pause armed unparking RT-W");
+    // RT-W parked first (an answered advance is the settle point), so the thread's wake must unpark it: a worker still
+    // awake from the start would take the task without passing the point. Armed after: an armed point holds the settle's
+    // own unparks too.
+    assert_eq!(control.advance(0), 0);
+    gates.hold(&core, "unparking RT-W");
     peer.write_all(b"go\n").expect("the thread's line");
     core.until_line("pause held unparking RT-W");
     control.send("advance 1");
@@ -810,9 +845,28 @@ fn node_timer_order() {
             .iter()
             .map(|event| format!("{} {}", event[0].as_str().expect("event name"), event[1].as_u64().expect("event millisecond")))
             .collect();
-        let end = case["events"].as_array().and_then(|events| events.last()).and_then(|event| event[1].as_u64()).expect("an event");
         let (core, mut control) = started("node-case", &[(CASE, name.to_owned())], 30_000);
-        assert_eq!(control.advance(end), end, "{name}");
+        // Not moving the cursor: events the first turn's immediates log may come before it.
+        assert!(control.wait(DEADLINE, "pause script-armed").is_some(), "case {name}: the script armed");
+        // Node's loop turn by turn: each recorded event is looked for in the core's log (no wait: the log is the core's own);
+        // when it is not there yet, the next turn: `advance` to its millisecond, or `advance 0` for another turn at this one
+        // while immediates are left for it.
+        let mut v = 0;
+        // The immediates the last turn at V left for the next; `None` before any turn at V.
+        let mut left: Option<u64> = None;
+        for event in &recorded {
+            let at: u64 = event.rsplit_once(' ').and_then(|(_, at)| at.parse().ok()).expect("an event millisecond");
+            loop {
+                if let Some(n) = control.wait(Duration::ZERO, &format!("event {event}")) {
+                    control.cursor(n + 1);
+                    break;
+                }
+                assert!(at > v || (at == v && left != Some(0)), "case {name}: {event:?} did not come in the turns at {v}");
+                let (now, immediates) = control.turns(at - v);
+                v = now;
+                left = Some(immediates);
+            }
+        }
         assert_eq!(core.events(recorded.len()), recorded, "case {name}");
         drop(control);
         let (code, rest) = core.ended();
