@@ -945,7 +945,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "fe759591d073208c7aa882d34a26b511006b04def5f1fb8c2f3cb7e6806e1c68",
+  "recorderSha256": "e9ca4b27a6b1324f624487bba8f910a5ea5819a1a805a5133eb0521578295ec9",
   "set": "provider-wire",
   "totalBytes": 392738
 }
