@@ -240,9 +240,7 @@ impl RunFactory for RunHostFactory {
     }
 }
 
-pub(super) fn new_item_id() -> ItemId {
-    ItemId::from(format!("itm_{}", uuid::Uuid::new_v4().simple()))
-}
+pub(super) use mixdog_core_session::session::run::new_item_id;
 
 fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
     RunOutcome::Failed(TurnError { message: message.into(), data, provider_error: None })
@@ -831,65 +829,6 @@ async fn close_cancelled(
     }
 }
 
-/// The header key open-time recovery (`recover`) sets when the process died with a turn running: the next turn
-/// finalizes that turn's rows first.
-pub(crate) const INTERRUPTED_BY_RESTART: &str = "interruptedByRestart";
-
-/// Node's restart recovery of a turn the process died in (`finalizeInterruptedTurn` with `process-crash`, from the
-/// turn checkpoint): every unanswered call closed as cancelled, the restart line, and `sentRequestTail` on the row
-/// the request ended with. The core keeps no partial stream, so the cut turn is what its committed rows show: it
-/// had started a response when a row follows its prompt, and was in its tool phase when the last row is a call
-/// batch. The new rows are committed and the model context restarts on the finalized rows and `input`.
-async fn close_crashed(port: &RunPort, stored: &mut Vec<(ItemId, Value)>, input: (&ItemId, &Value)) -> Result<(), String> {
-    use mixdog_agent::interrupt::{finalize_interrupted_turn, AbortReason, Interrupted, Phase};
-    let mut known = Vec::with_capacity(stored.len());
-    for (iid, body) in stored.iter() {
-        known.push((iid.clone(), message_of(body)?));
-    }
-    let last = known.last().map(|(_, message)| message);
-    let finalized = finalize_interrupted_turn(Interrupted {
-        transcript: known.iter().map(|(_, message)| message.clone()).collect(),
-        current_user_text: String::new(),
-        response_started: last.is_some_and(|message| message.role() != Role::User),
-        partial_assistant: String::new(),
-        partial_reasoning: String::new(),
-        observed_tool_calls: Vec::new(),
-        observed_tool_results: Vec::new(),
-        phase: if last.is_some_and(|message| !message.assistant_call_ids().is_empty()) { Phase::Tools } else { Phase::Streaming },
-        reason: AbortReason::ProcessCrash,
-    });
-    let mut replacement = Vec::with_capacity(finalized.transcript.len() + 1);
-    for (index, message) in finalized.transcript.iter().enumerate() {
-        let (iid, mut body) = match known.get(index).filter(|(_, was)| was == message) {
-            Some((iid, _)) => (iid.clone(), stored[index].1.clone()),
-            None => {
-                let (iid, body) = (new_item_id(), row_of(message));
-                let role = match message.role() {
-                    Role::Assistant => "assistant",
-                    Role::Tool => "tool",
-                    _ => "user",
-                };
-                let item = ItemCommit { iid: iid.clone(), role: Some(role.to_owned()), model: true, visible: message.role() != Role::User, body: body.clone(), prompt: None };
-                port.commit_item(item).await.map_err(|error| format!("the interrupted turn's rows could not be saved: {error:?}"))?;
-                (iid, body)
-            }
-        };
-        if finalized.sent_request_tail == Some(index) && let Some(object) = body.as_object_mut() {
-            let meta = object.entry("meta").or_insert_with(|| json!({}));
-            if let Some(meta) = meta.as_object_mut() {
-                meta.insert("sentRequestTail".into(), Value::Bool(true));
-            }
-        }
-        replacement.push((iid, body));
-    }
-    *stored = replacement.clone();
-    replacement.push((input.0.clone(), input.1.clone()));
-    port.context_rewound(replacement).await.map_err(|error| format!("the interrupted turn's context could not be saved: {error:?}"))?;
-    port.save_header(mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec![INTERRUPTED_BY_RESTART.to_owned()] })
-        .await
-        .map_err(|error| format!("the interrupted turn's recovery could not be saved: {error:?}"))
-}
-
 /// `promptContentText(input.prompt).trim()`: a string, or the text parts joined by a newline.
 fn prompt_text(body: &Value) -> String {
     match body.get("content") {
@@ -980,11 +919,6 @@ async fn drive(
         Ok(stored) => stored,
         Err(error) => return failed(format!("model context unreadable: {error:?}"), Value::Null),
     };
-    if header.get(INTERRUPTED_BY_RESTART) == Some(&Value::Bool(true))
-        && let Err(text) = close_crashed(&port, &mut stored, (&input_item, &input_body)).await
-    {
-        return failed(text, Value::Null);
-    }
     let request = prompt_text(&input_body);
     // A failed-turn retry starts without the stale copy of its prompt (`prepareAskTurn`). The
     // context is restarted durably (the chained provider state re-baselines with it), at the rows

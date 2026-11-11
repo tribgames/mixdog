@@ -46,7 +46,7 @@ mod failed_turn_rewind;
 pub mod assemble;
 pub mod run_approvals;
 pub mod prewarm;
-pub mod message_row;
+pub use mixdog_agent::message_row;
 pub mod rules_lead;
 pub mod deferred_manifest;
 pub mod tool_migration;
