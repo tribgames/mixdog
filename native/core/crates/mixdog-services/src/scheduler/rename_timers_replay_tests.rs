@@ -37,6 +37,8 @@ fn iso(t: DateTime<Utc>) -> String {
 struct PausedClock {
     base: DateTime<Utc>,
     start: tokio::time::Instant,
+    /// The total of the explicit advances: the paused clock may never be ahead of it.
+    advanced: Mutex<StdDuration>,
 }
 
 impl Clock for PausedClock {
@@ -49,7 +51,15 @@ impl PausedClock {
     /// Moves the paused clock to `instant` (every timer due on the way fires at its own instant).
     async fn advance_to(&self, instant: &str) {
         let wait = (at(instant) - self.now()).to_std().unwrap_or_default();
+        *self.advanced.lock().unwrap() += wait;
         tokio::time::advance(wait).await;
+    }
+
+    /// Fails when the runtime moved the paused clock by itself (its auto-advance while every task waits), which would
+    /// fire a timer the recording did not advance to.
+    fn assert_only_advanced(&self, when: &str) {
+        let (elapsed, advanced) = (self.start.elapsed(), *self.advanced.lock().unwrap());
+        assert_eq!(elapsed, advanced, "a timer fired without an explicit advance: the paused clock ran {elapsed:?} but was advanced {advanced:?} ({when})");
     }
 }
 
@@ -87,6 +97,7 @@ impl Runs {
                 let moved = self.moved.notified();
                 tokio::pin!(moved);
                 moved.as_mut().enable();
+                self.clock.assert_only_advanced(what);
                 if counter.load(Ordering::SeqCst) >= n {
                     return;
                 }
@@ -129,7 +140,7 @@ fn status(sched: &Scheduler) -> Value {
 /// One recorded case driven on the core: the observation in the recording's shape.
 async fn replay(recorded: &Value) -> Value {
     let outcome = recorded["outcome"].as_str().unwrap();
-    let clock = Arc::new(PausedClock { base: at(recorded["start"].as_str().unwrap()), start: tokio::time::Instant::now() });
+    let clock = Arc::new(PausedClock { base: at(recorded["start"].as_str().unwrap()), start: tokio::time::Instant::now(), advanced: Mutex::new(StdDuration::ZERO) });
     let (release, held) = tokio::sync::watch::channel(false);
     let runner = Arc::new(Runs {
         clock: clock.clone(),
@@ -226,6 +237,7 @@ async fn replay(recorded: &Value) -> Value {
             panic!("a step the replay does not know: {step}");
         }
     }
+    clock.assert_only_advanced("the end of the case");
     let observed = json!({
         "outcome": outcome,
         "start": recorded["start"],
