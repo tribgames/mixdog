@@ -2010,5 +2010,55 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_e50ddd15d30b0633afe9385edd4cb5bacadf81c2bf5ed383cbdf4d3e2fe4e8af",
+     "preview": "HOLD-EMPTY stop me twice at once",
+     "title": "HOLD-EMPTY stop me twice at once",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-stopped-twice-at-once\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-stopped-twice-at-once\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY stop me twice at once"
+    }
+   ]
+  },
+  {
+   "at": 13,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_e50ddd15d30b0633afe9385edd4cb5bacadf81c2bf5ed383cbdf4d3e2fe4e8af",
+     "preview": "",
+     "title": "HOLD-EMPTY stop me twice at once",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 0,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-stopped-twice-at-once\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-stopped-twice-at-once\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000
+    }
+   ]
+  }
  ]
 }

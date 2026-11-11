@@ -37,6 +37,7 @@ const AFTER_INPUT_MS = 1_000;
 const deadline = realDeadline(Number(process.env.HISTORY_DEADLINE_MS) || 300_000, () => `case ${caseName}; inputs so far: ${JSON.stringify(inputs.slice(-5))}; last settle round: ${JSON.stringify(lastRound)}`);
 const inputs = [];
 const history = [];
+const roster = [];
 
 // ── the daemon's Node processes, controlled over loopback ───────────────────────────────────────────────────────────────────────────
 const remotes = [];
@@ -301,6 +302,10 @@ try {
   host = await drive(SessionHost.create({ userDataPath: envPaths.appData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime), 'the session host');
   // The history: every session state the host publishes, whole, in order (an equal one included: the host published it).
   host.subscribeSessionStates((update) => history.push({ sessionId: update.sessionId, frameSource: update.frameSource ?? null, snapshot: plain(update.snapshot ?? null) }));
+  // The thread list as a phone's relay hears it (remote-relay-catalog.ts, `subscribeSessions`), each publication with the clock it came
+  // at: the host's catalog clock (session-host-catalog.ts:170-180 scheduleCatalogRefresh, a 400 ms debounce no sooner than 2 s after the
+  // last refresh) runs on the recorder's clock.
+  host.subscribeSessions((sessions) => roster.push({ at: history.length, clock: clockNow().perf - PERF_BASE, sessions: plain(sessions) }));
   const notifier = createPushNotifier({ store: {}, isEnabled: () => false, readFinalAnswer: async () => null, isClientForeground: () => false });
   host.subscribeSessionStates((update) => notifier.onSessionState(update));
   const approvalNotifications = {
@@ -372,7 +377,7 @@ try {
     return value;
   };
   const manifest = { commit: NODE_COMMIT, exact: true, filesVerified, node: process.version, epoch: EPOCH, perfBase: PERF_BASE, afterInputMs: AFTER_INPUT_MS, replaced: [...own.values()] };
-  writeFileSync(outFile, `${JSON.stringify(relabel({ manifest, name: caseName, id, inputs, history: history.filter((h) => h.kind === 'reply' || h.sessionId === id) }), null, 1)}\n`);
+  writeFileSync(outFile, `${JSON.stringify(relabel({ manifest, name: caseName, id, inputs, history: history.filter((h) => h.kind === 'reply' || h.sessionId === id), roster }), null, 1)}\n`);
   // The model endpoint's request bodies, for finding what made two runs differ (not part of the recording).
   if (process.env.HISTORY_BODIES) writeFileSync(`${outFile}.trace.json`, `${trace.map((t) => JSON.stringify(t)).join('\n')}\n`);
   if (process.env.HISTORY_BODIES) writeFileSync(`${outFile}.bodies.json`,`${JSON.stringify(relabel(provider.requests.map((r) => JSON.parse(r.raw || '{}'))), null, 1)}\n`);

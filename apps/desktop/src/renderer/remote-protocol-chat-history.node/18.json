@@ -2597,5 +2597,57 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 10,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+     "preview": "HOLD-ASK read the file of another approval",
+     "title": "HOLD-ASK read the file of…",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "awaitingApproval": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-ASK read the file of another approval"
+    }
+   ]
+  },
+  {
+   "at": 14,
+   "clock": 7400,
+   "sessions": [
+    {
+     "id": "sess_desktop_5e23b96fc4e00e8f97d581d026ea6f92be876a723d51fe49fb1047613b3f1210",
+     "preview": "HOLD-ASK read the file of another approval",
+     "title": "HOLD-ASK read the file of…",
+     "updatedAt": 1900000006000,
+     "activityAt": 1900000006000,
+     "messageCount": 3,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-allow-unknown-id\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "ok"
+    }
+   ]
+  }
  ]
 }

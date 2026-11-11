@@ -2552,5 +2552,57 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 10,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_2e14ad520c0a2428ad2ab9ba48e3b1179351b312395150c28707ddec18f72917",
+     "preview": "HOLD-ASK read the denied file",
+     "title": "HOLD-ASK read the denied file",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-deny-answered\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-deny-answered\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "awaitingApproval": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-ASK read the denied file"
+    }
+   ]
+  },
+  {
+   "at": 12,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_2e14ad520c0a2428ad2ab9ba48e3b1179351b312395150c28707ddec18f72917",
+     "preview": "HOLD-ASK read the denied file",
+     "title": "HOLD-ASK read the denied file",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 3,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-deny-answered\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-notify-deny-answered\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "ok"
+    }
+   ]
+  }
  ]
 }

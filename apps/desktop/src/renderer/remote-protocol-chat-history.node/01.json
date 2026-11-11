@@ -1997,5 +1997,55 @@
     "remoteSessionId": null
    }
   }
+ ],
+ "roster": [
+  {
+   "at": 4,
+   "clock": 2000,
+   "sessions": []
+  },
+  {
+   "at": 9,
+   "clock": 2400,
+   "sessions": [
+    {
+     "id": "sess_desktop_d2c04c0896aeec8749cd973042144b6761981ce09af2b6d338a2742656064640",
+     "preview": "HOLD-EMPTY write the file",
+     "title": "HOLD-EMPTY write the file",
+     "updatedAt": 1900000002000,
+     "activityAt": 1900000002000,
+     "messageCount": 1,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-no-output\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-no-output\\ws\\a",
+     "working": true,
+     "leadWorking": true,
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000,
+     "lastMessagePreview": "HOLD-EMPTY write the file"
+    }
+   ]
+  },
+  {
+   "at": 12,
+   "clock": 4400,
+   "sessions": [
+    {
+     "id": "sess_desktop_d2c04c0896aeec8749cd973042144b6761981ce09af2b6d338a2742656064640",
+     "preview": "",
+     "title": "HOLD-EMPTY write the file",
+     "updatedAt": 1900000004000,
+     "activityAt": 1900000004000,
+     "messageCount": 0,
+     "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-no-output\\ws\\a",
+     "classification": "project",
+     "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-history-running-no-output\\ws\\a",
+     "provider": "custom-harness",
+     "model": "harness-model",
+     "createdAt": 1900000002000
+    }
+   ]
+  }
  ]
 }
