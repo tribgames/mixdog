@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,13 +66,14 @@
   "recorderSha256": "351fb25a2bbef9be61a60569078169179b59f2f3ac8f80dfd72cccecdc4f45e7",
   "replay": {
     "compare": "mixdog-core-session lifecycle (inheritFrom) and the transcript restore: replay the two scenarios from the recorded source/target and compare the target messages, the persisted copy, the restored items and the rejection text",
-    "entry": "Drive these public items on o1: thread/fork (mixdog-app-server/src/server.rs:114).",
-    "missingOnO1": [
-      "carry_into (mixdog-core-session/src/session/inheritance.rs:95) is pub(super): not callable from outside; the transcript restore has no counterpart found"
+    "entry": "Drive these public items on o1: thread/fork (mixdog-app-server/src/server.rs:114; mixdog-app-protocol/src/inventory.rs:1139-1141 inheritSession): handle.rs:476 `fork` calls carry_into at handle.rs:492.",
+    "existsButNotPublicOnO1": [
+      "mixdog-core-session/src/session/inheritance.rs:100 `carry_into` is pub(super): it is reached through thread/fork"
     ],
+    "missingOnO1": [],
     "normalised": {},
     "protocolMethods": [
-      "thread/fork (mixdog-app-server/src/server.rs:114)"
+      "thread/fork (mixdog-app-server/src/server.rs:114; mixdog-app-protocol/src/inventory.rs:1139-1141 inheritSession): handle.rs:476 `fork` calls carry_into at handle.rs:492"
     ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
