@@ -13,7 +13,14 @@
 //! run until it waits on a later timer, on real I/O, or on a task that does.
 //!
 //! Real I/O (sockets, children, PTY, dedicated threads) completes in real time: before advancing past it, wait for its observable,
-//! a message on your own connection or `wait <deadline-ms> <log-line prefix>`, answered `seen <line>` or `missed <prefix>`.
+//! a message on your own connection or `wait <deadline-ms> <line>`.
+//!
+//! `wait`: the core numbers its `node_log` lines from 0 in log order and keeps every one from the cursor (0 at start) on. `wait`
+//! finds the first kept line equal to `<line>`, the whole line, byte for byte (a longer line that starts the same is another
+//! line), waiting up to deadline-ms of real time for it to be logged; it answers `seen <n>`, its number, once the core settles, or
+//! `missed`. It moves nothing: lines are matched in log order whatever order they are waited in. `cursor <n>` moves the cursor
+//! forward to `n`, at most the number of lines logged so far, and answers `cursor <n>`; the lines before it are dropped, so the next
+//! `wait` for a repeated line finds its next occurrence. A cursor moved back or past the lines logged ends the process.
 //!
 //! Ordered exactly: `mixdog_rt::time`, the ticker, `Scope`, `Liveness`; `clippy.toml` refuses `tokio::time`'s timer functions in
 //! every other crate, and here only `time.rs` (its wrappers, for use off this clock) and tests arm them; such a timer fires at the
@@ -190,11 +197,18 @@ struct Clock {
     /// V, mirrored from `timers` for lock-free readers.
     now: AtomicU64,
     timers: Mutex<Timers>,
-    /// `node_log` lines a `wait` has not consumed.
-    log: Mutex<Vec<String>>,
+    log: Mutex<Log>,
     logged: Condvar,
     /// The commands read and not yet answered, oldest first.
     unanswered: Mutex<VecDeque<String>>,
+}
+
+/// The `node_log` lines from the cursor on.
+#[derive(Default)]
+struct Log {
+    /// The cursor: the number of `lines[0]`.
+    first: u64,
+    lines: VecDeque<String>,
 }
 
 /// Node's timer lists (`lib/internal/timers.js`): one list per duration, the lists in a queue by (expiry, list id).
@@ -528,7 +542,7 @@ impl Drop for InFlight {
 /// Records a `node_log` line for `wait`.
 pub(crate) fn logged(line: &str) {
     if let Some(clock) = CLOCK.get() {
-        lock(&clock.log).push(line.to_owned());
+        lock(&clock.log).lines.push_back(line.to_owned());
         clock.logged.notify_all();
     }
 }
@@ -568,7 +582,7 @@ pub(crate) fn start(on_control: impl FnOnce() + Send + 'static, on_work: impl Fn
         settle_within,
         now: AtomicU64::new(0),
         timers: Mutex::new(Timers::default()),
-        log: Mutex::new(Vec::new()),
+        log: Mutex::new(Log::default()),
         logged: Condvar::new(),
         unanswered: Mutex::new(VecDeque::new()),
     };
@@ -863,25 +877,43 @@ pub mod pause {
     }
 }
 
-/// The first unconsumed log line starting with `prefix`, within `within`; the lines up to it are consumed.
-fn wait_log(clock: &Clock, within: Duration, prefix: &str) -> Option<String> {
-    let deadline = real_deadline(within, &format!("wait for {prefix:?}"));
-    let mut lines = lock(&clock.log);
+/// The number of the first line from the cursor on equal to `wanted`, within `within`; nothing is consumed.
+fn wait_log(clock: &Clock, within: Duration, wanted: &str) -> Option<u64> {
+    let deadline = real_deadline(within, &format!("wait for {wanted:?}"));
+    let mut log = lock(&clock.log);
+    // Commands run one at a time, so the cursor stays put while this waits: lines already looked at need no second look.
+    let mut looked = 0;
     loop {
-        if let Some(at) = lines.iter().position(|line| line.starts_with(prefix)) {
-            return lines.drain(..=at).next_back();
+        if let Some(at) = log.lines.iter().skip(looked).position(|line| line == wanted) {
+            return Some(log.first + (looked + at) as u64);
         }
+        looked = log.lines.len();
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
             return None;
         }
-        lines = clock.logged.wait_timeout(lines, left).unwrap_or_else(PoisonError::into_inner).0;
+        log = clock.logged.wait_timeout(log, left).unwrap_or_else(PoisonError::into_inner).0;
     }
+}
+
+/// Moves the cursor forward to `to`, dropping the lines before it.
+fn move_cursor(clock: &Clock, to: u64) {
+    let mut log = lock(&clock.log);
+    let end = log.first + log.lines.len() as u64;
+    if to < log.first || to > end {
+        let first = log.first;
+        drop(log);
+        fail(format!("`cursor {to}`: the cursor is at {first} and {end} line(s) are logged; it moves forward, up to the lines logged"));
+    }
+    let skipped = usize::try_from(to - log.first).expect("at most the lines kept");
+    log.lines.drain(..skipped);
+    log.first = to;
 }
 
 enum Command {
     Advance(u64),
-    Wait { within: u64, prefix: String },
+    Wait { within: u64, line: String },
+    Cursor(u64),
 }
 
 fn parse(line: &str) -> Option<Command> {
@@ -889,10 +921,11 @@ fn parse(line: &str) -> Option<Command> {
     match verb {
         "advance" => wire_ms(rest, line).map(Command::Advance),
         "wait" => {
-            let (within, prefix) = rest.split_once(' ')?;
-            (!prefix.is_empty()).then_some(())?;
-            Some(Command::Wait { within: wire_ms(within, line)?, prefix: prefix.to_owned() })
+            let (within, wanted) = rest.split_once(' ')?;
+            (!wanted.is_empty()).then_some(())?;
+            Some(Command::Wait { within: wire_ms(within, line)?, line: wanted.to_owned() })
         }
+        "cursor" => rest.parse().ok().map(Command::Cursor),
         _ => None,
     }
 }
@@ -906,7 +939,7 @@ fn read(clock: &'static Clock, mut reader: BufReader<TcpStream>, commands: &mpsc
             unanswered => format!("with {} unanswered", unanswered.join(", ")),
         });
         let command = parse(&line).unwrap_or_else(|| {
-            fail(format!("the replay sent a malformed command {line:?}: the clock knows `advance <ms>` and `wait <deadline-ms> <log-line prefix>`"))
+            fail(format!("the replay sent a malformed command {line:?}: the clock knows `advance <ms>`, `wait <deadline-ms> <line>` and `cursor <n>`"))
         });
         lock(&clock.unanswered).push_back(line);
         if commands.send(command).is_err() {
@@ -920,13 +953,17 @@ fn serve(clock: &'static Clock, commands: &mpsc::Receiver<Command>, mut stream: 
     for command in commands {
         let reply = match command {
             Command::Advance(ms) => format!("now {}", advance(clock, ms)),
-            Command::Wait { within, prefix } => match wait_log(clock, Duration::from_millis(within), &prefix) {
+            Command::Wait { within, line } => match wait_log(clock, Duration::from_millis(within), &line) {
                 Some(seen) => {
-                    settle(clock, &format!("wait for {prefix:?}"));
+                    settle(clock, &format!("wait for {line:?}"));
                     format!("seen {seen}")
                 }
-                None => format!("missed {prefix}"),
+                None => "missed".to_owned(),
             },
+            Command::Cursor(to) => {
+                move_cursor(clock, to);
+                format!("cursor {to}")
+            }
         };
         lock(&clock.unanswered).pop_front();
         answer(&mut stream, &reply);
