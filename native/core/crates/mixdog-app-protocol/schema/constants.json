@@ -51,12 +51,6 @@
     "controlReserveBytes": 524288,
     "eventBudgetBytes": 7864320,
     "heartbeatTickMs": 15000,
-    "inflight": {
-      "c0": 64,
-      "c1": 16,
-      "c2": 8,
-      "c3": 4
-    },
     "maxBlobPageBytes": 1048576,
     "maxBlobPutChunkBytes": 193536,
     "maxConnections": 128,
