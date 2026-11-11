@@ -149,6 +149,10 @@ impl mixdog_core_ports::ports::route::RouteSession for LateRouteSession {
     fn invalidate_context_status(&self, thread: &ThreadId) {
         self.expect_bound().invalidate_context_status(thread)
     }
+
+    fn loaded(&self, thread: &ThreadId) -> bool {
+        self.expect_bound().loaded(thread)
+    }
 }
 
 impl Bound for LateRouteSession {
