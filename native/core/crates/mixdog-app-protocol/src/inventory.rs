@@ -1836,7 +1836,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "readLocalFile",
-        Target::Method("projectFs/readLocal"),
+        Target::Methods(&["projectFs/readLocal", "transfer/readRange", "transfer/endRead"]),
     ),
     (
         InventoryList::Remote,

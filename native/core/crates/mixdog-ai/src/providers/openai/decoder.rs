@@ -154,6 +154,8 @@ pub struct ResponsesDecoder {
     outcome: ResponseOutcome,
     /// Some semantic event arrived (`watchdogs.semanticSeen()`): from then on an item boundary is progress.
     semantic_seen: bool,
+    /// The first output item was added (`state.firstOutputAt`).
+    output_started: bool,
     /// `toolInFlight` and what it is made of.
     flight: ToolFlight,
     /// The ids of the reasoning items collected with encrypted content (`replayItems.hasReasoning`).
@@ -324,6 +326,76 @@ fn response_output_text(response: &Value) -> String {
         .collect()
 }
 
+/// The first of `keys` (a path each, dot-separated) that holds a non-empty string, as JavaScript's `a || b || ''` reads
+/// them.
+fn js_text(value: &Value, keys: &[&str]) -> String {
+    keys.iter()
+        .filter_map(|key| key.split('.').try_fold(value, |at, part| at.get(part)))
+        .find_map(|found| match found {
+            Value::String(text) if !text.is_empty() => Some(text.clone()),
+            Value::Number(number) if number.as_f64() != Some(0.0) => Some(number.to_string()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// The sources a turn cites, de-duplicated by URL in the order they are found.
+#[derive(Default)]
+struct Citations {
+    seen: HashSet<String>,
+    list: Vec<Value>,
+}
+
+impl Citations {
+    /// `pushOutputTextAnnotations` (text-relay.mjs:19-31): an output text annotation of the HTTP/SSE collector.
+    fn annotation(&mut self, raw: &Value) {
+        let url = js_text(raw, &["url", "uri", "href"]);
+        if url.is_empty() || !self.seen.insert(url.clone()) {
+            return;
+        }
+        self.list.push(json!({
+            "title": js_text(raw, &["title"]),
+            "url": url,
+            "snippet": js_text(raw, &["snippet", "text", "description"]),
+            "source": "openai-oauth",
+        }));
+    }
+
+    /// `addCitation` of `collectCompatResponseSearchSources` (openai-compat-wire.mjs:337-361): a URL string or a source
+    /// object, with the search's query as the fallback title and the place it was found as the fallback source.
+    fn compat(&mut self, source: &Value, fallback_title: &str, fallback_source: &str) {
+        let fallback_source = if fallback_source.is_empty() { "citation" } else { fallback_source };
+        if let Some(text) = source.as_str() {
+            let url = mixdog_js::js_trim(text).to_owned();
+            if url.is_empty() || !self.seen.insert(url.clone()) {
+                return;
+            }
+            self.list.push(json!({ "title": url, "url": url, "snippet": "", "source": fallback_source, "provider": "xai" }));
+            return;
+        }
+        if !source.is_object() {
+            return;
+        }
+        let url = mixdog_js::js_trim(&js_text(source, &["url", "uri", "href", "source_url", "url_citation.url"])).to_owned();
+        if url.is_empty() || !self.seen.insert(url.clone()) {
+            return;
+        }
+        let mut title = js_text(source, &["title", "name", "query", "url_citation.title"]);
+        if title.is_empty() {
+            title = if fallback_title.is_empty() { url.clone() } else { fallback_title.to_owned() };
+        }
+        let own_source = js_text(source, &["source"]);
+        let provider = js_text(source, &["provider"]);
+        self.list.push(json!({
+            "title": mixdog_js::js_trim(&title),
+            "url": url,
+            "snippet": mixdog_js::js_trim(&js_text(source, &["snippet", "text", "description"])),
+            "source": if own_source.is_empty() { fallback_source.to_owned() } else { own_source },
+            "provider": if provider.is_empty() { "xai".to_owned() } else { provider },
+        }));
+    }
+}
+
 fn is_incomplete_tool_item(item: &Value) -> bool {
     str_of(item, "status") == "incomplete"
         && matches!(
@@ -350,6 +422,7 @@ impl ResponsesDecoder {
             refusals: Refusals::default(),
             outcome: ResponseOutcome::default(),
             semantic_seen: false,
+            output_started: false,
             flight: ToolFlight::default(),
             reasoning_ids: HashSet::new(),
             compat: false,
@@ -516,6 +589,12 @@ impl ResponsesDecoder {
             "codex.rate_limits" => out.push(StreamEvent::ProviderKeepalive),
             "response.output_item.added" => {
                 let item = event.get("item").unwrap_or(&Value::Null);
+                // The first item starts the generation in the HTTP/SSE and socket collectors (response-events.mjs:49,
+                // openai-ws-response-state.mjs:160); the compatible collector keeps no such time.
+                if self.collector() != Collector::Compat && !self.output_started {
+                    self.output_started = true;
+                    out.push(StreamEvent::OutputStarted);
+                }
                 self.item_added(item, out);
                 self.flight.item_added(self.collector(), item);
                 // `onItemAdded` (`openai-ws-stream/event-switch.mjs`, `onOutputItemAdded`): a call in flight, else a
@@ -1055,6 +1134,14 @@ impl ResponsesDecoder {
                 out.push(StreamEvent::FinalContent(output_text));
             }
         }
+        // The model that answered (`state.model || useModel`, `response?.model || useModel`): the one the response named.
+        if self.model.is_none() {
+            self.model = Some(str_of(response, "model").to_owned()).filter(|m| !m.is_empty());
+        }
+        if let Some(model) = &self.model {
+            out.push(StreamEvent::ServedModel(model.clone()));
+        }
+        self.search_sources(response, out);
         let service_tier = response.get("service_tier").and_then(Value::as_str);
         // The response's own items in arrival order, reasoning included
         // verbatim (ids, summaries, encrypted content): the one envelope the
@@ -1088,6 +1175,13 @@ impl ResponsesDecoder {
             );
             out.push(StreamEvent::ProviderState(with_slot(report.prior.as_ref(), &report.spec, slot)));
         }
+        // The HTTP/SSE collector returns the response's id (`responseId: state.responseId || undefined`,
+        // response-outcome.mjs:87), the first one the stream named.
+        if self.collector() == Collector::HttpSse
+            && let Some(id) = self.outcome.response_id.clone().or_else(|| Some(str_of(response, "id").to_owned())).filter(|id| !id.is_empty())
+        {
+            out.push(StreamEvent::ResponseId(id));
+        }
         let stop = if self.refusals.seen() {
             out.push(StreamEvent::Refusal(self.refusals.text()));
             Some(StopReason::Refusal)
@@ -1096,6 +1190,75 @@ impl ResponsesDecoder {
         };
         self.terminal = true;
         out.push(StreamEvent::Completed { stop, pricing_model: None, request_ms: None });
+    }
+
+    /// The search calls and cited sources the turn returns (Node `webSearchCalls`, `citations`). The HTTP/SSE collector
+    /// keeps every `web_search_call` item (`pushWebSearchCall`, response-items.mjs:52-58) and the URL annotations of the
+    /// terminal bundle's messages (`pushOutputTextAnnotations`, text-relay.mjs:19-31); the compatible one reads both
+    /// from the final response (`collectCompatResponseSearchSources`, openai-compat-wire.mjs:333-381). The WebSocket
+    /// collector returns neither. A search call is reported as a `ServerToolBlock` of type `web_search_call`.
+    fn search_sources(&self, response: &Value, out: &mut Vec<StreamEvent>) {
+        let collector = self.collector();
+        if collector == Collector::WebSocket {
+            return;
+        }
+        let bundle: &[Value] = response.get("output").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+        // The compatible collector reads the final response; the HTTP/SSE one collected every finished item.
+        let items: &[Value] = if collector == Collector::Compat && !bundle.is_empty() { bundle } else { &self.outcome.output_items };
+        let mut citations = Citations::default();
+        if collector == Collector::Compat {
+            for citation in response.get("citations").and_then(Value::as_array).into_iter().flatten() {
+                citations.compat(citation, "", "");
+            }
+        }
+        for item in items {
+            if str_of(item, "type") == "web_search_call" {
+                out.push(StreamEvent::ServerToolBlock(json!({
+                    "type": "web_search_call",
+                    "id": str_of(item, "id"),
+                    "status": str_of(item, "status"),
+                    "action": item.get("action").filter(|a| !a.is_null()).cloned().unwrap_or(Value::Null),
+                })));
+                if collector == Collector::Compat {
+                    let action = item.get("action").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({}));
+                    let query = js_text(&action, &["query"]);
+                    for source in action.get("sources").and_then(Value::as_array).into_iter().flatten() {
+                        citations.compat(source, &query, "web_search_call");
+                    }
+                    let url = js_text(&action, &["url"]);
+                    if !url.is_empty() {
+                        citations.compat(&json!({ "url": url, "title": query }), "", "web_search_call");
+                    }
+                    for url in action.get("urls").and_then(Value::as_array).into_iter().flatten() {
+                        citations.compat(&json!({ "url": url, "title": query }), "", "web_search_call");
+                    }
+                }
+            }
+            if collector == Collector::Compat {
+                for citation in item.get("citations").and_then(Value::as_array).into_iter().flatten() {
+                    citations.compat(citation, "", "");
+                }
+                for part in item.get("content").and_then(Value::as_array).into_iter().flatten() {
+                    for annotation in part.get("annotations").and_then(Value::as_array).into_iter().flatten() {
+                        citations.compat(annotation, "", "annotation");
+                    }
+                }
+            }
+        }
+        // `absorbCompletedMessage`: the terminal bundle's messages only.
+        if collector == Collector::HttpSse {
+            for item in bundle.iter().filter(|item| str_of(item, "type") == "message") {
+                for part in item.get("content").and_then(Value::as_array).into_iter().flatten() {
+                    if str_of(part, "type") != "output_text" {
+                        continue;
+                    }
+                    for annotation in part.get("annotations").and_then(Value::as_array).into_iter().flatten() {
+                        citations.annotation(annotation);
+                    }
+                }
+            }
+        }
+        out.extend(citations.list.into_iter().map(StreamEvent::Citation));
     }
 
     fn response_done(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
