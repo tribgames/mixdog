@@ -925,7 +925,9 @@ mod tests {
     /// installed compaction record, not from the control session's.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_recorded_sequence_is_answered_as_nodes_answered_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("golden");
+        #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 2.4 MB out of the test build
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/context-status-route/golden.json")).expect("golden");
+        let golden: Value = serde_json::from_str(&text).expect("golden");
         let steps = golden["steps"].as_array().expect("steps");
         let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
         let mut replay = Replay::new(first["value"]["toolMode"].as_str().expect("toolMode"), &first["value"]["provider"], &golden["config"]).await;
@@ -1024,7 +1026,9 @@ mod tests {
 
     impl Gated {
         async fn new() -> Self {
-            let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("golden");
+            #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 2.4 MB out of the test build
+            let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/context-status-route/golden.json")).expect("golden");
+            let golden: Value = serde_json::from_str(&text).expect("golden");
             let steps = golden["steps"].as_array().expect("steps");
             let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
             let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
