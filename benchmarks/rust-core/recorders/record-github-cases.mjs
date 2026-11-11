@@ -100,7 +100,7 @@ await set.run('workflow-filtered run lists execute once without a failed unfilte
   for (const workflow of ['build.yml', 'deploy.yml', 'release-projectaa.yml', '42']) filtered.push(await request({ action: 'run.list', repo, workflow, page: 2, limit: 3 }, () => JSON.stringify({ workflow_runs: [{ id: 42 }] })));
   let unsupported = null;
   try { validateGithubRequest({ action: 'run.list', repo, state: 'all' }); } catch (e) { unsupported = e; }
-  return { filtered, unfilteredArgs1: buildGithubCommand({ action: 'run.list', repo }).args[1], unsupportedStateField: unsupported };
+  return { filtered, unfilteredCommand: cmdView(buildGithubCommand({ action: 'run.list', repo })), unsupportedStateField: unsupported };
 });
 await set.run('repo inference binds the write to the resolved Project repository', async () => ({
   cwd: '<process cwd>', out: await request({ action: 'issue.create', title: 'Bound' }, (_c, i) => (i === 0 ? JSON.stringify({ nameWithOwner: repo }) : JSON.stringify({ number: 9 }))),
@@ -139,8 +139,7 @@ await set.run('the agent tool is registered and returns the ordinary builtin tex
   const value = await executeBuiltinTool('github', { action: 'repo.view', repo }, CWD, { run: async () => '{"full_name":"owner/project"}' });
   const unsupported = await executeGithubTool({ action: 'not-supported' }, CWD);
   const bounded = await executeGithubTool({ action: 'run.logs', repo, id: 42 }, CWD, { run: async () => '한'.repeat(100000) });
-  const logs = JSON.parse(bounded);
-  return { isBuiltinTool: isBuiltinTool('github'), builtinValue: value, unsupported, bounded: { bytes: Buffer.byteLength(bounded, 'utf8'), keys: Object.keys(logs), dataChars: logs.data.length, dataEndsWithHan: logs.data.endsWith('한'), omitted: logs.omitted, rest: { ...logs, data: undefined } } };
+  return { isBuiltinTool: isBuiltinTool('github'), builtinValue: value, unsupported, bounded, boundedBytes: Buffer.byteLength(bounded, 'utf8') };
 });
 await set.run('model-facing results drop API-only fields, keep decision fields, and preserve the raw response', () => withDataDir('github-raw-', async () => {
   const user = (login, type = 'User') => ({ login, id: 1, node_id: 'U', type, avatar_url: 'a', followers_url: 'f' });
@@ -156,8 +155,7 @@ await set.run('model-facing results drop API-only fields, keep decision fields, 
   const page = Array.from({ length: 60 }, (_, index) => ({ number: index + 1, title: 't'.repeat(200) }));
   const listed = await tool({ action: 'issue.list', repo, limit: 60 }, () => JSON.stringify(page), { sessionId: 'sess_github_raw', toolCallId: 'call_2' });
   const small = await tool({ action: 'pr.merge', repo, number: 7, sha }, () => JSON.stringify({ sha, merged: true, message: 'Merged' }), { sessionId: 'sess_github_raw', toolCallId: 'call_3' });
-  const summary = (t) => { const p = JSON.parse(t.text); return { bytes: t.textBytes, listedNumbers: p.data?.map?.((i) => i.number) ?? null, hasMore: p.hasMore ?? null, omitted: p.omitted ?? null, excerptLen: p.data?.[0]?.excerpt?.length ?? null, hasRaw: p.raw !== undefined }; };
-  return { pr, projected, repoView, bodies: { ...bodies, summary: summary(bodies) }, issueListSixty: { input: bodies.input, summary: summary(listed), text: listed.text, rawFileLength: listed.rawFile?.length ?? null, commandCount: listed.commands.length }, merged: { ...small, rawAbsent: JSON.parse(small.text).raw === undefined }, sessionIds: ['sess_github_raw'], normalised: 'the raw file path (a temp data dir path) is replaced by <data> in the result text' };
+  return { pr, projected, repoView, bodies, issueListSixty: listed, merged: small, sessionIds: ['sess_github_raw'] };
 }));
 await set.run('list actions return compact projected rows while raw keeps the full response', () => withDataDir('github-list-', async () => {
   const user = { login: 'alice', id: 1, type: 'User', avatar_url: 'a' };
@@ -166,7 +164,7 @@ await set.run('list actions return compact projected rows while raw keeps the fu
   const calls = [];
   const call = async (action, items, extra = {}, collection) => {
     const out = await tool({ action, repo, ...extra }, () => JSON.stringify(collection ? { [collection]: items } : items), { sessionId: 'sess_github_list', toolCallId: `call_${action}` });
-    calls.push({ action, collection, items, extra, text: out.text, rawFile: out.rawFile, rawFileEqualsItems: out.rawFile ? JSON.stringify(out.rawFile) === JSON.stringify(items) : null, hasRaw: JSON.parse(out.text).raw !== undefined });
+    calls.push({ action, collection, items, extra, text: out.text, rawFile: out.rawFile });
   };
   await call('issue.list', [{ ...common, number: 1, title: 'Bug', state: 'open', labels: [{ name: 'bug', id: 9 }], comments: 2 }]);
   await call('issue.list', [{ number: 2, title: 'T', state: 'closed', user, body: '', labels: [], comments: 0 }]);
@@ -183,7 +181,7 @@ await set.run('list actions return compact projected rows while raw keeps the fu
   await call('notification.list', [{ id: '9', unread: true, reason: 'mention', updated_at: '2026-10-05T00:00:00Z', subject: { type: 'PullRequest', title: 'P', url: 'https://api.github.com/repos/o/r/pulls/12' }, repository: { full_name: 'o/r', id: 1 } }]);
   await call('workflow.list', [{ id: 3, name: 'CI', path: '.github/workflows/ci.yml', state: 'active', badge_url: 'b' }], {}, 'workflows');
   const view = await tool({ action: 'issue.view', repo, number: 1 }, () => JSON.stringify({ ...common, number: 1, title: 'Bug' }));
-  return { calls, issueView: view, normalised: 'raw file paths are temp data dir paths: replaced by <data>' };
+  return { calls, issueView: view };
 }));
 await set.run('pr.view and issue.view keep the decision fields, cap the body and keep raw whole', () => withDataDir('github-view-', async () => {
   const user = { login: 'alice', id: 1, node_id: 'U', type: 'User', avatar_url: 'a' };
@@ -202,15 +200,14 @@ await set.run('list results omit raw unless rows or excerpts were cut', () => wi
   const excerptCut = await list([{ number: 1, title: 'T', state: 'open', body: 'x'.repeat(500) }]);
   const many = Array.from({ length: 60 }, (_, index) => ({ number: index + 1, title: 't'.repeat(200) }));
   const rowsCut = await list(many, { limit: 60 });
-  const rows = JSON.parse(rowsCut.text).data.length;
-  return { whole, excerptCut: { ...excerptCut, rawBodyChars: excerptCut.rawFile?.[0]?.body?.length ?? null }, rowsCut: { bytes: rowsCut.textBytes, shownRows: rows, rawRows: rowsCut.rawFile?.length ?? null, text: rowsCut.text } };
+  return { whole, excerptCut, rowsCut };
 }));
 await set.run('results that cannot be clamped by strings still fit the output cap', async () => {
   const assets = Array.from({ length: 500 }, (_, index) => ({ id: index, name: `asset-${index}.zip`, size: index }));
   const view = await tool({ action: 'release.view', repo, id: 42 }, () => JSON.stringify({ id: 42, tag_name: 'v1', name: 'One', assets }));
   const wide = { number: 1, ...Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [`k${i}`, i])) };
   const page = await tool({ action: 'issue.list', repo, limit: 2 }, () => JSON.stringify([wide, { number: 2 }]));
-  return { capBytes: 10 * 1024, releaseView: view, wideList: { bytes: page.textBytes, text: page.text } };
+  return { capBytes: 10 * 1024, releaseView: view, wideList: page };
 });
 await set.run('review requires an explicit verdict and merges require an exact full commit identity', () => {
   const tryValidate = (input) => { try { validateGithubRequest(input); return { ok: true }; } catch (e) { return { threw: e }; } };
