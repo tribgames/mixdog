@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7700,
+      "bytes": 20187,
       "path": "golden.json",
-      "sha256": "ab5c57be0c48bf7fc529eb3fee74b4da236666e7829f284c6565496aef8dcabc"
+      "sha256": "40be1d103391e56dd9c1d005d75a493b53e995806fec250c33b3dd578a9c6efc"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-inheritance-cases.mjs",
-  "recorderSha256": "f6354466d1cf9bee14b4c31d92537e890f6891a029beef533fdcdb5bf76a365a",
+  "recorderSha256": "351fb25a2bbef9be61a60569078169179b59f2f3ac8f80dfd72cccecdc4f45e7",
   "replay": {
     "compare": "mixdog-core-session lifecycle (inheritFrom) and the transcript restore: replay the two scenarios from the recorded source/target and compare the target messages, the persisted copy, the restored items and the rejection text",
     "entry": "Drive these public items on o1: thread/fork (mixdog-app-server/src/server.rs:114).",
@@ -78,6 +78,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-inheritance-cases",
-  "totalBytes": 7700,
+  "totalBytes": 20187,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

@@ -27,7 +27,7 @@ await set.run('successful inheritance restores its boundary', async () => {
   const restored = {};
   for (const [name, messages] of [['live', target.messages], ['persisted', persisted.messages]]) {
     const items = restoreTranscriptItems(messages, { sessionId: target.id });
-    restored[name] = { items, inheritedCount: items.filter((i) => i.status === 'inherited').length, lastStatus: items.at(-1).status, assistantModelId: items.find((i) => i.kind === 'assistant').modelId, itemLimit1First: restoreTranscriptItems(messages, { sessionId: target.id, itemLimit: 1 })[0] };
+    restored[name] = { items, itemLimit1: restoreTranscriptItems(messages, { sessionId: target.id, itemLimit: 1 }) };
   }
   return { source: original, targetBefore, inheritFromResult: result, sourceAfter: source, saves, targetMessages: target.messages, persisted, restored };
 });
@@ -38,7 +38,7 @@ await set.run('rejected inheritance does not persist or display a successful bou
   const api = createLifecycleApi({ getSession: () => target, mgr: { getSession: () => sourceSession }, invalidateContextStatusCache() {}, saveSession: () => { saved = true; } });
   let outcome;
   try { await api.inheritFrom('source'); outcome = { resolved: true }; } catch (e) { outcome = { rejected: e }; }
-  return { target: { ...target }, sourceMessageChars: sourceSession.messages[0].content.length, outcome, saved, targetMessagesAfter: target.messages, restoredAfter: restoreTranscriptItems(target.messages) };
+  return { target: { ...target }, sourceSession, outcome, saved, targetMessagesAfter: target.messages, restoredAfter: restoreTranscriptItems(target.messages) };
 });
 
 await set.finish({

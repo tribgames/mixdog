@@ -171,19 +171,18 @@
                 "at": 1800000000000
               }
             ],
-            "inheritedCount": 1,
-            "lastStatus": "inherited",
-            "assistantModelId": "claude-fable-5-1",
-            "itemLimit1First": {
-              "kind": "statusdone",
-              "id": "hist_heir_2_2",
-              "status": "inherited",
-              "label": "Session inherited",
-              "detail": "Continuing with the previous context.",
-              "provider": "openai-oauth",
-              "modelId": "gpt-6-astra",
-              "at": 1800000000000
-            }
+            "itemLimit1": [
+              {
+                "kind": "statusdone",
+                "id": "hist_heir_2_2",
+                "status": "inherited",
+                "label": "Session inherited",
+                "detail": "Continuing with the previous context.",
+                "provider": "openai-oauth",
+                "modelId": "gpt-6-astra",
+                "at": 1800000000000
+              }
+            ]
           },
           "persisted": {
             "items": [
@@ -210,19 +209,18 @@
                 "at": 1800000000000
               }
             ],
-            "inheritedCount": 1,
-            "lastStatus": "inherited",
-            "assistantModelId": "claude-fable-5-1",
-            "itemLimit1First": {
-              "kind": "statusdone",
-              "id": "hist_heir_2_2",
-              "status": "inherited",
-              "label": "Session inherited",
-              "detail": "Continuing with the previous context.",
-              "provider": "openai-oauth",
-              "modelId": "gpt-6-astra",
-              "at": 1800000000000
-            }
+            "itemLimit1": [
+              {
+                "kind": "statusdone",
+                "id": "hist_heir_2_2",
+                "status": "inherited",
+                "label": "Session inherited",
+                "detail": "Continuing with the previous context.",
+                "provider": "openai-oauth",
+                "modelId": "gpt-6-astra",
+                "at": 1800000000000
+              }
+            ]
           }
         }
       }
@@ -242,7 +240,15 @@
           },
           "tools": []
         },
-        "sourceMessageChars": 12500,
+        "sourceSession": {
+          "id": "source",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. Too large for this heir. "
+            }
+          ]
+        },
         "outcome": {
           "rejected": {
             "$exact": "error",
