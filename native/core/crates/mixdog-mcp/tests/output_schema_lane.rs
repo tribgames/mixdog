@@ -104,14 +104,37 @@ fn calls_on_one_worker() {
     });
 }
 
-/// The three ways a match runs long besides failing: VM steps that never fail (a repetition holding a lookahead over
-/// 500,000 characters, one failure at the end), an absent repeater's advance (300,000 characters, none failing), and
-/// one search handed to regex-automata (a 4 MiB suffix after a lookahead). Each runs to its answer.
-fn long_shapes() -> Vec<(&'static str, &'static str, String)> {
+/// A long-running match of the lane test: its pattern, its haystack, how many times it reads its stop at least, and how
+/// many steps one pass of the meta engine may add to the gap between two reads (`interrupt`'s one allowed exception: a
+/// pass over at most the haystack, 0 where the shape has none).
+struct Shape {
+    name: &'static str,
+    pattern: String,
+    haystack: String,
+    min_reads: usize,
+    meta_pass: u64,
+}
+
+/// The ways a match runs long besides failing: VM steps that never fail (a repetition holding a lookahead over 500,000
+/// characters, one failure at the end), an absent repeater's advance (300,000 characters, none failing), one search the
+/// lazy DFA steps (a 4 MiB suffix after a lookahead), a literal of the pattern compared in one instruction (700,000
+/// bytes; 300,000 case-insensitive characters), and the one call outside the step bound that this pattern reaches: the
+/// meta engine reading the groups of a 4 MiB delegated match in one pass. Each runs to its answer.
+fn long_shapes() -> Vec<Shape> {
+    let shape = |name, pattern: String, haystack: String, min_reads, meta_pass| Shape { name, pattern, haystack, min_reads, meta_pass };
     vec![
-        ("VM steps without a failure", r"^(?:(?=a)a)*$", "a".repeat(500_000)),
-        ("an absent repeater's advance", r"^(?~abc)$", "x".repeat(300_000)),
-        ("one delegated search", r"^(?=x)[a-z]*$", format!("x{}", "a".repeat(4 << 20))),
+        shape("VM steps without a failure", r"^(?:(?=a)a)*$".to_owned(), "a".repeat(500_000), 10, 0),
+        shape("an absent repeater's advance", r"^(?~abc)$".to_owned(), "x".repeat(300_000), 10, 0),
+        shape("one delegated search", r"^(?=x)[a-z]*$".to_owned(), format!("x{}", "a".repeat(4 << 20)), 10, 0),
+        shape("a long literal", format!("^(?=a){}", "a".repeat(700_000)), "a".repeat(700_000), 10, 0),
+        shape("a long case-insensitive literal", format!("(?i)^(?=a){}", "a".repeat(300_000)), "A".repeat(300_000), 4, 0),
+        shape(
+            "the groups of a delegated match",
+            r"^(?=x)(x[a-z]*)$".to_owned(),
+            format!("x{}", "a".repeat(4 << 20)),
+            2,
+            (4 << 20) + 1,
+        ),
     ]
 }
 
@@ -159,18 +182,20 @@ fn a_long_match_reads_its_stop_within_a_bounded_number_of_steps_and_frees_its_la
     let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
     config.cpu_bulk = mixdog_rt::exec::PoolParams { threads: 1, queue: 2 };
     let (_executors, tokens) = mixdog_rt::exec::boot(config).expect("the production lanes");
-    for (shape, pattern, haystack) in long_shapes() {
-        let regex = Arc::new(fancy_regex::RegexBuilder::new(pattern).backtrack_limit(usize::MAX).build().unwrap());
+    for Shape { name: shape, pattern, haystack, min_reads, meta_pass } in long_shapes() {
+        let regex = Arc::new(fancy_regex::RegexBuilder::new(&pattern).backtrack_limit(usize::MAX).build().unwrap());
         let haystack = Arc::new(haystack);
 
         let (_, _, unread) = on_the_lane(&tokens, &regex, &haystack, None);
         let (answer, reads, read) = on_the_lane(&tokens, &regex, &haystack, Some(false));
         eprintln!("{shape}: {read:?} reading the stop {} times, {unread:?} with no stop", reads.len());
         assert!(matches!(answer, Ok(true)), "{shape}: {answer:?}");
-        assert!(reads.len() >= 10, "{shape}: read {} times", reads.len());
+        assert!(reads.len() >= min_reads, "{shape}: read {} times", reads.len());
+        // The bound of `interrupt`: `INTERVAL + CHUNK` steps, plus a pass of the meta engine over at most the haystack.
+        assert!(meta_pass == 0 || meta_pass >= haystack.len() as u64, "{shape}: the allowance covers the haystack");
         let mut before = 0;
         for read in &reads {
-            assert!(read - before <= INTERVAL + CHUNK as u64, "{shape}: {} steps between two reads", read - before);
+            assert!(read - before <= INTERVAL + CHUNK as u64 + meta_pass, "{shape}: {} steps between two reads", read - before);
             before = *read;
         }
 

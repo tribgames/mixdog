@@ -268,30 +268,37 @@ impl CaseiLiteral {
     /// If the literal matches at `ix`, returns the matched byte length (which
     /// can differ from the literal's own length under folding). `None` on no
     /// match or end of input.
-    fn match_len<S: HaystackInput + ?Sized>(&self, s: &S, ix: usize) -> Option<usize> {
+    ///
+    /// mixdog: counts `CHUNK` characters per step, so that a literal of any length stays inside the bound between two
+    /// reads of the stop ([`crate::interrupt`]); the outer `None` is a stop that was set.
+    fn match_len<S: HaystackInput + ?Sized>(&self, s: &S, ix: usize, steps: &mut Steps) -> Option<Option<usize>> {
         let bytes = s.as_bytes();
         let mut pos = ix;
-        for ranges in self.chars.iter() {
-            if pos >= bytes.len() {
+        for (n, ranges) in self.chars.iter().enumerate() {
+            if n % crate::interrupt::CHUNK == crate::interrupt::CHUNK - 1
+                && !steps.take(crate::interrupt::CHUNK as u64)
+            {
                 return None;
+            }
+            if pos >= bytes.len() {
+                return Some(None);
             }
             let len = codepoint_len(bytes[pos]);
             let end = pos + len;
             if end > bytes.len() {
-                return None;
+                return Some(None);
             }
             // The haystack is valid UTF-8 in Unicode mode, so this decodes the
             // codepoint; the `?` is a safety net for an unexpected boundary.
-            let c = core::str::from_utf8(&bytes[pos..end])
-                .ok()?
-                .chars()
-                .next()?;
+            let Some(c) = core::str::from_utf8(&bytes[pos..end]).ok().and_then(|text| text.chars().next()) else {
+                return Some(None);
+            };
             if !range_contains(ranges.as_ref(), c) {
-                return None;
+                return Some(None);
             }
             pos = end;
         }
-        Some(pos - ix)
+        Some(Some(pos - ix))
     }
 }
 
@@ -1037,6 +1044,31 @@ fn matches_literal_casei<S: HaystackInput + ?Sized>(
     false
 }
 
+/// `bytes` as UTF-8 in parts of about `CHUNK` bytes, one step each (mixdog): `None` once the stop is set, `Some(None)`
+/// when they are not UTF-8. A part ends where the next byte starts a character, so a part is valid exactly when the
+/// whole is.
+fn utf8_stepped<'a>(bytes: &'a [u8], steps: &mut Steps) -> Option<Option<Vec<&'a str>>> {
+    use crate::interrupt::CHUNK;
+    let mut parts = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        let mut to = (at + CHUNK).min(bytes.len());
+        while to < bytes.len() && bytes[to] & 0xC0 == 0x80 {
+            to += 1;
+        }
+        // A part runs at most 3 bytes past `CHUNK` (the rest of one character): that is one step of `CHUNK`.
+        if !steps.take(((to - at).min(CHUNK)) as u64) {
+            return None;
+        }
+        match core::str::from_utf8(&bytes[at..to]) {
+            Ok(part) => parts.push(part),
+            Err(_) => return Some(None),
+        }
+        at = to;
+    }
+    Some(Some(parts))
+}
+
 /// `matches_literal` or `matches_literal_casei` read `CHUNK` bytes (characters, where cases are folded by Unicode) per
 /// step (mixdog, [`crate::interrupt`]); `None` once the stop is set.
 fn matches_literal_stepped<S: HaystackInput + ?Sized>(
@@ -1076,14 +1108,13 @@ fn matches_literal_stepped<S: HaystackInput + ?Sized>(
     if !unicode {
         return Some(false);
     }
-    // One step for the UTF-8 check of each side, then `matches_literal_casei_unicode` `CHUNK` characters per step.
-    if !steps.take(text.len() as u64) {
-        return None;
-    }
-    let (Ok(text), Ok(literal)) = (core::str::from_utf8(text), core::str::from_utf8(literal)) else {
+    // The UTF-8 check of each side, `CHUNK` bytes per step, then `matches_literal_casei_unicode` `CHUNK` characters per
+    // step.
+    let (Some(text), Some(literal)) = (utf8_stepped(text, steps)?, utf8_stepped(literal, steps)?) else {
         return Some(false);
     };
-    let (mut text_chars, mut literal_chars) = (text.chars(), literal.chars());
+    let (mut text_chars, mut literal_chars) =
+        (text.iter().flat_map(|part| part.chars()), literal.iter().flat_map(|part| part.chars()));
     let mut read = 0;
     loop {
         read += 1;
@@ -1396,16 +1427,32 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                     }
                 }
                 Insn::Lit(ref val) => {
-                    take!(val.len());
+                    // mixdog: compared `CHUNK` bytes per step, so that a literal of any length stays inside the bound
+                    // between two reads of the stop (`crate::interrupt`).
                     let ix_end = ix + val.len();
-                    if !matches_literal(haystack, ix, ix_end, val.as_bytes()) {
+                    if ix_end > haystack.len() {
+                        break 'fail;
+                    }
+                    let mut equal = true;
+                    for (text, lit) in haystack.as_bytes()[ix..ix_end]
+                        .chunks(crate::interrupt::CHUNK)
+                        .zip(val.as_bytes().chunks(crate::interrupt::CHUNK))
+                    {
+                        take!(lit.len());
+                        if text != lit {
+                            equal = false;
+                            break;
+                        }
+                    }
+                    if !equal {
                         break 'fail;
                     }
                     ix = ix_end
                 }
-                Insn::LitCasei(ref lit) => match lit.match_len(haystack, ix) {
-                    Some(len) => ix += len,
-                    None => break 'fail,
+                Insn::LitCasei(ref lit) => match lit.match_len(haystack, ix, &mut steps) {
+                    Some(Some(len)) => ix += len,
+                    Some(None) => break 'fail,
+                    None => return Err(Error::RuntimeError(RuntimeError::BacktrackLimitExceeded)),
                 },
                 Insn::CharClass(ref matcher) => match matcher.match_len(haystack, ix) {
                     Some(len) => ix += len,
