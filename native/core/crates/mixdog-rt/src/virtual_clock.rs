@@ -20,20 +20,49 @@
 //! Disconnect, a malformed command, a wrong token, a non-loopback address, or no settle within settle-ms: the process exits
 //! [`EXIT_CODE`] with the cause on stderr.
 //!
-//! # Why the answer means that
+//! # The settle point: invariant
 //!
-//! A runtime is idle from its `on_thread_park` hook (it found no task to run) to its `on_thread_unpark` hook. A task woken from
-//! another thread (the other runtime, a lane, this clock) is pushed on the runtime's inject queue before the runtime is unparked,
-//! so `global_queue_depth` covers the gap until the unpark hook runs. A task woken on the runtime's own thread while it is parked is
-//! woken by its driver: by a tokio timer only after this clock moved that runtime's tokio clock, which it does from a task on that
-//! runtime (so the runtime stays busy until the timers it fired have run), otherwise by real I/O. A lane job counts from its
-//! submit until it has run and its result (the wake of its waiter) has been sent, or until it is dropped unrun. Every one of these
-//! changes bumps one epoch; the settle point is a snapshot in which nothing is busy, taken with the same epoch before and after, so
-//! nothing was busy in between, and nothing idle can wake anything except real I/O.
+//! Counted work shows on one of five indicators: each runtime's inject queue (`global_queue_depth`), each runtime's busy flag
+//! (set in its `on_thread_unpark` hook, cleared in its `on_thread_park` hook), and the lane jobs in flight. `settle` reads the
+//! epoch, then both queues, then both busy flags and the in-flight count, then the epoch again, and calls the core idle only when
+//! all five read zero between two equal epoch reads. Every transition keeps three rules:
 //!
-//! Not observed, so treated as real I/O: PTY jobs (they live as long as their terminal), threads started by a thread token or by a
-//! crate itself, and the future the composition root drives with `Handle::block_on` on its own thread (mixdogd's `serve`): a
-//! replay starts advancing once the core says it is serving.
+//! 1. Hand-over: work that creates work makes the new work show on an indicator before its own indicator can read zero.
+//! 2. Bump before release: an indicator that drops to zero first bumps the epoch (`bump`, then the store). `released` bumps
+//!    once more after the store, so a settle that read the first bump and the indicator before the drop wakes and looks again.
+//! 3. Queue before flag: a runtime takes a task off its inject queue only with its busy flag already set.
+//!
+//! Why an idle read is true: take any counted work alive at the first epoch read and follow it through its hand-overs. Every
+//! hand-over (rule 1) is followed by a release that bumps first (rule 2), so with equal epochs no hand-over finished in between,
+//! and some piece of that work stayed on one indicator for the whole read: on a busy flag or the in-flight count, which is read
+//! after the queues and cannot drop unbumped, or on a queue, which it leaves only for its runtime's flag, read later (rule 3).
+//! Work that was not alive at the first read was made by work that was, or by an uncounted source.
+//!
+//! # Transitions
+//!
+//! | # | Transition | Indicator change | Upheld by |
+//! |---|---|---|---|
+//! | 1 | task spawned or woken from another thread (the other runtime, a lane, this clock, any thread) | its runtime's queue +1 inside the wake, before the waker returns | tokio `current_thread` `Schedule::schedule`: `inject.push`, then `driver.unpark` |
+//! | 2 | task spawned or woken on its own runtime's thread (channel, `JoinHandle`, `spawn` from a task) | local queue while the busy flag is set | tokio `block_on` loop: `park` only after `next_task` found nothing and `has_pending_work` is false |
+//! | 3 | deferred wake (`yield_now`, coop budget) | defer list while the busy flag is set | same loop: `park_yield`, which runs no hook, while `defer` is not empty |
+//! | 4 | task woken by this clock's timer | row 1 from this clock's thread | `advance`: `fire_first`, then `settle`, on one thread |
+//! | 5 | ticker callback | a task spawned on RT-C from this clock's thread (row 1) | `run` |
+//! | 6 | tokio timer (`tokio::time` armed directly) | fired by its runtime's driver in `park_yield` while the move task runs (row 2) | `move_to` spawns the move on each runtime (row 1) |
+//! | 7 | task woken by the I/O driver in a real park | local queue while the busy flag is clear: unseen until row 8 | not upheld: real I/O, which the replay waits for (`wait`) |
+//! | 8 | runtime unparked | busy flag set before any task is taken (rule 3) | `build`: the `on_thread_unpark` hook runs in tokio's `park` before the loop's `next_task` |
+//! | 9 | runtime parks | bump, busy flag cleared, bump | `build`: the `on_thread_park` hook |
+//! | 10 | lane job queued | in-flight +1 before the job enters a lane queue | `counted`, called by `Executors::submit` before `LaneExec::submit` |
+//! | 11 | lane job started | none: in flight since row 10 | `counted` |
+//! | 12 | lane job finished | result sent (its waiter: row 1), bump, in-flight -1, bump | `InFlight`'s drop |
+//! | 13 | lane job dropped unrun (cancelled at dequeue, refused, lane gone) | result sender dropped (row 1), bump, in-flight -1, bump | `InFlight`'s drop |
+//! | 14 | task spawned by a lane job | row 1 before row 12 | the job's body runs inside `InFlight` |
+//! | 15 | PTY job, a thread token's or a crate's own thread, `Handle::block_on` off the runtimes (mixdogd's `serve`) | not counted | real I/O; whatever they wake on a runtime is row 1 from its push on |
+//!
+//! `tests/virtual_clock.rs` holds each counted transition half done at a pause point ([`pause`]: `lane-queued`, `lane-start`,
+//! `lane-sent`, `lane-bumped`, `lane-released`, `spawned <task>`, `polled <task>`, `parking <RT>`, `parked <RT>`,
+//! `unparking <RT>`, `unparked <RT>`, `settle-read-queues`) while an `advance` settles, and checks that it answers only after the
+//! transition completed and its work ran; `the_reviewers_interleaving` is a lane completion between settle's queue and flag
+//! reads.
 //!
 //! # Same-instant order, against Node
 //!
@@ -216,13 +245,23 @@ fn fail(cause: impl fmt::Display) -> ! {
     std::process::exit(EXIT_CODE)
 }
 
-fn changed(idle: bool) {
+/// Rule 2: the epoch moves before an indicator drops to zero.
+fn bump() {
     ACTIVITY.epoch.fetch_add(1, SeqCst);
-    if idle {
-        // Taken so a settle between its check and its wait cannot miss the notification.
-        drop(lock(&ACTIVITY.lock));
-        ACTIVITY.changed.notify_all();
-    }
+}
+
+/// After an indicator dropped: moves the epoch again, so a settle that read the epoch after the first bump but the indicator
+/// before the drop looks again, and wakes it.
+fn released() {
+    bump();
+    notify();
+}
+
+/// Wakes a settle waiting for the epoch to move.
+fn notify() {
+    // Taken so a settle between its check and its wait cannot miss the notification.
+    drop(lock(&ACTIVITY.lock));
+    ACTIVITY.changed.notify_all();
 }
 
 /// Whether this process was started under a replay's clock.
@@ -331,12 +370,14 @@ pub(crate) fn counted(job: QueuedJob) -> QueuedJob {
     if !active() || job.lane() == LaneKind::PtyIo {
         return job;
     }
+    // Row 10: counted before the lane queue holds it.
     ACTIVITY.in_flight.fetch_add(1, SeqCst);
-    changed(false);
+    pause::point(|| "lane-queued".to_owned());
     job.map_run(|run| {
         let held = InFlight(Some(run));
         Box::new(move || {
             let mut held = held;
+            pause::point(|| "lane-start".to_owned());
             if let Some(run) = held.0.take() {
                 run();
             }
@@ -344,14 +385,19 @@ pub(crate) fn counted(job: QueuedJob) -> QueuedJob {
     })
 }
 
+/// A lane job's place in the in-flight count (rows 12 and 13).
 struct InFlight(Option<Box<dyn FnOnce() + Send>>);
 
 impl Drop for InFlight {
     fn drop(&mut self) {
-        // The job (and the result sender of an unrun one) goes first, so its waiter is woken before the count drops.
+        // The job (and the result sender of an unrun one) goes first, so its waiter is queued before the count drops (rule 1).
         drop(self.0.take());
+        pause::point(|| "lane-sent".to_owned());
+        bump();
+        pause::point(|| "lane-bumped".to_owned());
         ACTIVITY.in_flight.fetch_sub(1, SeqCst);
-        changed(true);
+        released();
+        pause::point(|| "lane-released".to_owned());
     }
 }
 
@@ -367,8 +413,8 @@ pub(crate) fn logged(line: &str) {
 /// runtimes' handles; every failure ends the process.
 pub(crate) fn start(on_control: impl FnOnce() + Send + 'static, on_work: impl FnOnce() + Send + 'static) -> io::Result<(Handle, Handle)> {
     let (mut stream, reader, wall_origin, settle_within) = handshake();
-    let (control, control_busy) = build("mixdog-rt-c")?;
-    let (work, work_busy) = build("mixdog-rt-w")?;
+    let (control, control_busy) = build("mixdog-rt-c", "RT-C")?;
+    let (work, work_busy) = build("mixdog-rt-w", "RT-W")?;
     let origin = |runtime: &Runtime| {
         let _entered = runtime.enter();
         tokio::time::Instant::now()
@@ -470,8 +516,8 @@ fn answer(stream: &mut TcpStream, line: &str) {
     }
 }
 
-/// A paused `current_thread` runtime whose park hooks report its activity.
-fn build(name: &'static str) -> io::Result<(Runtime, Arc<AtomicBool>)> {
+/// A paused `current_thread` runtime whose park hooks keep its busy flag (rows 8 and 9).
+fn build(name: &'static str, rt: &'static str) -> io::Result<(Runtime, Arc<AtomicBool>)> {
     let busy = Arc::new(AtomicBool::new(true));
     let (parks, unparks) = (busy.clone(), busy.clone());
     let runtime = Builder::new_current_thread()
@@ -479,12 +525,16 @@ fn build(name: &'static str) -> io::Result<(Runtime, Arc<AtomicBool>)> {
         .enable_all()
         .start_paused(true)
         .on_thread_park(move || {
+            pause::point(|| format!("parking {rt}"));
+            bump();
+            pause::point(|| format!("parked {rt}"));
             parks.store(false, SeqCst);
-            changed(true);
+            released();
         })
         .on_thread_unpark(move || {
+            pause::point(|| format!("unparking {rt}"));
             unparks.store(true, SeqCst);
-            changed(false);
+            pause::point(|| format!("unparked {rt}"));
         })
         .build()?;
     Ok((runtime, busy))
@@ -561,31 +611,36 @@ fn advance(clock: &Clock, ms: u64) {
     }
 }
 
-/// What keeps the core from its settle point, if anything.
+/// What keeps the core from its settle point, if anything: the queues first, then the busy flags and the lanes (the invariant's
+/// read order).
 fn busy(clock: &Clock) -> Option<String> {
-    for runtime in &clock.runtimes {
-        if runtime.busy.load(SeqCst) {
+    let queued = clock.runtimes.each_ref().map(|runtime| runtime.handle.metrics().global_queue_depth());
+    pause::point(|| "settle-read-queues".to_owned());
+    let running = clock.runtimes.each_ref().map(|runtime| runtime.busy.load(SeqCst));
+    let jobs = ACTIVITY.in_flight.load(SeqCst);
+    for (at, runtime) in clock.runtimes.iter().enumerate() {
+        if queued[at] > 0 {
+            return Some(format!("{} has {} task(s) queued", runtime.name, queued[at]));
+        }
+        if running[at] {
             return Some(format!("{} is running a task", runtime.name));
         }
-        let queued = runtime.handle.metrics().global_queue_depth();
-        if queued > 0 {
-            return Some(format!("{} has {queued} task(s) queued", runtime.name));
-        }
     }
-    match ACTIVITY.in_flight.load(SeqCst) {
-        0 => None,
-        jobs => Some(format!("{jobs} lane job(s) are queued or running")),
-    }
+    (jobs > 0).then(|| format!("{jobs} lane job(s) are queued or running"))
 }
 
-/// Waits until nothing observed is busy, within the replay's settle bound.
+/// Waits for the settle point (the invariant above), within the replay's settle bound.
 fn settle(clock: &Clock, during: &str) {
     let deadline = std::time::Instant::now() + clock.settle_within;
     loop {
         let seen = ACTIVITY.epoch.load(SeqCst);
+        let poked = pause::pokes();
         let busy = busy(clock);
         if busy.is_none() && ACTIVITY.epoch.load(SeqCst) == seen {
             return;
+        }
+        if let Some(busy) = &busy {
+            pause::settle_waits(busy);
         }
         let guard = lock(&ACTIVITY.lock);
         let left = deadline.saturating_duration_since(std::time::Instant::now());
@@ -593,7 +648,78 @@ fn settle(clock: &Clock, during: &str) {
             let busy = busy.unwrap_or_else(|| "its activity never stopped".to_owned());
             fail(format!("{during}: the core did not settle within {} ms: {busy}", clock.settle_within.as_millis()));
         }
-        drop(ACTIVITY.changed.wait_timeout_while(guard, left, |_| ACTIVITY.epoch.load(SeqCst) == seen));
+        drop(ACTIVITY.changed.wait_timeout_while(guard, left, |_| ACTIVITY.epoch.load(SeqCst) == seen && pause::pokes() == poked));
+    }
+}
+
+/// Test-only pause points: named places inside the transitions above where a test holds the thread that reaches them
+/// (`tests/virtual_clock.rs`). With no point armed, a point is one atomic load.
+#[doc(hidden)]
+pub mod pause {
+    use super::*;
+
+    struct Gate {
+        point: String,
+        held: bool,
+    }
+
+    static ARMED: AtomicUsize = AtomicUsize::new(0);
+    static GATES: Mutex<Vec<Gate>> = Mutex::new(Vec::new());
+    static RELEASED: Condvar = Condvar::new();
+    /// Moves when a point is armed or reached, so a waiting settle looks again (without moving the epoch).
+    static POKES: AtomicU64 = AtomicU64::new(0);
+    /// Whether the settle reported waiting since a point was last reached.
+    static REPORTED: AtomicBool = AtomicBool::new(true);
+
+    /// Arms `point`: the next thread that reaches it writes `pause held <point>` to stderr and stops until [`release`].
+    pub fn hold(point: &str) {
+        lock(&GATES).push(Gate { point: point.to_owned(), held: false });
+        ARMED.fetch_add(1, SeqCst);
+        eprintln!("pause armed {point}");
+        poke();
+    }
+
+    /// Lets the thread held at `point` go, or disarms `point` if no thread reached it.
+    pub fn release(point: &str) {
+        let mut gates = lock(&GATES);
+        if let Some(at) = gates.iter().position(|gate| gate.point == point) {
+            gates.remove(at);
+            ARMED.fetch_sub(1, SeqCst);
+        }
+        drop(gates);
+        RELEASED.notify_all();
+    }
+
+    pub(crate) fn point(name: impl FnOnce() -> String) {
+        if ARMED.load(SeqCst) == 0 {
+            return;
+        }
+        let name = name();
+        let mut gates = lock(&GATES);
+        let Some(gate) = gates.iter_mut().find(|gate| gate.point == name && !gate.held) else { return };
+        gate.held = true;
+        eprintln!("pause held {name}");
+        REPORTED.store(false, SeqCst);
+        poke();
+        while gates.iter().any(|gate| gate.point == name && gate.held) {
+            gates = RELEASED.wait(gates).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    pub(super) fn pokes() -> u64 {
+        POKES.load(SeqCst)
+    }
+
+    /// The settle found `busy`: written once (`pause settle-waits <busy>`) after a point was reached.
+    pub(super) fn settle_waits(busy: &str) {
+        if ARMED.load(SeqCst) > 0 && !REPORTED.swap(true, SeqCst) {
+            eprintln!("pause settle-waits {busy}");
+        }
+    }
+
+    fn poke() {
+        POKES.fetch_add(1, SeqCst);
+        notify();
     }
 }
 
