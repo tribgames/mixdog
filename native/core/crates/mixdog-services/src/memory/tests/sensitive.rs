@@ -102,7 +102,8 @@ fn a_carried_session_takes_the_values_its_source_holds_and_gains_up_the_chain() 
         assert_eq!(store.redact_text(session, "before after"), if session == "grandchild" { "before [redacted]" } else { "[redacted] [redacted]" }, "{session}");
     }
     assert_eq!(heard.load(Ordering::SeqCst), store.version("parent"));
-    assert_eq!(*told.lock().unwrap(), ["parent", "child", "parent"]);
+    // A marking session with no listener of its own (no turn to rewrite its log) is told too.
+    assert_eq!(*told.lock().unwrap(), ["child", "parent", "grandchild", "child", "parent"]);
     assert_eq!(store.redact_text("unrelated", "after"), "after");
 }
 
