@@ -14,6 +14,7 @@ use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::{ItemId, ThreadId};
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
 use mixdog_core_session::session::run::Compaction;
+use mixdog_core_session::session::testing::offload_replay::{item, within};
 use mixdog_core_session::session::testing::{Rig, TestCompaction};
 use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, ManualCompaction};
 use mixdog_core_session::session::{SessionDirectory, SystemClock};
@@ -26,6 +27,10 @@ use super::compaction_node_harness::io;
 struct Pruning {
     rig: Arc<TestCompaction>,
     data: std::path::PathBuf,
+    /// How many listings the host's prune has made (the open's reconcile is the first).
+    listings: tokio::sync::watch::Sender<usize>,
+    /// How many prunes of listed sidecars have ended.
+    prunes: tokio::sync::watch::Sender<usize>,
 }
 
 #[async_trait]
@@ -40,16 +45,13 @@ impl ManualCompaction for Pruning {
         self.rig.post_compact(thread, trigger).await;
     }
     async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
-        super::manual_compaction::offload_candidates(&io(), &self.data, &SystemClock, thread).await
+        let candidates = super::manual_compaction::offload_candidates(&io(), &self.data, thread).await;
+        self.listings.send_modify(|count| *count += 1);
+        candidates
     }
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
         super::manual_compaction::prune_offloads(&io(), &self.data, &SystemClock, thread, candidates, transcripts).await;
-    }
-    async fn defer_prune(&self, thread: &ThreadId) {
-        ToolResultArtifacts::new(io(), &self.data, thread.as_str()).mark_prune_pending().await;
-    }
-    async fn prune_pending(&self, thread: &ThreadId) -> bool {
-        ToolResultArtifacts::new(io(), &self.data, thread.as_str()).prune_pending().await
+        self.prunes.send_modify(|count| *count += 1);
     }
     async fn rearm(&self, thread: &ThreadId) {
         self.rig.rearm(thread).await;
@@ -99,31 +101,39 @@ async fn a_committed_compaction_prunes_the_sidecars_nothing_the_session_holds_re
     let id = ThreadId::from("sess_prune");
     let store = ToolResultArtifacts::new(io(), data.path(), id.as_str());
     let other = ToolResultArtifacts::new(io(), data.path(), "sess_other");
+
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    let (listings, mut listed) = tokio::sync::watch::channel(0);
+    let prunes = tokio::sync::watch::channel(0).0;
+    deps.compaction = Arc::new(Pruning { rig: rig.compaction.clone(), data: data.path().to_path_buf(), listings, prunes });
+    let creator = SessionDirectory::new(rig.deps());
+    creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
+    // The queued message names its sidecar by file name (the content's SHA-256), before the sidecar is written.
+    let queued_name = format!("{:x}.txt", <sha2::Sha256 as sha2::Digest>::digest("a queued message names this".as_bytes()));
+    let entry: Record = serde_json::from_value(json!({
+        "k": "queue", "qid": "q1", "action": "enqueue",
+        "entry": { "inline": { "message": format!("look at {queued_name}"), "enqueuedAt": 1, "priority": "next" } },
+    }))
+    .expect("queue record");
+    rig.store.seed(&id, vec![entry]);
+    let directory = SessionDirectory::new(Arc::new(deps));
+    directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    // The open reconciles the session's sidecars with what it stores; the sidecars are written once it has listed.
+    within("the open lists", listed.wait_for(|count| *count >= 1)).await.expect("the open lists");
+
     let reached = persist(&store, "reached through the kept archive").await;
     let kept = persist(&store, &json!({ "path": reached }).to_string()).await;
     let dropped = persist(&store, "a result the compaction dropped").await;
     let stray = persist(&store, "nothing names this").await;
     let queued = persist(&store, "a queued message names this").await;
+    assert!(queued.ends_with(&queued_name), "{queued}");
     let reused = persist(&store, "a turn reuses this").await;
     let foreign = persist(&other, "another session's result").await;
     for path in [&reached, &kept, &dropped, &stray, &queued, &reused, &foreign] {
         age(path);
     }
     let young = persist(&store, "written a moment ago").await;
-
-    let rig = Rig::new();
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.compaction = Arc::new(Pruning { rig: rig.compaction.clone(), data: data.path().to_path_buf() });
-    let creator = SessionDirectory::new(rig.deps());
-    creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
-    let entry: Record = serde_json::from_value(json!({
-        "k": "queue", "qid": "q1", "action": "enqueue",
-        "entry": { "inline": { "message": format!("look at {queued}"), "enqueuedAt": 1, "priority": "next" } },
-    }))
-    .expect("queue record");
-    rig.store.seed(&id, vec![entry]);
-    let directory = SessionDirectory::new(Arc::new(deps));
-    directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
 
     // A turn persists a result whose sidecar is already there: it is the turn's now.
     assert_eq!(persist(&store, "a turn reuses this").await, reused);

@@ -1,23 +1,25 @@
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
 new file mode 100644
-index 0000000..c24c545
+index 0000000..576ad20
 --- /dev/null
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
-@@ -0,0 +1,280 @@
+@@ -0,0 +1,367 @@
 +// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is stored: a
 +// process that stops before the save restarts from the stored transcript, which still names them, and a save that does
 +// not store it (dropped by a delete's fence, refused because another writer recorded after this copy, or failed)
 +// prunes nothing. The prune keeps its idle check: a turn started before it leaves every sidecar until that turn ends,
-+// and then the skipped prune runs, with no second compaction.
++// and then the skipped prune runs, with no second compaction. Nothing of a prune is remembered on disk: every resume
++// reconciles the session's tool-result directory with the stored transcript (and the clear forks it names), so a
++// prune a close, a stopped process or an unreadable archive kept from finishing happens at the next resume.
 +//
 +// The point between the compaction and its save is the commit's timing line (`recordCompactionTiming`), written once
 +// the compacted transcript is adopted and before `compactSessionMessages` saves it.
 +import assert from 'node:assert/strict';
 +import { spawnSync } from 'node:child_process';
 +import { createHash } from 'node:crypto';
-+import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync } from 'node:fs';
++import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
 +import { tmpdir } from 'node:os';
-+import { join } from 'node:path';
++import { basename, join } from 'node:path';
 +import test from 'node:test';
 +import { fileURLToPath } from 'node:url';
 +
@@ -30,6 +32,7 @@ index 0000000..c24c545
 +const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
 +const { _settleDeferredPrunesForTest } = await import('./compaction-runner.mjs');
 +const { _sessionLogIoForTest } = await import('../store/session-log-writer.mjs');
++const { settleRecorder } = await import('../store/session-writers.mjs');
 +const { parseSessionLog } = await import('../store/session-log-reader.mjs');
 +const { encodePatch } = await import('../store/session-log-format.mjs');
 +
@@ -119,19 +122,50 @@ index 0000000..c24c545
 +    .filter(([, path]) => existsSync(path))
 +    .map(([role]) => role);
 +
-+const pendingMarker = ({ sessionId }) => existsSync(join(dataDir, 'tool-results', sessionId, '.prune-pending'));
++// What the session's tool-result directory holds: every name, with its mtime.
++const listing = ({ sessionId }) => {
++  const dir = join(dataDir, 'tool-results', sessionId);
++  return readdirSync(dir).map((name) => [name, statSync(join(dir, name)).mtimeMs]);
++};
 +
-+// A turn that starts once the compaction is adopted, before its save: its prune is left pending.
++// A turn that starts once the compaction is adopted, before its save: its prune is left to the turn's end.
 +async function compactUnderATurn(seeded) {
 +  const result = await compact(seeded, () => manager.markSessionAskStart(seeded.sessionId));
 +  assert.equal(result.changed, true, JSON.stringify(result));
 +  assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray'], 'a session that is not idle is not pruned');
-+  assert.ok(pendingMarker(seeded), 'the skipped prune is pending on disk');
++}
++
++// The session is resumed from its stored copy, and its reconcile has run.
++async function resume(sessionId) {
++  evictLiveSession(sessionId);
++  assert.ok(await manager.resumeSession(sessionId), 'resumed');
++  await _settleDeferredPrunesForTest();
++}
++
++// A stored session, not compacted, holding `sidecars` (role -> content, an hour old) and `messages(files)`.
++async function plainSession(tag, sidecars, messages) {
++  const sessionId = `sess_prune_after_save_${tag}_${process.pid}`;
++  const files = {};
++  for (const [role, content] of Object.entries(sidecars)) {
++    files[role] = persistToolResultArtifactSync({ sessionId, toolCallId: `call_${role}`, content }).path;
++    utimesSync(files[role], HOUR_AGO, HOUR_AGO);
++  }
++  await saveSessionAsync({ id: sessionId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: messages(files), tools: [], generation: 0, closed: false });
++  return { sessionId, files };
 +}
 +
 +if (CHILD === 'crash' || CHILD === '1') {
 +  const seeded = await storedSession('crash');
 +  await compact(seeded, () => process.exit(0));
++  process.exit(1);
++} else if (CHILD === 'saved') {
++  // The process stops once the compacted transcript is durable, before the prune runs.
++  const seeded = await storedSession('saved');
++  const io = _sessionLogIoForTest();
++  const fsync = io.fsync;
++  await compact(seeded, () => {
++    io.fsync = (fd, done) => fsync(fd, (error) => (error ? done(error) : process.exit(0)));
++  });
 +  process.exit(1);
 +} else if (CHILD === 'stopped') {
 +  // The process stops while the turn that stopped the prune still runs.
@@ -177,7 +211,6 @@ index 0000000..c24c545
 +    manager.markSessionDone(seeded.sessionId);
 +    await _settleDeferredPrunesForTest();
 +    assert.deepEqual(left(seeded.files), ['kept']);
-+    assert.equal(pendingMarker(seeded), false, 'the prune ran: nothing is pending');
 +  });
 +
 +  test('the automatic compaction (auto-clear: a reduction required) prunes once its result is saved', async () => {
@@ -199,7 +232,6 @@ index 0000000..c24c545
 +      end(seeded.sessionId);
 +      await _settleDeferredPrunesForTest();
 +      assert.deepEqual(left(seeded.files), ['kept']);
-+      assert.equal(pendingMarker(seeded), false);
 +    });
 +  }
 +
@@ -208,11 +240,9 @@ index 0000000..c24c545
 +    await compactUnderATurn(seeded);
 +    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
 +    await _settleDeferredPrunesForTest();
-+    evictLiveSession(seeded.sessionId);
-+    assert.ok(await manager.resumeSession(seeded.sessionId), 'resumed');
-+    await _settleDeferredPrunesForTest();
++    assert.deepEqual(left(seeded.files), ['kept', 'queued', 'stray'], 'a close prunes nothing');
++    await resume(seeded.sessionId);
 +    assert.deepEqual(left(seeded.files), ['kept']);
-+    assert.equal(pendingMarker(seeded), false);
 +  });
 +
 +  test('a process stopped before the turn that stopped the prune ends: the session is pruned when it is resumed', async () => {
@@ -227,10 +257,67 @@ index 0000000..c24c545
 +      ['kept', 'queued', 'stray'].map((role) => [role, join(dataDir, 'tool-results', sessionId, sidecarName(`${role} output of stopped`))])
 +    );
 +    assert.deepEqual(left(files), ['kept', 'queued', 'stray']);
-+    assert.ok(await manager.resumeSession(sessionId), 'resumed');
-+    await _settleDeferredPrunesForTest();
++    await resume(sessionId);
 +    assert.deepEqual(left(files), ['kept']);
-+    assert.equal(pendingMarker({ sessionId }), false);
++  });
++
++  test('a process stopped between the save and the prune: no prune is remembered, and the resume prunes', async () => {
++    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
++      env: { ...process.env, MIXDOG_PRUNE_AFTER_SAVE_CHILD: 'saved', MIXDOG_DATA_DIR: dataDir },
++      encoding: 'utf8',
++      timeout: 60_000,
++    });
++    assert.equal(child.status, 0, `the child stopped once the compaction was saved: ${child.stderr}`);
++    const sessionId = `sess_prune_after_save_saved_${child.pid}`;
++    const dir = join(dataDir, 'tool-results', sessionId);
++    const names = Object.fromEntries(['kept', 'queued', 'stray'].map((role) => [sidecarName(`${role} output of saved`), role]));
++    assert.deepEqual(readdirSync(dir).map((name) => names[name] ?? name).sort(), ['kept', 'queued', 'stray'], 'nothing pruned before the save, nothing else written');
++    await resume(sessionId);
++    assert.deepEqual(readdirSync(dir).map((name) => names[name] ?? name), ['kept']);
++  });
++
++  test('an archive unreadable at one resume deletes nothing; the next resume, reading it, prunes', async () => {
++    const archivedContent = 'archived output';
++    const seeded = await plainSession('archive', { archived: archivedContent, archive: `older output is at ${sidecarName(archivedContent)}`, stray: 'stray output' }, (files) => [
++      { role: 'user', content: `the archive is at ${files.archive}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    const content = readFileSync(seeded.files.archive, 'utf8');
++    rmSync(seeded.files.archive);
++    mkdirSync(seeded.files.archive);
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['archived', 'archive', 'stray'], 'an unreadable archive deletes nothing');
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    rmSync(seeded.files.archive, { recursive: true });
++    persistToolResultArtifactSync({ sessionId: seeded.sessionId, toolCallId: 'call_archive', content });
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['archived', 'archive']);
++  });
++
++  test('a resume with nothing to prune deletes and writes nothing', async () => {
++    const seeded = await plainSession('nothing', { named: 'named output', young: 'young output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    utimesSync(seeded.files.young, new Date(), new Date());
++    const before = listing(seeded);
++    await resume(seeded.sessionId);
++    assert.deepEqual(listing(seeded), before);
++  });
++
++  test("a clear's fork keeps the sidecars it names when the cleared session is resumed", async () => {
++    const seeded = await plainSession('fork', { named: 'named output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    const cleared = await manager.clearSessionMessages(seeded.sessionId);
++    const [forkId] = cleared.offloadForks;
++    await settleRecorder(forkId);
++    await settleRecorder(seeded.sessionId);
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++    assert.match(JSON.stringify(loadSession(forkId).messages), new RegExp(basename(seeded.files.named)));
 +  });
 +
 +  test('the deferred prune reads the references stored when it deletes: a later transcript naming a sidecar keeps it', async () => {
@@ -285,28 +372,22 @@ index 0000000..c24c545
 +  });
 +}
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-index 923faae..063f2fd 100644
+index 923faae..6c8ce90 100644
 --- a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-@@ -17,9 +17,16 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
+@@ -17,9 +17,11 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
  import { positiveInt } from '../../../../shared/numbers.mjs';
  import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
  import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 +import { onSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
  import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
  import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
--import { pruneOffloadSession } from '../tool-result-offload.mjs';
-+import {
-+  clearOffloadPrunePending,
-+  markOffloadPrunePending,
-+  pruneOffloadSession,
-+  readOffloadPrunePending,
-+} from '../tool-result-offload.mjs';
+ import { pruneOffloadSession } from '../tool-result-offload.mjs';
 +import { loadSession } from '../store.mjs';
  import { _getPendingMessagesForSession } from './pending-messages.mjs';
  import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
  import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
-@@ -466,20 +473,71 @@ async function compareTranscriptEncodings(before, after) {
+@@ -466,20 +468,71 @@ async function compareTranscriptEncodings(before, after) {
  }
  
  // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
@@ -318,15 +399,18 @@ index 923faae..063f2fd 100644
 +// transcript still names what the compaction dropped, and a process that
 +// stops restarts from it. The references are read when the deletes are
 +// decided, from the session as it is then (its live copy, or the stored one),
-+// its queue, and the stored transcripts of the sessions `retain` names (a
-+// clear's fork, which keeps the cleared conversation and its sidecars).
-+// A prune a running turn stopped is pending on disk (a marker in the
-+// session's tool-result directory) and runs once the turn stops counting as
-+// in flight (its end announces it), or when the session is next resumed
-+// (after a close, or a process that stopped first): close keeps every sidecar
-+// and only a delete purges them, so a session that never compacts again
-+// would otherwise keep what this compaction dropped for its whole life.
-+const deferredPrunes = new Map();
++// its queue, and the stored transcripts of the clear forks it names
++// (`offloadForks`: a fork keeps the cleared conversation, which names this
++// session's sidecars).
++// A prune a running turn stopped runs once the turn stops counting as in
++// flight (its end announces it). Nothing of it is remembered anywhere else:
++// every resume reconciles the directory with what is stored then
++// (`reconcileOffloadsOnResume`), so a prune a close, a stopped process or an
++// unreadable archive kept from finishing happens at the next resume. Close
++// keeps every sidecar and only a delete purges them: without it, a session
++// that never compacts again would keep what a compaction dropped for its
++// whole life.
++const deferredPrunes = new Set();
 +const deferredRuns = new Set();
 +const track = (run) => {
 +  deferredRuns.add(run);
@@ -335,10 +419,10 @@ index 923faae..063f2fd 100644
 +// A pulse names its session or none (a settle whose entry holds no session
 +// sends ''): an unnamed one re-checks every deferred prune.
 +onSessionActivityChange((changed) => {
-+  for (const [sessionId, retain] of [...deferredPrunes]) {
++  for (const sessionId of [...deferredPrunes]) {
 +    if ((changed && changed !== sessionId) || isSessionCompactionBlocked(sessionId)) continue;
 +    deferredPrunes.delete(sessionId);
-+    track(pruneCompactedOffloads(sessionId, retain));
++    track(pruneCompactedOffloads(sessionId));
 +  }
 +});
 +
@@ -347,13 +431,9 @@ index 923faae..063f2fd 100644
 +  return Promise.all([...deferredRuns]);
 +}
 +
-+export async function pruneCompactedOffloads(sessionId, retain = []) {
-+  // A prune already pending keeps what it retains.
-+  const pending = [...(deferredPrunes.get(sessionId) || []), ...(readOffloadPrunePending(sessionId)?.retain || [])];
-+  const retained = [...new Set([...pending, ...retain])];
++export async function pruneCompactedOffloads(sessionId) {
 +  if (isSessionCompactionBlocked(sessionId)) {
-+    deferredPrunes.set(sessionId, retained);
-+    markOffloadPrunePending(sessionId, retained);
++    deferredPrunes.add(sessionId);
 +    return;
 +  }
 +  deferredPrunes.delete(sessionId);
@@ -365,28 +445,29 @@ index 923faae..063f2fd 100644
 -    ]);
 +    await pruneOffloadSession(sessionId, () => {
 +      const current = loadSession(sessionId);
++      const forks = Array.isArray(current?.offloadForks) ? current.offloadForks : [];
 +      return [
 +        current?.messages,
 +        current?.liveTurnMessages,
 +        _getPendingMessagesForSession(sessionId),
-+        ...retained.map((id) => loadSession(id)?.messages),
++        ...forks.map((id) => loadSession(id)?.messages),
 +      ];
 +    });
-+    clearOffloadPrunePending(sessionId);
    } catch {
      /* best-effort */
    }
  }
  
-+/** `resumeSession`: the prune left pending on disk runs now (idle only, as every prune). */
-+export function resumePendingOffloadPrune(sessionId) {
-+  if (readOffloadPrunePending(sessionId)) track(pruneCompactedOffloads(sessionId));
++/** `resumeSession`: the session's tool-result directory is reconciled with
++ *  what is stored now (idle only, as every prune). */
++export function reconcileOffloadsOnResume(sessionId) {
++  track(pruneCompactedOffloads(sessionId));
 +}
 +
  function summaryUsageRecord(usage) {
    if (!usage) return null;
    return {
-@@ -697,7 +755,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
+@@ -697,7 +750,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
    // change re-roots the system prompt now and needs no notice any more.
    if (changed) applyPendingWorkspaceReroot(session);
    if (changed) resetReadStateAfterCompaction(resolvedSessionId);
@@ -395,7 +476,7 @@ index 923faae..063f2fd 100644
    session.compaction = compactionRecord(plan, {
      stage: mode === 'auto' ? 'post_turn' : 'manual',
 diff --git a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
-index ca19c4c..623998d 100644
+index ca19c4c..a7d9dde 100644
 --- a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 @@ -10,8 +10,9 @@ import {
@@ -462,7 +543,16 @@ index ca19c4c..623998d 100644
      const fork = {
        ...session,
        id: forkId,
-@@ -313,9 +318,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -244,6 +249,8 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
+       ...clearedTokenAccounting(now),
+     };
+     delete fork.liveTurnMessages;
++    // The forks of the source name the source's sidecars, not the fork's.
++    delete fork.offloadForks;
+     // The spread copied the source's environment: the fork names its own
+     // scratch directory (its shell commands use it), not the source's.
+     if (useOwnScratchEnvironment(fork)) {
+@@ -313,9 +320,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
    const compact = clearOptions.compact === true && !archiveAs;
    const currentMessages = Array.isArray(session.messages) ? session.messages : [];
    const beforeMessageTokens = estimateMessagesTokens(currentMessages);
@@ -474,33 +564,31 @@ index ca19c4c..623998d 100644
    const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
    const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
    const now = Date.now();
-@@ -332,8 +337,13 @@ export async function clearSessionMessages(sessionId, options = {}) {
-   // conversation) skips the copy; an `archiveAs` clear always keeps one.
+@@ -333,7 +340,11 @@ export async function clearSessionMessages(sessionId, options = {}) {
    const summaryCarriedForward = keep.some(isCompactSummaryMessage);
    const keepCopy = clearOptions.fork !== false || Boolean(archiveAs);
-+  // The fork's id: its stored transcript names this session's sidecars, which
-+  // the compaction's prune keeps.
-+  const retain = [];
    if (keepCopy && hasUserConversationMessage(messages) && !summaryCarriedForward) {
 -    const fork = forkOutgoingTranscript(session, messages, now, archiveAs);
 +    const forkId = archiveAs || mintSessionId();
-+    retain.push(forkId);
 +    const fork = forkOutgoingTranscript(session, messages, now, archiveAs, forkId);
++    // The fork's stored transcript names this session's sidecars: every prune
++    // of this session reads it (`pruneCompactedOffloads`).
++    session.offloadForks = [...(Array.isArray(session.offloadForks) ? session.offloadForks : []), forkId];
      if (archiveAs) await fork;
    }
  
-@@ -378,7 +388,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -378,7 +389,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
      invalidateContextUsageSnapshot(session);
    }
    session.updatedAt = now;
 -  await saveSessionAsync(session, { expectedGeneration: session.generation });
 +  const saved = await saveSessionAsync(session, { expectedGeneration: session.generation });
 +  // What the compaction kept and the clear's fork holds keeps its sidecars.
-+  if (compacted && saved === SAVE_OUTCOME_SAVED) await pruneCompactedOffloads(sessionId, retain);
++  if (compacted && saved === SAVE_OUTCOME_SAVED) await pruneCompactedOffloads(sessionId);
    return session;
  }
  export async function compactSessionMessages(sessionId, options = {}) {
-@@ -413,7 +425,12 @@ export async function compactSessionMessages(sessionId, options = {}) {
+@@ -413,7 +426,12 @@ export async function compactSessionMessages(sessionId, options = {}) {
      session.lastContextTokensStaleAfterCompact = false;
    }
    session.updatedAt = Date.now();
@@ -515,79 +603,85 @@ index ca19c4c..623998d 100644
  }
  export async function updateSessionStatus(id, status) {
 diff --git a/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs b/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs
-index 5627bca..f20e318 100644
+index 5627bca..01889c5 100644
 --- a/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs
 @@ -13,6 +13,7 @@ import {
  } from '../store/session-writer-claim.mjs';
  import { _getRuntimeEntry } from './runtime-liveness.mjs';
  import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
-+import { resumePendingOffloadPrune } from './compaction-runner.mjs';
++import { reconcileOffloadsOnResume } from './compaction-runner.mjs';
  import { isAgentOwner } from '../../agent-owner.mjs';
  import { AGENT_MODE, resolveSessionMode, sessionModeOf } from '../agent-mode.mjs';
  import { getHiddenAgent } from '../../internal-agents.mjs';
-@@ -664,5 +665,8 @@ async function _resumeClaimedSession(sessionId, preset, options) {
+@@ -664,5 +665,9 @@ async function _resumeClaimedSession(sessionId, preset, options) {
      } catch {}
    });
    prewarmSessionAutoEffort(session, session.provider ? getProvider(session.provider) : null);
-+  // A compaction's prune a turn stopped, left pending by a close or a process
-+  // that stopped before the turn ended, runs now.
-+  resumePendingOffloadPrune(sessionId);
++  // The tool-result directory is reconciled with what is stored now: a
++  // compaction's prune a turn, a close, a stopped process or an unreadable
++  // archive kept from finishing happens here.
++  reconcileOffloadsOnResume(sessionId);
    return session;
  }
 diff --git a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-index f9f9973..9706117 100644
+index f9f9973..e2c9076 100644
 --- a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
 +++ b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-@@ -482,13 +482,50 @@ export async function maybeOffloadToolResultBatch(sessionId, entries, options =
-   return states;
- }
- 
-+// A compaction's prune a running turn stopped: `{"retain":[ids]}` in the
-+// session's tool-result directory (never a sidecar: not `.txt`), so the prune
-+// still runs after a close or a process stop (`pruneCompactedOffloads`).
-+const OFFLOAD_PRUNE_PENDING = '.prune-pending';
-+
-+/** Records the pending prune; a session with no sidecar directory has nothing to prune. */
-+export function markOffloadPrunePending(sessionId, retain = []) {
-+  const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
-+  if (!existsSync(dir)) return;
-+  try {
-+    writeFileAtomicSync(join(dir, OFFLOAD_PRUNE_PENDING), JSON.stringify({ retain }));
-+  } catch {
-+    /* best-effort, as the prune itself */
-+  }
-+}
-+
-+/** The pending prune (`{ retain }`), or null when none is pending. */
-+export function readOffloadPrunePending(sessionId) {
-+  if (!sessionId) return null;
-+  const path = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId), OFFLOAD_PRUNE_PENDING);
-+  if (!existsSync(path)) return null;
-+  try {
-+    const retain = JSON.parse(readFileSync(path, 'utf8'))?.retain;
-+    return { retain: Array.isArray(retain) ? retain.filter((id) => typeof id === 'string') : [] };
-+  } catch {
-+    return { retain: [] };
-+  }
-+}
-+
-+export function clearOffloadPrunePending(sessionId) {
-+  try {
-+    unlinkSync(join(getPluginData(), 'tool-results', safeSessionSegment(sessionId), OFFLOAD_PRUNE_PENDING));
-+  } catch {
-+    /* none was pending */
-+  }
-+}
-+
- function clearOffloadSessionSync(sessionId) {
-   if (!sessionId) return;
+@@ -513,30 +513,15 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+   if (!sessionId || typeof getMessages !== 'function') return;
    const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
    if (!existsSync(dir)) return;
++  // One listing: a sidecar's age is read only once nothing the transcript
++  // names keeps it, so a reconcile with nothing to delete stats and reads no
++  // sidecar.
+   let candidates;
    try {
-     for (const name of readdirSync(dir)) {
--      if (!name.endsWith('.txt')) continue;
-+      if (!name.endsWith('.txt') && name !== OFFLOAD_PRUNE_PENDING) continue;
-       try {
-         unlinkSync(join(dir, name));
-       } catch {}
+-    const entries = await readdir(dir);
+-    candidates = (
+-      await Promise.all(
+-        entries
+-          .filter((name) => name.endsWith('.txt'))
+-          .map(async (name) => {
+-            const filePath = join(dir, name);
+-            try {
+-              const fileStat = await stat(filePath);
+-              if (Date.now() - fileStat.mtimeMs < OFFLOAD_PRUNE_MIN_AGE_MS) return null;
+-              return { name, filePath };
+-            } catch {
+-              return null;
+-            }
+-          })
+-      )
+-    ).filter(Boolean);
++    candidates = (await readdir(dir)).filter((name) => name.endsWith('.txt')).map((name) => ({ name, filePath: join(dir, name) }));
+   } catch {
+     /* best-effort */
+   }
+-  // Only an old sidecar can be deleted. Without one, nothing below could have
+-  // any effect, so skip serializing the transcript and walking the archives.
+   if (!candidates?.length) return;
+   let serialized;
+   try {
+@@ -566,6 +551,21 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+     return unreferenced.length > 0;
+   };
+   if (!retainReachable()) return;
++  // Only an old sidecar can be deleted. Without one, nothing below could have
++  // any effect, so skip walking the archives.
++  unreferenced = (
++    await Promise.all(
++      unreferenced.map(async (candidate) => {
++        try {
++          const fileStat = await stat(candidate.filePath);
++          return Date.now() - fileStat.mtimeMs < OFFLOAD_PRUNE_MIN_AGE_MS ? null : candidate;
++        } catch {
++          return null;
++        }
++      })
++    )
++  ).filter(Boolean);
++  if (!unreferenced.length) return;
+   const pending = [...reachable];
+   for (let i = 0; i < pending.length; i += 1) {
+     let text;

@@ -117,6 +117,8 @@ pub struct TestCompaction {
     pub offloads: Mutex<Option<(std::path::PathBuf, u64)>>,
     /// The next listing tells `.0` it arrived, then waits for `.1`.
     pub listing_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// How many listings have read `offloads` (every prune's, an open's reconcile included).
+    pub listings: tokio::sync::watch::Sender<usize>,
     /// A compaction that commits its result as the host's does (`HostManualCompaction::compact` commits through the
     /// directory): `compact` answers what it answers instead of `result`.
     pub commits: Mutex<Option<CommitWith>>,
@@ -158,13 +160,16 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         lock(&self.calls).push(format!("post {trigger}"));
     }
     async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+        // Read before the gate: a test that holds the listing decides what it lists by then.
+        let offloads = lock(&self.offloads).clone();
+        self.listings.send_modify(|count| *count += 1);
         let gate = lock(&self.listing_gate).take();
         if let Some((arrived, release)) = gate {
             arrived.notify_one();
             release.notified().await;
         }
-        let Some((data, now)) = lock(&self.offloads).clone() else { return Vec::new() };
-        offload_store(&data, thread).prune_candidates(now).await
+        let Some((data, _)) = offloads else { return Vec::new() };
+        offload_store(&data, thread).prune_candidates().await
     }
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
         let offloads = lock(&self.offloads).clone();
@@ -172,19 +177,6 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
             offload_store(&data, thread).prune(candidates, transcripts.clone(), now).await;
         }
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
-    }
-    async fn defer_prune(&self, thread: &ThreadId) {
-        let offloads = lock(&self.offloads).clone();
-        if let Some((data, _)) = offloads {
-            offload_store(&data, thread).mark_prune_pending().await;
-        }
-    }
-    async fn prune_pending(&self, thread: &ThreadId) -> bool {
-        let offloads = lock(&self.offloads).clone();
-        match offloads {
-            Some((data, _)) => offload_store(&data, thread).prune_pending().await,
-            None => false,
-        }
     }
     async fn rearm(&self, _: &ThreadId) {
         lock(&self.calls).push("rearm".into());
@@ -290,6 +282,8 @@ impl super::turn_ops::SideQuestions for TestSide {
         }
     }
 }
+
+pub mod offload_replay;
 
 pub fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())

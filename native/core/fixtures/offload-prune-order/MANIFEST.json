@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2766797,
+      "bytes": 2973572,
       "path": "golden.json",
-      "sha256": "48ffdbeb2f82539f867b794598c7120f4dc6d716a76a32051dab6c3f4497db40"
+      "sha256": "1df63887e50c18e85f3dabee84c97449fa9e4ee766ff409b757ad9967a14f117"
     }
   ],
   "inputs": [
@@ -33,6 +33,8 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
+    "attemptId": "a turn completion's `attemptId` (meta.transcript.completion, cancelled-turn and failed-turn) is a random UUID on both sides: it is <ATTEMPT>",
+    "completionVerb": "a turn completion's `verb` is the client's label: Node's runtime has none without a client (`failedTurnCompletion`'s `Thought`), the core's `turn/start` stamps the client's `pickDoneVerb(stats.turns)` (`Mapped` for its first turn); it is <VERB>",
     "dataDir": "the data dir is a temporary one: every string naming it names <DATA>",
     "summaryHash": "the summary header's `sha256=` hashes the dropped messages, which name the temporary data dir: it is <SHA>"
   },
@@ -52,7 +54,7 @@
         "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
         "src/runtime/agent/orchestrator/session/tool-result-offload.mjs"
       ],
-      "sha256": "c5c9b4e82cae60f317c7cb9367dabb46aedcb84b0d9b0865e0b656fdc48ffca1"
+      "sha256": "050b3020a77640ecd5a05816ebecb7145649df6f996fe12bbe58adcec0f74f39"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -60,18 +62,18 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "e5c7ee2b880901b4a09e26f7c1f1173430b9d4a1ff4cbf973ab2533f6cf3ed44",
+    "srcSha256": "2459c029824e66178c788e04d7914b4c299210a549817c72fe75613e6f8888fb",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-offload-prune-order.mjs",
-  "recorderSha256": "b326299e571bf4804402ca3653d6cea84d6a8855fb9b6a872668deb202b725e4",
+  "recorderSha256": "eb91b6887ec6c5752682cece9cca55eefa95d6f745d6d8b4af2234067f08f635",
   "set": "offload-prune-order",
   "tests": [
     "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)",
     "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs (pruneCompactedOffloads)",
     "src/runtime/agent/orchestrator/session/tool-result-offload.mjs (pruneOffloadSession)"
   ],
-  "totalBytes": 2766797
+  "totalBytes": 2973572
 }
