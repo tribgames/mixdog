@@ -296,8 +296,8 @@ fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
-/// `lone`: which of the query's strings held an unpaired surrogate escape on the wire (now U+FFFD).
-fn text_query(options: &Value, lone: crate::textsearch::QueryLone) -> WsResult<TextQuery> {
+/// `lone`: the query held an unpaired surrogate escape on the wire (now U+FFFD).
+fn text_query(options: &Value, lone: bool) -> WsResult<TextQuery> {
     let text = |k: &str| options.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
     let query = text("query");
     if query.is_empty() || query.len() > 1000 {
@@ -718,23 +718,6 @@ impl WorkspaceService {
         let cancel = req.ctx.cancel.clone();
         let this = self.clone();
         let value = |v: Value| Ok(Reply::Value(v));
-        // A project path that held a lone surrogate names no registered project: Node compares the string with the registry's
-        // paths (`knownPath`, session-host.ts:556) and its lone unit equals none, where the core's U+FFFD could equal a folder
-        // whose name holds a real one. Answered as an unregistered path (a removal removes nothing and releases nothing).
-        let lone_project = match req.method.as_str() {
-            "project/touch" | "project/update" | "project/delete" | "project/directory" | "project/recoveryDirectory" => {
-                Self::held_lone(req, "/path")
-            }
-            "search/start" => req.ctx.lone_surrogates.iter().any(|at| matches!(at, mixdog_js::LoneAt::Value(p, _) if p.starts_with("/roots/"))),
-            _ => req.ctx.origin == mixdog_protocol::Origin::Relay && Self::held_lone(req, "/root"),
-        };
-        if lone_project {
-            if req.method.as_str() == "project/delete" {
-                // The removal of a path that names no project (the empty path names none), its operation recorded as any.
-                return value(self.catalog.remove("", op).await?);
-            }
-            return Err(WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."));
-        }
         match req.method.as_str() {
             "project/list" => {
                 let projects: Vec<Value> = self.catalog.list().await?.iter().map(crate::catalog::project_json).collect();
@@ -803,9 +786,8 @@ impl WorkspaceService {
                 }
                 let (root, rel) = self.file_target(req, params).await?;
                 let authorized = opt_bool(params, "authorized");
-                let lone_name = Self::relay_lone(req, "/rel");
                 let file = run_fallible(self.lanes.interactive, &cancel, move || {
-                    if authorized { fsops::read_text_authorized(&root, &rel, lone_name) } else { fsops::read_text(&root, &rel) }
+                    if authorized { fsops::read_text_authorized(&root, &rel) } else { fsops::read_text(&root, &rel) }
                 })
                 .await?;
                 let answer = json!(file);
@@ -830,15 +812,13 @@ impl WorkspaceService {
             "projectFs/previewFile" => {
                 let (root, rel) = self.file_target(req, params).await?;
                 let leases = self.file_leases.clone();
-                let lone_name = Self::relay_lone(req, "/rel");
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&leases, &root, &rel, lone_name)).await?)
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&leases, &root, &rel)).await?)
             }
             "projectFs/previewRange" => {
                 let (root, rel) = self.file_target(req, params).await?;
                 let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
                 let length = params.get("length").and_then(Value::as_u64).filter(|n| (1..=crate::preview::RANGE_MAX).contains(n)).ok_or_else(|| WsError::invalid("length is invalid."))?;
-                let lone_name = Self::relay_lone(req, "/rel");
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_range(&root, &rel, offset, length, lone_name)).await?)
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_range(&root, &rel, offset, length)).await?)
             }
             "projectFs/readLocal" => {
                 let path = s(params, "path")?.to_owned();
@@ -862,16 +842,12 @@ impl WorkspaceService {
                 let (root, rel) = self.file_target(req, params).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
-                let unpaired = fsops::Unpaired {
-                    content: Self::held_lone(req, "/content"),
-                    name: Self::relay_lone(req, "/rel"),
-                    expected: Self::held_lone(req, "/expectedContent"),
-                };
+                let content_lone = Self::held_lone(req, "/content");
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
                 let fs = self.fs.clone();
                 let (note_root, note_rel) = (root.clone(), rel.clone());
                 let mtime =
-                    run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, unpaired)).await?;
+                    run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, content_lone)).await?;
                 self.note_written(&note_root, &[&note_rel]);
                 value(json!({ "mtimeMs": mtime }))
             }
@@ -904,14 +880,7 @@ impl WorkspaceService {
                 let destination = fsops::rename_destination_rel(&rel, &new_name)?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel, &destination])?).await;
                 let (note_root, note_rel) = (root.clone(), rel.clone());
-                // Lone units of the entry's own name and of the trimmed new name, from the start of each.
-                let base_start = rel.rfind(['/', '\\']).map_or(0, |at| rel[..=at].chars().count());
-                let lead = new_name.chars().take_while(|c| c.is_whitespace()).count();
-                let lone = fsops::RenameLone {
-                    base: Self::lone_units(req, "/rel").iter().filter(|&&at| at >= base_start).map(|at| at - base_start).collect(),
-                    name: Self::lone_units(req, "/newName").iter().filter(|&&at| at >= lead).map(|at| at - lead).collect(),
-                };
-                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name, &lone)).await?;
+                run_fallible(self.lanes.durability, &cancel, move || fsops::rename_entry(&root, &rel, &new_name)).await?;
                 self.note_written(&note_root, &[&note_rel, &destination]);
                 value(json!({}))
             }
@@ -951,7 +920,7 @@ impl WorkspaceService {
             }
             "projectFs/searchText" => {
                 let root = self.root(req.ctx.origin, params).await?;
-                let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::query_lone(req))?;
+                let query = text_query(params.get("options").unwrap_or(&Value::Null), Self::held_lone(req, "/options/query"))?;
                 let token = cancel.clone();
                 let found = run_fallible(self.lanes.maintenance, &cancel, move || {
                     crate::textsearch::search(&root, &query, &|| token.is_cancelled())
@@ -962,24 +931,16 @@ impl WorkspaceService {
             "projectFs/replaceText" => {
                 let root = self.root(req.ctx.origin, params).await?;
                 let options = params.get("options").unwrap_or(&Value::Null);
-                let query = text_query(options, Self::query_lone(req))?;
+                let query = text_query(options, Self::held_lone(req, "/options/query"))?;
                 let replacement = s(params, "replacement")?.to_owned();
                 // Every planned write holds the replacement; one that held a lone surrogate is refused (Node: project-files.ts:744).
-                let unpaired = fsops::Unpaired { content: Self::held_lone(req, "/replacement"), ..fsops::Unpaired::default() };
-                // An empty list names no file, as in Node: every matching file is replaced. A path that held a lone surrogate names
-                // no file on disk (Node's lone unit equals no path read from disk, workspace-search.ts:238-240): left out, while the
-                // list still selects, so a list of only such paths replaces nothing.
+                let content_lone = Self::held_lone(req, "/replacement");
+                // An empty list names no file, as in Node: every matching file is replaced.
                 let rel_paths: Option<Vec<String>> = params
                     .get("relPaths")
                     .and_then(Value::as_array)
-                    .filter(|paths| !paths.is_empty())
-                    .map(|a| {
-                        a.iter()
-                            .enumerate()
-                            .filter(|(index, _)| !Self::held_lone(req, &format!("/relPaths/{index}")))
-                            .filter_map(|(_, p)| p.as_str().map(str::to_owned))
-                            .collect::<Vec<_>>()
-                    });
+                    .map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_owned)).collect::<Vec<_>>())
+                    .filter(|paths| !paths.is_empty());
                 let token = cancel.clone();
                 let plan_root = root.clone();
                 let plan = run_fallible(self.lanes.maintenance, &cancel, move || {
@@ -996,7 +957,7 @@ impl WorkspaceService {
                         rel_path: w.rel_path.clone(),
                         content: w.content.clone(),
                         expected_content: w.expected_content.clone(),
-                        unpaired,
+                        content_lone,
                     })
                     .collect();
                 let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
@@ -1456,7 +1417,7 @@ impl WorkspaceService {
         self.feeds.as_ref()
     }
 
-    /// The files of a batch save, each marked where its content or (a paired device's) name held a lone surrogate.
+    /// The files of a batch save, each marked where its content held a lone surrogate.
     fn batch_files(req: &CoreRequest, params: &Value) -> WsResult<Vec<BatchFile>> {
         params
             .get("files")
@@ -1465,44 +1426,20 @@ impl WorkspaceService {
             .iter()
             .enumerate()
             .map(|(index, f)| {
-                let name = Self::relay_lone(req, &format!("/files/{index}/relPath")) || Self::relay_lone(req, &format!("/files/{index}/rel"));
                 Ok(BatchFile {
                     rel_path: s(f, "relPath").or_else(|_| s(f, "rel"))?.to_owned(),
                     content: s(f, "content")?.to_owned(),
                     expected_content: s(f, "expectedContent")?.to_owned(),
-                    unpaired: fsops::Unpaired {
-                        content: Self::held_lone(req, &format!("/files/{index}/content")),
-                        name,
-                        expected: Self::held_lone(req, &format!("/files/{index}/expectedContent")),
-                    },
+                    content_lone: Self::held_lone(req, &format!("/files/{index}/content")),
                 })
             })
             .collect()
     }
 
-    /// Whether the param at `pointer` held an unpaired surrogate escape on the wire (now U+FFFD).
+    /// Whether the free-text param at `pointer` held an unpaired surrogate escape on the wire (now U+FFFD); the server refused
+    /// every other place (mixdog-app-protocol `free_text`).
     fn held_lone(req: &CoreRequest, pointer: &str) -> bool {
-        !Self::lone_units(req, pointer).is_empty()
-    }
-
-    /// Where (`char` indices) the string param at `pointer` held unpaired surrogate escapes; empty when it held none.
-    fn lone_units<'r>(req: &'r CoreRequest, pointer: &str) -> &'r [usize] {
-        req.ctx.lone_surrogates.iter().find(|held| matches!(held, mixdog_js::LoneAt::Value(at, _) if at == pointer)).map_or(&[], |held| held.units())
-    }
-
-    /// Where a text search's strings held an unpaired surrogate escape.
-    fn query_lone(req: &CoreRequest) -> crate::textsearch::QueryLone {
-        crate::textsearch::QueryLone {
-            query: Self::held_lone(req, "/options/query"),
-            include: Self::lone_units(req, "/options/include").to_vec(),
-            exclude: Self::lone_units(req, "/options/exclude").to_vec(),
-        }
-    }
-
-    /// [`Self::held_lone`] for a paired device's file name: Node's remote file lanes open it through `openAuthorizedFile`, which
-    /// refuses it (`inplace::open_authorized_ro`); the desktop's own reads and saves open it as U+FFFD, as the core does.
-    fn relay_lone(req: &CoreRequest, pointer: &str) -> bool {
-        req.ctx.origin == mixdog_protocol::Origin::Relay && Self::held_lone(req, pointer)
+        req.ctx.lone_surrogates.iter().any(|held| matches!(held, mixdog_js::LoneAt::Value(at) if at == pointer))
     }
 }
 

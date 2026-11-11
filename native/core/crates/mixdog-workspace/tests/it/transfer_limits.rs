@@ -53,7 +53,7 @@ fn a_directory_swapped_for_a_link_after_resolving_is_refused_at_open() {
         eprintln!("SKIPPED: this account cannot create directory links");
         return;
     }
-    let err = open_authorized_ro(&resolved, &root, false).err().expect("the swapped path must be refused");
+    let err = open_authorized_ro(&resolved, &root).err().expect("the swapped path must be refused");
     assert_eq!(err.message, "The file resolves outside the project.");
     // Through the transfer service it never opens either (the check repeats on the real path).
     let transfers = Transfers::default();

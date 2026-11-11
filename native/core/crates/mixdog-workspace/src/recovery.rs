@@ -82,32 +82,6 @@ pub struct RecoveryFile {
     pub mode: u32,
     pub before: ByteRef,
     pub after: ByteRef,
-    /// Not in the file: where `relPath` and `destination` held lone surrogate escapes Node wrote ([`Lone`]).
-    #[serde(skip)]
-    pub lone: FileLone,
-}
-
-/// The `char` indices of the lone surrogate escapes (read as U+FFFD) in a record's paths. Node compares the strings it read
-/// back, lone units included (project-recovery.ts:39-49): two paths are Node's same path only when they read the same and
-/// held lone units at the same places.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FileLone {
-    pub rel_path: Vec<usize>,
-    pub destination: Vec<usize>,
-    /// The `relPath` string token as Node wrote it, when it held a lone unit: a state naming the entry restored is written
-    /// with it, as Node's `JSON.stringify` writes the same string (project-recovery-store.ts), so the record reads back whole.
-    pub rel_path_token: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TokenFiles {
-    files: Vec<TokenFile>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TokenFile {
-    rel_path: Box<serde_json::value::RawValue>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,32 +93,6 @@ pub struct Manifest {
     pub root: PathBuf,
     pub root_identity: Identity,
     pub files: Vec<RecoveryFile>,
-    /// Not in the file: the root held a lone surrogate escape (a real path never does, so it names no root).
-    #[serde(skip)]
-    pub root_lone: bool,
-}
-
-/// Where JSON text `raw` held lone surrogate escapes, by pointer.
-fn lone_units(raw: &[u8]) -> std::collections::HashMap<String, Vec<usize>> {
-    std::str::from_utf8(raw)
-        .map(mixdog_js::json_lone_surrogates)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|at| !at.units().is_empty())
-        .map(|at| (at.pointer().to_owned(), at.units().to_vec()))
-        .collect()
-}
-
-/// The lone units of the last segment of `path` (`char` indices from its start), or `None` when a segment before it held one.
-fn name_units(path: &str, units: &[usize]) -> Option<Vec<usize>> {
-    let start = path.rfind(['/', '\\']).map_or(0, |at| path[..=at].chars().count());
-    units.iter().map(|&at| at.checked_sub(start)).collect()
-}
-
-/// [`name_units`] ignoring the folders: a lone unit in a folder of a `relPath` names the folder Node's fs converted.
-fn base_units(path: &str, units: &[usize]) -> Vec<usize> {
-    let start = path.rfind(['/', '\\']).map_or(0, |at| path[..=at].chars().count());
-    units.iter().filter_map(|&at| at.checked_sub(start)).collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -489,27 +437,13 @@ impl RecoveryStore {
         Ok(entries)
     }
 
-    /// Writes `state`; a restored entry naming one of `files` whose `relPath` held a lone unit is written as Node wrote that
-    /// path ([`FileLone::rel_path_token`]).
-    pub fn write_state(&self, directory: &Path, state: &State, files: &[RecoveryFile]) -> WsResult<()> {
+    pub fn write_state(&self, directory: &Path, state: &State) -> WsResult<()> {
         validate_directory(directory)?;
-        let message: String = state.message.chars().take(8000).collect();
-        let json = |text: &String| serde_json::to_string(text).expect("string json");
-        let restored: Vec<String> = state
-            .restored
-            .iter()
-            .map(|rel| {
-                files
-                    .iter()
-                    .find(|f| &f.rel_path == rel)
-                    .and_then(|f| f.lone.rel_path_token.clone())
-                    .unwrap_or_else(|| json(rel))
-            })
-            .collect();
-        let body = format!("{{\"phase\":{},\"message\":{},\"restored\":[{}]}}", serde_json::to_string(&state.phase).expect("phase json"), json(&message), restored.join(","));
+        let mut clipped = state.clone();
+        clipped.message = clipped.message.chars().take(8000).collect();
         let temp = directory.join(format!("state-{}.tmp", uuid::Uuid::new_v4()));
         let outcome = (|| -> WsResult<()> {
-            private_file(&temp, body.as_bytes())?;
+            private_file(&temp, &serde_json::to_vec(&clipped).expect("state json"))?;
             validate_directory(directory)?;
             fs::rename(&temp, directory.join("state.json"))?;
             sync_directory(directory)?;
@@ -527,27 +461,8 @@ impl RecoveryStore {
             .map(|l| l.id)
             .ok_or_else(|| WsError::new(Reason::InvalidParams, "Recovery location is invalid."))?;
         let raw = read_limited(&directory.join("manifest.json"), MANIFEST_MAX)?;
-        // Node writes a path holding a lone surrogate as its escape (a desktop batch edit of such a name, project-files.ts:783,
-        // project-recovery-store.ts:490), which JSON.parse reads back: U+FFFD here, as the state below. It names the file Node
-        // wrote: Node's fs converts the lone unit of a path to UTF-8 (U+FFFD), so the file on disk is named with U+FFFD, and
-        // Node's restore compares the stored destination with one built from the stored relPath, lone units and all: where
-        // each held one is kept beside the record ([`FileLone`]) and compared as Node compares ([`validate_target`]).
-        let mut manifest: Manifest = serde_json::from_slice(&mixdog_js::json_well_formed(&raw))
+        let manifest: Manifest = serde_json::from_slice(&raw)
             .map_err(|_| WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."))?;
-        let mut lone = lone_units(&raw);
-        manifest.root_lone = lone.contains_key("/root");
-        let tokens = if lone.keys().any(|pointer| pointer.ends_with("/relPath")) {
-            serde_json::from_slice::<TokenFiles>(&raw).map(|t| t.files).ok()
-        } else {
-            None
-        };
-        for (index, file) in manifest.files.iter_mut().enumerate() {
-            let rel_path = lone.remove(&format!("/files/{index}/relPath")).unwrap_or_default();
-            let rel_path_token = (!rel_path.is_empty())
-                .then(|| tokens.as_ref().and_then(|t| t.get(index)).map(|t| t.rel_path.get().to_owned()))
-                .flatten();
-            file.lone = FileLone { rel_path, destination: lone.remove(&format!("/files/{index}/destination")).unwrap_or_default(), rel_path_token };
-        }
         if !valid_manifest(&manifest, &id) {
             return Err(WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."));
         }
@@ -559,16 +474,18 @@ impl RecoveryStore {
         let state = if state_bytes.is_empty() {
             None
         } else {
-            // Node cuts the message at 8000 UTF-16 units, inside an emoji too: half of one is U+FFFD here.
+            // Node cuts the message at 8000 UTF-16 units, inside an emoji too: half of one is U+FFFD here. A restored path is no
+            // free text: one that held a lone surrogate leaves the state invalid, as a manifest path holding one leaves the
+            // manifest invalid (plain serde above; decisions.md "frame-lone-surrogate").
             let state: State = serde_json::from_slice(&mixdog_js::json_well_formed(&state_bytes))
                 .map_err(|_| WsError::new(Reason::InvalidParams, "Recovery state is invalid. No file will be restored."))?;
-            // A restored path is one of the record's as Node compares it: the same lone units at the same places.
-            let restored_lone = lone_units(&state_bytes);
-            let known = |(index, rel): (usize, &String)| {
-                let units = restored_lone.get(&format!("/restored/{index}")).map_or(&[][..], Vec::as_slice);
-                manifest.files.iter().any(|f| &f.rel_path == rel && f.lone.rel_path == units)
-            };
-            if state.message.chars().count() > 8000 || state.restored.len() > manifest.files.len() || !state.restored.iter().enumerate().all(known) {
+            let lone_path = std::str::from_utf8(&state_bytes)
+                .map(mixdog_js::json_lone_surrogate_pointers)
+                .unwrap_or_default()
+                .iter()
+                .any(|pointer| pointer != "/message");
+            let known = |rel: &String| manifest.files.iter().any(|f| &f.rel_path == rel);
+            if lone_path || state.message.chars().count() > 8000 || state.restored.len() > manifest.files.len() || !state.restored.iter().all(known) {
                 return Err(WsError::new(Reason::InvalidParams, "Recovery state is invalid. No file will be restored."));
             }
             Some(state)
@@ -684,10 +601,8 @@ impl RecoveryStore {
                         mode: f.mode,
                         before: ByteRef { size: f.before.len() as u64, sha256: hex_digest(&f.before) },
                         after: ByteRef { size: f.after.len() as u64, sha256: hex_digest(&f.after) },
-                        lone: FileLone::default(),
                     })
                     .collect(),
-                root_lone: false,
             };
             if !valid_manifest(&manifest, &id) {
                 return Err(WsError::invalid("Recovery input is invalid."));
@@ -730,8 +645,7 @@ impl RecoveryStore {
             restored: restored.iter().cloned().collect(),
         };
         let result = (|| -> WsResult<()> {
-            // The core's own journal: its paths are the core's strings, none held a lone unit.
-            self.write_state(&journal.directory, &state, &[])?;
+            self.write_state(&journal.directory, &state)?;
             crate::killpoint::hit("state-written");
             if !failed {
                 journal.directory = self.retire(&journal.directory)?;
@@ -897,17 +811,14 @@ impl Action {
 }
 
 fn validate_target(root: &Path, manifest: &Manifest, entry: &RecoveryFile) -> WsResult<PathBuf> {
-    if manifest.root_lone || comparable(&canonical(root)?) != comparable(&manifest.root) || identity_of(root)? != manifest.root_identity {
+    if comparable(&canonical(root)?) != comparable(&manifest.root) || identity_of(root)? != manifest.root_identity {
         return Err(WsError::new(Reason::Changed, "Project root changed."));
     }
     let file = project_entry_path(root, &entry.rel_path)?;
     let parent = canonical(file.parent().unwrap_or(&file))?;
     let destination = parent.join(file.file_name().unwrap_or_default());
-    // Node's `join(realpath(parent), basename(file)) !== entry.destination`: the real parent holds no lone unit, the name is
-    // the relPath's own, lone units and all.
-    let same_lone = name_units(&entry.destination.to_string_lossy(), &entry.lone.destination)
-        .is_some_and(|units| units == base_units(&entry.rel_path, &entry.lone.rel_path));
-    if !same_lone || comparable(&destination) != comparable(&entry.destination) || identity_of(&parent)? != entry.parent {
+    // Node's `join(realpath(parent), basename(file)) !== entry.destination` (project-recovery.ts:45): the strings, case and all.
+    if destination.as_os_str() != entry.destination.as_os_str() || identity_of(&parent)? != entry.parent {
         return Err(WsError::new(Reason::Changed, "Project directory changed."));
     }
     Ok(file)
@@ -1095,7 +1006,7 @@ impl RecoveryStore {
             .map(|f| f.rel_path.clone())
             .collect();
         let mut failures = Vec::new();
-        self.write_state(owned, &State { phase: StatePhase::Restoring, message: String::new(), restored: restored.iter().cloned().collect() }, &manifest.files)?;
+        self.write_state(owned, &State { phase: StatePhase::Restoring, message: String::new(), restored: restored.iter().cloned().collect() })?;
         for index in (0..manifest.files.len()).rev() {
             let entry = &manifest.files[index];
             if approved.files[index].status != FileStatus::Written {
@@ -1108,7 +1019,7 @@ impl RecoveryStore {
                 if !fs::symlink_metadata(&file)?.is_file() {
                     return Err(WsError::new(Reason::NotAFile, "Target is not a regular file."));
                 }
-                let mut opened = open_authorized_rw(&file, root, false)?;
+                let mut opened = open_authorized_rw(&file, root)?;
                 if read_all(&mut opened.file)? != after {
                     return Err(WsError::precondition("", ""));
                 }
@@ -1149,7 +1060,6 @@ impl RecoveryStore {
                     "Original bytes restored. No changed, missing or unavailable file was overwritten.".to_owned()
                 },
             },
-            &manifest.files,
         )
     }
 }
@@ -1189,62 +1099,56 @@ mod tests {
         // Node wrote the escape, decisions.md "frame-lone-surrogate").
         let mut state = record.state.unwrap();
         state.phase = serde_json::from_value(case["op"]["writeRecoveryState"]["phase"].clone()).unwrap();
-        store.write_state(&directory, &state, &record.manifest.files).unwrap();
+        store.write_state(&directory, &state).unwrap();
         let written: Value = serde_json::from_slice(&fs::read(directory.join("state.json")).unwrap()).unwrap();
         assert_eq!(written, case["after"]["record/state.json"]);
     }
 
-    /// A journal Node wrote for a desktop batch edit of a path holding a lone surrogate (relPath and destination with the
-    /// escape; `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). Node's fs named the file with U+FFFD,
-    /// and Node inspects the record and restores that file: the core reads the manifest (plain serde refused it) and does the same.
+    /// A journal whose paths held a lone surrogate (Node writes one for a desktop batch edit of such a name: relPath and
+    /// destination with the escape, `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). A path is no
+    /// free text and no shipped client sends one holding a lone unit (decisions.md "frame-lone-surrogate"): the record is
+    /// invalid and nothing is restored, not over the file whose name holds a real U+FFFD either, whether the two paths held
+    /// the same lone unit or different ones (`\ud800` and `\udc00` read as the same U+FFFD).
     #[test]
-    fn a_journal_whose_path_held_a_lone_surrogate_restores_the_file_node_wrote() {
-        let (_project, _base, root, store, id, case) = node_lone_path_record(|raw| raw);
-        let id = id.as_str();
-        let view = |detail: &Detail| {
-            let detail = serde_json::to_value(detail).unwrap();
-            let files: Vec<Value> = detail["files"].as_array().unwrap().iter().map(|f| serde_json::json!({"relPath": f["relPath"], "status": f["status"]})).collect();
-            serde_json::json!({"phase": detail["phase"], "files": files})
-        };
-        let inspected = store.execute(&root, Action::Inspect { id: id.into() }).unwrap().detail.unwrap();
-        assert_eq!(view(&inspected), case["after"]["inspected"]);
-        let restored = store.execute(&root, Action::Restore { id: id.into(), revision: inspected.revision.clone() }).unwrap().detail.unwrap();
-        assert_eq!(view(&restored), case["after"]["restored"]);
-        assert_eq!(fs::read_to_string(root.join("src").join("b\u{fffd}.txt")).unwrap(), case["after"]["target"]);
-        let names: Vec<String> = fs::read_dir(root.join("src")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().bytes().map(|b| format!("{b:02x}")).collect()).collect();
-        assert_eq!(serde_json::json!(names), case["after"]["namesOnDisk"]);
-        let state = store.read_record(&store.location(&root, id).unwrap()).unwrap().state.unwrap();
-        assert_eq!(serde_json::to_value(state).unwrap(), case["after"]["state"]);
+    fn a_journal_whose_paths_held_a_lone_surrogate_restores_nothing() {
+        for edit in [(|raw: String| raw) as fn(String) -> String, |raw: String| raw.replacen(r"\ud83d", r"\ud800", 1).replacen(r"\ud83d", r"\udc00", 1)] {
+            let (_project, _base, root, store, id, _case) = node_record("project-recovery-lone-path", "b\u{fffd}.txt", edit);
+            let inspected = store.execute(&root, Action::Inspect { id: id.clone() }).unwrap().detail.unwrap();
+            assert_eq!(serde_json::to_value(&inspected).unwrap()["phase"], "invalid");
+            let restored = store.execute(&root, Action::Restore { id, revision: inspected.revision.clone() });
+            assert!(restored.as_ref().map_or(true, |done| serde_json::to_value(&done.detail).unwrap()["phase"] != "recovered"), "{restored:?}");
+            assert_eq!(fs::read_to_string(root.join("src").join("b\u{fffd}.txt")).unwrap(), "after\n");
+        }
     }
 
-    /// The same record with a destination naming a real U+FFFD where the relPath held the lone unit: Node's
-    /// `join(parent, basename(file)) !== entry.destination` (project-recovery.ts:45) refuses it, so nothing is restored over
-    /// the file whose name holds the real U+FFFD.
+    /// A destination naming the file in another case than the relPath does (`src/A.txt` against `...\\src\\a.txt`): Node's
+    /// `join(parent, basename(file)) !== entry.destination` (project-recovery.ts:45) compares the strings and refuses it,
+    /// where a case-folded comparison would restore over the file.
     #[test]
-    fn a_destination_unlike_its_lone_relpath_is_refused_as_node_refuses_it() {
-        let (_project, _base, root, store, id, _case) = node_lone_path_record(|raw| raw.replace(r#"\\b\ud83d.txt"#, r#"\\b\ufffd.txt"#));
+    fn a_destination_in_another_case_than_its_relpath_is_refused() {
+        let (_project, _base, root, store, id, _case) =
+            node_record("project-recovery", "a.txt", |raw| raw.replacen(r#""relPath":"src/a.txt""#, r#""relPath":"src/A.txt""#, 1));
         let inspected = store.execute(&root, Action::Inspect { id: id.clone() }).unwrap().detail.unwrap();
         let restored = store.execute(&root, Action::Restore { id, revision: inspected.revision.clone() });
         assert!(restored.as_ref().map_or(true, |done| serde_json::to_value(&done.detail).unwrap()["phase"] != "recovered"), "{restored:?}");
-        assert_eq!(fs::read_to_string(root.join("src").join("b\u{fffd}.txt")).unwrap(), "after\n");
+        assert_eq!(fs::read_to_string(root.join("src").join("a.txt")).unwrap(), "after\n");
     }
 
-    /// Node's `project-recovery-lone-path` record, moved onto a fresh project root (its scratch root and identities replaced,
-    /// every other byte as Node wrote it, then `edit`ed), with the file it names holding the edit's bytes.
+    /// Node's record of case `name`, moved onto a fresh project root (its scratch root and identities replaced, every other
+    /// byte as Node wrote it, then `edit`ed), with `src/<file>` holding the record's after bytes.
     #[allow(clippy::type_complexity)]
-    fn node_lone_path_record(edit: impl Fn(String) -> String) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, RecoveryStore, String, Value) {
+    fn node_record(name: &str, file: &str, edit: impl Fn(String) -> String) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, RecoveryStore, String, Value) {
         let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
         let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "project-recovery-lone-path").unwrap();
-        let node_record = set.join("project-recovery-lone-path/before/record");
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
+        let node_record = set.join(name).join("before/record");
         let raw = String::from_utf8(fs::read(node_record.join("manifest.json")).unwrap()).unwrap();
-        assert!(raw.contains("\\ud83d"), "Node's manifest holds the escape");
         // The record names Node's scratch root and its identities: moved onto this test's root, every other byte as Node wrote it.
         let node_manifest = &case["before"]["record/manifest.json"];
         let project = tempfile::tempdir().unwrap();
         let root = canonical(project.path()).unwrap();
         fs::create_dir(root.join("src")).unwrap();
-        fs::write(root.join("src").join("b\u{fffd}.txt"), "after\n").unwrap();
+        fs::write(root.join("src").join(file), "after\n").unwrap();
         let escaped = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap().trim_matches('"').to_owned();
         let node_root = serde_json::to_string(node_manifest["root"].as_str().unwrap()).unwrap().trim_matches('"').to_owned();
         let identity = |path: &Path| serde_json::to_value(identity_of(path).unwrap()).unwrap();

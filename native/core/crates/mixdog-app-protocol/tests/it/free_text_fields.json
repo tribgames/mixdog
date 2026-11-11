@@ -1,0 +1,2526 @@
+{
+ "$comment": "Every string field of every client request, client notification and answer to a server request that is not a free-text field (src/free_text.rs FREE_TEXT): a lone surrogate there refuses the frame. `*` is any one segment, a trailing `**` any rest (an untyped value). A new string field fails the contract test until it is listed here or in FREE_TEXT.",
+ "refused": {
+  "request": {
+   "initialize": [
+    "/capabilities/optOutNotificationMethods/*",
+    "/clientInfo/build",
+    "/clientInfo/kind",
+    "/clientInfo/name",
+    "/clientInfo/title",
+    "/clientInfo/version"
+   ],
+   "app/subscribe": [
+    "/resumeFrom/epoch"
+   ],
+   "feed/subscribe": [
+    "/feedId",
+    "/resumeFrom/epoch"
+   ],
+   "feed/unsubscribe": [
+    "/feedId"
+   ],
+   "op/status": [
+    "/opIds/*",
+    "/scope"
+   ],
+   "blob/read": [
+    "/digest"
+   ],
+   "blob/put": [
+    "/bytesB64",
+    "/digest"
+   ],
+   "feedback/upload": [
+    "/input/**",
+    "/opId"
+   ],
+   "approval/provideSecret": [
+    "/opId",
+    "/requestId",
+    "/secret"
+   ],
+   "channel/call": [
+    "/args/**",
+    "/name",
+    "/opId"
+   ],
+   "route/set": [
+    "/agentId",
+    "/opId",
+    "/route/**",
+    "/threadId"
+   ],
+   "fast/set": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/start": [
+    "/draft/orchestrationMode",
+    "/draft/projectPath",
+    "/draft/route/effort",
+    "/draft/route/fallbacks/*/**",
+    "/draft/route/model",
+    "/draft/route/modelParameters/*",
+    "/draft/route/provider",
+    "/draft/workflowId",
+    "/draft/worktree/**",
+    "/initialInput/options/clientSubmissionId",
+    "/initialInput/options/context",
+    "/initialInput/options/goalCommand",
+    "/initialInput/options/pastedImages/*/attachmentRef",
+    "/initialInput/options/pastedImages/*/content",
+    "/initialInput/options/pastedImages/*/filename",
+    "/initialInput/options/pastedImages/*/mediaType",
+    "/initialInput/options/pastedImages/*/metadataText",
+    "/initialInput/options/pastedImages/*/originalMediaType",
+    "/initialInput/options/pastedImages/*/originalRef",
+    "/initialInput/options/pastedImages/*/sourcePath",
+    "/initialInput/options/pastedImages/*/type",
+    "/initialInput/options/pastedTexts/*/attachmentRef",
+    "/initialInput/options/pastedTexts/*/filename",
+    "/initialInput/options/pastedTexts/*/mimeType",
+    "/initialInput/options/pastedTexts/*/source",
+    "/initialInput/options/priority",
+    "/initialInput/options/retryAttemptId",
+    "/initialInput/options/retryTurnId",
+    "/initialInput/prompt/*/attachmentRef",
+    "/initialInput/prompt/*/data",
+    "/initialInput/prompt/*/filename",
+    "/initialInput/prompt/*/mimeType",
+    "/initialInput/prompt/*/textKind",
+    "/initialInput/prompt/*/type",
+    "/kind",
+    "/opId",
+    "/projectPath",
+    "/session/approvalMode",
+    "/session/toolMode",
+    "/session/toolProfile"
+   ],
+   "thread/resume": [
+    "/resumeFrom/epoch",
+    "/threadId"
+   ],
+   "thread/unsubscribe": [
+    "/threadId"
+   ],
+   "thread/list": [
+    "/cursor",
+    "/cwd",
+    "/searchTerm",
+    "/sortDirection",
+    "/sortKey"
+   ],
+   "thread/read": [
+    "/threadId"
+   ],
+   "thread/turns/list": [
+    "/cursor",
+    "/sortDirection",
+    "/threadId"
+   ],
+   "thread/items/list": [
+    "/cursor",
+    "/cursor/itemId",
+    "/cursor/type",
+    "/sortDirection",
+    "/threadId",
+    "/turnId"
+   ],
+   "thread/items/read": [
+    "/itemIds/*",
+    "/threadId",
+    "/turnId"
+   ],
+   "thread/attachment/list": [
+    "/cursor",
+    "/threadId"
+   ],
+   "thread/modelMessages/list": [
+    "/threadId"
+   ],
+   "thread/finalAnswer/read": [
+    "/threadId"
+   ],
+   "thread/readState/update": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/search": [
+    "/query"
+   ],
+   "thread/name/set": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/metadata/update": [
+    "/opId",
+    "/projectPath",
+    "/threadId"
+   ],
+   "thread/archive": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/unarchive": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/delete": [
+    "/ifIdle/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/fork": [
+    "/intoThreadId",
+    "/opId",
+    "/route/effort",
+    "/route/fallbacks/*/**",
+    "/route/model",
+    "/route/modelParameters/*",
+    "/route/provider",
+    "/threadId"
+   ],
+   "thread/continueInModel": [
+    "/opId",
+    "/route/effort",
+    "/route/fallbacks/*/**",
+    "/route/model",
+    "/route/modelParameters/*",
+    "/route/provider",
+    "/threadId"
+   ],
+   "thread/rewind": [
+    "/itemId",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/clear": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/compact/start": [
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "thread/queue/delete": [
+    "/currentText",
+    "/opId",
+    "/queuedId",
+    "/submissionId",
+    "/threadId"
+   ],
+   "thread/approval/answerNotification": [
+    "/action",
+    "/approvalId",
+    "/threadId"
+   ],
+   "thread/approval/answer": [
+    "/approvalId",
+    "/result/**",
+    "/threadId"
+   ],
+   "thread/goal/set": [
+    "/goal/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/goal/clear": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/goal/control": [
+    "/action",
+    "/args/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/quotaResume/schedule": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/quotaResume/cancel": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/backgroundTerminals/terminate": [
+    "/opId",
+    "/taskId",
+    "/threadId"
+   ],
+   "thread/backgroundTerminals/release": [
+    "/opId",
+    "/taskId",
+    "/threadId"
+   ],
+   "thread/backgroundTerminals/clean": [
+    "/opId",
+    "/threadId"
+   ],
+   "turn/start": [
+    "/input/options/clientSubmissionId",
+    "/input/options/context",
+    "/input/options/goalCommand",
+    "/input/options/pastedImages/*/attachmentRef",
+    "/input/options/pastedImages/*/content",
+    "/input/options/pastedImages/*/filename",
+    "/input/options/pastedImages/*/mediaType",
+    "/input/options/pastedImages/*/metadataText",
+    "/input/options/pastedImages/*/originalMediaType",
+    "/input/options/pastedImages/*/originalRef",
+    "/input/options/pastedImages/*/sourcePath",
+    "/input/options/pastedImages/*/type",
+    "/input/options/pastedTexts/*/attachmentRef",
+    "/input/options/pastedTexts/*/filename",
+    "/input/options/pastedTexts/*/mimeType",
+    "/input/options/pastedTexts/*/source",
+    "/input/options/priority",
+    "/input/options/retryAttemptId",
+    "/input/options/retryTurnId",
+    "/input/prompt/*/attachmentRef",
+    "/input/prompt/*/data",
+    "/input/prompt/*/filename",
+    "/input/prompt/*/mimeType",
+    "/input/prompt/*/textKind",
+    "/input/prompt/*/type",
+    "/opId",
+    "/threadId"
+   ],
+   "turn/interrupt": [
+    "/submissionId",
+    "/threadId",
+    "/turnId"
+   ],
+   "turn/steer": [
+    "/expectedTurnId",
+    "/queuedId",
+    "/threadId"
+   ],
+   "turn/retryFailed": [
+    "/opId",
+    "/threadId",
+    "/turnKey"
+   ],
+   "thread/contextStatus": [
+    "/options/**",
+    "/threadId"
+   ],
+   "thread/getSessionUsage": [
+    "/options/**",
+    "/threadId"
+   ],
+   "thread/getSessionWorktreeWork": [
+    "/input/**",
+    "/threadId"
+   ],
+   "thread/inheritancePreflight": [
+    "/selection/**",
+    "/sourceThreadId",
+    "/threadId"
+   ],
+   "thread/listShellJobs": [
+    "/threadId"
+   ],
+   "thread/listStoppableShellJobs": [
+    "/threadId"
+   ],
+   "thread/getBranchMenu": [
+    "/threadId"
+   ],
+   "thread/askSide": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/cancelSide": [
+    "/opId",
+    "/targetThreadId",
+    "/threadId"
+   ],
+   "thread/agentControl": [
+    "/args/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/switchContext": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/setCwd": [
+    "/opId",
+    "/path",
+    "/threadId"
+   ],
+   "thread/setEffort": [
+    "/opId",
+    "/options/**",
+    "/threadId",
+    "/value"
+   ],
+   "thread/setToolMode": [
+    "/mode",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/setWorkflow": [
+    "/opId",
+    "/options/**",
+    "/threadId",
+    "/workflowId"
+   ],
+   "thread/setOrchestrationMode": [
+    "/mode",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "thread/setOutputStyle": [
+    "/opId",
+    "/threadId",
+    "/value"
+   ],
+   "thread/revertTurnReview": [
+    "/checkpointId",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/revertTurnReviewFile": [
+    "/checkpointId",
+    "/file",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/revertTurnChanges": [
+    "/checkpointId",
+    "/file/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/reapplyTurnChanges": [
+    "/checkpointId",
+    "/file/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/clearSessionChangeHistory": [
+    "/opId",
+    "/threadId"
+   ],
+   "thread/stageAttachmentOriginal": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/resizeImage": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/pushNotice": [
+    "/level",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/requestWorktree": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/mergeWorkspace": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "thread/selectBranch": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/inspectProjectBranch": [
+    "/input/**",
+    "/threadId"
+   ],
+   "project/getProjectBranchMenu": [
+    "/input/**",
+    "/threadId"
+   ],
+   "project/getProjectConnectors": [
+    "/projectPath",
+    "/threadId"
+   ],
+   "project/listWorktrees": [
+    "/threadId"
+   ],
+   "project/previewWorktreeCleanup": [
+    "/input/**",
+    "/threadId"
+   ],
+   "project/selectProjectBranch": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/mergeProjectBranch": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/manageProjectBranch": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/removeWorktree": [
+    "/input/**",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "project/pruneWorktrees": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/deleteWorktree": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/setArchivedSessionWorktrees": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "project/setProjectConnectorEnabled": [
+    "/connectorId",
+    "/opId",
+    "/options/**",
+    "/projectPath",
+    "/threadId"
+   ],
+   "agent/agentDefinitionPresence": [
+    "/agentIds/*",
+    "/threadId"
+   ],
+   "agent/archivedAgentIdentities": [
+    "/agentIds/*",
+    "/threadId"
+   ],
+   "agent/getAgentDefinition": [
+    "/agentId",
+    "/threadId"
+   ],
+   "agent/getAgentAvatarImage": [
+    "/agentId",
+    "/threadId"
+   ],
+   "agent/getAgentConnectors": [
+    "/agentId",
+    "/threadId"
+   ],
+   "agent/getAgentAlwaysAllowedTools": [
+    "/agentId",
+    "/threadId"
+   ],
+   "agent/getAgentConnectorTools": [
+    "/agentId",
+    "/threadId"
+   ],
+   "agent/getAgentPermissions": [
+    "/agentId",
+    "/threadId"
+   ],
+   "agent/getLeadPersona": [
+    "/threadId"
+   ],
+   "agent/getLeadAgentBody": [
+    "/threadId"
+   ],
+   "agent/getLeadStatus": [
+    "/threadId"
+   ],
+   "agent/getLeadHomeRoute": [
+    "/threadId"
+   ],
+   "agent/getLeadAppearance": [
+    "/threadId"
+   ],
+   "agent/saveAgentDefinition": [
+    "/opId",
+    "/options/**",
+    "/payload/**",
+    "/threadId"
+   ],
+   "agent/deleteAgentDefinition": [
+    "/agentId",
+    "/opId",
+    "/threadId"
+   ],
+   "agent/restoreAgentDefinition": [
+    "/agentId",
+    "/opId",
+    "/threadId"
+   ],
+   "agent/purgeAgentDefinition": [
+    "/agentId",
+    "/opId",
+    "/threadId"
+   ],
+   "agent/setAgentConnectors": [
+    "/agentId",
+    "/connectors/**",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "agent/setAgentConnectorEnabled": [
+    "/agentId",
+    "/connectorId",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "agent/setAgentConnectorToolPermission": [
+    "/agentId",
+    "/connectorId",
+    "/opId",
+    "/options/**",
+    "/permission/**",
+    "/threadId",
+    "/toolName"
+   ],
+   "agent/setAgentPermission": [
+    "/action",
+    "/agentId",
+    "/mode",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "agent/recordAgentApprovalAudit": [
+    "/action",
+    "/agentId",
+    "/decision",
+    "/opId",
+    "/threadId"
+   ],
+   "agent/saveLeadPersona": [
+    "/opId",
+    "/threadId"
+   ],
+   "agent/saveLeadAgentBody": [
+    "/opId",
+    "/threadId"
+   ],
+   "agent/setLeadCreated": [
+    "/opId",
+    "/threadId"
+   ],
+   "agent/saveLeadIdentity": [
+    "/opId",
+    "/payload/**",
+    "/threadId"
+   ],
+   "agent/setLeadAppearance": [
+    "/avatar/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/getBotOrder": [
+    "/threadId"
+   ],
+   "config/setBotOrder": [
+    "/opId",
+    "/order/*",
+    "/threadId"
+   ],
+   "agent/home/open": [
+    "/agentId",
+    "/opId"
+   ],
+   "agent/home/reset": [
+    "/agentId",
+    "/opId"
+   ],
+   "agent/memory/list": [
+    "/agentId"
+   ],
+   "agent/memory/delete": [
+    "/agentId",
+    "/entryId",
+    "/indexRevision/**",
+    "/opId"
+   ],
+   "room/create": [
+    "/input/**",
+    "/opId"
+   ],
+   "room/update": [
+    "/input/**",
+    "/opId"
+   ],
+   "room/continue": [
+    "/input/**",
+    "/opId"
+   ],
+   "room/leave": [
+    "/input/**",
+    "/opId"
+   ],
+   "room/reset": [
+    "/input/**",
+    "/opId"
+   ],
+   "room/remove": [
+    "/input/**",
+    "/opId"
+   ],
+   "instructions/listInstructionFiles": [
+    "/threadId"
+   ],
+   "instructions/getInstructionFile": [
+    "/group",
+    "/id",
+    "/threadId"
+   ],
+   "instructions/saveInstructionFile": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "instructions/resetInstructionFile": [
+    "/expectedRevision/**",
+    "/group",
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "instructions/setInstructionFiles": [
+    "/mode",
+    "/opId",
+    "/threadId"
+   ],
+   "connector/listConnectorTools": [
+    "/connectorId",
+    "/threadId"
+   ],
+   "connector/addConnectorAccount": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/getAutoClear": [
+    "/threadId"
+   ],
+   "config/getCacheWarmingSettings": [
+    "/threadId"
+   ],
+   "config/getCompactionSettings": [
+    "/threadId"
+   ],
+   "config/getDeveloperSettings": [
+    "/threadId"
+   ],
+   "config/getOutputStyle": [
+    "/threadId"
+   ],
+   "config/getOrchestrationMode": [
+    "/threadId"
+   ],
+   "config/getConfiguredOrchestrationMode": [
+    "/threadId"
+   ],
+   "config/getProfile": [
+    "/threadId"
+   ],
+   "config/getRecapSettings": [
+    "/threadId"
+   ],
+   "config/getSessionTitleSettings": [
+    "/threadId"
+   ],
+   "config/getHeartbeatSettings": [
+    "/threadId"
+   ],
+   "config/getReactionSettings": [
+    "/threadId"
+   ],
+   "config/getSystemShell": [
+    "/threadId"
+   ],
+   "config/getTheme": [
+    "/threadId"
+   ],
+   "config/getToolModuleSettings": [
+    "/threadId"
+   ],
+   "config/getUpdateSettings": [
+    "/threadId"
+   ],
+   "config/getWorktreeSettings": [
+    "/threadId"
+   ],
+   "config/listOutputStyles": [
+    "/threadId"
+   ],
+   "config/getNetworkProxy": [
+    "/options/**",
+    "/threadId"
+   ],
+   "config/testNetworkProxy": [
+    "/options/**",
+    "/threadId"
+   ],
+   "config/getWorkflowPack": [
+    "/threadId",
+    "/workflowId"
+   ],
+   "config/isSetupRequestActive": [
+    "/id",
+    "/owner",
+    "/threadId"
+   ],
+   "config/setAutoUpdate": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setCacheWarmingEnabled": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setRecapEnabled": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setAiSessionTitles": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setHeartbeatEnabled": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setReactionsEnabled": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setWebSearchEnabled": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setMemoryToolsEnabled": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setAutoClear": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setCompactionSettings": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setDeveloperOption": [
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setProfile": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setHeartbeatInterval": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/setSystemShell": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setTheme": [
+    "/id",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "config/setWebSearchRoute": [
+    "/next/**",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setAutoEffortBase": [
+    "/level",
+    "/opId",
+    "/threadId"
+   ],
+   "config/setBuiltinToolEnabled": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "config/installBuiltinFeature": [
+    "/name",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "config/setWorktreeSettings": [
+    "/opId",
+    "/patch/**",
+    "/threadId"
+   ],
+   "config/setNetworkProxy": [
+    "/opId",
+    "/options/**",
+    "/patch/**",
+    "/threadId"
+   ],
+   "config/saveWorkflowPack": [
+    "/opId",
+    "/payload/**",
+    "/threadId"
+   ],
+   "config/createWorkflow": [
+    "/opId",
+    "/payload/**",
+    "/threadId"
+   ],
+   "config/deleteWorkflow": [
+    "/opId",
+    "/threadId",
+    "/workflowId"
+   ],
+   "config/setModelPreferences": [
+    "/changes/**",
+    "/opId",
+    "/providerId",
+    "/threadId"
+   ],
+   "config/skipOnboarding": [
+    "/opId",
+    "/threadId"
+   ],
+   "config/completeOnboarding": [
+    "/opId",
+    "/payload/**",
+    "/threadId"
+   ],
+   "config/saveStarterGuideState": [
+    "/opId",
+    "/state/**",
+    "/threadId"
+   ],
+   "config/claimSetupRequest": [
+    "/id",
+    "/opId",
+    "/owner",
+    "/threadId"
+   ],
+   "config/completeSetupRequest": [
+    "/id",
+    "/opId",
+    "/owner",
+    "/receipt/**",
+    "/threadId"
+   ],
+   "config/setExtensionScope": [
+    "/kind",
+    "/name",
+    "/opId",
+    "/projects/*",
+    "/threadId"
+   ],
+   "config/read": [
+    "/keys/*"
+   ],
+   "config/value/write": [
+    "/announce",
+    "/mode",
+    "/opId",
+    "/path",
+    "/value/**"
+   ],
+   "config/batchWrite": [
+    "/edits/*/mode",
+    "/edits/*/path",
+    "/edits/*/value/**",
+    "/opId"
+   ],
+   "channel/getChannelSettings": [
+    "/options/**",
+    "/threadId"
+   ],
+   "channel/getChannelSetup": [
+    "/threadId"
+   ],
+   "channel/getChannelWorkerStatus": [
+    "/threadId"
+   ],
+   "channel/setWebhookConfig": [
+    "/opId",
+    "/patch/**",
+    "/threadId"
+   ],
+   "channel/saveSchedule": [
+    "/entry/**",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/deleteSchedule": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/setScheduleEnabled": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/runScheduleNow": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/runWebhookNow": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/retryRoutineDelivery": [
+    "/kind",
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/testWebhook": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/saveWebhook": [
+    "/entry/**",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/deleteWebhook": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "channel/setWebhookEnabled": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "import/getConversationImportJobs": [
+    "/params/**",
+    "/threadId"
+   ],
+   "import/listImportableConversations": [
+    "/params/**",
+    "/threadId"
+   ],
+   "import/startConversationImport": [
+    "/opId",
+    "/params/**",
+    "/threadId"
+   ],
+   "import/cancelConversationImport": [
+    "/opId",
+    "/params/**",
+    "/threadId"
+   ],
+   "import/registerConversationImportFile": [
+    "/opId",
+    "/params/**",
+    "/threadId"
+   ],
+   "media/getMediaDefault": [
+    "/kind",
+    "/threadId"
+   ],
+   "media/getMediaJob": [
+    "/id",
+    "/threadId"
+   ],
+   "media/getMediaPins": [
+    "/threadId"
+   ],
+   "media/listMediaAssets": [
+    "/options/**",
+    "/threadId"
+   ],
+   "media/listMediaBoards": [
+    "/threadId"
+   ],
+   "media/listMediaLanes": [
+    "/options/**",
+    "/threadId"
+   ],
+   "media/readMediaAsset": [
+    "/id",
+    "/options/**",
+    "/threadId"
+   ],
+   "media/resolveMediaFile": [
+    "/id",
+    "/options/**",
+    "/threadId"
+   ],
+   "media/startMediaJob": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "media/cancelMediaJob": [
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "media/deleteMediaAsset": [
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "media/deleteMediaAssets": [
+    "/filter/**",
+    "/opId",
+    "/threadId"
+   ],
+   "media/createMediaBoard": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "media/renameMediaBoard": [
+    "/id",
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "media/deleteMediaBoard": [
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "media/setMediaAssetBoard": [
+    "/boardId/**",
+    "/ids/*",
+    "/opId",
+    "/threadId"
+   ],
+   "media/setMediaDefault": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "media/setMediaPin": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "media/cacheMediaThumbnail": [
+    "/id",
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "media/openMediaAsset": [
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "media/openMediaFolder": [
+    "/id",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/getMcpServerConfig": [
+    "/name",
+    "/threadId"
+   ],
+   "mcp/getMcpOAuthLoginStatus": [
+    "/flowId",
+    "/options/**",
+    "/threadId"
+   ],
+   "mcp/mcpStatus": [
+    "/threadId"
+   ],
+   "mcp/addMcpServer": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/saveMcpServer": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/removeMcpServer": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/setMcpServerEnabled": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/reconnectMcp": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/beginMcpOAuthLogin": [
+    "/name",
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "mcp/cancelMcpOAuthLogin": [
+    "/flowId",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/completeMcpOAuthLogin": [
+    "/callbackUrl",
+    "/flowId",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/signOutMcpServer": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/probeMcpServerAuth": [
+    "/cfg/**",
+    "/opId",
+    "/threadId"
+   ],
+   "mcp/enablePluginMcp": [
+    "/opId",
+    "/plugin/**",
+    "/threadId"
+   ],
+   "account/getOAuthProviderLoginStatus": [
+    "/flowId",
+    "/threadId"
+   ],
+   "account/listWebSearchModels": [
+    "/options/**",
+    "/threadId"
+   ],
+   "account/getQuotaHistory": [
+    "/options/**",
+    "/threadId"
+   ],
+   "account/authenticateProvider": [
+    "/opId",
+    "/providerId",
+    "/secret",
+    "/threadId"
+   ],
+   "account/beginOAuthProviderLogin": [
+    "/opId",
+    "/options/**",
+    "/providerId",
+    "/threadId"
+   ],
+   "account/completeOAuthProviderLogin": [
+    "/callbackUrl",
+    "/flowId",
+    "/opId",
+    "/threadId"
+   ],
+   "account/cancelOAuthProviderLogin": [
+    "/flowId",
+    "/opId",
+    "/threadId"
+   ],
+   "account/loginOAuthProvider": [
+    "/opId",
+    "/providerId",
+    "/threadId"
+   ],
+   "account/forgetProviderAuth": [
+    "/accountId",
+    "/opId",
+    "/providerId",
+    "/threadId"
+   ],
+   "account/updateProviderAccounts": [
+    "/change/**",
+    "/opId",
+    "/providerId",
+    "/threadId"
+   ],
+   "account/saveProviderApiKey": [
+    "/opId",
+    "/options/**",
+    "/providerId",
+    "/secret",
+    "/threadId"
+   ],
+   "account/saveCustomProvider": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "account/saveCustomProviderKey": [
+    "/opId",
+    "/providerId",
+    "/secret",
+    "/threadId"
+   ],
+   "account/removeCustomProvider": [
+    "/opId",
+    "/providerId",
+    "/threadId"
+   ],
+   "account/updateCustomProviderModel": [
+    "/modelId",
+    "/opId",
+    "/patch/**",
+    "/providerId",
+    "/threadId"
+   ],
+   "account/testCustomProvider": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "account/checkCustomProviderKeyEnv": [
+    "/name",
+    "/opId",
+    "/threadId"
+   ],
+   "account/discoverCustomProviderModels": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "account/saveOpenAIUsageSessionKey": [
+    "/opId",
+    "/secret",
+    "/threadId"
+   ],
+   "account/consumeCodexRateLimitResetCredit": [
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "account/refreshProviderSetup": [
+    "/opId",
+    "/renewCredential"
+   ],
+   "localProvider/searchLocalProviderModels": [
+    "/query",
+    "/threadId"
+   ],
+   "localProvider/inspectHuggingFaceModel": [
+    "/options/**",
+    "/threadId"
+   ],
+   "localProvider/getLocalProviderModelDetails": [
+    "/modelId",
+    "/threadId"
+   ],
+   "localProvider/installLocalProviderModel": [
+    "/modelId",
+    "/opId",
+    "/threadId"
+   ],
+   "localProvider/startLocalProviderInstallation": [
+    "/modelId",
+    "/opId",
+    "/phase",
+    "/threadId"
+   ],
+   "localProvider/cancelLocalProviderInstallation": [
+    "/jobId",
+    "/opId",
+    "/threadId"
+   ],
+   "localProvider/discardLocalProviderInstallation": [
+    "/modelId",
+    "/opId",
+    "/phase",
+    "/threadId"
+   ],
+   "localProvider/setLocalProviderIdleTtl": [
+    "/opId",
+    "/threadId"
+   ],
+   "localProvider/setLocalProviderContext": [
+    "/modelId",
+    "/opId",
+    "/threadId"
+   ],
+   "localProvider/registerHuggingFaceModel": [
+    "/opId",
+    "/previewId",
+    "/threadId"
+   ],
+   "localProvider/startLocalProviderModelMaintenance": [
+    "/modelId",
+    "/opId",
+    "/operation",
+    "/threadId"
+   ],
+   "localProvider/deleteLocalProviderModel": [
+    "/confirmationToken",
+    "/opId",
+    "/threadId"
+   ],
+   "usage/getUsageDashboard": [
+    "/options/**",
+    "/threadId"
+   ],
+   "usage/getUsageStats": [
+    "/options/**",
+    "/threadId"
+   ],
+   "usage/getUsageRequests": [
+    "/options/**",
+    "/threadId"
+   ],
+   "update/getUpdateStatus": [
+    "/threadId"
+   ],
+   "update/checkForUpdate": [
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "update/runUpdateNow": [
+    "/opId",
+    "/threadId"
+   ],
+   "update/desktop/command": [
+    "/action",
+    "/opId"
+   ],
+   "voice/getVoiceStatus": [
+    "/threadId"
+   ],
+   "voice/toggleVoice": [
+    "/opId",
+    "/threadId"
+   ],
+   "voice/transcribeAudio": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "voice/prepareTranscription": [
+    "/opId",
+    "/threadId"
+   ],
+   "tidy/getTidyEngineStatus": [
+    "/threadId"
+   ],
+   "tidy/getTidyInstallStatus": [
+    "/threadId"
+   ],
+   "skills/skillsStatus": [
+    "/options/**",
+    "/threadId"
+   ],
+   "skills/skillContent": [
+    "/name",
+    "/threadId"
+   ],
+   "skills/getDisabledSkills": [
+    "/threadId"
+   ],
+   "skills/addSkill": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "skills/saveSkill": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "skills/removeSkill": [
+    "/input/**",
+    "/opId",
+    "/threadId"
+   ],
+   "skills/reloadSkills": [
+    "/opId",
+    "/threadId"
+   ],
+   "skills/setDisabledSkills": [
+    "/names/*",
+    "/opId",
+    "/threadId"
+   ],
+   "plugins/pluginsStatus": [
+    "/threadId"
+   ],
+   "plugins/addPlugin": [
+    "/opId",
+    "/source/**",
+    "/threadId"
+   ],
+   "plugins/updatePlugin": [
+    "/opId",
+    "/plugin/**",
+    "/threadId"
+   ],
+   "plugins/setPluginEnabled": [
+    "/opId",
+    "/plugin/**",
+    "/threadId"
+   ],
+   "plugins/removePlugin": [
+    "/opId",
+    "/plugin/**",
+    "/threadId"
+   ],
+   "plugins/reloadPlugins": [
+    "/opId",
+    "/threadId"
+   ],
+   "tools/toolsStatus": [
+    "/query",
+    "/snapshotUserMessage",
+    "/threadId"
+   ],
+   "memory/memoryControl": [
+    "/args/**",
+    "/opId",
+    "/threadId"
+   ],
+   "memory/recall": [
+    "/args/**",
+    "/opId",
+    "/query",
+    "/threadId"
+   ],
+   "diagnostics/runDoctor": [
+    "/opId",
+    "/options/**",
+    "/threadId"
+   ],
+   "project/read": [
+    "/path"
+   ],
+   "project/create": [
+    "/opId",
+    "/path"
+   ],
+   "project/touch": [
+    "/opId",
+    "/path"
+   ],
+   "project/update": [
+    "/alias/**",
+    "/opId",
+    "/path"
+   ],
+   "project/delete": [
+    "/opId",
+    "/path"
+   ],
+   "project/ensureDirectory": [
+    "/opId",
+    "/path"
+   ],
+   "project/directory": [
+    "/path"
+   ],
+   "project/recoveryDirectory": [
+    "/path"
+   ],
+   "project/codeGraph": [
+    "/mode",
+    "/path",
+    "/query"
+   ],
+   "projectFs/listDir": [
+    "/rel",
+    "/root"
+   ],
+   "projectFs/readText": [
+    "/accessToken",
+    "/readId",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/writeText": [
+    "/accessToken",
+    "/encoding",
+    "/expectedContent",
+    "/opId",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/writeTextBatch": [
+    "/files/**",
+    "/opId",
+    "/root"
+   ],
+   "projectFs/stat": [
+    "/accessToken",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/create": [
+    "/name",
+    "/opId",
+    "/relDir",
+    "/root"
+   ],
+   "projectFs/rename": [
+    "/newName",
+    "/opId",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/move": [
+    "/opId",
+    "/rel",
+    "/root",
+    "/targetDirRel"
+   ],
+   "projectFs/copy": [
+    "/opId",
+    "/rel",
+    "/root",
+    "/targetDirRel"
+   ],
+   "projectFs/trash": [
+    "/opId",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/entryPath": [
+    "/accessToken",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/readLocal": [
+    "/path"
+   ],
+   "projectFs/statLocal": [
+    "/paths/*"
+   ],
+   "projectFs/browseDirs": [
+    "/path"
+   ],
+   "projectFs/searchText": [
+    "/options/**",
+    "/root"
+   ],
+   "projectFs/replaceText": [
+    "/opId",
+    "/options/**",
+    "/relPaths/*",
+    "/root"
+   ],
+   "projectFs/recovery": [
+    "/action",
+    "/id",
+    "/opId",
+    "/revision",
+    "/root"
+   ],
+   "projectFs/backup/read": [
+    "/sourcePath"
+   ],
+   "projectFs/backup/write": [
+    "/expectedContent",
+    "/opId",
+    "/sourcePath"
+   ],
+   "projectFs/backup/delete": [
+    "/opId",
+    "/sourcePath"
+   ],
+   "projectFs/workspaceFile/read": [
+    "/workspaceFile"
+   ],
+   "projectFs/workspaceFile/write": [
+    "/folders/**",
+    "/opId",
+    "/workspaceFile"
+   ],
+   "projectFs/readEditorSettings": [
+    "/rel",
+    "/root",
+    "/workspaceFile"
+   ],
+   "projectFs/captureSnapshot": [
+    "/accessToken",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/localPageUrl": [
+    "/accessToken",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/previewFile": [
+    "/accessToken",
+    "/rel",
+    "/root"
+   ],
+   "projectFs/previewRange": [
+    "/accessToken",
+    "/rel",
+    "/root"
+   ],
+   "fs/watch": [
+    "/path",
+    "/watchId"
+   ],
+   "fs/unwatch": [
+    "/watchId"
+   ],
+   "search/start": [
+    "/consumer",
+    "/roots/*",
+    "/sessionId"
+   ],
+   "search/update": [
+    "/sessionId"
+   ],
+   "search/stop": [
+    "/sessionId"
+   ],
+   "transfer/beginRead": [
+    "/source/accessToken",
+    "/source/assetId",
+    "/source/attachmentId",
+    "/source/input/**",
+    "/source/kind",
+    "/source/path",
+    "/source/projectPath",
+    "/source/rel",
+    "/source/relPath",
+    "/source/root",
+    "/source/threadId"
+   ],
+   "transfer/beginZip": [
+    "/rel",
+    "/root"
+   ],
+   "transfer/readRange": [
+    "/rel",
+    "/root",
+    "/transferId",
+    "/version"
+   ],
+   "transfer/authorizeRead": [
+    "/purpose",
+    "/sessionId",
+    "/source/assetId",
+    "/source/attachmentId",
+    "/source/href",
+    "/source/itemId",
+    "/source/kind",
+    "/source/path",
+    "/source/rel"
+   ],
+   "transfer/redeemGrant": [
+    "/grantId"
+   ],
+   "transfer/finishRead": [
+    "/transferId"
+   ],
+   "transfer/endRead": [
+    "/transferId"
+   ],
+   "transfer/beginWrite": [
+    "/name",
+    "/opId",
+    "/rel",
+    "/root",
+    "/scope"
+   ],
+   "transfer/writeChunk": [
+    "/bytesB64",
+    "/transferId"
+   ],
+   "transfer/commit": [
+    "/opId",
+    "/transferId"
+   ],
+   "transfer/abort": [
+    "/transferId"
+   ],
+   "transfer/trash/info": [
+    "/path"
+   ],
+   "transfer/trash/entry": [
+    "/opId",
+    "/path",
+    "/rel"
+   ],
+   "transfer/grant/mint": [
+    "/path",
+    "/sessionId"
+   ],
+   "lsp/subscribe": [
+    "/root"
+   ],
+   "lsp/unsubscribe": [
+    "/root"
+   ],
+   "lsp/document": [
+    "/document/**",
+    "/projectPath",
+    "/root"
+   ],
+   "lsp/request": [
+    "/opId",
+    "/projectPath",
+    "/request/**",
+    "/root"
+   ],
+   "document/preview": [
+    "/options/**",
+    "/rel",
+    "/root"
+   ],
+   "document/previewPages": [
+    "/options/**",
+    "/rel",
+    "/root"
+   ],
+   "document/installLibreOffice": [
+    "/opId"
+   ],
+   "git/status": [
+    "/cwd"
+   ],
+   "git/branches": [
+    "/cwd"
+   ],
+   "git/log": [
+    "/cwd"
+   ],
+   "git/show": [
+    "/cwd",
+    "/hash"
+   ],
+   "git/showDiff": [
+    "/cwd",
+    "/hash",
+    "/path"
+   ],
+   "git/showFile": [
+    "/cwd",
+    "/path",
+    "/rev"
+   ],
+   "git/diff": [
+    "/cwd",
+    "/path"
+   ],
+   "git/stashList": [
+    "/cwd"
+   ],
+   "git/requestContext": [
+    "/cwd",
+    "/input/base",
+    "/input/paths/*"
+   ],
+   "git/watch": [
+    "/cwd"
+   ],
+   "git/unwatch": [
+    "/cwd"
+   ],
+   "git/stage": [
+    "/cwd",
+    "/opId",
+    "/paths/*"
+   ],
+   "git/unstage": [
+    "/cwd",
+    "/opId",
+    "/paths/*"
+   ],
+   "git/commit": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/commitPaths": [
+    "/cwd",
+    "/input/paths/*",
+    "/opId"
+   ],
+   "git/amend": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/undoLastCommit": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/push": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/pull": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/fetch": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/sync": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/stash": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/stashPop": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/stashApply": [
+    "/cwd",
+    "/opId",
+    "/ref"
+   ],
+   "git/stashDrop": [
+    "/cwd",
+    "/opId",
+    "/ref"
+   ],
+   "git/createTag": [
+    "/at",
+    "/cwd",
+    "/opId",
+    "/value"
+   ],
+   "git/deleteTag": [
+    "/cwd",
+    "/opId",
+    "/value"
+   ],
+   "git/deleteBranch": [
+    "/cwd",
+    "/input/branch",
+    "/opId"
+   ],
+   "git/renameBranch": [
+    "/cwd",
+    "/input/branch",
+    "/input/nextBranch",
+    "/opId"
+   ],
+   "git/resetToCommit": [
+    "/cwd",
+    "/mode",
+    "/opId",
+    "/value"
+   ],
+   "git/revertCommit": [
+    "/cwd",
+    "/opId",
+    "/value"
+   ],
+   "git/revertFile": [
+    "/cwd",
+    "/mode",
+    "/opId",
+    "/path"
+   ],
+   "git/cherryPickCommit": [
+    "/cwd",
+    "/opId",
+    "/value"
+   ],
+   "git/applyPatch": [
+    "/cwd",
+    "/opId",
+    "/patch",
+    "/path"
+   ],
+   "git/ignore": [
+    "/cwd",
+    "/opId",
+    "/path",
+    "/scope"
+   ],
+   "git/continue": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/abortOperation": [
+    "/cwd",
+    "/opId"
+   ],
+   "git/globalConfig/write": [
+    "/key",
+    "/opId",
+    "/value"
+   ],
+   "git/cli/install": [
+    "/opId"
+   ],
+   "github/login/start": [
+    "/opId"
+   ],
+   "github/login/status": [
+    "/flowId"
+   ],
+   "github/login/openBrowser": [
+    "/flowId",
+    "/opId"
+   ],
+   "github/login/cancel": [
+    "/flowId",
+    "/opId"
+   ],
+   "github/logout": [
+    "/opId"
+   ],
+   "github/install": [
+    "/opId"
+   ],
+   "github/request": [
+    "/cwd",
+    "/input/**",
+    "/opId"
+   ],
+   "github/star": [
+    "/opId"
+   ],
+   "github/pr/list": [
+    "/cwd"
+   ],
+   "github/pr/view": [
+    "/cwd",
+    "/value/**"
+   ],
+   "github/pr/diff": [
+    "/cwd",
+    "/value/**"
+   ],
+   "github/pr/defaultBranch": [
+    "/cwd"
+   ],
+   "github/pr/create": [
+    "/cwd",
+    "/opId",
+    "/value/**"
+   ],
+   "github/pr/checkout": [
+    "/cwd",
+    "/opId",
+    "/value/**"
+   ],
+   "github/pr/merge": [
+    "/cwd",
+    "/method/**",
+    "/opId",
+    "/value/**"
+   ],
+   "review/diff/get": [
+    "/checkpointId",
+    "/cursor",
+    "/cwd",
+    "/files/*/**",
+    "/known",
+    "/oldPath",
+    "/path",
+    "/scope",
+    "/source",
+    "/threadId"
+   ],
+   "process/spawn": [
+    "/argv/*",
+    "/cwd",
+    "/env/*",
+    "/opId",
+    "/outputMode",
+    "/owner/**",
+    "/processHandle",
+    "/shell"
+   ],
+   "process/kill": [
+    "/processHandle"
+   ],
+   "process/resizePty": [
+    "/processHandle"
+   ],
+   "process/writeStdin": [
+    "/bytesB64",
+    "/processHandle"
+   ],
+   "terminal/ensure": [
+    "/opId",
+    "/options/**",
+    "/tabId"
+   ],
+   "terminal/attach": [
+    "/resumeFrom/**",
+    "/tabId"
+   ],
+   "terminal/focus": [
+    "/tabId"
+   ],
+   "terminal/pause": [
+    "/tabId"
+   ],
+   "terminal/resume": [
+    "/tabId"
+   ],
+   "terminal/dispose": [
+    "/opId",
+    "/tabId"
+   ],
+   "remoteAccess/setEnabled": [
+    "/opId"
+   ],
+   "remoteAccess/setName": [
+    "/opId"
+   ],
+   "remoteAccess/setClientAlias": [
+    "/clientId",
+    "/opId"
+   ],
+   "remoteAccess/rotate": [
+    "/opId"
+   ],
+   "remoteAccess/resolveClaim": [
+    "/claimId",
+    "/opId"
+   ],
+   "remoteAccess/pairCode": [
+    "/action",
+    "/opId"
+   ],
+   "remoteAccess/revokeClient": [
+    "/clientId",
+    "/opId"
+   ],
+   "remoteAccess/settleOwedControllerKeys": [
+    "/input/**",
+    "/opId"
+   ],
+   "remoteAccess/deliverScreenControllerKey": [
+    "/input/**",
+    "/opId"
+   ],
+   "remoteAccess/registerPushSubscription": [
+    "/input/**",
+    "/opId"
+   ],
+   "remoteAccess/removePushSubscription": [
+    "/endpoint",
+    "/opId"
+   ],
+   "remoteAccess/registerNativePush": [
+    "/input/**",
+    "/opId"
+   ],
+   "remoteAccess/removeNativePush": [
+    "/opId",
+    "/token"
+   ],
+   "remoteAccess/activate": [
+    "/opId"
+   ],
+   "browser/command": [
+    "/action",
+    "/input/**"
+   ],
+   "visualize/command": [
+    "/action",
+    "/input/**"
+   ],
+   "notify/test": [
+    "/opId",
+    "/target"
+   ],
+   "ui/settings/announce": [
+    "/scope"
+   ],
+   "ui/providerModels/announce": [
+    "/origin"
+   ],
+   "host/claim": [
+    "/hostId"
+   ],
+   "host/state/set": [
+    "/key",
+    "/value/**",
+    "/value/*/active",
+    "/value/*/goneOpens/*/call",
+    "/value/*/goneOpens/*/tab",
+    "/value/*/history/*/id",
+    "/value/*/history/*/kind",
+    "/value/*/history/*/label",
+    "/value/*/sessionId",
+    "/value/*/tabs/*/annotations/*/label",
+    "/value/*/tabs/*/annotations/*/selector",
+    "/value/*/tabs/*/cwd",
+    "/value/*/tabs/*/id",
+    "/value/*/tabs/*/label",
+    "/value/*/tabs/*/panes/*/inline/kind",
+    "/value/*/tabs/*/panes/*/inline/source",
+    "/value/*/tabs/*/panes/*/inline/title",
+    "/value/*/tabs/*/panes/*/kind",
+    "/value/*/tabs/*/panes/*/label",
+    "/value/*/tabs/*/panes/*/path",
+    "/value/*/tabs/*/panes/*/remoteRenderId",
+    "/value/*/tabs/*/panes/*/remoteTarget",
+    "/value/*/tabs/*/panes/*/root",
+    "/value/*/tabs/*/panes/*/target",
+    "/value/*/tabs/*/problems/*/kind",
+    "/value/*/tabs/*/problems/*/message",
+    "/value/*/tabs/*/problems/*/source",
+    "/value/*/tabs/*/remoteLabel",
+    "/value/*/tabs/*/restoreAssets/*",
+    "/value/*/tabs/*/thumbnail",
+    "/value/*/tabs/*/versions/*/label",
+    "/value/openUrl",
+    "/value/sessionId",
+    "/value/state/active",
+    "/value/state/goneOpens/*/call",
+    "/value/state/goneOpens/*/tab",
+    "/value/state/history/*/id",
+    "/value/state/history/*/kind",
+    "/value/state/history/*/label",
+    "/value/state/sessionId",
+    "/value/state/tabs/*/annotations/*/label",
+    "/value/state/tabs/*/annotations/*/selector",
+    "/value/state/tabs/*/cwd",
+    "/value/state/tabs/*/id",
+    "/value/state/tabs/*/label",
+    "/value/state/tabs/*/panes/*/inline/kind",
+    "/value/state/tabs/*/panes/*/inline/source",
+    "/value/state/tabs/*/panes/*/inline/title",
+    "/value/state/tabs/*/panes/*/kind",
+    "/value/state/tabs/*/panes/*/label",
+    "/value/state/tabs/*/panes/*/path",
+    "/value/state/tabs/*/panes/*/remoteRenderId",
+    "/value/state/tabs/*/panes/*/remoteTarget",
+    "/value/state/tabs/*/panes/*/root",
+    "/value/state/tabs/*/panes/*/target",
+    "/value/state/tabs/*/problems/*/kind",
+    "/value/state/tabs/*/problems/*/message",
+    "/value/state/tabs/*/problems/*/source",
+    "/value/state/tabs/*/remoteLabel",
+    "/value/state/tabs/*/restoreAssets/*",
+    "/value/state/tabs/*/thumbnail",
+    "/value/state/tabs/*/versions/*/label",
+    "/value/tab",
+    "/value/updated"
+   ],
+   "host/remoteTarget/set": [
+    "/endpoint",
+    "/token"
+   ],
+   "browser/webrtcSignal": [
+    "/signal/**"
+   ],
+   "browser/stream": [
+    "/request/**",
+    "/sessionId"
+   ],
+   "modelProxy/run": [
+    "/allowedProviders/*",
+    "/call/method",
+    "/call/model",
+    "/call/provider",
+    "/call/request/messages/*/assistantBlocks/**",
+    "/call/request/messages/*/cacheTier",
+    "/call/request/messages/*/content",
+    "/call/request/messages/*/content/*/filename",
+    "/call/request/messages/*/content/*/mime_type",
+    "/call/request/messages/*/content/*/source/content/**",
+    "/call/request/messages/*/content/*/source/data",
+    "/call/request/messages/*/content/*/source/id",
+    "/call/request/messages/*/content/*/source/kind",
+    "/call/request/messages/*/content/*/source/media_type",
+    "/call/request/messages/*/content/*/source/mime_type",
+    "/call/request/messages/*/content/*/source/url",
+    "/call/request/messages/*/content/*/text",
+    "/call/request/messages/*/content/*/title",
+    "/call/request/messages/*/content/*/type",
+    "/call/request/messages/*/nativeToolSearch/**",
+    "/call/request/messages/*/phase",
+    "/call/request/messages/*/providerReplay/*/items/**",
+    "/call/request/messages/*/providerReplay/*/owner",
+    "/call/request/messages/*/role",
+    "/call/request/messages/*/source",
+    "/call/request/messages/*/thinkingBlocks/**",
+    "/call/request/messages/*/toolCallId",
+    "/call/request/messages/*/toolCalls/*/arguments/**",
+    "/call/request/messages/*/toolCalls/*/id",
+    "/call/request/messages/*/toolCalls/*/name",
+    "/call/request/messages/*/toolCalls/*/nativeType",
+    "/call/request/messages/*/turnReminder",
+    "/call/request/model",
+    "/call/request/options/effort",
+    "/call/request/options/effortProjection/initialEffort",
+    "/call/request/options/effortProjection/updates/*/1",
+    "/call/request/options/hostedTools/*/allowed_domains/*",
+    "/call/request/options/hostedTools/*/context_size",
+    "/call/request/options/hostedTools/*/kind",
+    "/call/request/options/hostedTools/*/tool_type",
+    "/call/request/options/hostedTools/*/user_location/city",
+    "/call/request/options/hostedTools/*/user_location/country",
+    "/call/request/options/hostedTools/*/user_location/region",
+    "/call/request/options/hostedTools/*/user_location/timezone",
+    "/call/request/options/modelParameters/**",
+    "/call/request/options/parentSessionId",
+    "/call/request/options/promptCacheKey",
+    "/call/request/options/promptCacheScope",
+    "/call/request/options/providerState/**",
+    "/call/request/options/requestKind",
+    "/call/request/options/sessionId",
+    "/call/request/options/thread/id",
+    "/call/request/options/thread/turn",
+    "/call/request/options/toolChoice",
+    "/call/request/options/verbosity",
+    "/call/request/options/xaiResponsesCacheScope",
+    "/call/request/tools/*/description",
+    "/call/request/tools/*/inputSchema/**",
+    "/call/request/tools/*/name",
+    "/runId"
+   ]
+  },
+  "notification": {
+   "terminal/input": [
+    "/tabId"
+   ],
+   "terminal/resize": [
+    "/tabId"
+   ],
+   "process/input": [
+    "/bytesB64",
+    "/processHandle"
+   ],
+   "host/power": [
+    "/event"
+   ],
+   "host/update/report": [
+    "/state/**"
+   ],
+   "host/browser/surface": [
+    "/error",
+    "/sessionId",
+    "/tabId",
+    "/title"
+   ],
+   "host/browser/page": [
+    "/documentId",
+    "/geometry/**",
+    "/tabId"
+   ],
+   "host/browser/frame": [
+    "/frame/**",
+    "/tabId"
+   ],
+   "browser/streamAck": [
+    "/sessionId"
+   ],
+   "host/notification/clicked": [
+    "/threadId"
+   ],
+   "model/proxy/event": [
+    "/event/call/arguments/**",
+    "/event/call/id",
+    "/event/call/name",
+    "/event/call/nativeType",
+    "/event/calls/*/arguments/**",
+    "/event/calls/*/id",
+    "/event/calls/*/name",
+    "/event/calls/*/nativeType",
+    "/event/delta",
+    "/event/id",
+    "/event/item",
+    "/event/kind",
+    "/event/message",
+    "/event/model",
+    "/event/name",
+    "/event/phase",
+    "/event/pricing_model",
+    "/event/replay/items/**",
+    "/event/replay/owner",
+    "/event/state/**",
+    "/event/stop/kind",
+    "/event/stop/value",
+    "/event/text",
+    "/event/type",
+    "/event/usage/raw/**",
+    "/event/value/**",
+    "/requestId"
+   ],
+   "model/proxy/heartbeat": [
+    "/requestIds/*"
+   ],
+   "modelProxy/cancel": [
+    "/runId"
+   ],
+   "ui/newTab/created": [
+    "/openRequestId",
+    "/pageId",
+    "/sessionId"
+   ],
+   "ui/terminalRun/claimed": [
+    "/requestId"
+   ],
+   "ui/screenSessions/changed": [
+    "/browserId",
+    "/sessionIds/*",
+    "/visualizeSessionIds/*"
+   ]
+  },
+  "answer": {
+   "host/browser/command": [
+    "/**"
+   ],
+   "host/browser/liveControl": [
+    "/**"
+   ],
+   "host/capture/fileSnapshot": [
+    "/dataUrl"
+   ],
+   "host/files/trashItem": [
+    "/**"
+   ],
+   "host/localPage/url": [
+    ""
+   ],
+   "host/screen/displays": [
+    "/**"
+   ],
+   "host/systemProxy/resolve": [
+    "/rules"
+   ],
+   "host/update/command": [
+    "/**"
+   ],
+   "host/visualize/command": [
+    "/**"
+   ],
+   "item/browser/requestApproval": [
+    "/answers/*/selected/*",
+    "/answers/*/text",
+    "/editedArgs/*",
+    "/reason",
+    "/remember",
+    "/reply",
+    "/response",
+    "/scope"
+   ],
+   "item/computer/requestApproval": [
+    "/answers/*/selected/*",
+    "/answers/*/text",
+    "/editedArgs/*",
+    "/reason",
+    "/remember",
+    "/reply",
+    "/response",
+    "/scope"
+   ],
+   "item/permissions/requestApproval": [
+    "/answers/*/selected/*",
+    "/answers/*/text",
+    "/editedArgs/*",
+    "/reason",
+    "/remember",
+    "/reply",
+    "/response",
+    "/scope"
+   ],
+   "item/tool/requestApproval": [
+    "/answers/*/selected/*",
+    "/answers/*/text",
+    "/editedArgs/*",
+    "/reason",
+    "/remember",
+    "/reply",
+    "/response",
+    "/scope"
+   ],
+   "item/tool/requestUserInput": [
+    "/answers/*/selected/*",
+    "/editedArgs/*",
+    "/reason",
+    "/remember",
+    "/response",
+    "/scope"
+   ],
+   "model/proxy/execute": [
+    "/result/failure/code",
+    "/result/failure/delivery",
+    "/result/failure/kind",
+    "/result/failure/message",
+    "/result/failure/notices/*/message",
+    "/result/failure/outcome/model",
+    "/result/failure/outcome/outcome",
+    "/result/failure/partialModel",
+    "/result/failure/partialUsage/raw/**",
+    "/result/failure/quotaLimit",
+    "/result/failure/quotaScope",
+    "/result/failure/rejectedTool",
+    "/result/failure/transport/fault",
+    "/result/failure/transport/transport",
+    "/result/failure/verificationUrl",
+    "/result/models/*/aliasTarget",
+    "/result/models/*/defaultReasoningLevel",
+    "/result/models/*/displayName",
+    "/result/models/*/id",
+    "/result/models/*/mode",
+    "/result/models/*/name",
+    "/result/models/*/picker/accessPrograms/*",
+    "/result/models/*/picker/additionalSpeedTiers/*",
+    "/result/models/*/picker/customReasoning/wireFormat",
+    "/result/models/*/picker/customReasoning/wireValues/*",
+    "/result/models/*/picker/defaultModelParameters/*",
+    "/result/models/*/picker/defaultServiceTier",
+    "/result/models/*/picker/description",
+    "/result/models/*/picker/fastEfforts/*",
+    "/result/models/*/picker/modelParameterOptions/*/id",
+    "/result/models/*/picker/modelParameterOptions/*/kind",
+    "/result/models/*/picker/modelParameterOptions/*/label",
+    "/result/models/*/picker/modelParameterOptions/*/options/*/label",
+    "/result/models/*/picker/modelParameterOptions/*/options/*/value",
+    "/result/models/*/picker/parameterVariants/*/*",
+    "/result/models/*/picker/reasoningOptions/*/type",
+    "/result/models/*/picker/reasoningOptions/*/values/*",
+    "/result/models/*/picker/releaseDate",
+    "/result/models/*/picker/serviceTiers/*/description",
+    "/result/models/*/picker/serviceTiers/*/id",
+    "/result/models/*/picker/serviceTiers/*/name",
+    "/result/models/*/picker/tier",
+    "/result/models/*/providerName",
+    "/result/models/*/raw/**",
+    "/result/models/*/reasoningContentField",
+    "/result/models/*/reasoningLevels/*",
+    "/result/models/*/wire",
+    "/result/models/*/wire/*",
+    "/result/providers/*/authState",
+    "/result/providers/*/hiddenModels/*",
+    "/result/providers/*/name",
+    "/result/providers/*/type",
+    "/result/result",
+    "/result/route/profileId",
+    "/result/route/source",
+    "/result/route/wire"
+   ]
+  }
+ }
+}

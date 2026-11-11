@@ -41,6 +41,29 @@ async fn an_unclaimed_method_is_capability_unavailable_naming_the_method() {
     assert_eq!(refused["error"]["data"]["capability"], "config/getNetworkProxy");
 }
 
+/// A notification holding a lone surrogate outside its free-text fields is dropped before its service (a `modelProxy/cancel`
+/// whose `runId` held one cancels nothing, not even a run whose id holds a real U+FFFD); terminal input, free text, reaches
+/// its service with U+FFFD.
+#[tokio::test]
+async fn a_notification_holding_a_lone_surrogate_outside_free_text_is_dropped() {
+    let rig = Rig::routed(&["modelProxy/cancel", "ui/screenSessions/changed", "terminal/input"], Vec::new());
+    let client = rig.ready(1, json!({}));
+    client.send_text(r#"{"method":"modelProxy/cancel","params":{"runId":"r\ud800"}}"#);
+    client.send_text(r#"{"method":"ui/screenSessions/changed","params":{"sessionIds":["a","b\ud800"]}}"#);
+    client.send_text(r#"{"method":"terminal/input","params":{"tabId":"t","data":"k\ud800"}}"#);
+    client.send_text(r#"{"method":"terminal/input","params":{"tabId":"t\udc00","data":"k"}}"#);
+    client.send_text(r#"{"method":"modelProxy/cancel","params":{"runId":"r\ufffd"}}"#);
+    let recorded: Vec<(String, serde_json::Value)> =
+        rig.core.mock.mock_domain().notifications().into_iter().map(|(method, params, _)| (method.as_str().to_owned(), params)).collect();
+    assert_eq!(
+        recorded,
+        [
+            ("terminal/input".to_owned(), json!({ "tabId": "t", "data": "k\u{fffd}" })),
+            ("modelProxy/cancel".to_owned(), json!({ "runId": "r\u{fffd}" })),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn a_notification_routes_by_exact_method_like_a_request() {
     let rig = Rig::routed(&["client/activity"], Vec::new());

@@ -31,6 +31,7 @@ use mixdog_app_protocol::Mutation;
 use mixdog_app_protocol::RequestClass;
 use mixdog_app_protocol::RequestId;
 use mixdog_app_protocol::decode_inbound_text;
+use mixdog_app_protocol::free_text;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::limits::LimitsViolation;
 use mixdog_app_protocol::v1;
@@ -359,9 +360,9 @@ impl Shared {
             self.reject(conn, &id, &data);
             return Inbound::Continue;
         }
-        if let Some(data) = merged_keys(&format!("{}.params", spec.method), &request.lone_surrogates) {
+        if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
             drop(slot);
-            self.reject(conn, &id, &data);
+            self.reject(conn, &id, &lone_refusal(&format!("{}.params", spec.method), at));
             return Inbound::Continue;
         }
         // The owner decodes its own params from the raw value; the table decode below only
@@ -888,14 +889,8 @@ impl Shared {
         let Some(session) = conn.session() else {
             return;
         };
-        if let Some(data) = merged_keys("result", &response.lone_surrogates) {
-            let _ = conn.sink.send_control(error_notification_frame(&data));
-            return;
-        }
         let JsonRpcResponse { id, result, lone_surrogates } = response;
-        // A `host/*` answer holding a replaced unit is a failure of that request: its text (an export's file path, proxy
-        // rules) would name something other than what the desktop meant. A decision keeps its text (decisions.md
-        // "frame-lone-surrogate": stored and shown as U+FFFD, compared with nothing).
+        // A `host/*` answer has no free-text field ([`free_text`]): one that held a lone surrogate fails its request.
         let (reply, decision) = if lone_surrogates.is_empty() {
             (Ok(result), None)
         } else {
@@ -913,9 +908,14 @@ impl Shared {
             return;
         };
         let request = ServerRequestId(id.to_string());
-        let Some(thread) = self.outgoing.owner_for_response(&request, conn.id) else {
+        let Some((thread, method)) = self.outgoing.owner_for_response(&request, conn.id) else {
             return;
         };
+        // A decision holding a lone surrogate outside its free-text fields decides nothing: the request stays open.
+        if let Some(at) = free_text::refused(free_text::Kind::Answer, method.as_str(), &lone_surrogates) {
+            let _ = conn.sink.send_control(error_notification_frame(&lone_refusal("result", at)));
+            return;
+        }
         let Some(handle) = self.core.threads().get(&thread) else {
             return;
         };
@@ -966,16 +966,13 @@ impl Shared {
         if spec.method == "initialized" {
             return Inbound::Continue;
         }
-        if let Some(data) = merged_keys(&format!("{}.params", spec.method), &notification.lone_surrogates) {
-            let _ = conn.sink.send_control(error_notification_frame(&data));
+        // A notification holding a lone surrogate outside its free-text fields is dropped: it has no effect.
+        if free_text::refused(free_text::Kind::Notification, spec.method, &notification.lone_surrogates).is_some() {
             return Inbound::Continue;
         }
         let Some(domain) = self.core.domain_for(spec.method) else {
             return Inbound::Continue;
         };
-        // The report of replaced values goes no further: no consumer compares a notification's text with text that can hold
-        // U+FFFD. Ids (screen sessions, new tab, terminal run, model proxy, browser page) are compared with ids the core minted,
-        // so a replaced one equals none, as Node's lone one equalled none; the rest is written (pty, log) or forwarded as text.
         let params = notification.params.unwrap_or(Value::Null);
         match domain.notify(Method(spec.method), params, conn.id) {
             Admit::Accepted => Inbound::Continue,
@@ -984,14 +981,12 @@ impl Shared {
     }
 }
 
-/// The refusal of a payload whose object held keys distinct on the wire that the core reads as one (lone surrogates read as
-/// U+FFFD): Node kept each key with its value, the core's object would keep one, so the message is refused instead of acted on
-/// with a value silently dropped (decisions.md "frame-lone-surrogate").
-fn merged_keys(what: &str, lone: &[mixdog_app_protocol::rpc::LoneAt]) -> Option<ErrorData> {
-    lone.iter().find(|at| matches!(at, mixdog_app_protocol::rpc::LoneAt::MergedKey(_))).map(|at| ErrorData::InvalidParams {
-        path: format!("{what}{}", at.pointer()),
-        expected: "keys that differ: these differ only in unpaired surrogates, which read as one U+FFFD".into(),
-    })
+/// The refusal of a frame that held a lone surrogate outside its free-text fields ([`free_text`]): no shipped client sends one
+/// there, so the frame is refused whole and nothing acts on it (decisions.md "frame-lone-surrogate"). `what` names the payload;
+/// a place outside it (the id) keeps its own pointer.
+fn lone_refusal(what: &str, at: &str) -> ErrorData {
+    let path = at.strip_prefix('#').map_or_else(|| format!("{what}{at}"), str::to_owned);
+    ErrorData::InvalidParams { path, expected: "text without unpaired surrogates (a lone \\ud800-\\udfff escape)".into() }
 }
 
 /// The answer for a method no service claims.

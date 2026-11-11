@@ -1014,9 +1014,7 @@ impl Transfers {
         // the root, is one `FileDownloadError('outside-project', ...)`.
         let outside = || WsError::denied("The file is outside the conversation's project.");
         let path = project_entry_path(root, rel).map_err(|_| outside())?;
-        // A download's name is opened by its canonical path in Node (file-downloads.ts `openRegularFile`: realpath first), which
-        // holds U+FFFD where the name held a lone surrogate, so Node serves it: never refused for one.
-        let opened = open_authorized_ro(&path, root, false).map_err(|error| if error.reason.code() == "MIXDOG_LOCAL_ACCESS_DENIED" { outside() } else { error })?;
+        let opened = open_authorized_ro(&path, root).map_err(|error| if error.reason.code() == "MIXDOG_LOCAL_ACCESS_DENIED" { outside() } else { error })?;
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         self.register(owner, opened.file, name, mime_type(&path), None)
     }

@@ -468,52 +468,173 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
         request.params,
         Some(json!({"a": "\u{fffd} \u{fffd} \u{fffd}\u{fffd} \u{1f600}", "\u{fffd}": {"n": ["\u{fffd}"]}}))
     );
-    // Where it happened, for the services that refuse a lone unit as Node does (a file save's content):
-    // the strings that held one, not the ones that hold a real U+FFFD.
-    // The places are a set a service looks a param up in; the order is the parsed map's.
+    // Where it happened, for the server's refusal of every place that is no free-text field: the strings that held one,
+    // not the ones that hold a real U+FFFD; a place outside the params (the method name) behind `#`.
+    // The places are a set; the order is the parsed map's.
     let mut named = request.lone_surrogates.clone();
     named.sort();
-    let mut expected = vec![LoneAt::Value("/a".into(), vec![0, 2, 4, 5]), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into(), vec![0])];
+    let mut expected =
+        vec![LoneAt::Value("#/method".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
     expected.sort();
     assert_eq!(named, expected);
     let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
-    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into(), vec![1])]);
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into())]);
     // Upper-case hex is the same escape; an escaped backslash before `u` is no escape; an escaped valid pair is one character.
     let frame = r#"{"id":3,"method":"m","params":["\uD83D x","\\ud83d","\uD83D\uDE00","\ud83d\u0041","\ud83d\ud83d\ude00"]}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
     assert_eq!(request.params, Some(json!(["\u{fffd} x", "\\ud83d", "\u{1f600}", "\u{fffd}A", "\u{fffd}\u{1f600}"])));
-    assert_eq!(request.lone_surrogates, [LoneAt::Value("/0".into(), vec![0]), LoneAt::Value("/3".into(), vec![0]), LoneAt::Value("/4".into(), vec![0])]);
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/0".into()), LoneAt::Value("/3".into()), LoneAt::Value("/4".into())]);
     let bad = decode_inbound_text(r#"{"id":1,"method":"\ud800"#, 1 << 20);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
 }
 
 /// Every inbound kind keeps where its payload held a lone unit: a notification (no id) its `params`, a client's answer its
-/// `result`, an error answer its `error`. Keys distinct on the wire that the core reads as one are told apart from a key
-/// that merely held one, so the server refuses the merge instead of keeping one value where Node kept two.
+/// `result`, an error answer its `error`; a key as a key.
 #[test]
-fn every_inbound_kind_names_its_lone_surrogates_and_merged_keys() {
+fn every_inbound_kind_names_its_lone_surrogates() {
     let decode = |frame: &str| match decode_inbound_text(frame, 1 << 20) {
         InboundText::Message(message) => message,
         other => panic!("{frame}: {other:?}"),
     };
     let note = decode(r#"{"method":"x","params":{"a":"\ud800"}}"#);
     assert!(matches!(note, JsonRpcMessage::Notification(_)));
-    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into(), vec![0])]);
+    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into())]);
     let answer = decode(r#"{"id":"s1","result":{"answers":{"q\ud83d":"x"}}}"#);
     assert!(matches!(answer, JsonRpcMessage::Response(_)));
     assert_eq!(answer.lone_surrogates(), [LoneAt::Key("/answers/q\u{fffd}".into())]);
-    assert_eq!(answer.merged_key(), None);
     let failed = decode(r#"{"id":"s1","error":{"code":1,"message":"m\udc00"}}"#);
     assert!(matches!(failed, JsonRpcMessage::Error(_)));
-    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into(), vec![1])]);
-    let merged = decode(r#"{"id":1,"method":"project/list","params":{"env":{"K\ud800":"1","K\udc00":"2"}}}"#);
-    assert_eq!(merged.merged_key(), Some("/env/K\u{fffd}"));
-    // The same key twice is one key to Node too (the last value): nothing merged.
-    let twice = decode(r#"{"id":1,"method":"m","params":{"a":1,"a":2}}"#);
-    assert_eq!(twice.merged_key(), None);
-    let JsonRpcMessage::Request(twice) = twice else { panic!("not a request") };
+    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into())]);
+    let id = decode(r#"{"id":"r\ud800","method":"m","params":{}}"#);
+    assert_eq!(id.lone_surrogates(), [LoneAt::Value("#/id".into())]);
+    // The same key twice is one key to Node too (the last value).
+    let JsonRpcMessage::Request(twice) = decode(r#"{"id":1,"method":"m","params":{"a":1,"a":2}}"#) else { panic!("not a request") };
     assert_eq!(twice.params, Some(json!({"a": 2})));
+}
+
+/// Every string field of every client request, client notification and answer to a server request (read from the
+/// schema goldens) is either a free-text field (`free_text::FREE_TEXT`) or named as refused in `free_text_fields.json`;
+/// a field that is in neither (a method gained one) fails here, as does a listed field the schema no longer has.
+#[test]
+fn every_string_field_is_free_text_or_named_as_refused() {
+    use mixdog_app_protocol::free_text::FREE_TEXT;
+    use mixdog_app_protocol::free_text::Kind;
+    fn untyped(schema: &Value) -> bool {
+        schema == &Value::Bool(true)
+            || schema.as_object().is_some_and(|object| {
+                !["type", "$ref", "anyOf", "oneOf", "allOf", "properties", "items", "enum", "const", "additionalProperties"]
+                    .iter()
+                    .any(|key| object.contains_key(*key))
+            })
+    }
+    fn walk(schema: &Value, defs: &Value, path: &str, out: &mut std::collections::BTreeSet<String>, seen: &[String]) {
+        if schema.is_null() || schema == &Value::Bool(false) {
+            return;
+        }
+        if untyped(schema) {
+            out.insert(format!("{path}/**"));
+            return;
+        }
+        if let Some(name) = schema["$ref"].as_str().and_then(|r| r.rsplit('/').next()) {
+            if seen.iter().any(|s| s == name) {
+                out.insert(format!("{path}/**"));
+                return;
+            }
+            let seen = [seen, &[name.to_owned()]].concat();
+            walk(&defs[name], defs, path, out, &seen);
+        }
+        for key in ["anyOf", "oneOf", "allOf"] {
+            for branch in schema[key].as_array().into_iter().flatten() {
+                walk(branch, defs, path, out, seen);
+            }
+        }
+        let types: Vec<&str> = match &schema["type"] {
+            Value::String(t) => vec![t.as_str()],
+            Value::Array(ts) => ts.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        };
+        if types.contains(&"string")
+            || schema["enum"].as_array().is_some_and(|values| values.iter().any(Value::is_string))
+            || schema["const"].is_string()
+        {
+            out.insert(path.to_owned());
+        }
+        for (key, property) in schema["properties"].as_object().into_iter().flatten() {
+            walk(property, defs, &format!("{path}/{}", key.replace('~', "~0").replace('/', "~1")), out, seen);
+        }
+        if let Some(more) = schema.get("additionalProperties").filter(|more| *more != &Value::Bool(false)) {
+            walk(more, defs, &format!("{path}/*"), out, seen);
+        }
+        match &schema["items"] {
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    walk(item, defs, &format!("{path}/{index}"), out, seen);
+                }
+            }
+            Value::Null => {}
+            item => walk(item, defs, &format!("{path}/*"), out, seen),
+        }
+    }
+    let schema = |name: &str| -> Value { serde_json::from_slice(&std::fs::read(crate_dir().join("schema").join(name)).unwrap()).unwrap() };
+    let mut fields: BTreeMap<(&str, String), std::collections::BTreeSet<String>> = BTreeMap::new();
+    for (file, kind) in [("client_request.json", "request"), ("client_notification.json", "notification")] {
+        let file = schema(file);
+        for variant in file["oneOf"].as_array().unwrap() {
+            let method = &variant["properties"]["method"];
+            let method = method["const"].as_str().or_else(|| method["enum"][0].as_str()).unwrap().to_owned();
+            let mut out = std::collections::BTreeSet::new();
+            walk(&variant["properties"]["params"], &file["definitions"], "", &mut out, &[]);
+            fields.insert((kind, method), out);
+        }
+    }
+    let answers = schema("server_request_methods.json");
+    for (method, row) in answers["methods"].as_object().unwrap() {
+        let mut out = std::collections::BTreeSet::new();
+        walk(&row["result"], &answers["definitions"], "", &mut out, &[]);
+        fields.insert(("answer", method.clone()), out);
+    }
+    let named: Value = serde_json::from_slice(&std::fs::read(crate_dir().join("tests/it/free_text_fields.json")).unwrap()).unwrap();
+    let mut problems = Vec::new();
+    for ((kind, method), found) in &fields {
+        let refused: std::collections::BTreeSet<String> =
+            named["refused"][kind][method].as_array().into_iter().flatten().map(|p| p.as_str().unwrap().to_owned()).collect();
+        let free: Vec<&str> = FREE_TEXT
+            .iter()
+            .filter(|(k, m, _)| *m == method && matches!((k, *kind), (Kind::Request, "request") | (Kind::Notification, "notification") | (Kind::Answer, "answer")))
+            .flat_map(|(_, _, patterns)| patterns.iter().copied())
+            .collect();
+        for field in found.iter().filter(|field| !free.contains(&field.as_str()) && !refused.contains(*field)) {
+            problems.push(format!("{kind} {method} {field}: neither free text nor named as refused"));
+        }
+        for field in refused.iter().filter(|field| !found.contains(*field) || free.contains(&field.as_str())) {
+            problems.push(format!("{kind} {method} {field}: named as refused, not a string field of the schema or free text"));
+        }
+        for pattern in &free {
+            let under_untyped = found.iter().any(|f| f.strip_suffix("**").is_some_and(|head| format!("{pattern}/").starts_with(head)));
+            if !found.contains(*pattern) && !under_untyped {
+                problems.push(format!("{kind} {method} {pattern}: free text, not a field of the schema"));
+            }
+        }
+    }
+    for (kind, method, _) in FREE_TEXT {
+        let kind = match kind {
+            Kind::Request => "request",
+            Kind::Notification => "notification",
+            Kind::Answer => "answer",
+        };
+        if !fields.contains_key(&(kind, (*method).to_owned())) {
+            problems.push(format!("{kind} {method}: free text of a method the schema does not have"));
+        }
+    }
+    for (kind, methods) in named["refused"].as_object().unwrap() {
+        for method in methods.as_object().unwrap().keys() {
+            if !fields.contains_key(&(kind.as_str(), method.clone())) {
+                problems.push(format!("{kind} {method}: named as refused, not a method of the schema"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
 }
 
 /// §14.3, wire half: the handshake refusals are `-32600` with their `reason`

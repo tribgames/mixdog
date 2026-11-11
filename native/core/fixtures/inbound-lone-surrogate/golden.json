@@ -152,14 +152,6 @@
       }
     },
     {
-      "name": "file-name-lone",
-      "plaintext": "7b226964223a31352c226d6574686f64223a2263726561746550726f6a656374456e747279222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22222c226e5c75646530302e747874222c66616c73655d7d",
-      "answer": {
-        "ok": true,
-        "value": null
-      }
-    },
-    {
       "name": "file-name-listed",
       "plaintext": "7b226964223a31362c226d6574686f64223a226c69737450726f6a656374446972222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22225d7d",
       "answer": {
@@ -175,10 +167,6 @@
           },
           {
             "name": "notes.txt",
-            "dir": false
-          },
-          {
-            "name": "n�.txt",
             "dir": false
           },
           {
@@ -209,36 +197,11 @@
       }
     },
     {
-      "name": "batch-real-replacement-lone-name",
-      "plaintext": "7b226964223a31392c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a226e6f7465732e747874222c22636f6e74656e74223a2262efbfbd5c6e222c226578706563746564436f6e74656e74223a226f6c645c6e227d2c7b2272656c50617468223a226e5c75646530302e747874222c22636f6e74656e74223a2263222c226578706563746564436f6e74656e74223a22227d5d5d7d",
-      "answer": {
-        "ok": false,
-        "error": "The file changed while it was opened."
-      }
-    },
-    {
       "name": "batch-real-replacement",
       "plaintext": "7b226964223a32302c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a226e6f7465732e747874222c22636f6e74656e74223a2262efbfbd5c6e222c226578706563746564436f6e74656e74223a226f6c645c6e227d5d5d7d",
       "answer": {
         "ok": true,
         "value": null
-      }
-    },
-    {
-      "name": "read-lone-name",
-      "plaintext": "7b226964223a32312c226d6574686f64223a227265616450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75643833642e747874225d7d",
-      "answer": {
-        "ok": false,
-        "error": "The file changed while it was opened."
-      }
-    },
-    {
-      "name": "read-missing-lone-name",
-      "plaintext": "7b226964223a32322c226d6574686f64223a227265616450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226d5c75643833642e747874225d7d",
-      "answer": {
-        "ok": false,
-        "error": "ENOENT: no such file or directory, open 'D:\\mixdog-build\\tmp\\inbound-lone-surrogate-world\\project\\m�.txt'",
-        "errorCode": "ENOENT"
       }
     },
     {
@@ -253,42 +216,6 @@
           "tooLarge": false,
           "encoding": "utf8"
         }
-      }
-    },
-    {
-      "name": "stat-lone-name",
-      "plaintext": "7b226964223a32342c226d6574686f64223a227374617450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75646530302e747874225d7d",
-      "answer": {
-        "ok": true,
-        "value": {
-          "mtimeMs": 1700000000000,
-          "size": 3,
-          "directory": false
-        }
-      }
-    },
-    {
-      "name": "write-lone-name",
-      "plaintext": "7b226964223a32352c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75643833642e747874222c227a222c2268695c6e225d7d",
-      "answer": {
-        "ok": false,
-        "error": "The file changed while it was opened."
-      }
-    },
-    {
-      "name": "preview-lone-name",
-      "plaintext": "7b226964223a32362c226d6574686f64223a227072657669657750726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22705c75643833642e706e67225d7d",
-      "answer": {
-        "ok": false,
-        "error": "The file changed while it was opened."
-      }
-    },
-    {
-      "name": "preview-range-lone-name",
-      "plaintext": "7b226964223a32372c226d6574686f64223a227072657669657750726f6a65637446696c6552616e6765222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22705c75646530302e706e67222c6e756c6c2c302c345d7d",
-      "answer": {
-        "ok": false,
-        "error": "The file changed while it was opened."
       }
     },
     {
@@ -412,83 +339,6 @@
       }
     },
     {
-      "name": "expected-content-lone",
-      "plaintext": "7b226964223a313030312c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c227265706c616365642e747874222c226e65775c6e222c22615c7564383364625c6e225d7d",
-      "answer": {
-        "ok": false,
-        "error": "File changed on disk. Reload or keep your edits before saving."
-      }
-    },
-    {
-      "name": "batch-expected-content-lone",
-      "plaintext": "7b226964223a313030322c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a227265706c616365642e747874222c22636f6e74656e74223a226e65775c6e222c226578706563746564436f6e74656e74223a22615c7564653030625c6e227d5d5d7d",
-      "answer": {
-        "ok": false,
-        "error": "File changed on disk. Reload or keep your edits before saving."
-      }
-    },
-    {
-      "name": "search-include-lone",
-      "plaintext": "7b226964223a313030332c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869222c22696e636c756465223a226c5c75643833642e747874227d5d7d",
-      "answer": {
-        "ok": true,
-        "value": {
-          "files": [],
-          "matchCount": 0,
-          "limitHit": false
-        }
-      }
-    },
-    {
-      "name": "search-exclude-lone",
-      "plaintext": "7b226964223a313030342c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869222c226578636c756465223a226c5c75643833642e747874227d5d7d",
-      "answer": {
-        "ok": true,
-        "value": {
-          "files": [
-            {
-              "relPath": "l�.txt",
-              "matches": [
-                {
-                  "line": 1,
-                  "column": 1,
-                  "endColumn": 3,
-                  "preview": "hi",
-                  "matchText": "hi"
-                }
-              ]
-            }
-          ],
-          "matchCount": 1,
-          "limitHit": false
-        }
-      }
-    },
-    {
-      "name": "replace-include-lone",
-      "plaintext": "7b226964223a313030352c226d6574686f64223a227265706c616365576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869222c22696e636c756465223a226c5c75643833642e747874227d2c22796f225d7d",
-      "answer": {
-        "ok": true,
-        "value": {
-          "filesChanged": 0,
-          "replacements": 0,
-          "paths": []
-        }
-      }
-    },
-    {
-      "name": "replace-rel-paths-lone",
-      "plaintext": "7b226964223a313030362c226d6574686f64223a227265706c616365576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869227d2c22796f222c5b226c5c75643833642e747874225d5d7d",
-      "answer": {
-        "ok": true,
-        "value": {
-          "filesChanged": 0,
-          "replacements": 0,
-          "paths": []
-        }
-      }
-    },
-    {
       "name": "file-search-lone",
       "plaintext": "7b226964223a313030372c226d6574686f64223a2273656172636850726f6a65637446696c6573222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c225c7564383364222c35302c66616c73652c66616c73655d7d",
       "answer": {
@@ -503,17 +353,8 @@
         "ok": true,
         "value": [
           "l�.txt",
-          "n�.txt",
           "p�.png"
         ]
-      }
-    },
-    {
-      "name": "rename-case-only-lone",
-      "plaintext": "7b226964223a313030392c226d6574686f64223a2272656e616d6550726f6a656374456e747279222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226cefbfbd2e747874222c224c5c75643833642e747874225d7d",
-      "answer": {
-        "ok": false,
-        "error": "An entry with that name already exists in the target folder."
       }
     },
     {
@@ -532,10 +373,6 @@
           },
           {
             "name": "notes.txt",
-            "dir": false
-          },
-          {
-            "name": "n�.txt",
             "dir": false
           },
           {
@@ -805,10 +642,6 @@
     {
       "name": "6e6f7465732e747874",
       "bytes": "62efbfbd0a"
-    },
-    {
-      "name": "6eefbfbd2e747874",
-      "bytes": ""
     },
     {
       "name": "70efbfbd2e706e67",

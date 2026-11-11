@@ -73,8 +73,8 @@ pub struct JsonRpcRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace: Option<W3cTraceContext>,
     /// Not on the wire: where in `params` an unpaired surrogate escape was read as U+FFFD
-    /// ([`decode_inbound_text`]). A service that must refuse what Node refuses for a lone code
-    /// unit, or match nothing where Node matched nothing, reads them (decisions.md "frame-lone-surrogate").
+    /// ([`decode_inbound_text`]). The server refuses a request holding one outside its free-text
+    /// fields ([`crate::free_text`]) before any service runs (decisions.md "frame-lone-surrogate").
     #[serde(skip)]
     #[cfg_attr(feature = "codegen", schemars(skip), ts(skip))]
     pub lone_surrogates: Vec<mixdog_js::LoneAt>,
@@ -137,11 +137,6 @@ impl JsonRpcMessage {
             Self::Error(m) => &m.lone_surrogates,
         }
     }
-
-    /// The first place of the payload where keys distinct on the wire were read as one ([`mixdog_js::LoneAt::MergedKey`]).
-    pub fn merged_key(&self) -> Option<&str> {
-        self.lone_surrogates().iter().find_map(|at| matches!(at, mixdog_js::LoneAt::MergedKey(_)).then(|| at.pointer()))
-    }
 }
 
 /// `data` is always `{"reason": "<camelCase>", …typed fields}` (`ErrorData`);
@@ -192,7 +187,19 @@ pub fn decode_inbound_text(frame: &str, max_inbound_frame_bytes: usize) -> Inbou
     let Ok(mut message) = serde_json::from_str::<JsonRpcMessage>(&read) else { return InboundText::Invalid };
     if replaced {
         let found = mixdog_js::json_lone_surrogates(frame);
-        let under = |prefix: &str| found.iter().filter_map(|at| at.under(prefix)).collect::<Vec<_>>();
+        // A place outside the payload (the id, the method name) keeps its whole pointer behind `#`: no free-text field
+        // ([`crate::free_text`]) is there.
+        let under = |prefix: &str| {
+            found
+                .iter()
+                .map(|at| {
+                    at.under(prefix).unwrap_or_else(|| match at {
+                        mixdog_js::LoneAt::Value(pointer) => mixdog_js::LoneAt::Value(format!("#{pointer}")),
+                        mixdog_js::LoneAt::Key(pointer) => mixdog_js::LoneAt::Key(format!("#{pointer}")),
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
         match &mut message {
             JsonRpcMessage::Request(m) => m.lone_surrogates = under("/params"),
             JsonRpcMessage::Notification(m) => m.lone_surrogates = under("/params"),

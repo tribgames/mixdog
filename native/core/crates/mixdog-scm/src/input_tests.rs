@@ -388,6 +388,8 @@ fn a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it() {
         panic!("the core's frame decoder refuses {frame}");
     };
     assert_eq!(request.lone_surrogates.iter().map(mixdog_js::LoneAt::pointer).collect::<Vec<_>>(), ["/query"], "where the decoder replaced one");
+    use mixdog_app_protocol::free_text;
+    assert_eq!(free_text::refused(free_text::Kind::Request, "git/log", &request.lone_surrogates), None, "a query is free text");
     // Node's answer and the arguments it acted on, each lone unit as the UTF-8 its spawn wrote: U+FFFD.
     let recorded: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(limit["recordedText"].as_str().expect("Node's answer"))).expect("json");
     let argv = recorded["processes"][0]["argv"].as_array().expect("git's argv");

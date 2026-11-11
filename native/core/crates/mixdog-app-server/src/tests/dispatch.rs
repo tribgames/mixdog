@@ -102,22 +102,37 @@ async fn a_delete_of_a_thread_that_is_not_there_is_the_directorys_answer() {
     assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
 }
 
-/// Two keys distinct on the wire that the decoder reads as one U+FFFD key (Node kept both with their values) are refused as
-/// `invalidParams` naming that key; the request never reaches the core and the connection answers the next one.
+/// A request holding a lone surrogate anywhere but a free-text field (an identifier, a key, the id) is refused as
+/// `invalidParams` naming the place, before any service runs; one holding it only in free text reaches the service with
+/// U+FFFD; the connection answers on.
 #[tokio::test(start_paused = true)]
-async fn keys_a_lone_surrogate_merges_into_one_are_refused_before_the_core() {
+async fn a_lone_surrogate_outside_free_text_refuses_the_request_before_the_core() {
     let rig = Rig::new();
-    rig.core
-        .mock
-        .directory()
-        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    let reached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = reached.clone();
+    rig.core.mock.directory().set_handler(Arc::new(move |_| {
+        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Reply::Value(json!({ "via": "directory" })))
+    }));
     let client = rig.ready(1, json!({}));
-    client.send_text(r#"{"id":1,"method":"thread/list","params":{"\ud800":1,"\udc00":2}}"#);
-    let refused = client.response(1).await;
-    assert_eq!(reason(&refused), "invalidParams", "{refused}");
-    assert_eq!(refused["error"]["data"]["path"], json!("thread/list.params/\u{fffd}"), "{refused}");
-    client.send_text(r#"{"id":2,"method":"thread/list","params":{"\ud800":1}}"#);
-    assert_eq!(client.response(2).await["result"], json!({ "via": "directory" }));
+    for (id, frame, path) in [
+        (1, r#"{"id":1,"method":"thread/list","params":{"searchTerm":"a\ud800"}}"#, "thread/list.params/searchTerm"),
+        (2, r#"{"id":2,"method":"thread/list","params":{"\ud800":1}}"#, "thread/list.params/\u{fffd}"),
+        // A selector is no free text: refused whole, not read entry by entry.
+        (
+            3,
+            r#"{"id":3,"method":"projectFs/replaceText","params":{"root":"/p","options":{"query":"hi","exclude":"a\ufffd.txt,b\ud800.txt"},"replacement":"yo","opId":"op-3"}}"#,
+            "projectFs/replaceText.params/options/exclude",
+        ),
+    ] {
+        client.send_text(frame);
+        let refused = client.response(id).await;
+        assert_eq!(reason(&refused), "invalidParams", "{refused}");
+        assert_eq!(refused["error"]["data"]["path"], json!(path), "{refused}");
+    }
+    assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the core");
+    client.send_text(r#"{"id":4,"method":"thread/list","params":{}}"#);
+    assert_eq!(client.response(4).await["result"], json!({ "via": "directory" }));
 }
 
 /// The preflight names its own thread, but the directory answers it (it measures a source the directory looks up); a
