@@ -48,7 +48,18 @@ const { createRoomLog } = await importFrom(tree, 'apps/desktop/src/main/agent-ro
 const { createAgentHomeDelivery, createRoutineResultQueue } = await importFrom(tree, 'src/session-runtime/agent-home-delivery.mjs');
 
 const plain = (value) => JSON.parse(JSON.stringify(value ?? null));
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** `work`, or a failure naming `what` once 30 s passed: the work ends on its own signal, this is only the failure path. */
+async function within(what, work) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: the delivery's work was not over after 30 s`)), 30_000);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 /** The execution call that marks `values` (a browser fill with sensitive:true, one field per value). */
 const fillOf = (values) => ({ name: 'browser', arguments: { action: 'fill', input: { sensitive: true, fields: values.map((text) => ({ text })) } } });
 const mark = ({ session, values }) => {
@@ -173,7 +184,7 @@ const ctl = { busy: false };
 let inFlight = 0;
 const queuePath = join(dir, 'routine-results.json');
 const queue = createRoutineResultQueue(queuePath, { limit: 200, now: () => clock });
-// Queue calls in flight (a durable write can take a while) keep the step open.
+// Queue calls in flight: none may be left once the delivery's drains resolved.
 for (const key of Object.keys(queue)) {
   const fn = queue[key];
   if (typeof fn !== 'function') continue;
@@ -201,7 +212,7 @@ const delivery = createAgentHomeDelivery({
       wakes.push([id, prompt, options]);
       let settle;
       const settled = new Promise((resolve) => (settle = resolve));
-      turns.push(settle);
+      turns.push({ settle, settled });
       return { settled };
     },
   }),
@@ -221,21 +232,11 @@ const readQueue = () => {
     return null;
   }
 };
-// Background passes (a settled wake) finish on their own: wait until nothing moves.
-const fingerprint = () => JSON.stringify([readQueue(), notices.length, wakes.length, scheduled.length, [...sessions].map(([, s]) => s.messages.length)]);
-async function stable() {
-  let last = null;
-  for (let same = 0; same < 5; ) {
-    await sleep(25);
-    const now = fingerprint();
-    same = now === last && inFlight === 0 ? same + 1 : 0;
-    last = now;
-  }
-}
 const home = [];
-for (const o of HOME_SCRIPT) {
+/** One operation, then every home drained twice: `drain` joins a pass in flight (an enqueue's, a settled wake's), so its
+ *  promise is the delivery's own signal that the step's passes are over. What it returned. */
+async function step(o) {
   let out = null;
-  const before = { notices: notices.length, wakes: wakes.length, scheduled: scheduled.length };
   switch (o.op) {
     case 'thread':
       sessions.set(o.id, { id: o.id, messages: structuredClone(o.messages), generation: 1 });
@@ -255,16 +256,26 @@ for (const o of HOME_SCRIPT) {
     case 'busy':
       ctl.busy = o.value;
       break;
-    case 'settle':
-      turns.shift()?.(o.status);
-      await new Promise((resolve) => setImmediate(resolve));
+    case 'settle': {
+      // The delivery's handler was attached to `settled` when the wake returned, before this await: it has run (its drain
+      // started) once this resolves.
+      const turn = turns.shift();
+      if (turn) {
+        turn.settle(o.status);
+        await turn.settled;
+      }
       break;
+    }
     default:
       throw new Error(`unknown op ${o.op}`);
   }
-  // As record-home-delivery.mjs: every home drained twice, so the snapshot is the same wherever a pass was scheduled.
   for (let round = 0; round < 2; round += 1) await Promise.all(HOMES.map((h) => delivery.drain(h)));
-  await stable();
+  if (inFlight !== 0) throw new Error(`${o.op}: ${inFlight} queue call(s) still in flight after the drains resolved`);
+  return out;
+}
+for (const [index, o] of HOME_SCRIPT.entries()) {
+  const before = { notices: notices.length, wakes: wakes.length, scheduled: scheduled.length };
+  const out = await within(`home step ${index} ${o.op}`, step(o));
   home.push({
     op: o,
     out: plain(out),

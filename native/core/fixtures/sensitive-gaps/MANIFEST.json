@@ -122,7 +122,7 @@
     "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-sensitive-side-writes.patch (sha256 b99ef291a1e9cfb82859d66b1105a5851087fa18894136e7f21be9cb40f35577), then node-fix-sensitive-header-summary.patch (sha256 0d2e3a136463b48f0e83c9bdf79f11770039e4efd78605c303b085608517acd6), then node-fix-sensitive-memory-scrub.patch (sha256 f25c1bcf15e3519f36584cf07ad7f7c89703444c4d0cb3884460d721fff39b5d), then node-fix-sensitive-carry.patch (sha256 438d856f31cbef218b0790d3809658c59969720706e5b4ef5e79ef8695d1f205), then node-fix-sensitive-gaps.patch (sha256 4033c552c89501bad2d28c7c6dd1630952c1bbbed4d1a411d41fa3f2f5145776) applied"
   },
   "recorder": "benchmarks/rust-core/recorders/record-sensitive-gaps.mjs",
-  "recorderSha256": "06d268d65ce59bdc7a1f5376e220d08e09baa903ecf9bf8d5cde3d69e9f5cf54",
+  "recorderSha256": "826c9f9c16db763ef2e29c3428987971bc2f60b3598c7c991805942e191c4d0d",
   "set": "sensitive-gaps",
   "totalBytes": 56357
 }
