@@ -196,7 +196,7 @@ pub(crate) struct DirInner {
     pub(super) left: tokio::sync::Notify,
     /// A test's gate between the adoption's listing of the control threads and its writes: it tells `.0` it arrived, then
     /// waits for `.1`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) adoption_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
@@ -216,6 +216,40 @@ pub(crate) struct CreateSpec {
     pub settings: Option<super::actor::SettingsFollow>,
     /// The control start's hold on `id`: the create takes the id over from it, and is refused when the hold lost its slot.
     pub starting: Option<Starting>,
+}
+
+/// [`SessionDirectory::durability_settled`]: each thread loaded at the call with its stores' [`mixdog_rt::WriteMarks`] and
+/// the accepted count of each taken then — the thread's records, then its prompt-history appends.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone)]
+pub struct DurabilitySettling {
+    threads: Vec<(ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2])>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl DurabilitySettling {
+    /// How many threads were loaded at the call, once every store of each committed what it accepted before; an error naming
+    /// the thread and the store when one of those writes failed (a thread that ended first fails what it had not written).
+    pub fn wait(&self) -> impl std::future::Future<Output = Result<usize, String>> + Send + 'static {
+        let threads = self.threads.clone();
+        async move {
+            let waits = threads.iter().flat_map(|(id, marks)| {
+                marks.iter().map(move |(marks, mark)| async move { marks.reached(*mark).await.map_err(|error| format!("thread {}: {error}", id.as_str())) })
+            });
+            futures::future::try_join_all(waits).await?;
+            Ok(threads.len())
+        }
+    }
+
+    /// The thread and store of each write from before the call still neither committed nor failed.
+    pub fn pending(&self) -> Vec<String> {
+        self.threads
+            .iter()
+            .flat_map(|(id, marks)| {
+                marks.iter().filter(|(marks, mark)| marks.check(*mark).is_none()).map(move |(marks, _)| format!("thread {}: {}", id.as_str(), marks.store()))
+            })
+            .collect()
+    }
 }
 
 pub struct SessionDirectory {
@@ -302,7 +336,7 @@ impl SessionDirectory {
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             adoption_gate: Default::default(),
         });
         let me = Arc::downgrade(&inner);
@@ -313,7 +347,31 @@ impl SessionDirectory {
             }
         }));
         *lock(&inner.goal_events) = Some(subscription);
+        let me = Arc::downgrade(&inner);
+        inner.deps.sensitive.on_carried(Box::new(move |thread| {
+            let Some(directory) = me.upgrade() else { return };
+            let thread = thread.clone();
+            drop(mixdog_rt::spawn("sensitive-carried", mixdog_rt::TaskClass::Work, async move {
+                SessionDirectory::over(directory).carried(&thread).await;
+            }));
+        }));
         Self { inner }
+    }
+
+    /// A value marked in a session whose text `thread` holds reached it (`SensitiveMarks::carry`): the thread rewrites what
+    /// it stored as for a mark of its own; one not loaded is opened for it (its files hold the text).
+    async fn carried(&self, thread: &ThreadId) {
+        let handle = match self.inner.loaded(thread) {
+            Some(handle) => handle,
+            None => match self.inner.open(thread, &CallContext::internal("sensitive-carried")).await {
+                Ok(handle) => handle,
+                Err(error) => {
+                    tracing::warn!(%thread, "a carried sensitive value could not open the thread that holds it: {error:?}");
+                    return;
+                }
+            },
+        };
+        let _ = handle.inbox.send(Inbox::SensitiveCarried).await;
     }
 
     /// Woken whenever a thread leaves the directory.
@@ -351,7 +409,8 @@ impl SessionDirectory {
     }
 
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
         self.inner.gate()
     }
@@ -407,6 +466,7 @@ impl SessionDirectory {
     pub fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
         super::run::ModelContext {
             store: self.inner.deps.store.clone(),
+            sensitive: self.inner.deps.sensitive.clone(),
             lanes: self.inner.deps.lanes,
             thread: id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -426,6 +486,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -465,6 +526,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -549,7 +611,8 @@ impl SessionDirectory {
     }
 
     /// Holds the next adoption between its listing and its writes ([`DirInner::adoption_gate`]).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn gate_adoption(&self, arrived: Arc<tokio::sync::Notify>, go: std::sync::mpsc::Receiver<()>) {
         *lock(&self.inner.adoption_gate) = Some((arrived, go));
     }
@@ -608,6 +671,27 @@ impl SessionDirectory {
             .collect();
         handles.sort_by_key(|handle| handle.loaded_seq);
         handles
+    }
+
+    /// Replay-only (the core's `replay/storesSettled` control): the positions of every thread loaded now, taken here, without
+    /// the actors — each one's durable records accepted ([`super::control::ControlCell::record_marks`]) and prompt-history
+    /// appends pushed ([`super::control::ControlCell::prompt_marks`]). [`DurabilitySettling::wait`] then waits for each to be
+    /// committed: what is accepted later neither holds nor hastens it, and a thread loaded later is not asked.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn durability_settled(&self) -> DurabilitySettling {
+        let threads = self
+            .loaded_handles()
+            .into_iter()
+            .map(|handle| {
+                let cell = &handle.cell;
+                let marks = [cell.record_marks.clone(), cell.prompt_marks.clone()].map(|marks| {
+                    let mark = marks.accepted();
+                    (marks, mark)
+                });
+                (handle.id.clone(), marks)
+            })
+            .collect();
+        DurabilitySettling { threads }
     }
 
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
@@ -728,7 +812,7 @@ impl SessionDirectory {
             && let Some(hook) = self.inner.owner_teardown.get()
         {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "agent teardown overran its deadline");
                 }
             }
@@ -737,7 +821,7 @@ impl SessionDirectory {
         // own session is closed with the stop's reason before the runtime stops.
         if let Some(hook) = self.inner.exit_close.get() {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "the session close at exit overran its deadline");
                 }
             }
@@ -773,7 +857,7 @@ impl SessionDirectory {
                 ingest.await;
             }
         }));
-        let _ = tokio::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
+        let _ = mixdog_rt::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
         // cleanup runs on, and what is left is the prune's and the startup reconcile's.
         self.inner.deps.snapshots.dispose();
@@ -965,6 +1049,7 @@ impl DirInner {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
         let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
         Ok(read.ok())
@@ -1129,46 +1214,30 @@ impl DirInner {
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
     async fn load(&self, id: &ThreadId, prewarm: bool) -> Loaded {
+        use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
-        let dropped = || CoreError::Internal {
-            incident_id: "session-open-job-dropped".into(),
-        };
+        // An open (for a turn, a carried mark, a worker's report) waits out full lanes rather than failing on them.
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let head = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.read_head(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let head = on_lane_wait(deps.lanes.io, &token, move |lane| store.read_head(lane, &thread)).await??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let (head, window) = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| {
-                let window = store.read_window(lane, &thread, &head);
-                (head, window)
-            })?
-            .await
-            .map_err(|_| dropped())?;
+        let (head, window) = on_lane_wait(deps.lanes.io, &token, move |lane| {
+            let window = store.read_window(lane, &thread, &head);
+            (head, window)
+        })
+        .await?;
         let window = window?;
         let (decode_deps, thread) = (deps.clone(), id.clone());
-        let opened = deps
-            .lanes
-            .cpu
-            .submit(&token, move |lane| {
-                let log = decode_deps.store.decode(lane, &thread, head, window)?;
-                Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
-            })?
-            .await
-            .map_err(|_| dropped())??;
+        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+            let log = decode_deps.store.decode(lane, &thread, head, window)?;
+            Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
+        })
+        .await??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let fenced = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.fenced_ops(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
         let lineage = self.lineage_of(id, &opened.state.header);
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);
@@ -1249,13 +1318,21 @@ impl DirInner {
         let (dur_out, dur_rx) = mpsc::channel(8);
         let epoch = new_epoch();
         let feed_id = FeedId::from(id.as_str());
-        let view = Arc::new(SessionView::build(
+        let mut view = SessionView::build(
             feed_id.clone(),
             deps.transcript.summary(&id, &state.header),
             &state,
             mixdog_app_protocol::v2::thread::StorageState::Ok,
             None,
-        ));
+        );
+        // Node's store holds the agent scope from its first state (`initial-state.mjs:57`), and the scope needs only the header: a
+        // `thread/read` answered before the actor's first publish shows it too (the actor publishes it as its load's first change).
+        let agents = view.state.agents.take().unwrap_or_default();
+        view.state.agents = Some(mixdog_app_protocol::v2::thread::ThreadAgents {
+            agent_scope: Some(super::agent_registry::status_rows::agent_scope(&id, &state.header)),
+            ..agents
+        });
+        let view = Arc::new(view);
         let feed = deps.feeds.thread_feed(feed_id, epoch.clone(), view.clone());
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = Arc::new(ControlCell {
@@ -1276,7 +1353,7 @@ impl DirInner {
             turn_listeners: Default::default(),
             agent_start: Default::default(),
             routine_starts: Default::default(),
-            grants: Default::default(),
+            grants: Arc::new(mixdog_tools::policy::SessionGrants::of(deps.session_grants.clone(), id.as_str())),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
@@ -1288,9 +1365,17 @@ impl DirInner {
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
+            unacked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(test)]
+            ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
+            #[cfg(any(test, feature = "test-support"))]
+            record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -1359,6 +1444,13 @@ impl DirInner {
         };
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
+        // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
+        // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
+        // rows names what they name: it holds none, and its transcript is scanned.
+        if spec.base.is_none() && !mixdog_store::offload_sources::holds_set(&header) {
+            let held = mixdog_store::offload_sources::sources(&header);
+            mixdog_store::offload_sources::set_sources(&mut header, held);
+        }
         let log_id = uuid::Uuid::new_v4().simple().to_string()[..24].to_owned();
         let op = match &spec.op {
             Some(op) => Some(mixdog_store::schema::record::OpRef {
@@ -1559,7 +1651,7 @@ impl SessionDirectory {
         // composed for it, as Node composes the session from `rt.route`.
         let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
         // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
-        let settings = self.inner.deps.compaction.settings_changes().map(super::actor::SettingsFollow::begin);
+        let settings = self.inner.deps.compaction.settings_changes(&id).map(super::actor::SettingsFollow::begin);
         // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
         let route = if control {
             self.inner.deps.new_route.adopt_control(&id).await
@@ -1772,7 +1864,7 @@ impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for Ses
     /// unloaded, its actor ended, its start abandoned) is skipped, and one that ends while it is synced ends after.
     fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId)) {
         let listed = self.controls();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some((arrived, go)) = lock(&self.inner.adoption_gate).take() {
             arrived.notify_one();
             go.recv().expect("the test lets the adoption go on");

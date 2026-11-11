@@ -10,7 +10,6 @@ use mixdog_protocol::ApprovalPayload;
 use mixdog_protocol::ApprovalRemember;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_protocol::ThreadId;
-use mixdog_protocol::ToolApprovalDecision;
 
 use crate::ids::Method;
 use crate::ids::ServerRequestId;
@@ -130,34 +129,6 @@ pub struct ApprovalRequest {
     pub requested_at: SystemTime,
     pub expires_at: Option<SystemTime>,
     pub ask: ApprovalAsk,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum DecisionRejected {
-    /// `remember` not offered by this request.
-    RememberNotAllowed,
-    /// `remember` on an action kind that always asks.
-    UnrememberableAction,
-}
-
-impl ApprovalRequest {
-    /// P §8.4 step 2, third check: the decision is allowed for this request.
-    /// A rejected decision leaves the request pending.
-    pub fn check_decision(&self, decision: &ToolApprovalDecision) -> Result<(), DecisionRejected> {
-        let Some(scope) = decision.remember else {
-            return Ok(());
-        };
-        if scope == ApprovalRemember::Once {
-            return Ok(());
-        }
-        if self.ask.action_kind.is_some_and(|k| !k.rememberable()) {
-            return Err(DecisionRejected::UnrememberableAction);
-        }
-        if !self.ask.remember.contains(&scope) {
-            return Err(DecisionRejected::RememberNotAllowed);
-        }
-        Ok(())
-    }
 }
 
 /// The owning session actor's approval entry point. Resolves with the

@@ -216,7 +216,7 @@ mod tests {
         assert!(changes.tokens().is_empty());
 
         store.set("agent.openai.apiKey", "k1").await.unwrap();
-        assert!(tokio::time::timeout(Duration::from_secs(5), signal.changed()).await.is_ok());
+        assert!(mixdog_rt::time::timeout(Duration::from_secs(5), signal.changed()).await.is_ok());
         let first = changes.tokens()["agent.openai.apiKey"].clone();
 
         store.set("agent.openai.apiKey", "k2").await.unwrap();
@@ -266,10 +266,10 @@ mod tests {
             let changes = changes.clone();
             tokio::spawn(async move { changes.announce("agent.demo.apiKey", false).await })
         };
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(300)).await;
         assert!(!writer.is_finished(), "the write went ahead of the held lock");
         release.send(()).unwrap();
-        tokio::time::timeout(Duration::from_secs(10), writer).await.unwrap().unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(10), writer).await.unwrap().unwrap();
         holder.await.unwrap().unwrap().unwrap();
         assert!(changes.tokens().contains_key("agent.demo.apiKey"));
         assert!(SecretChanges::open(config.clone()).await.tokens().contains_key("agent.demo.apiKey"), "and it reached the file");

@@ -284,11 +284,7 @@ impl OneShot {
 /// `fallsToNextRoute`): out of quota or unavailable to the account, or the
 /// model not found.
 fn falls_to_next_route(error: &ProviderError) -> bool {
-    error.code.as_deref() == Some("provider_accounts_exhausted")
-        || error.code.as_deref() == Some("model_not_found")
-        || error.status == Some(429)
-        || error.status == Some(404)
-        || error.kind.is_quota()
+    crate::compact::summary_run::falls_to_next_route(error.code.as_deref(), error.status, error.kind.is_quota())
 }
 
 fn summary_failure(error: AgentError) -> SummaryFailure {

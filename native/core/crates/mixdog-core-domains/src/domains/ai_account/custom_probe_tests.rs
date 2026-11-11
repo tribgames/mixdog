@@ -107,7 +107,7 @@ impl CustomProbeHost for Host {
     fn require_local_provider_management(&self) -> Result<(), Failure> {
         Ok(())
     }
-    async fn resolve_input(&self, _: &Value) -> Result<ResolvedCustom, Failure> {
+    async fn resolve_input(&self, _: &Value, _: usize) -> Result<ResolvedCustom, Failure> {
         Ok(ResolvedCustom { id: None, config: self.case["config"].clone(), api_key: self.case["apiKey"].as_str().unwrap().to_owned() })
     }
     async fn create(&self, id: &str, config: &Value, api_key: &str) -> Result<Arc<dyn CustomEndpoint>, Failure> {
@@ -163,8 +163,8 @@ async fn every_probe_answers_as_node_does() {
         let host = Host::of(case);
         let probes = CustomProbes::new(host.clone());
         let got = match case["op"].as_str().unwrap() {
-            "test" => probes.test(case["input"].clone()).await,
-            _ => probes.discover_models(case["input"].clone()).await,
+            "test" => probes.test(case["input"].clone(), 0).await,
+            _ => probes.discover_models(case["input"].clone(), 0).await,
         };
         match (&case["error"], got) {
             (Value::String(error), Err(failure)) => assert_eq!(failure.message(), error, "{name}"),
@@ -189,7 +189,7 @@ async fn a_discovery_that_never_answers_times_out_at_sixty_seconds() {
     let case = &golden["cases"][0];
     let host = Arc::new(Host { case: case.clone(), http: Host::of(case).http.clone(), stall: true });
     let started = tokio::time::Instant::now();
-    let result = CustomProbes::new(host).discover_models(json!({})).await.unwrap();
+    let result = CustomProbes::new(host).discover_models(json!({}), 0).await.unwrap();
     assert_eq!(result, json!({ "models": [], "error": { "kind": "timeout", "message": "model discovery timed out after 60s" } }));
     assert_eq!(started.elapsed(), Duration::from_secs(60));
 }
@@ -200,7 +200,7 @@ async fn a_send_that_never_answers_is_thrown_at_twenty_seconds() {
     let case = golden["cases"].as_array().unwrap().iter().find(|c| c["name"] == "a manual model is tested without discovery").unwrap();
     let host = Arc::new(Host { case: case.clone(), http: Host::of(case).http.clone(), stall: true });
     let started = tokio::time::Instant::now();
-    let failure = CustomProbes::new(host).test(case["input"].clone()).await.unwrap_err();
+    let failure = CustomProbes::new(host).test(case["input"].clone(), 0).await.unwrap_err();
     assert_eq!(failure.message(), "connection test timed out after 20s");
     assert_eq!(started.elapsed(), Duration::from_secs(20));
 }
@@ -221,13 +221,13 @@ async fn an_unreachable_endpoint_reads_as_node_shows_it() {
         let w = super::custom_admin_tests::world(std::collections::HashMap::new()).await;
         let input = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
         let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
-        assert_eq!(w.admin.discover_models(input.clone()).await.unwrap(), recorded["discover"]["result"], "{name}: discover");
-        assert_eq!(w.admin.test(input).await.unwrap(), recorded["testDiscovery"]["result"], "{name}: test through discovery");
+        assert_eq!(w.admin.discover_models(input.clone(), 0).await.unwrap(), recorded["discover"]["result"], "{name}: discover");
+        assert_eq!(w.admin.test(input, 0).await.unwrap(), recorded["testDiscovery"]["result"], "{name}: test through discovery");
         // The send retries on the 1, 2, 4, 8 s ladder before it throws; a refused loopback connect on Windows
         // takes seconds per attempt and would outlast the 20 s limit, so only the restricted port (no connect) sends
         // here; the refused send is `a_refused_send_throws_the_sdks_text_after_the_retry_ladder`.
         if name == "badPort" {
-            let thrown = w.admin.test(manual).await.unwrap_err();
+            let thrown = w.admin.test(manual, 0).await.unwrap_err();
             assert_eq!(thrown.message(), recorded["testSend"]["thrown"].as_str().unwrap(), "{name}: test send");
         }
     }
@@ -260,7 +260,7 @@ async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
     let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
     tokio::time::pause();
     let started = tokio::time::Instant::now();
-    let thrown = w.admin.test(manual).await.unwrap_err();
+    let thrown = w.admin.test(manual, 0).await.unwrap_err();
     assert_eq!(thrown.message(), golden["probes"]["refused"]["testSend"]["thrown"].as_str().unwrap());
     let sends = link.sends.lock().unwrap();
     assert!(sends.len() > 1, "the ladder retried: {}", sends.len());
@@ -291,7 +291,7 @@ async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds_as_node
         let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(Arc::new(TimingOut))).await;
         let input = json!({ "name": "Probe", "protocol": protocol, "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
         let started = tokio::time::Instant::now();
-        assert_eq!(w.admin.discover_models(input).await.unwrap(), golden["sites"][site]["value"], "{site}");
+        assert_eq!(w.admin.discover_models(input, 0).await.unwrap(), golden["sites"][site]["value"], "{site}");
         assert_eq!(started.elapsed(), Duration::from_secs(60), "{site}");
     }
 }

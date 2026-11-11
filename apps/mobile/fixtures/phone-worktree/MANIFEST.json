@@ -1,0 +1,118 @@
+{
+  "cases": 276,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts:828, :1256) with SessionHost (session-host.ts) attached to the tree's own daemon (session-client.mjs ensureDaemon, attachSession; session-protocol.mjs createSessionProtocolClient), one world and one daemon per group"
+  },
+  "fasterInCore": {
+    "fields": [
+      "contextWindow",
+      "rawContextWindow",
+      "effectiveContextWindowPercent",
+      "displayContextWindow",
+      "autoCompactTokenLimit",
+      "compactBoundaryTokens",
+      "agentScope",
+      "cwd",
+      "workspace",
+      "setupChanged"
+    ],
+    "node": {
+      "setupChanged": "a settings write reaches setupChanged after the call's answer: the runtime's config save is debounced (src/session-runtime/config-lifecycle/config-writers.mjs:67-75), the daemon's config watch sees the file (config.mjs watchConfigDir) and runs its listeners after a 100 ms debounce (config.mjs notifyConfigChanged), the change effects announce settings_changed (config-change-effects.mjs), the router counts it (notification-router.mjs:33-36) and the store publishes on its 16 ms frame (frame-batched-store.mjs)",
+      "status": "a field of settledStatus the call itself moved (a transition's cwd and workspace, the window of a route) Node publishes on its next status pass (src/tui/session/context-state.mjs:45-113,137-155; session-status-scheduler.mjs)"
+    },
+    "recording": "deterministic: the daemon's timers run on the recorder's virtual clock (status-clock-preload.mjs), so no debounce, watch listener or status pass runs between the call and its answer; each answer is kept as Node gave it. After a call whose answer carries a snapshot the after-call order lands the saves accepted before it (drainSessionConfigWrites), waits for the watch event that saw the files on disk, moves the clock past the debounces and the status passes, and waits for the store's frame and each host stream's marker; the read after it (getWorktreeSettings of the session the case named) is the case's `settled`, kept whole",
+    "replay": "the core's answer is compared whole with Node's; in a field listed here it may instead hold the value Node's `settled` read holds (the core applies the change before it answers: the same content, only faster, rule U-SV1). The same read after the case is compared whole with `settled`"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 772665,
+      "path": "golden.json",
+      "sha256": "b15c3b48cb074fac1fc469cb07cded7df6a133fd08ffa76ebd724288e3709913"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/status-clock-hooks.mjs",
+      "sha256": "739366de328f86f7c4ea8d9ea06810c0a6eb3d740f07d9dc81b99d093761053a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/status-clock-preload.mjs",
+      "sha256": "9ee7bd6d723e35f62bf16eec2be49517b413af60a8a708f19d8cb744042d2575"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalized": {
+    "control": "the host's control session's id (the snapshot a call naming no session carries) is <control> (each product makes its own)",
+    "pid": "a clientHostPid that is the id of the process running the session runtimes (Node's daemon, mixdogd) is <runtime pid>, the desktop's own process (this recorder's, which hosts SessionHost or the replay's window client) <desktop pid>; any other number is kept and compared as it is",
+    "session": "the session's own id is <session> in every answer (each product makes its own)",
+    "time": "a field named *At or at is <time> (the run time)",
+    "tx": "a workspace transition's txId is <tx> (a random id each run makes)"
+  },
+  "notRecorded": {
+    "notProducible": "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
+  "recorderSha256": "b37b23127f95167f89e26cc2875aec9618fefe1d2a1a8401226ea0c7aa154c0d",
+  "routeMoves": {
+    "compared": "by mixdog-core-session route_config_tests (the move's thread/header/patch with the route Node resolved, the status read answered as recorded, the failed one failing): the moved route and context fields equal `frame`, a fasterInCore field `settled` instead; the replay sends each move as input (route/set) and compares the cases after it",
+    "entries": "a session group entry with switchRoute: the desktop's setRoute of the session ({...switchRoute, applyToCurrentSession: true, keepMainModel: false}), with `before` (the session's read before it), `statusReads` (the status read of the move's own sync, routes-write.mjs:142, as the fields syncContextDisplayFields takes: context-state.mjs:116-142; a settings change's later sync is not the move's), `frame` (the read right after the move: no status pass ran, routes-write.mjs:133-142 published) and `settled` (the read after the next status-clock order)",
+    "fault": "failStatus: the move's own sync (routes-write.mjs:142) finds no status (null, as the runtime answers without one), injected by status-clock-hooks.mjs on context-state.mjs:140 and status-clock-preload.mjs `contextRead`; the recording fails if the move made no read to fail. A move of an idle session never moves its window (the session's window follows at its next turn: routes-write.mjs:168-175 deferUntilNextTurn), so the recorded moves keep it"
+  },
+  "set": "phone-worktree",
+  "settledStatus": {
+    "core": "has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case",
+    "fields": [
+      "contextWindow",
+      "rawContextWindow",
+      "effectiveContextWindowPercent",
+      "displayContextWindow",
+      "autoCompactTokenLimit",
+      "compactBoundaryTokens",
+      "agentScope",
+      "cwd",
+      "workspace"
+    ],
+    "node": "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
+    "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s, the order ending with a marker frame each host stream delivers after the passes' publications), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)"
+  },
+  "syntheticInput": {
+    "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
+  },
+  "totalBytes": 772665
+}

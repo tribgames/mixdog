@@ -1,0 +1,139 @@
+{
+  "node": "v22.20.0",
+  "cases": [
+    {
+      "name": "a-body-ended-before-the-timers",
+      "body": 2,
+      "action": "read",
+      "server": "keep",
+      "order": [
+        "t1",
+        "r0-read",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "reused",
+        "r2": "new",
+        "r3": "reused"
+      },
+      "accepted": 2
+    },
+    {
+      "name": "a-body-ended-inside-the-first-timer",
+      "body": 70000,
+      "action": "read",
+      "server": "keep",
+      "order": [
+        "t1",
+        "r0-read",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "new",
+        "r2": "new",
+        "r3": "reused"
+      },
+      "accepted": 3
+    },
+    {
+      "name": "a-body-ended-and-never-read",
+      "body": 2,
+      "action": "none",
+      "server": "keep",
+      "order": [
+        "t1",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "reused",
+        "r2": "new",
+        "r3": "reused"
+      },
+      "accepted": 2
+    },
+    {
+      "name": "a-body-larger-than-the-buffer-never-read",
+      "body": 200000,
+      "action": "none",
+      "server": "keep",
+      "order": [
+        "t1",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "new",
+        "r2": "new",
+        "r3": "new"
+      },
+      "accepted": 3
+    },
+    {
+      "name": "a-small-body-cancelled",
+      "body": 2,
+      "action": "cancel",
+      "server": "keep",
+      "order": [
+        "t1",
+        "r0-cancelled",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "reused",
+        "r2": "new",
+        "r3": "reused"
+      },
+      "accepted": 2
+    },
+    {
+      "name": "a-large-body-cancelled",
+      "body": 200000,
+      "action": "cancel",
+      "server": "keep",
+      "order": [
+        "t1",
+        "r0-cancelled",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "new",
+        "r2": "new",
+        "r3": "new"
+      },
+      "accepted": 4
+    },
+    {
+      "name": "connection-close",
+      "body": 2,
+      "action": "read",
+      "server": "close",
+      "order": [
+        "t1",
+        "r0-read",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "new",
+        "r2": "new",
+        "r3": "new"
+      },
+      "accepted": 3
+    },
+    {
+      "name": "an-error-mid-body",
+      "body": 1000,
+      "action": "read",
+      "server": "error",
+      "order": [
+        "t1",
+        "r0-error",
+        "t2"
+      ],
+      "sockets": {
+        "r1": "new",
+        "r2": "new",
+        "r3": "new"
+      },
+      "accepted": 3
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 //! What a spawn request means as a program, arguments and environment.
 
 use std::ffi::OsString;
+#[cfg(unix)]
 use std::process::Command;
 
 use mixdog_core_api::domain::process::CommandSpec;
@@ -62,14 +63,10 @@ impl Launch {
         &self.program
     }
 
+    #[cfg(unix)]
     pub fn command(&self, cwd: &std::path::Path, env: &[(OsString, OsString)]) -> Command {
         let mut cmd = Command::new(&self.program);
         cmd.args(&self.args);
-        #[cfg(windows)]
-        if let Some(tail) = &self.raw_tail {
-            use std::os::windows::process::CommandExt;
-            cmd.raw_arg(tail);
-        }
         cmd.current_dir(cwd);
         cmd.env_clear();
         cmd.envs(env.iter().map(|(k, v)| (k, v)));
@@ -79,6 +76,7 @@ impl Launch {
     /// The Windows command line `CreateProcessW` takes (MSVCRT quoting rules).
     #[cfg(windows)]
     pub fn command_line(&self) -> String {
+        use crate::winspawn::quote_windows_arg;
         let mut line = quote_windows_arg(&self.program);
         for arg in &self.args {
             line.push(' ');
@@ -90,33 +88,6 @@ impl Launch {
         }
         line
     }
-}
-
-#[cfg(windows)]
-fn quote_windows_arg(arg: &str) -> String {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '\n', '\x0b', '"']) {
-        return arg.to_owned();
-    }
-    let mut out = String::from("\"");
-    let mut backslashes = 0usize;
-    for c in arg.chars() {
-        match c {
-            '\\' => backslashes += 1,
-            '"' => {
-                out.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
-                out.push('"');
-                backslashes = 0;
-            }
-            _ => {
-                out.extend(std::iter::repeat_n('\\', backslashes));
-                out.push(c);
-                backslashes = 0;
-            }
-        }
-    }
-    out.extend(std::iter::repeat_n('\\', backslashes * 2));
-    out.push('"');
-    out
 }
 
 /// The launching process's OS-proxy decision (`HANDOFF_VAR` of `system-proxy.mjs`). Node consumes

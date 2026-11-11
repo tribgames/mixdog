@@ -13,6 +13,7 @@ import { routeService } from '../main/protocol/service-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { createChatApi } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-protocol-chat-host.ts';
+import { createPhoneTranscript } from '../main/remote-phone-transcript.ts';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const recorded = read('../../../../native/core/fixtures/phone-chat/host.json');
@@ -72,7 +73,7 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
     coreErrorForWindow,
     normalizedProviderModels: (rows) => rows,
     sessionStateOf: () => state,
-    remoteToolOutput: () => null,
+    transcript: createPhoneTranscript({ older: () => Promise.reject(new Error('no older read is scripted')), changed() {} }),
     foldRows,
   };
   const api = createChatHostApi(client, shared, createChatApi(client, shared, {}), { remoteSession: () => remoteSession });

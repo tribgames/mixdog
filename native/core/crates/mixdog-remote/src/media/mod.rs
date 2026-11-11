@@ -263,7 +263,7 @@ impl MediaOutput for LaneOutput {
         while !self.aborted()
             && (self.pump.relay_paused.load(Ordering::Acquire) || (self.backlog)() > MEDIA_SOCKET_BACKLOG_BYTES)
         {
-            tokio::time::sleep(MEDIA_POLL).await;
+            mixdog_rt::time::sleep(MEDIA_POLL).await;
         }
     }
 

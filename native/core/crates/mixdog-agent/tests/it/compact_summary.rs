@@ -74,7 +74,7 @@ async fn conversation_input_equals_node() {
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let archive = PreviewArchive { session: "s".into() };
     let ctx = FreshContext {
-        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, preview: true },
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
         attachments: &NoAttachments,
     };
     let messages: Vec<_> = golden["messages"].as_array().expect("messages").iter().map(node_message).collect();

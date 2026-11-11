@@ -114,7 +114,7 @@ async fn read_or_wait(
         let wait = runtime.config.wake.begin(&ctx.thread_id);
         tokio::select! {
             () = job.settled() => {}
-            () = tokio::time::sleep(Duration::from_millis(ceiling)) => {}
+            () = mixdog_rt::time::sleep(Duration::from_millis(ceiling)) => {}
             () = wait.released() => {}
             () = ctx.cancel.cancelled() => {
                 return refused(ToolErrorCode::Cancelled, "Error: wait cancelled".into());
@@ -226,7 +226,7 @@ async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, j
     if !send_kill(runtime, processes, job) {
         return CancelOutcome::Unconfirmed;
     }
-    if tokio::time::timeout(super::KILL_VERIFY, job.settled()).await.is_err() {
+    if mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await.is_err() {
         return CancelOutcome::Unconfirmed;
     }
     CancelOutcome::Cancelled

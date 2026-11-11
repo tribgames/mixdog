@@ -68,7 +68,7 @@ mixdog-testkit = { workspace = true }
 mixdog-ai = { path = ".", features = ["count-work", "test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 rcgen = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time", "io-util", "test-util"] }

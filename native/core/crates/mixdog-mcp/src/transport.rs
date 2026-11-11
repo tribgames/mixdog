@@ -43,7 +43,9 @@ pub enum TransportError {
         #[source]
         source: std::io::Error,
     },
-    #[error("the spawn lane is full")]
+    /// The spawn lane refused the start as overloaded (its queue at the far bound); below that
+    /// the start waits for a thread.
+    #[error("overloaded: io-spawn")]
     LaneFull,
     #[error("transport closed")]
     Closed,

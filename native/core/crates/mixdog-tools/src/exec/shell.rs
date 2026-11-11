@@ -74,8 +74,6 @@ use super::invocation::build_powershell_filter_tee_plan;
 use super::invocation::filter_rescue_note;
 use super::invocation::prefix_powershell_skill_function;
 use super::invocation::prefix_powershell_utf8;
-use super::invocation::skill_launcher_dir;
-use super::invocation::skill_launcher_files;
 use super::invocation::wrap_with_snapshot;
 use super::snapshot::SnapshotRequest;
 use super::spill;
@@ -399,7 +397,7 @@ async fn compaction_of(
         },
     )?;
     let data_dir = runtime.config.data_dir.as_deref()?;
-    let lane = runtime.config.lanes.maintenance;
+    let lane = runtime.config.lanes.durability;
     let mut recovery = Vec::new();
     for (stream, raw) in [("stdout", &raw_out), ("stderr", &raw_err)] {
         if raw.is_empty() {
@@ -432,12 +430,16 @@ async fn completed(
         _ => None,
     };
     let mut payload = foreground_payload(job, compaction.as_ref());
+    // The result points at the logs: say when one of them lacks part of the output.
+    if let Some(note) = job.log_note() {
+        payload.push_str(&format!("\n\n{note}"));
+    }
     // The tee file is always consumed (deleted); its tail is attached only when the run failed
     // with an empty visible capture — the `(no output)` shape that cost extra diagnostic turns.
     if let Some(tee) = tee_path {
-        let lane = runtime.config.lanes.maintenance;
-        let tail = spill::read_tee_tail(lane, &ctx.cancel, tee, 16_384).await;
-        spill::remove_file(lane, &ctx.cancel, tee).await;
+        let lanes = runtime.config.lanes;
+        let tail = spill::read_tee_tail(lanes.interactive, &ctx.cancel, tee, 16_384).await;
+        spill::remove_file(lanes.durability, &ctx.cancel, tee).await;
         let (raw_out, raw_err) = job.captured();
         let visible_empty = mixdog_js::js_trim(&strip_ansi(&raw_out)).is_empty()
             && mixdog_js::js_trim(&strip_ansi(&raw_err)).is_empty();
@@ -604,7 +606,7 @@ impl ShellTool {
         // The shell of this spawn: the setting is read now, as Node does on every spawn.
         let configured = runtime.config.shell.configured();
         let default_shell =
-            default_program(&runtime.config.shell, runtime.config.lanes.maintenance, &ctx.cancel, &configured)
+            default_program(&runtime.config.shell, runtime.config.lanes.spawn, &ctx.cancel, &configured)
                 .await
                 .map_err(|reason| {
                     failed(
@@ -675,7 +677,7 @@ impl ShellTool {
         })?;
         if let Some(plan) = planned {
             if let Some(path) = spill::write_hoist_file(
-                runtime.config.lanes.maintenance,
+                runtime.config.lanes.spawn,
                 &ctx.cancel,
                 plan.extension,
                 &plan.body,
@@ -699,7 +701,7 @@ impl ShellTool {
             .as_deref()
             .and_then(|data| session_scratch_dir(data, ctx.thread_id.as_str()));
         if let Some(dir) = &scratch {
-            spill::create_dir(runtime.config.lanes.maintenance, &ctx.cancel, dir).await;
+            spill::create_dir(runtime.config.lanes.spawn, &ctx.cancel, dir).await;
         }
         let vars: Vec<(String, String)> = std::env::vars_os()
             .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
@@ -707,10 +709,7 @@ impl ShellTool {
         // The skill launchers: files written for this installation, their directory first on PATH.
         let launcher_dir: Option<PathBuf> = match (&runtime.config.skill_runtime, runtime.config.data_dir.as_deref()) {
             (Some(rt), Some(data)) => {
-                let dir = PathBuf::from(skill_launcher_dir(rt, &data.to_string_lossy()));
-                spill::ensure_launcher_dir(runtime.config.lanes.maintenance, &ctx.cancel, &dir, skill_launcher_files(rt))
-                    .await;
-                Some(dir)
+                Some(spill::ensure_launchers(runtime.config.lanes.spawn, &ctx.cancel, &runtime.launchers, rt, data).await)
             }
             _ => runtime.config.skill_launcher_dir.clone(),
         };
@@ -733,7 +732,7 @@ impl ShellTool {
             .map(|(_, v)| v.clone())
             .unwrap_or_default();
         let direct = plan_direct_exe(
-            runtime.config.lanes.maintenance,
+            runtime.config.lanes.spawn,
             &ctx.cancel,
             &command,
             runtime.config.windows,
@@ -774,7 +773,7 @@ impl ShellTool {
                                 .snapshots
                                 .get(SnapshotRequest {
                                     processes: &ctx.processes,
-                                    lane: runtime.config.lanes.maintenance,
+                                    lane: runtime.config.lanes.spawn,
                                     cancel: &ctx.cancel,
                                     shell_path: &shell_program,
                                     data_dir: data,
@@ -816,13 +815,13 @@ impl ShellTool {
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
         let started = runtime
-            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone(), &ctx.cancel)
+            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone())
             .await;
         let job = match started {
             Ok(job) => job,
             Err(error) => {
                 if let Some(path) = &hoist_path {
-                    spill::remove_file(runtime.config.lanes.maintenance, &ctx.cancel, path).await;
+                    spill::remove_file(runtime.config.lanes.durability, &ctx.cancel, path).await;
                 }
                 return Err(spawn_failure(error));
             }
@@ -831,7 +830,7 @@ impl ShellTool {
         // The hoisted file goes when the command has settled (a promoted or killed tree may still
         // be running from it until then).
         if let Some(path) = hoist_path {
-            let (lane, cancel, settled) = (runtime.config.lanes.maintenance, ctx.cancel.clone(), job.clone());
+            let (lane, cancel, settled) = (runtime.config.lanes.durability, ctx.cancel.clone(), job.clone());
             mixdog_rt::spawn("shell-hoist-cleanup", mixdog_rt::TaskClass::Work, async move {
                 settled.settled().await;
                 spill::remove_file(lane, &cancel, &path).await;
@@ -849,7 +848,7 @@ impl ShellTool {
                 if enforce_limit {
                     std::future::pending::<()>().await;
                 } else {
-                    tokio::time::sleep(Duration::from_millis(hold)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(hold)).await;
                 }
             };
             tokio::select! {
@@ -875,7 +874,7 @@ impl ShellTool {
                 () = ctx.cancel.cancelled() => {
                     // A kill of a process that just exited is not an error.
                     let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                     runtime.release(&job.id);
                     return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
                 }
@@ -885,7 +884,7 @@ impl ShellTool {
                 () = job.settled() => {}
                 () = ctx.cancel.cancelled() => {
                     let _ = ctx.processes.kill(&job.handle);
-                    let _ = tokio::time::timeout(super::KILL_VERIFY, job.settled()).await;
+                    let _ = mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await;
                 }
             }
             runtime.release(&job.id);
@@ -895,7 +894,7 @@ impl ShellTool {
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {
-                let (lane, cancel, settled) = (runtime.config.lanes.maintenance, ctx.cancel.clone(), job.clone());
+                let (lane, cancel, settled) = (runtime.config.lanes.durability, ctx.cancel.clone(), job.clone());
                 mixdog_rt::spawn("shell-tee-cleanup", mixdog_rt::TaskClass::Work, async move {
                     settled.settled().await;
                     spill::remove_file(lane, &cancel, &tee).await;

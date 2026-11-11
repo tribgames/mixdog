@@ -2,6 +2,9 @@
 //! the managed store are the real ones; only the session runtime is a scripted host.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "tests drive git and the disk directly")]
 
+// Compiled into a test-support build too (its helpers serve mixdog-core-session-replays); its tests run only in the library's own test build.
+#![cfg_attr(not(test), allow(dead_code, unused_imports))]
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,7 +24,7 @@ use serde_json::Value;
 
 use super::*;
 
-pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
+pub fn git(cwd: &Path, args: &[&str]) -> String {
     let out = std::process::Command::new("git")
         .current_dir(cwd)
         .args(args)
@@ -36,19 +39,19 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
 }
 
 #[derive(Default)]
-pub(crate) struct HostState {
-    pub(crate) workspace: Option<Value>,
-    pub(crate) cwd: String,
-    pub(crate) turn_running: bool,
-    pub(crate) fail_apply: bool,
-    pub(crate) live: Vec<LiveSession>,
-    pub(crate) shell_jobs: u64,
+pub struct HostState {
+    pub workspace: Option<Value>,
+    pub cwd: String,
+    pub turn_running: bool,
+    pub fail_apply: bool,
+    pub live: Vec<LiveSession>,
+    pub shell_jobs: u64,
     /// A schedule, webhook, routine or room run: it may only list worktrees.
-    pub(crate) unattended: bool,
+    pub unattended: bool,
     /// The desktop classification a Project switch stored.
-    pub(crate) desktop: Option<Value>,
+    pub desktop: Option<Value>,
     /// The sessions `ensure_session` was asked to create, in order.
-    pub(crate) ensured: Vec<String>,
+    pub ensured: Vec<String>,
 }
 
 struct FakeHost {
@@ -182,17 +185,17 @@ impl SettingsSource for Defaults {
     }
 }
 
-pub(crate) struct Rig {
-    pub(crate) _dir: tempfile::TempDir,
-    pub(crate) repo: PathBuf,
-    pub(crate) data: PathBuf,
-    pub(crate) state: Arc<Mutex<HostState>>,
-    pub(crate) auto_cleanup: Arc<AtomicBool>,
-    pub(crate) ws: SessionWorkspaces,
-    pub(crate) worktrees: Arc<Worktrees>,
+pub struct Rig {
+    pub _dir: tempfile::TempDir,
+    pub repo: PathBuf,
+    pub data: PathBuf,
+    pub state: Arc<Mutex<HostState>>,
+    pub auto_cleanup: Arc<AtomicBool>,
+    pub ws: SessionWorkspaces,
+    pub worktrees: Arc<Worktrees>,
 }
 
-pub(crate) fn rig() -> Rig {
+pub fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let repo = dir.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
@@ -220,7 +223,7 @@ pub(crate) fn rig() -> Rig {
     Rig { _dir: dir, repo, data: data_dir, state, auto_cleanup, ws, worktrees }
 }
 
-pub(crate) fn enter(name: &str, call: &str) -> SessionOp {
+pub fn enter(name: &str, call: &str) -> SessionOp {
     SessionOp::Enter {
         session_id: None,
         name: Some(name.into()),
@@ -232,7 +235,7 @@ pub(crate) fn enter(name: &str, call: &str) -> SessionOp {
     }
 }
 
-pub(crate) async fn run(rig: &Rig, op: SessionOp) -> Result<Value, ScmFailure> {
+pub async fn run(rig: &Rig, op: SessionOp) -> Result<Value, ScmFailure> {
     rig.ws.run(op, "lead", &CancellationToken::new()).await
 }
 

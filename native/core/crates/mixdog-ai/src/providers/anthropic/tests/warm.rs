@@ -282,7 +282,7 @@ async fn replay(timed: bool) -> Vec<String> {
             if let Some(after) = row["abortAfterMs"].as_u64().filter(|ms| *ms > 0) {
                 let later = cancel.clone();
                 tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(after)).await;
+                    mixdog_rt::time::sleep(std::time::Duration::from_millis(after)).await;
                     later.cancel();
                 });
             }

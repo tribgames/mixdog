@@ -294,7 +294,7 @@ mod tests {
     }
 
     async fn settle() {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 
     /// `warmup/catalog-warmup.mjs` with `timer-arm.mjs`: a warm-up that finds a turn running or a session being created
@@ -308,7 +308,7 @@ mod tests {
         warmup.bind_busy(Arc::new(move || *probe.lock().unwrap()));
         warmup.arm(Duration::ZERO);
         settle().await;
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        mixdog_rt::time::sleep(Duration::from_secs(60)).await;
         assert_eq!(http.0.load(Ordering::SeqCst), 0, "deferred, not retried by polling");
         *busy.lock().unwrap() = None;
         warmup.wake();
