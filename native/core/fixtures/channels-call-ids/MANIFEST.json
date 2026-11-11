@@ -1,0 +1,61 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-channels-call-ids.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the daemon behind handleCall (scripted: it returns {call: n}); the remote intent files (no remoteIntentPath is given)",
+    "runs": "createChannelTransport (channel-transport.mjs): its HTTP server, client registry, call dispatch (call-dispatch.mjs: callId idempotency cache keyed by caller owner and callId, rpc-call-identity.mjs) over real loopback fetch"
+  },
+  "exclusions": "test case 38 (restore vs manual ON order) is not recorded: it needs a poll of transport.activeCount; 95 is covered; 123 belongs to gaps-memory-channels; 161 and 191 are WebSocket / core stop concerns",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16460,
+      "path": "golden.json",
+      "sha256": "789beabf3282e0eeefbf3e7fba9e91a1c455ad995d65c042b668a84a0dbbd705"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "client tokens": "random tokens written as <client-token-N> by order of registration",
+    "date": "response Date header written as <date>",
+    "lead pids": "the recorder pid and its parent pid written as <pid-self> / <pid-parent> (the registration body keeps the recorded values replaced the same way)",
+    "port": "not recorded (loopback ephemeral)"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-channels-call-ids.mjs",
+  "recorderSha256": "f35991976eca8299acbfa6a06293e961302a0435252fb0d7b1452c8b80432502",
+  "replay": "mixdog-services channels: ch/call.rs run_call / call_owner (pid + token, not session) and the op-id cache, with the caller identity a core connection carries; the HTTP/SSE wire is replaced by WebSocket (protocol.md:854-865), so a replay compares per step the results and the handleCall list (name, args, caller), mapping `leadPid` to the connection's owner pid. The wire entries are what Node sent and answered over HTTP, for the replay author",
+  "set": "channels-call-ids",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 16460,
+  "uuidsNormalised": "none"
+}
