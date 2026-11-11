@@ -8,7 +8,7 @@
         "showDesktopUpdate": { "method": "update/desktop/command" },
         "trashProjectEntry": { "method": "projectFs/trash" },
         "browserReleasePage": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4)" },
-        "submitToSession": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },
+        "submitToSession": { "method": "turn/start" },
         "localPageUrl": { "method": "projectFs/localPageUrl" },
         "previewProjectFile": { "method": "projectFs/previewFile" },
         "previewProjectFileRange": { "method": "projectFs/previewRange" },
@@ -37,13 +37,13 @@
     },
     "termSizeOwner": { "calls": { "termResize": { "method": "terminal/resize" } } },
     "hostDirectories": { "calls": { "listHostDirectories": { "method": "projectFs/browseDirs" } } },
-    "usageRequests": { "calls": { "readCapabilities": { "owner": "PH-2 Chat group (phone-chat-live, w5)" } } },
+    "usageRequests": { "calls": { "readCapabilities": { "method": "usage/getUsageRequests" } } },
     "projectRecovery": { "calls": { "projectRecovery": { "method": "projectFs/recovery" } } },
     "routeAutoEffort": {
       "calls": {
-        "submitNewTask": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },
-        "setModelRoute": { "owner": "PH-2 Chat group (phone-chat-live, w5)" },
-        "inheritSession": { "owner": "PH-2 Chat group (phone-chat-live, w5)" }
+        "submitNewTask": { "method": "thread/start" },
+        "setModelRoute": { "method": "route/set" },
+        "inheritSession": { "method": "thread/fork" }
       }
     },
     "visualize": {
@@ -64,7 +64,7 @@
         "fileDownloadAbort": { "method": "transfer/endRead" }
       }
     },
-    "secretInput": { "calls": { "provideSecretInput": { "owner": "PH-2 Chat group (phone-chat-live, w5)" } } },
+    "secretInput": { "calls": { "provideSecretInput": { "method": "approval/provideSecret" } } },
     "browserWebrtc": {
       "version": 1,
       "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2 WebRTC live view)" } }
