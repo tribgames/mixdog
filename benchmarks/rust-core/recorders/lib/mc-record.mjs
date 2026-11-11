@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { exact, exactArgs, fromExact } from './exact.mjs';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, orderedStringify, parseArgs, resolveTree, stageSet, writeSetManifest, writeText, within } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, orderedStringify, parseArgs, resolveTree, stageSet, writeSetManifest, writeText, within } from './common.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
 // Local-time formatting in recalled text depends on the PC's zone: every recording of this family runs in UTC (an input of
@@ -77,10 +77,11 @@ export async function capture(fn) {
   }
 }
 
-/** The tree under test (must be exactly NODE_COMMIT) and its identity. */
+/** The tree under test (exactly NODE_COMMIT, or with `--patch <file>` NODE_COMMIT plus that Node fix) and its identity. */
 export function begin() {
-  const tree = resolveTree(parseArgs());
-  return { tree, identity: exactProductIdentity(tree, NODE_COMMIT) };
+  const args = parseArgs();
+  const tree = resolveTree(args);
+  return { tree, identity: nodeTreeIdentity(args, tree, NODE_COMMIT) };
 }
 
 /** Writes `<set>/golden.json` and MANIFEST.json. `extra` carries entry, replay, exclusions, normalised (all required). */

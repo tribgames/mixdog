@@ -1,9 +1,11 @@
 //! memory-embedding-cache-retention: the embedding cache's row cap and its prune.
 //!
 //! - The cap (`resolve`, `fromEnv`): `resolve_cache_max_rows`, which `RawEmbedFlush::new` applies to
-//!   `MIXDOG_EMBED_CACHE_MAX_ROWS`. Departure: `'0.5'` is recorded as 0 (a zero-row cap that wipes the cache), the Node
-//!   bug the manifest names; the core resolves it to the default, as `node-fix-embedding-cache-max-rows.patch` does.
+//!   `MIXDOG_EMBED_CACHE_MAX_ROWS`. The recording is Node with `node-patches/node-fix-embedding-cache-max-rows.patch`
+//!   (a fraction below one floored to a zero-row cap that wiped the cache; it is invalid as 0 is), as the core resolves it.
 //!   `fromEnv` sets the variable in this test only; nothing else in the crate reads it.
+//! - The prune's rate limit is Node's (`Date.now()` against the next allowed time, `core::store::now_ms`); a flush's
+//!   first prune is never limited, so no clock reading changes what is compared.
 //! - Each prune: `RawEmbedFlush::flush` (the public entry) over a private cluster (module `pg`) whose cache table holds
 //!   the recorded `count` rows, one of them the cached vector of the one raw row the flush claims, so the batch needs no
 //!   model and ends in the prune. The prune's statements (text and bound row count) are observed in order
@@ -40,11 +42,6 @@ fn embedding_cache_defaults_to_ten_thousand_rows_with_a_positive_override() {
             other => panic!("resolve value {other:?}"),
         };
         let rust = resolve_cache_max_rows(value);
-        if value == Some("0.5") {
-            same("resolve 0.5 as recorded (Node's zero-row cap)", step.get("result"), &int(0));
-            assert_eq!(rust, default, "resolve 0.5: the core takes a fraction below one as invalid");
-            continue;
-        }
         same(&format!("resolve {value:?}"), step.get("result"), &int(rust));
     }
     let from_env = c.get("fromEnv").as_array();

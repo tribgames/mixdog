@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 15520,
+      "bytes": 15524,
       "path": "golden.json",
-      "sha256": "8a87c49b3ce862d7ae15529b4dbebecd4ac242c0191d4091409d0a5a38b77733"
+      "sha256": "014e2ac80e87cda0ae0714c2d2dd1bc697c8d701fae00d7e7d753f91d0e0a0d5"
     }
   ],
   "inputs": [
@@ -24,7 +24,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
+      "sha256": "bc25924a6685124b8c05b4c16b36b467930974bbe35da5defd889a6ce277c1c8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -37,28 +37,36 @@
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-embedding-cache-max-rows.patch",
+      "paths": [
+        "src/runtime/memory/lib/embedding-cache-retention.mjs",
+        "src/runtime/memory/lib/embedding-cache-retention.test.mjs"
+      ],
+      "sha256": "2329fb7b43f5a7bd105f3d87b8e969fe7d7b1f50161e360ebe9b0c8a69bf33f2"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "ed4f1f727399f01a4c7477324a32d269c8fb918ae4a159b61c018aa4586685b6",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-cache-retention.mjs",
-  "recorderSha256": "d034295574613ffdfc9990e8b1f558b22cd38e899f3079fd0233ad67ab6665c5",
-  "replay": "public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). NODE BUG recorded as is: resolveEmbeddingCacheMaxRows('0.5') returns 0 (a positive fraction floors to 0, which wipes the cache); fix proposed in D:\\mixdog-build\\tmp\\node-patches\\node-fix-embedding-cache-max-rows.patch",
-  "rustWork": "The recorded pruning results (rows deleted, rows kept, cap resolution) have no public observation in Rust: the public flush (mixdog-services memory/ingest/embed_flush.rs:114 RawEmbedFlush::flush, which calls prune at :341 with cache_max_rows :80, private) returns only attempted/embedded, and a pruning error becomes a log line, not a result. Work for the Rust side before a replay can compare these recordings: surface the prune outcome (rows deleted / error) in the flush result or another public observation, or compare through the entries/cache table rows after a flush and declare the swallowed error as not observable",
+  "recorderSha256": "1d422826b6b61faa7b2ae2832e274a030e70830b7e95ccab06e4139bbe3dac41",
+  "replay": "public entry: RawEmbedFlush::flush (mixdog-services memory/ingest/embed_flush.rs:114; reached by memory ingest flush_after_ingest, ingest/mod.rs:227, and by the cycles flush_raw), which ends in prune (embed_flush.rs:341,346) with cache_max_rows (embed_flush.rs:80, reading MIXDOG_EMBED_CACHE_MAX_ROWS). A replay runs a flush over a database seam whose cache table holds `count` rows (and whose DELETE answers `deleteAnswers`) with the cap set by the env value; compares the ordered statements (text and params) exactly and the error text. prune and cache_max_rows are private: the recorded `options.maxRows` and `batchSize` reach them only as the env cap and the Rust batch constant, so the `resolve` list is replayed through the env variable and the prunes through flush; a `batchSize` option has no Rust public input (listed as work for the Rust side if parity is wanted). Recorded from Node with benchmarks/rust-core/recorders/node-patches/node-fix-embedding-cache-max-rows.patch (pass --patch): at b6f10295a resolveEmbeddingCacheMaxRows('0.5') returned 0 (a positive fraction floored to a zero-row cap that wipes the cache, while 0 itself is refused); the patch and its test make it invalid as 0 is, as the core resolves it. The flush returns the prune outcome or error (FlushOutcome::pruned)",
   "set": "memory-embedding-cache-retention",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 15520,
+  "totalBytes": 15524,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
