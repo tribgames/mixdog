@@ -1,0 +1,28 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "config and turn snapshot records follow a runtime MIXDOG_DATA_DIR retarget",
+      "observed": {
+        "configPathAfterFirst": "<first>/mixdog-config.json",
+        "configPathAfterSecond": "<second>/mixdog-config.json",
+        "config": {
+          "secondHasFile": true,
+          "firstHasFile": false,
+          "readBack": {
+            "ok": true
+          },
+          "fileText": "{\n  \"retarget-probe\": {\n    \"ok\": true\n  },\n  \"defaultsVersion\": 2\n}\n"
+        },
+        "snapshot": {
+          "saved": true,
+          "secondHasDir": true,
+          "firstHasDir": false
+        }
+      }
+    }
+  ]
+}

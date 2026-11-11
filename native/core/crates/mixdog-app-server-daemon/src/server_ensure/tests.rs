@@ -60,7 +60,7 @@ fn core(version: &str, build: &str, state: DiscoveryPhase) -> ServerCore {
 }
 
 struct Access {
-    found: Option<ServerCore>,
+    found: RefCell<Option<ServerCore>>,
     running: Vec<RunningWork>,
     boot: RefCell<Option<CoreReport>>,
     calls: RefCell<Vec<String>>,
@@ -70,7 +70,7 @@ struct Access {
 impl Access {
     fn new(found: Option<ServerCore>) -> Self {
         Self {
-            found,
+            found: RefCell::new(found),
             running: Vec::new(),
             boot: RefCell::new(Some(CoreReport::Reached(core("1.4.6", "b6", DiscoveryPhase::Serving)))),
             calls: RefCell::default(),
@@ -84,22 +84,29 @@ impl Access {
 
 impl CoreAccess for Access {
     fn discovery(&self) -> Result<Option<ServerCore>, EnsureError> {
-        Ok(self.found.clone())
+        Ok(self.found.borrow().clone())
+    }
+    fn answers(&self, _: &ServerCore) -> bool {
+        true
     }
     fn hold(&self, _: &ServerCore, on: bool) -> Result<(), EnsureError> {
         self.calls.borrow_mut().push(format!("hold:{on}"));
         Ok(())
     }
-    fn stop_when_idle(&self, _: &ServerCore, reason: StopReason, _: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError> {
+    fn stop_when_idle(&self, _: &ServerCore, reason: StopReason, _: Option<&ReplacementBuild>) -> Result<Option<DrainReport>, EnsureError> {
         self.calls.borrow_mut().push(format!("stop_when_idle:{reason:?}"));
-        Ok(DrainReport { drain_id: "d".into(), running: self.running.clone(), confirm_token: "ct".into() })
+        Ok(Some(DrainReport { drain_id: "d".into(), running: self.running.clone(), confirm_token: "ct".into() }))
     }
-    fn stop_confirmed(&self, _: &ServerCore, _: StopReason, token: &str, _: Option<&ReplacementBuild>) -> Result<(), EnsureError> {
+    fn stop_confirmed(&self, _: &ServerCore, _: StopReason, token: &str, _: Option<&ReplacementBuild>) -> Result<bool, EnsureError> {
         self.calls.borrow_mut().push(format!("stop_confirmed:{token}"));
-        Ok(())
+        Ok(true)
     }
     fn wait_exit(&self, _: &ServerCore) -> Result<(), EnsureError> {
         self.calls.borrow_mut().push("wait_exit".into());
+        Ok(())
+    }
+    fn terminate(&self, _: &ServerCore) -> Result<(), EnsureError> {
+        self.calls.borrow_mut().push("terminate".into());
         Ok(())
     }
     fn launch(&self, launch: &Launch) -> Result<(), EnsureError> {
@@ -335,6 +342,328 @@ fn a_held_install_lock_is_reported_not_stolen() {
     let dead = Host { alive: false, ..env.host() };
     run(&args("1.4.6", "b6"), &dead, &access, &env.exe).unwrap();
     assert!(!paths.lock.exists());
+}
+
+/// A host on which the run holding the install lock finishes while this run waits for it: its first pause is that other
+/// run publishing the core it started and releasing the lock (`other_run_ends`).
+struct LockWaiter<'a> {
+    host: Host,
+    other_run_ends: RefCell<Option<Box<dyn FnOnce() + 'a>>>,
+}
+
+impl EnsureHost for LockWaiter<'_> {
+    fn home(&self) -> PathBuf {
+        self.host.home()
+    }
+    fn uid(&self) -> u32 {
+        self.host.uid()
+    }
+    fn hostname(&self) -> String {
+        self.host.hostname()
+    }
+    fn process_alive(&self, pid: u32) -> bool {
+        self.host.process_alive(pid)
+    }
+    fn process_images(&self) -> Option<Vec<ProcessImage>> {
+        self.host.process_images()
+    }
+    fn now_ms(&self) -> u64 {
+        self.host.now_ms()
+    }
+    fn pause(&self, _: Duration) {
+        if let Some(other_run_ends) = self.other_run_ends.borrow_mut().take() {
+            other_run_ends();
+        }
+    }
+}
+
+/// The discovery file a serving core of 1.4.6/b6 publishes, naming this test process (alive, its real start time) and a
+/// control listener on `control_port`.
+fn publish_core(paths: &RemotePaths, control_port: u16, instance_id: &str) -> String {
+    publish(paths, std::process::id(), ("1.4.6", "b6", "serving"), control_port, instance_id)
+}
+
+/// The discovery file a core (`version`, `build`, `state`) publishes, naming the process `pid` (alive, its real start
+/// time) and a control listener on `control_port`.
+fn publish(paths: &RemotePaths, pid: u32, (version, build, state): (&str, &str, &str), control_port: u16, instance_id: &str) -> String {
+    use crate::verdict::ProcessTable;
+    let start_ms = crate::verdict::OsProcessTable.query(u64::from(pid)).unwrap().unwrap().identity.start_ms;
+    let raw = serde_json::json!({
+        "pid": pid,
+        "endpoints": { "session": { "port": 1, "token": "bootstrap-test-token" }, "modelProxy": { "port": 2 } },
+        "core": {
+            "control": { "port": control_port },
+            "state": state,
+            "version": version,
+            "build": build,
+            "instanceId": instance_id,
+            "processStartTime": start_ms.to_string(),
+        },
+    })
+    .to_string();
+    std::fs::create_dir_all(&paths.runtime_root).unwrap();
+    std::fs::write(crate::discovery::path(&paths.runtime_root), &raw).unwrap();
+    raw
+}
+
+/// The install lock of another run (a live pid, fresh) that has not published its core yet.
+fn hold_install_lock(env: &Env) {
+    let lock = env.paths().lock;
+    let token = "0123456789abcdef01234567";
+    std::fs::create_dir_all(lock.join(token)).unwrap();
+    std::fs::write(
+        lock.join(token).join("owner.json"),
+        format!(r#"{{"token":"{token}","pid":77,"host":"h","purpose":"install","startedAt":{}}}"#, env.host().now_ms()),
+    )
+    .unwrap();
+}
+
+/// Node's daemon-bootstrap test (`scripts/daemon-bootstrap-test.mjs`): a client that meets a live owner before that owner
+/// has published discovery waits for the publication and is served by it. Here the owner is the run holding the install
+/// lock (a live pid, a fresh lock) whose core is not in discovery yet: this run waits on the lock with the shipped wait.
+/// When the other run ends, a real core control listener is serving, its discovery file is published and the lock is
+/// released; this run reads that file through the real `OsAccess`, gets the core's `GET /mgmt/status` answer over the
+/// socket and attaches. Nothing is launched, held or stopped (a fake access would have to be asked).
+#[test]
+fn a_run_that_meets_a_live_install_before_its_core_is_published_waits_and_is_served_by_it() {
+    let env = env();
+    let paths = env.paths();
+    hold_install_lock(&env);
+    let fx = crate::lifecycle::testing::fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let instance_id = fx.lifecycle.status().instance_id.clone();
+    let serving = RefCell::new(None);
+    let published = RefCell::new(String::new());
+    let host = LockWaiter {
+        host: env.host(),
+        other_run_ends: RefCell::new(Some(Box::new(|| {
+            let token = "bootstrap-test-token".to_owned();
+            let legacy = crate::control::Legacy {
+                pid: std::process::id(),
+                version: "1.4.6".into(),
+                instance_id: instance_id.clone(),
+                build: "b6".into(),
+                update_text: String::new(),
+            };
+            let server = crate::control::ControlServer::start(crate::control::ControlConfig { token, legacy }, std::sync::Arc::clone(&fx.lifecycle)).unwrap();
+            *published.borrow_mut() = publish_core(&paths, server.port(), &instance_id);
+            *serving.borrow_mut() = Some(server);
+            std::fs::remove_dir_all(&paths.lock).unwrap();
+        }))),
+    };
+    let access = super::os::OsAccess::new(&host);
+    let mut waiting = args("1.4.6", "b6");
+    waiting.lock_wait_ms = None;
+    let report = run(&waiting, &host, &access, &env.exe).unwrap();
+    assert!(host.other_run_ends.borrow().is_none(), "the run did not wait for the lock's holder");
+    assert!(report.healthy && report.core_current && !report.started, "{report:?}");
+    assert_eq!(report.daemon_json.as_deref(), Some(published.borrow().as_str()));
+}
+
+/// The same published record, but nothing answers on its control port (or another core does): the run reports the core
+/// neither healthy nor current, as Node's `daemonSummary` without `/health`, and the desktop refuses it.
+#[test]
+fn a_published_core_that_does_not_answer_is_not_attached_as_healthy() {
+    let env = env();
+    let paths = env.paths();
+    let closed = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port();
+    publish_core(&paths, closed, "instance-1");
+    let host = env.host();
+    let access = super::os::OsAccess::new(&host);
+    let report = run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap();
+    assert!(!report.healthy && !report.core_current && !report.started, "{report:?}");
+
+    let fx = crate::lifecycle::testing::fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let legacy = crate::control::Legacy { pid: 1, version: "1.4.6".into(), instance_id: "other".into(), build: "b6".into(), update_text: String::new() };
+    let other = crate::control::ControlServer::start(
+        crate::control::ControlConfig { token: "bootstrap-test-token".into(), legacy },
+        std::sync::Arc::clone(&fx.lifecycle),
+    )
+    .unwrap();
+    publish_core(&paths, other.port(), "not-the-answering-instance");
+    let report = run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap();
+    assert!(!report.healthy && !report.core_current, "another core's answer proves nothing: {report:?}");
+}
+
+/// What a run met on the core's side: its result, the core's end of the connection and the run's clock, as they are
+/// when the run has returned.
+struct Served {
+    result: Result<Report, EnsureError>,
+    conn: std::net::TcpStream,
+    watch: std::sync::Arc<super::idle::IdleWatch>,
+}
+
+/// A run of `args` through the real `OsAccess` against a published core (`published`: version, build, state) whose
+/// process is `pid` and whose control listener is a real one. `answer` plays the core's side of the run's first
+/// connection, whose request head (already read) starts with `request`, on the run's clock, which moves only when it
+/// advances it; the core's state is a real lifecycle.
+fn served_through(
+    args: ProgramArgs,
+    pid: u32,
+    published: (&str, &str, &str),
+    request: &str,
+    answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::IdleWatch, &std::sync::Arc<crate::lifecycle::Lifecycle>),
+) -> Served {
+    use std::io::Read;
+    let env = env();
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let fx = crate::lifecycle::testing::fixture();
+    fx.lifecycle.set_serving().unwrap();
+    publish(&env.paths(), pid, published, listener.local_addr().unwrap().port(), &fx.lifecycle.status().instance_id);
+    let watch = super::idle::IdleWatch::manual();
+    let (done, result) = std::sync::mpsc::channel();
+    let running = std::sync::Arc::clone(&watch);
+    std::thread::spawn(move || {
+        let host = env.host();
+        let access = super::os::OsAccess::with_idle(&host, running);
+        done.send(run(&args, &host, &access, &env.exe)).unwrap();
+    });
+    let (mut conn, _) = listener.accept().unwrap();
+    let mut head = Vec::new();
+    while !head.ends_with(b"\r\n\r\n") {
+        let mut byte = [0u8];
+        conn.read_exact(&mut byte).unwrap();
+        head.push(byte[0]);
+    }
+    assert!(head.starts_with(request.as_bytes()), "{}", String::from_utf8_lossy(&head));
+    answer(&mut conn, &watch, &fx.lifecycle);
+    // Bounds only a failing run (one that never gives up); a passing one has already answered. The connection stays
+    // open until then, so the run cannot have seen its end instead of the limit.
+    let result = result.recv_timeout(Duration::from_secs(60)).expect("the run is still waiting for the core");
+    Served { result, conn, watch }
+}
+
+/// The core's whole answer to `GET /mgmt/status`, and to a command, which replies with the state after it.
+fn status_answer(lifecycle: &crate::lifecycle::Lifecycle) -> String {
+    let body = serde_json::to_string(&crate::control::api::StatusReply { status: (*lifecycle.status()).clone(), stalled_ms: 0 }).unwrap();
+    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+}
+
+/// `answer` in two parts, each written just inside `limit` of inactivity, so the whole takes twice the limit. Before
+/// each part the reader's read has timed out on the real clock: only the watch's clock may decide, so a machine that
+/// stalls the core between the accept and a write changes nothing.
+fn answer_in_two_parts(conn: &mut std::net::TcpStream, watch: &super::idle::IdleWatch, answer: &str, limit: Duration) {
+    use std::io::Write;
+    let (first, rest) = answer.split_at(answer.len() / 2);
+    let just_inside = limit - Duration::from_millis(1);
+    watch.wait_a_read_timeout();
+    watch.advance(just_inside);
+    conn.write_all(first.as_bytes()).unwrap();
+    watch.wait_chunks(1);
+    watch.wait_a_read_timeout();
+    watch.advance(just_inside);
+    conn.write_all(rest.as_bytes()).unwrap();
+    conn.shutdown(std::net::Shutdown::Write).unwrap();
+}
+
+/// Giving up ends the read: by the time the run returns its reader has finished and the core sees its connection closed.
+fn assert_given_up(served: &mut Served) {
+    use std::io::Read;
+    assert_eq!(served.watch.readers(), 0, "the request's reader outlived the run");
+    // Bounds only a failing run, whose connection stays open. The rest of a request (its body) is read first.
+    served.conn.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+    match served.conn.read_to_end(&mut Vec::new()) {
+        Ok(_) => {}
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => {}
+        Err(e) => panic!("the request's connection is still open after the run: {e:?}"),
+    }
+}
+
+/// A process standing in for a published core's, so that ending it ends nothing else: `sort`, hidden, reading its
+/// stdin until that closes and then exiting 0 (a signalled one does not).
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the stand-in core is a real process")]
+fn core_process() -> std::process::Child {
+    #[cfg(windows)]
+    let mut command = {
+        let system = std::path::Path::new(&std::env::var_os("SystemRoot").unwrap()).join("System32");
+        let mut command = std::process::Command::new(system.join("sort.exe"));
+        // CREATE_NO_WINDOW
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+        command
+    };
+    #[cfg(unix)]
+    let mut command = std::process::Command::new("sort");
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap()
+}
+
+/// Node's `daemonRequest` gives up after 1,500 ms without a byte: a core that accepts the probe and stays silent is not
+/// attached as healthy, and no second core is started beside it.
+#[test]
+fn a_core_that_accepts_the_probe_and_stays_silent_is_not_healthy_after_the_idle_limit() {
+    let mut served = served_through(args("1.4.6", "b6"), std::process::id(), ("1.4.6", "b6", "serving"), "GET /mgmt/status ", |_, watch, _| {
+        watch.advance(super::idle::ANSWER_IDLE);
+    });
+    let report = served.result.as_ref().unwrap();
+    assert!(!report.healthy && !report.core_current && !report.started, "{report:?}");
+    assert_given_up(&mut served);
+}
+
+/// The limit is on inactivity, not on the whole answer: a core that answers in two parts, each just inside the limit,
+/// is attached as healthy although the answer takes twice the limit.
+#[test]
+fn a_core_that_answers_slowly_within_the_idle_limit_is_attached() {
+    let served = served_through(args("1.4.6", "b6"), std::process::id(), ("1.4.6", "b6", "serving"), "GET /mgmt/status ", |conn, watch, core| {
+        answer_in_two_parts(conn, watch, &status_answer(core), super::idle::ANSWER_IDLE);
+    });
+    let report = served.result.unwrap();
+    assert!(report.healthy && report.core_current && !report.started, "{report:?}");
+}
+
+/// Node's `stopDaemon` gives `/stop` 3,000 ms without a byte; a core silent that long is ended as one that did not
+/// answer: SIGTERM, the grace, SIGKILL (`terminateProcess`). The run gives the request up, ends the core's process and
+/// reports it stopped.
+#[test]
+fn a_core_that_accepts_the_stop_and_stays_silent_is_ended_by_signal_after_the_stop_limit() {
+    let mut process = core_process();
+    let pid = process.id();
+    let mut served = served_through(cleanup_args(CleanupPhase::Stop), pid, ("1.4.6", "b6", "serving"), "POST /mgmt/stop ", |_, watch, _| {
+        watch.advance(super::idle::STOP_IDLE);
+    });
+    let report = served.result.as_ref().unwrap();
+    assert_eq!(report.cleanup.as_ref().unwrap().stopped, Some(Stopped { pid, stopped: true }));
+    let status = process.try_wait().unwrap().expect("the silent core's process still runs after the run");
+    assert!(!status.success(), "the silent core's process ended by itself, not by a signal: {status:?}");
+    assert_given_up(&mut served);
+}
+
+/// The stop limit is on inactivity too, and longer than the probe's: a core that answers its stop in two parts, each
+/// just inside 3,000 ms, is waited out and never signalled.
+#[test]
+fn a_core_that_answers_the_stop_slowly_within_the_stop_limit_is_waited_out_and_not_signalled() {
+    let mut process = core_process();
+    let pid = process.id();
+    let mut stdin = process.stdin.take();
+    let served = served_through(cleanup_args(CleanupPhase::Stop), pid, ("1.4.6", "b6", "serving"), "POST /mgmt/stop ", |conn, watch, core| {
+        core.request_stop(crate::lifecycle::StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        answer_in_two_parts(conn, watch, &status_answer(core), super::idle::STOP_IDLE);
+        // The core leaves once it has answered: its process ends by itself.
+        drop(stdin.take());
+    });
+    let report = served.result.unwrap();
+    assert_eq!(report.cleanup.unwrap().stopped, Some(Stopped { pid, stopped: true }));
+    assert!(process.wait().unwrap().success(), "the core that answered its stop was signalled");
+}
+
+/// Hold is the first request of a replacement: a core silent on it has not shown that it answers, and Node never stops
+/// a daemon that does not answer. The run fails; the core is neither stopped nor signalled, and nothing is launched.
+#[test]
+fn a_core_that_accepts_the_hold_and_stays_silent_fails_the_run_and_is_left_running() {
+    let mut process = core_process();
+    let mut served = served_through(args("1.4.6", "b6"), process.id(), ("1.4.5", "b5", "serving"), "POST /mgmt/hold ", |_, watch, _| {
+        watch.advance(super::idle::ANSWER_IDLE);
+    });
+    let error = served.result.as_ref().unwrap_err();
+    assert_eq!(error.code(), "core-control", "{error}");
+    assert!(process.try_wait().unwrap().is_none(), "the core silent on hold was ended");
+    assert_given_up(&mut served);
+    drop(process.stdin.take());
+    process.wait().unwrap();
 }
 
 #[test]
