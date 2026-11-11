@@ -135,7 +135,7 @@ impl Conn {
                 Ok(()) => answer((&mut response).await, true),
                 // An answer already in hand outranks the failed write: undici has parsed what arrived before the
                 // socket's error is seen. A read error beside it does not: the write's is the request's error.
-                Err(error) => match tokio::time::timeout(Duration::ZERO, &mut response).await {
+                Err(error) => match mixdog_rt::time::timeout(Duration::ZERO, &mut response).await {
                     Ok(result @ Ok(_)) => answer(result, false),
                     _ => Exchange::NotWritten(error),
                 },
@@ -235,7 +235,7 @@ impl BodyStream for H1Body {
                 }
             }
             let incoming = self.incoming.as_mut()?;
-            let frame = match tokio::time::timeout(BODY_TIMEOUT, incoming.frame()).await {
+            let frame = match mixdog_rt::time::timeout(BODY_TIMEOUT, incoming.frame()).await {
                 Err(_) => return self.fail(TransportFault::Io { os_code: None }),
                 Ok(frame) => frame,
             };
@@ -296,7 +296,7 @@ mod tests {
             far // kept open, unread
         });
         let body = vec![b'x'; 1 << 20];
-        let outcome = tokio::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
+        let outcome = mixdog_rt::time::timeout(Duration::from_secs(20), conn.exchange(b"POST / HTTP/1.1\r\ncontent-length: 1048576\r\n\r\n", &body, "POST", false))
             .await
             .expect("the answer arrives while the write is pending");
         match outcome {
@@ -327,7 +327,7 @@ mod tests {
             .unwrap();
         tokio::spawn(send.send_request(request));
         let mut written = vec![0u8; 512];
-        let n = tokio::time::timeout(Duration::from_secs(20), far.read(&mut written)).await.expect("hyper's request within 20 s").unwrap();
+        let n = mixdog_rt::time::timeout(Duration::from_secs(20), far.read(&mut written)).await.expect("hyper's request within 20 s").unwrap();
         let hyper_head = String::from_utf8(written[..n].to_vec()).unwrap();
         let wire = mixdog_core_api::domain::provider::WireRequest {
             transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,

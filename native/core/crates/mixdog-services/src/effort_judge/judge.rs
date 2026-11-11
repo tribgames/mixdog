@@ -343,7 +343,7 @@ impl EffortJudgeModel {
             mixdog_rt::spawn("services.effort-judge.turn-load", TaskClass::Work, async move {
                 drop(done_tx.send(this.load_for_turn(timing.retry, &load_cancel).await));
             });
-            match tokio::time::timeout(timing.cold, done_rx).await {
+            match mixdog_rt::time::timeout(timing.cold, done_rx).await {
                 Ok(Ok(Ok(()))) => {}
                 Ok(Ok(Err(error))) => return TurnVerdict::skipped(skip_reason(&error)),
                 Ok(Err(_)) => return TurnVerdict::skipped(EXITED),
@@ -381,12 +381,12 @@ impl EffortJudgeModel {
                 drop(result_tx.send(outcome));
             }
         });
-        match tokio::time::timeout(timing.queue, started_rx).await {
+        match mixdog_rt::time::timeout(timing.queue, started_rx).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => return TurnVerdict::skipped(EXITED),
             Err(_) => return TurnVerdict::skipped("busy"),
         }
-        match tokio::time::timeout(timing.warm, result_rx).await {
+        match mixdog_rt::time::timeout(timing.warm, result_rx).await {
             Ok(Ok(Ok((probs, ms)))) => TurnVerdict::Probs { probs, ms },
             Ok(Ok(Err(error))) => TurnVerdict::skipped(skip_reason(&error)),
             Ok(Err(_)) => TurnVerdict::skipped(EXITED),

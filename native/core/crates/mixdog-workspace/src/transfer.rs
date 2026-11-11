@@ -491,7 +491,7 @@ pub struct TokioTimer;
 
 impl IdleTimer for TokioTimer {
     fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
-        Box::pin(tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)))
+        Box::pin(mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(deadline)))
     }
 }
 
@@ -2060,16 +2060,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Nothing open: the wait has nothing to end at.
         let mut waiting = Box::pin(t.wait_idle_due(&*manual));
-        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
         let id = t.begin_staged("o", dir.path(), "a.txt", 4).unwrap();
         let part = dir.path().join(format!(".{id}.part"));
         // Begun at 0: due at 120 000 ms, not before.
         manual.advance(119_999);
-        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
         // A chunk written at 119 999 ms moves the deadline to 239 999 ms.
         assert_eq!(t.write_chunk("o", &id, Some(0), "aGk=").unwrap(), 2);
         manual.advance(120_000 - 1);
-        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        assert!(mixdog_rt::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
         manual.advance(1);
         waiting.await;
         t.sweep_idle();

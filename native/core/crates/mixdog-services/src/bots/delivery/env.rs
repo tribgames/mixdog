@@ -162,7 +162,7 @@ pub struct SleepRetry;
 impl RetryTimer for SleepRetry {
     fn arm(&self, delay: Duration, fire: Box<dyn FnOnce() + Send>) {
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             fire();
         });
     }

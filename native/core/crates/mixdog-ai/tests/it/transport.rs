@@ -128,7 +128,7 @@ async fn answering_websocket_peer_stays_alive_and_delivers_frames() {
         .unwrap();
     assert!(conn.link().may_start_response());
     // Several probe rounds pass with no data in flight.
-    tokio::time::sleep(schedule.ws.interval * 4).await;
+    mixdog_rt::time::sleep(schedule.ws.interval * 4).await;
     assert_eq!(conn.link().liveness(), LinkLiveness::Alive);
     assert!(
         !conn.link().may_start_response(),
@@ -207,7 +207,7 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     let url = format!("http://{addr}/");
     let request = tokio::spawn(async move { client.get(url).send().await });
     // Real I/O first (connect, preface); no virtual time has to pass for it.
-    tokio::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
+    mixdog_rt::time::timeout(Duration::from_secs(10), preface).await.expect("the peer receives the preface within 10 s").unwrap();
     let started = tokio::time::Instant::now();
     let bound = (schedule.h2.interval + schedule.h2.timeout) * 3;
     let step = Duration::from_millis(10);

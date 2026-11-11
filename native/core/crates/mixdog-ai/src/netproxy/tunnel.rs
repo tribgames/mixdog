@@ -213,7 +213,7 @@ pub async fn connect_proxy(proxy_url: &str, keepalive: &TcpKeepalive) -> Result<
     let proxy = Url::parse(proxy_url).map_err(|_| TunnelError::Dns)?;
     let (proxy_host, proxy_port) = proxy_endpoint(&proxy);
     let stream = dial(&proxy_host, proxy_port, keepalive).await?;
-    tokio::time::timeout(TUNNEL_TIMEOUT, reach_proxy(&proxy, &proxy_host, stream))
+    mixdog_rt::time::timeout(TUNNEL_TIMEOUT, reach_proxy(&proxy, &proxy_host, stream))
         .await
         .map_err(|_| TunnelError::TimedOut)?
 }
@@ -244,7 +244,7 @@ pub async fn open_proxy_tunnel(
         }
         Ok::<_, TunnelError>(conn)
     };
-    tokio::time::timeout(TUNNEL_TIMEOUT, handshake).await.map_err(|_| TunnelError::TimedOut)?
+    mixdog_rt::time::timeout(TUNNEL_TIMEOUT, handshake).await.map_err(|_| TunnelError::TimedOut)?
 }
 async fn connect_request(
     stream: &mut Conn,

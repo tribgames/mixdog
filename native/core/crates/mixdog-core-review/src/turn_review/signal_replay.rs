@@ -384,7 +384,7 @@ fn without_after(read: &Value) -> Value {
 /// A wait for the core's frames that fails by name at its deadline instead of hanging.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
-    tokio::time::timeout(DEADLINE, wait).await.unwrap_or_else(|_| panic!("{what} did not arrive within {DEADLINE:?}"))
+    mixdog_rt::time::timeout(DEADLINE, wait).await.unwrap_or_else(|_| panic!("{what} did not arrive within {DEADLINE:?}"))
 }
 
 /// The windows of this checkout (`review-reread-replay.mjs`) given the core's deliveries: what each window asked, when, and showed.
@@ -405,7 +405,7 @@ async fn windows_trace(scratch: &Path, input: &Value) -> Value {
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
         .output();
-    let output = tokio::time::timeout(DEADLINE, child).await.unwrap_or_else(|_| panic!("the windows replay (review-reread-replay.mjs) did not finish within {DEADLINE:?}")).expect("node starts");
+    let output = mixdog_rt::time::timeout(DEADLINE, child).await.unwrap_or_else(|_| panic!("the windows replay (review-reread-replay.mjs) did not finish within {DEADLINE:?}")).expect("node starts");
     assert!(output.status.success(), "the windows replay failed: {}", String::from_utf8_lossy(&output.stderr));
     serde_json::from_slice(&output.stdout).unwrap_or_else(|error| panic!("the windows replay answered no trace ({error}): {}", String::from_utf8_lossy(&output.stdout)))
 }

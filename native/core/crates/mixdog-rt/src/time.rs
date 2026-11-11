@@ -1,27 +1,67 @@
-//! The core's timers. Without feature `virtual-clock` these are tokio's own items, re-exported. With it, and a replay's clock
-//! running the process (`virtual_clock.rs`), each sleep is a timer in that clock's copy of Node's timer lists, fired in Node's
-//! order; without a replay's clock they are tokio's again.
+//! The core's timers: every crate arms its timers here (`clippy.toml` refuses `tokio::time`'s timer functions elsewhere). Without
+//! feature `virtual-clock` the types are tokio's own, re-exported, and each function is tokio's, called through an inline wrapper
+//! (a re-export would carry tokio's path, which the ban names). With it, and a replay's clock running the process
+//! (`virtual_clock.rs`), each sleep is a timer in that clock's copy of Node's timer lists, fired in Node's order; without a
+//! replay's clock they are tokio's again.
+
+pub use tokio::time::MissedTickBehavior;
 
 #[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::Instant;
+pub use off_virtual_clock::*;
+
 #[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::Interval;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::Sleep;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::Timeout;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::error::Elapsed;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::interval_at;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::sleep;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::sleep_until;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::timeout;
-#[cfg(not(feature = "virtual-clock"))]
-pub use tokio::time::timeout_at;
+mod off_virtual_clock {
+    use std::future::IntoFuture;
+    use std::time::Duration;
+
+    pub use tokio::time::Instant;
+    pub use tokio::time::Interval;
+    pub use tokio::time::Sleep;
+    pub use tokio::time::Timeout;
+    pub use tokio::time::error::Elapsed;
+
+    /// `tokio::time::sleep`.
+    #[inline]
+    #[track_caller]
+    pub fn sleep(duration: Duration) -> Sleep {
+        tokio::time::sleep(duration)
+    }
+
+    /// `tokio::time::sleep_until`.
+    #[inline]
+    #[track_caller]
+    pub fn sleep_until(deadline: Instant) -> Sleep {
+        tokio::time::sleep_until(deadline)
+    }
+
+    /// `tokio::time::timeout`.
+    #[inline]
+    #[track_caller]
+    pub fn timeout<F: IntoFuture>(duration: Duration, future: F) -> Timeout<F::IntoFuture> {
+        tokio::time::timeout(duration, future)
+    }
+
+    /// `tokio::time::timeout_at`.
+    #[inline]
+    #[track_caller]
+    pub fn timeout_at<F: IntoFuture>(deadline: Instant, future: F) -> Timeout<F::IntoFuture> {
+        tokio::time::timeout_at(deadline, future)
+    }
+
+    /// `tokio::time::interval`.
+    #[inline]
+    #[track_caller]
+    pub fn interval(period: Duration) -> Interval {
+        tokio::time::interval(period)
+    }
+
+    /// `tokio::time::interval_at`.
+    #[inline]
+    #[track_caller]
+    pub fn interval_at(start: Instant, period: Duration) -> Interval {
+        tokio::time::interval_at(start, period)
+    }
+}
 
 #[cfg(feature = "virtual-clock")]
 pub use on_virtual_clock::*;
@@ -38,6 +78,7 @@ mod on_virtual_clock {
 
     pub use tokio::time::Instant;
 
+    use super::MissedTickBehavior;
     use crate::virtual_clock;
     use crate::virtual_clock::Key;
     use crate::virtual_clock::Slot;
@@ -71,7 +112,12 @@ mod on_virtual_clock {
     /// the V the last tick fired at.
     pub fn interval_at(start: Instant, period: Duration) -> Interval {
         assert!(period > Duration::ZERO, "`period` must be non-zero.");
-        Interval { period, sleep: sleep_until(start), fired_at: None }
+        Interval { period, sleep: sleep_until(start), missed: MissedTickBehavior::Burst, fired_at: None }
+    }
+
+    /// `tokio::time::interval`: the first tick at once.
+    pub fn interval(period: Duration) -> Interval {
+        interval_at(Instant::now(), period)
     }
 
     enum Inner {
@@ -206,11 +252,11 @@ mod on_virtual_clock {
         }
     }
 
-    /// `tokio::time::Interval` with its default (burst) missed-tick behaviour; on the replay's clock, Node's `setInterval`
-    /// ([`interval_at`]).
+    /// `tokio::time::Interval`; on the replay's clock, Node's `setInterval` ([`interval_at`]), whatever its missed-tick behaviour.
     pub struct Interval {
         period: Duration,
         sleep: Sleep,
+        missed: MissedTickBehavior,
         /// The V the last tick fired at, on the replay's clock, until the next tick is armed.
         fired_at: Option<u64>,
     }
@@ -225,13 +271,36 @@ mod on_virtual_clock {
             let at = self.sleep.deadline();
             match &mut self.sleep.inner {
                 Inner::Virtual { due, .. } => self.fired_at = Some(*due),
-                Inner::Tokio(sleep) => sleep.as_mut().reset(at + self.period),
+                Inner::Tokio(sleep) => {
+                    let now = Instant::now();
+                    // tokio's `MissedTickBehavior::next_timeout`.
+                    let next = match self.missed {
+                        MissedTickBehavior::Burst => at + self.period,
+                        MissedTickBehavior::Delay => now + self.period,
+                        MissedTickBehavior::Skip => {
+                            let late = now.saturating_duration_since(at).as_nanos();
+                            let period = self.period.as_nanos();
+                            now + self.period - Duration::from_nanos(u64::try_from(late % period).unwrap_or(0))
+                        }
+                    };
+                    self.sleep.deadline = next;
+                    sleep.as_mut().reset(next);
+                }
             }
             at
         }
 
         pub fn period(&self) -> Duration {
             self.period
+        }
+
+        pub fn missed_tick_behavior(&self) -> MissedTickBehavior {
+            self.missed
+        }
+
+        /// Off the replay's clock as tokio's; on it, every tick is Node's (the next one `period` after the last fired).
+        pub fn set_missed_tick_behavior(&mut self, behavior: MissedTickBehavior) {
+            self.missed = behavior;
         }
     }
 }

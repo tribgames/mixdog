@@ -539,7 +539,7 @@ mod tests {
             let store = store.clone();
             tokio::spawn(async move { store.mode_for("bot", &comment(), false).await })
         };
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(!reader.is_finished(), "the reader waits for the writer order");
         let mut repaired = GrantTable::default();
         repaired.grant("bot", &comment(), ApprovalRemember::Agent, "", 1);

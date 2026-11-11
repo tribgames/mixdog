@@ -1233,7 +1233,7 @@ impl mixdog_core_goal::goal::GoalTimers for RigGoalTimers {
         drop(tokio::spawn(async move {
             tokio::select! {
                 () = stop.cancelled() => {}
-                () = tokio::time::sleep(delay) => callback(),
+                () = mixdog_rt::time::sleep(delay) => callback(),
             }
         }));
         mixdog_core_goal::goal::Timer::new(move || cancel.cancel())
@@ -1521,7 +1521,7 @@ impl super::CloseIngest for Closes {
         let (seen, id, delay, timeline) = (self.seen.clone(), id.clone(), *lock(&self.delay), lock(&self.timeline).clone());
         let ended = self.ended.clone();
         Box::pin(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             lock(&seen).push((id, messages));
             if let Some(log) = timeline {
                 lock(&log).push(json!({ "teardown": "done" }));

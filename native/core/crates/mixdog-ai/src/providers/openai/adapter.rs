@@ -698,7 +698,7 @@ impl ProviderAdapter for OpenAiAdapter {
                 }
                 // A transport switch does not outrun the server's retry deadline.
                 if let Some(wait) = failed.error.retry_after {
-                    tokio::time::sleep(wait).await;
+                    mixdog_rt::time::sleep(wait).await;
                 }
                 self.run(Wire::Http, &request).await.map_err(|failed| failed.error)
             }

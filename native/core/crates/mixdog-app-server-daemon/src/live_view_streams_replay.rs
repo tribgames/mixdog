@@ -319,7 +319,7 @@ impl World {
             })
             .unwrap();
         let mut parked = self.parked_events.lock().await;
-        let stopped = tokio::time::timeout(GATE_DEADLINE, async {
+        let stopped = mixdog_rt::time::timeout(GATE_DEADLINE, async {
             tokio::select! {
                 ended = &mut done_rx => {
                     ended.unwrap_or_else(|_| panic!("{what}: the step failed"));
@@ -348,7 +348,7 @@ impl World {
                 Parked::Send(go) => {
                     let done = running.next().unwrap_or_else(|| panic!("{what}: a stopped send without its step"));
                     go.send(()).unwrap();
-                    tokio::time::timeout(GATE_DEADLINE, done)
+                    mixdog_rt::time::timeout(GATE_DEADLINE, done)
                         .await
                         .unwrap_or_else(|_| panic!("{what}: a released step did not end within 30 s"))
                         .unwrap_or_else(|_| panic!("{what}: a released step failed"));
@@ -566,7 +566,7 @@ async fn forced(name: &str, before: usize, held: usize, meanwhile: &[usize], wan
             let _ = done_tx.send(());
         })
         .unwrap();
-    tokio::time::timeout(GATE_DEADLINE, reached_rx)
+    mixdog_rt::time::timeout(GATE_DEADLINE, reached_rx)
         .await
         .unwrap_or_else(|_| panic!("{name}: the held step {held} did not reach its point within 30 s"))
         .unwrap_or_else(|_| panic!("{name}: the held step {held} ended before it reached its point"));
@@ -583,12 +583,12 @@ async fn forced(name: &str, before: usize, held: usize, meanwhile: &[usize], wan
             let _ = meanwhile_tx.send(());
         })
         .unwrap();
-    tokio::time::timeout(GATE_DEADLINE, meanwhile_rx)
+    mixdog_rt::time::timeout(GATE_DEADLINE, meanwhile_rx)
         .await
         .unwrap_or_else(|_| panic!("{name}: the steps after the held step {held} did not finish within 30 s (a step delivered effects under a lock their handlers take)"))
         .unwrap_or_else(|_| panic!("{name}: a step after the held step {held} failed"));
     go_tx.send(()).unwrap();
-    tokio::time::timeout(GATE_DEADLINE, done_rx)
+    mixdog_rt::time::timeout(GATE_DEADLINE, done_rx)
         .await
         .unwrap_or_else(|_| panic!("{name}: the held step {held} did not finish within 30 s of going on"))
         .unwrap_or_else(|_| panic!("{name}: the held step {held} failed"));
@@ -658,7 +658,7 @@ async fn forced_push(name: &str, before: usize, held: usize, unpair: usize) {
             let _ = done_tx.send(());
         })
         .unwrap();
-    tokio::time::timeout(GATE_DEADLINE, reached_rx)
+    mixdog_rt::time::timeout(GATE_DEADLINE, reached_rx)
         .await
         .unwrap_or_else(|_| panic!("{name}: the push of step {held} did not pass its check within 30 s"))
         .unwrap_or_else(|_| panic!("{name}: step {held} ended before its push passed its check"));
@@ -674,17 +674,17 @@ async fn forced_push(name: &str, before: usize, held: usize, unpair: usize) {
             let _ = events_tx.send("returned");
         })
         .unwrap();
-    let first = tokio::time::timeout(GATE_DEADLINE, events.recv())
+    let first = mixdog_rt::time::timeout(GATE_DEADLINE, events.recv())
         .await
         .unwrap_or_else(|_| panic!("{name}: the unpair of step {unpair} neither waited at the view gate nor went on within 30 s"))
         .unwrap();
     assert_eq!(first, "waited at the view gate", "{name}: the unpair's cleanup went on while the push of step {held}, past its check, was not yet enqueued");
     go_tx.send(()).unwrap();
-    tokio::time::timeout(GATE_DEADLINE, done_rx)
+    mixdog_rt::time::timeout(GATE_DEADLINE, done_rx)
         .await
         .unwrap_or_else(|_| panic!("{name}: step {held} did not end within 30 s of going on"))
         .unwrap_or_else(|_| panic!("{name}: step {held} failed"));
-    let returned_at = tokio::time::timeout(GATE_DEADLINE, returned_rx)
+    let returned_at = mixdog_rt::time::timeout(GATE_DEADLINE, returned_rx)
         .await
         .unwrap_or_else(|_| panic!("{name}: the unpair of step {unpair} did not end within 30 s"))
         .unwrap_or_else(|_| panic!("{name}: the unpair of step {unpair} failed"));

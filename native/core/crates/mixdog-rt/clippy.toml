@@ -1,0 +1,126 @@
+# Crate-local clippy config for mixdog-rt, the home of the core's timers (src/time.rs wraps tokio::time and src/virtual_clock.rs
+# drives tokio's paused clock). Clippy reads the clippy.toml nearest the crate and does not merge with the workspace one, so this
+# file restates every workspace ban except the tokio::time timer functions. Keep the rest in step with ../../clippy.toml.
+
+disallowed-methods = [
+  { path = "tokio::task::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
+  { path = "tokio::runtime::Handle::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
+  { path = "tokio::runtime::Runtime::spawn_blocking", allow-invalid = true, reason = "uses tokio's unbounded blocking pool; submit a job to a lane token (mixdog-rt)" },
+  { path = "tokio::task::block_in_place", allow-invalid = true, reason = "blocks an RT-C/RT-W worker; submit a job to a lane token (mixdog-rt)" },
+
+
+  { path = "std::thread::sleep", reason = "blocks the thread; use mixdog_rt::time in async code or run on a lane/thread token" },
+
+  { path = "std::fs::read", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::read_to_string", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::read_dir", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::write", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::copy", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::rename", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::remove_file", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::remove_dir", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::remove_dir_all", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::create_dir", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::create_dir_all", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::metadata", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::symlink_metadata", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::canonicalize", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::exists", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::open", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::create", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::create_new", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::OpenOptions::open", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::exists", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::is_file", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::is_dir", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+
+  { path = "tokio::fs::read", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::read_to_string", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::read_dir", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::write", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::copy", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::rename", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::remove_file", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::remove_dir", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::remove_dir_all", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::create_dir", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::create_dir_all", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::metadata", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::symlink_metadata", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::canonicalize", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::try_exists", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::File::open", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::File::create", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::OpenOptions::open", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+
+  # Remaining std::fs entry points (RL §13 bans `std::fs::*`): free functions, File and
+  # OpenOptions/DirBuilder/DirEntry methods, and the Path methods that touch the disk.
+  { path = "std::fs::hard_link", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::read_link", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::soft_link", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::set_permissions", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::options", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::metadata", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::set_len", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::set_modified", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::set_times", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::set_permissions", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::sync_all", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::sync_data", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::try_clone", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::lock", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::lock_shared", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::try_lock", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::try_lock_shared", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::File::unlock", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::DirBuilder::create", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::DirEntry::metadata", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::DirEntry::file_type", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::metadata", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::symlink_metadata", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::canonicalize", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::read_dir", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::read_link", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::try_exists", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::path::Path::is_symlink", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  # Platform symlink helpers; unreachable on the other OS, hence allow-invalid.
+  { path = "std::os::unix::fs::symlink", allow-invalid = true, reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::os::windows::fs::symlink_file", allow-invalid = true, reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::os::windows::fs::symlink_dir", allow-invalid = true, reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+
+  { path = "tokio::fs::hard_link", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::read_link", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::set_permissions", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::symlink", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::symlink_file", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::symlink_dir", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::File::options", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::File::from_std", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::DirBuilder::create", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+
+  { path = "std::process::Command::new", reason = "process spawning goes through mixdog-spawn" },
+
+  # serde_json is built with preserve_order, so Map is an IndexMap and Map::remove is a swap-remove:
+  # it moves the last key into the removed slot and reorders the rest. Node keeps insertion order.
+  { path = "serde_json::Map::remove", reason = "swap-removes under preserve_order and reorders the remaining keys; use shift_remove" },
+  { path = "serde_json::Map::remove_entry", reason = "swap-removes under preserve_order and reorders the remaining keys; use shift_remove_entry" },
+]
+
+disallowed-types = [
+  { path = "tokio::sync::Mutex", allow-invalid = true, reason = "an async mutex held across .await stalls the runtime; use std::sync::Mutex for short sections or a channel/actor" },
+  { path = "tokio::sync::RwLock", allow-invalid = true, reason = "an async lock held across .await stalls the runtime; use std::sync::RwLock for short sections, ArcSwap, or a channel/actor" },
+  { path = "tokio::fs::File", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::OpenOptions", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  # std::fs handles: a File or ReadDir in hand means blocking reads through the Read/Write
+  # traits, which method paths cannot see.
+  { path = "std::fs::File", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::OpenOptions", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::ReadDir", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::DirEntry", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "std::fs::DirBuilder", reason = "blocking file I/O; run it as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::ReadDir", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::DirEntry", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "tokio::fs::DirBuilder", allow-invalid = true, reason = "tokio::fs hides a blocking pool; run file I/O as a lane job (mixdog-rt)" },
+  { path = "rusqlite::Connection", allow-invalid = true, reason = "SQLite is reached only through mixdog-store::sqlite" },
+  { path = "std::process::Command", reason = "process spawning goes through mixdog-spawn" },
+]

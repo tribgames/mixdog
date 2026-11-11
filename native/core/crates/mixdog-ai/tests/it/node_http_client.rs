@@ -28,11 +28,11 @@ fn request(method: &str, url: String, headers: &[(&str, &str)], body: &[u8]) -> 
 }
 
 async fn send(link: &ReqwestLink, req: WireRequest) -> Result<HttpResponse, ProviderError> {
-    tokio::time::timeout(WITHIN, link.send(req, deadlines::OPENAI_CATALOG)).await.expect("a response or an error within WITHIN")
+    mixdog_rt::time::timeout(WITHIN, link.send(req, deadlines::OPENAI_CATALOG)).await.expect("a response or an error within WITHIN")
 }
 
 async fn body(response: HttpResponse) -> Result<Vec<u8>, ProviderError> {
-    Ok(tokio::time::timeout(WITHIN, response.read_all()).await.expect("a body or an error within WITHIN")?.body)
+    Ok(mixdog_rt::time::timeout(WITHIN, response.read_all()).await.expect("a body or an error within WITHIN")?.body)
 }
 
 fn link() -> ReqwestLink {
@@ -178,7 +178,7 @@ async fn a3_an_unterminated_header_is_bounded() {
     let (addr, written) = endless(b"HTTP/1.1 200 OK\r\nx-long: ", b'a').await;
     let outcome = send(&link(), request("GET", format!("http://{addr}/"), &[], b"")).await;
     assert!(outcome.is_err());
-    let total = tokio::time::timeout(WITHIN, written).await.unwrap().unwrap();
+    let total = mixdog_rt::time::timeout(WITHIN, written).await.unwrap().unwrap();
     assert!(total < BOUND, "the client stopped reading after {total} bytes");
 }
 
@@ -190,7 +190,7 @@ async fn a3_an_unterminated_chunk_size_line_is_bounded() {
         Err(e) => Err(e),
     };
     assert!(outcome.is_err());
-    let total = tokio::time::timeout(WITHIN, written).await.unwrap().unwrap();
+    let total = mixdog_rt::time::timeout(WITHIN, written).await.unwrap().unwrap();
     assert!(total < BOUND, "the client stopped reading after {total} bytes");
 }
 
@@ -202,7 +202,7 @@ async fn a3_an_unterminated_trailer_is_bounded() {
         Err(e) => Err(e),
     };
     assert!(outcome.is_err());
-    let total = tokio::time::timeout(WITHIN, written).await.unwrap().unwrap();
+    let total = mixdog_rt::time::timeout(WITHIN, written).await.unwrap().unwrap();
     assert!(total < BOUND, "the client stopped reading after {total} bytes");
 }
 
@@ -282,7 +282,7 @@ async fn a_small_gzip_body_that_inflates_past_16_mib_is_read_whole() {
     let mut response = send(&link(), request("GET", format!("http://{addr}/"), &[], b"")).await.unwrap();
     let mut read = Vec::new();
     let mut steps = Vec::new();
-    while let Some(step) = tokio::time::timeout(WITHIN, response.body.next()).await.expect("a step within WITHIN") {
+    while let Some(step) = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("a step within WITHIN") {
         let step = step.unwrap();
         steps.push(step.len());
         read.extend_from_slice(&step);
@@ -328,7 +328,7 @@ async fn a4_a_route_change_retires_the_pooled_connection() {
     body(send(&link, request("GET", url, &[], b"")).await.unwrap()).await.unwrap();
     assert_eq!(accepted.load(Ordering::SeqCst), 2, "a new connection after the setting changed");
     // A host the proxy applies to goes to the proxy, with no pooled socket consulted first.
-    let _ = tokio::time::timeout(WITHIN, link.send(request("GET", "http://203.0.113.7/".into(), &[], b""), deadlines::OPENAI_CATALOG)).await;
+    let _ = mixdog_rt::time::timeout(WITHIN, link.send(request("GET", "http://203.0.113.7/".into(), &[], b""), deadlines::OPENAI_CATALOG)).await;
     assert_eq!(through_proxy.load(Ordering::SeqCst), 1, "it went to the proxy");
 }
 // A5 and the protocol: with ALPN `http/1.1`, `h2` offered, a server that picks h2 gets h2 (undici 8.12.3 `allowH2`
@@ -413,7 +413,7 @@ async fn a_drained_body_that_is_held_keeps_its_connection_out_of_the_pool_until_
     let link = link();
     let mut rejected = send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap().body;
     rejected.hold_connection();
-    while tokio::time::timeout(WITHIN, rejected.next()).await.unwrap().is_some() {}
+    while mixdog_rt::time::timeout(WITHIN, rejected.next()).await.unwrap().is_some() {}
     let resent = send(&link, request("POST", url.clone(), &[], b"{}")).await.unwrap();
     assert_eq!(accepted.load(Ordering::SeqCst), 2, "the resend dialled while the rejected response was held");
     drop(body(resent).await);
@@ -431,7 +431,7 @@ async fn bounded_after(prefix: &'static [u8], block: Vec<u8>) {
         Err(e) => Err(e),
     };
     assert!(outcome.is_err());
-    let total = tokio::time::timeout(WITHIN, written).await.unwrap().unwrap();
+    let total = mixdog_rt::time::timeout(WITHIN, written).await.unwrap().unwrap();
     assert!(total < BOUND, "the client stopped reading after {total} bytes");
 }
 
@@ -492,7 +492,7 @@ async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
         let entry = match link.send(request(method, format!("http://{addr}/m"), &[], b""), deadlines::OPENAI_CATALOG).await {
             Ok(response) => {
                 body(response).await.unwrap();
-                let wrote = tokio::time::timeout(WITHIN, lines.recv()).await.expect("the request line within WITHIN").unwrap();
+                let wrote = mixdog_rt::time::timeout(WITHIN, lines.recv()).await.expect("the request line within WITHIN").unwrap();
                 serde_json::json!({ "method": method, "wrote": wrote })
             }
             // A refusal in Rust has no JavaScript class; Node's is a `TypeError` in every refused case.
@@ -542,7 +542,7 @@ async fn every_recorded_compressed_body_is_read_as_undici_reads_it() {
         let mut received = Vec::new();
         match send(&link, request("GET", format!("http://{addr}/d"), &[], b"")).await {
             Ok(mut response) => loop {
-                match tokio::time::timeout(WITHIN, response.body.next()).await.expect("a step within WITHIN") {
+                match mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("a step within WITHIN") {
                     None => {
                         entry["end"] = "end".into();
                         break;
@@ -639,6 +639,6 @@ async fn h2_a_connection_in_flight_across_a_route_change_is_closed_when_its_resp
     policy.adopt(&serde_json::json!({ "mode": "manual", "url": "http://127.0.0.1:9" }));
     release.send(true).unwrap();
     assert_eq!(body(response).await.unwrap(), b"ok");
-    tokio::time::timeout(WITHIN, closed.recv()).await.expect("the old route's connection was closed").unwrap();
+    mixdog_rt::time::timeout(WITHIN, closed.recv()).await.expect("the old route's connection was closed").unwrap();
     assert_eq!(accepted.load(Ordering::SeqCst), 1);
 }

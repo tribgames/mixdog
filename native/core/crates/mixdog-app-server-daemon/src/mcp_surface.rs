@@ -258,7 +258,7 @@ impl BridgeFiles {
         }
         let files = Arc::clone(self);
         mixdog_rt::spawn("bridge-discovery", TaskClass::Work, async move {
-            tokio::time::sleep(RELOAD_DEBOUNCE).await;
+            mixdog_rt::time::sleep(RELOAD_DEBOUNCE).await;
             files.reread(id).await;
         });
     }
@@ -285,7 +285,7 @@ impl BridgeFiles {
             if let Some(slot) = self.slots().get_mut(id) {
                 slot.timer = true;
             }
-            tokio::time::sleep(RELOAD_DEBOUNCE).await;
+            mixdog_rt::time::sleep(RELOAD_DEBOUNCE).await;
         }
     }
 

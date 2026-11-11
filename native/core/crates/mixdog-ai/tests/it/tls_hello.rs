@@ -53,11 +53,11 @@ async fn the_clients_first_flight_is_a_client_hello() {
     let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap();
     let request = WireRequest { transport: TransportKind::Http1, method: "GET".into(), url: url.clone(), headers: Vec::new(), body: Vec::new() };
     let sent = tokio::spawn(async move { link.send(request, deadlines::OPENAI_CATALOG).await.map(|_| ()) });
-    let http = tokio::time::timeout(Duration::from_secs(10), first_record(&listener)).await.expect("HTTPS first flight within 10 s");
+    let http = mixdog_rt::time::timeout(Duration::from_secs(10), first_record(&listener)).await.expect("HTTPS first flight within 10 s");
     sent.abort();
 
     let dialled = tokio::spawn(async move { ws::connect(url.replacen("https", "wss", 1), &KeepaliveSchedule::SPEC).await.map(|_| ()) });
-    let socket = tokio::time::timeout(Duration::from_secs(10), first_record(&listener)).await.expect("WSS first flight within 10 s");
+    let socket = mixdog_rt::time::timeout(Duration::from_secs(10), first_record(&listener)).await.expect("WSS first flight within 10 s");
     dialled.abort();
 
     for hello in [&http, &socket] {

@@ -952,7 +952,7 @@ async fn background_end(notify: Option<ToolNotify>, owner: &Arc<OwnerNotices>) {
         }
         tokio::task::yield_now().await;
     }
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
 }
 
 /// Node `notifyToolCompletion`: the launching call's `notifyFn` takes the completion first, with

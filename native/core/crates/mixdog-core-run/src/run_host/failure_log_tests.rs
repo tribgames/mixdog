@@ -55,7 +55,7 @@ async fn flushes_asked_for_while_one_runs_wait_off_the_lane_and_share_the_next_f
     let asked = std::mem::take(&mut *asked.lock().unwrap());
     assert_eq!(asked.len(), 7);
     for flush in asked {
-        tokio::time::timeout(Duration::from_secs(30), flush).await.expect("a flush asked for while one ran was not answered within 30 s");
+        mixdog_rt::time::timeout(Duration::from_secs(30), flush).await.expect("a flush asked for while one ran was not answered within 30 s");
     }
     assert_eq!(writer.submitted.load(Ordering::Acquire), 2, "the seven flushes asked for meanwhile share one lane job");
     let written = mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl"));
@@ -91,7 +91,7 @@ async fn a_cancelled_flush_keeps_the_turn_until_its_lane_job_ends() {
     assert_eq!(writer.submitted.load(Ordering::Acquire), 0);
 
     drop(job);
-    tokio::time::timeout(Duration::from_secs(30), next).await.expect("the waiting flush did not take the turn within 30 s of the job's end");
+    mixdog_rt::time::timeout(Duration::from_secs(30), next).await.expect("the waiting flush did not take the turn within 30 s of the job's end");
     assert_eq!(writer.submitted.load(Ordering::Acquire), 1);
     assert!(mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl")).contains("\"second\""));
     let turn = writer.turn.lock().unwrap();
@@ -116,7 +116,7 @@ async fn a_flush_waiting_on_a_cancelled_one_takes_the_turn() {
     assert!(waiting.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending());
     drop(running);
 
-    tokio::time::timeout(Duration::from_secs(30), waiting).await.expect("the waiting flush did not take the turn within 30 s");
+    mixdog_rt::time::timeout(Duration::from_secs(30), waiting).await.expect("the waiting flush did not take the turn within 30 s");
     assert_eq!(writer.submitted.load(Ordering::Acquire), 1);
     assert!(mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl")).contains("\"first\""));
 }

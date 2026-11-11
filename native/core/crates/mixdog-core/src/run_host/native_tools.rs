@@ -326,7 +326,7 @@ impl ComputerSessionPool {
             }
             entries.iter().filter(|(_, entry)| entry.process.is_bound()).map(|(id, _)| id.clone()).collect()
         };
-        let outcomes = futures::future::join_all(bound.iter().map(|id| async move { tokio::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) })).await;
+        let outcomes = futures::future::join_all(bound.iter().map(|id| async move { mixdog_rt::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) })).await;
         outcomes.into_iter().filter(|released| *released).count()
     }
 

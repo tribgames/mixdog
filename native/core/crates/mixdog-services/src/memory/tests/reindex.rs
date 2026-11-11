@@ -98,7 +98,7 @@ async fn a_cancel_ends_the_rest_between_passes_at_once() {
     let cancel = CancellationToken::new();
     let trip = cancel.clone();
     let canceller = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(300)).await;
         trip.cancel();
     });
     let (result, starts) = drain(|_| pass(6, 5, &[], true), &cancel).await;

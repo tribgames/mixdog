@@ -715,7 +715,7 @@ impl HostEnv for LiveEnv {
         let Some(inner) = self.inner() else { return 0 };
         let handle = inner.timer_seq.fetch_add(1, Ordering::Relaxed) + 1;
         let task = mixdog_rt::spawn("live-view-timer", TaskClass::Work, async move {
-            tokio::time::sleep(Duration::from_millis(ms)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(ms)).await;
             run(handle);
         });
         lock(&inner.state).timers.insert(handle, task);
@@ -982,7 +982,7 @@ mod tests {
                 if lock(&self.log).len() >= count {
                     return;
                 }
-                tokio::time::timeout(Duration::from_secs(10), arrived).await.unwrap_or_else(|_| panic!("a peer command never arrived"));
+                mixdog_rt::time::timeout(Duration::from_secs(10), arrived).await.unwrap_or_else(|_| panic!("a peer command never arrived"));
             }
         }
     }
@@ -1173,7 +1173,7 @@ mod tests {
                 .collect();
             let mut got_pushes = Vec::new();
             for _ in 0..expected_pushes.len() {
-                let (to, signal) = tokio::time::timeout(Duration::from_secs(10), pushes.recv()).await.unwrap_or_else(|_| panic!("{what}: a signal never reached its phone")).unwrap();
+                let (to, signal) = mixdog_rt::time::timeout(Duration::from_secs(10), pushes.recv()).await.unwrap_or_else(|_| panic!("{what}: a signal never reached its phone")).unwrap();
                 got_pushes.push((to, without_ice(signal)));
             }
             // Each phone has its own delivery lane, so the order between two phones is not a contract; each phone's own order is.

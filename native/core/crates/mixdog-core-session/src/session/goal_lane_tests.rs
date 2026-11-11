@@ -253,7 +253,7 @@ async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
     let handle = start_thread(&directory).await;
     turn(&handle, "start", "op-1").await;
     eventually_on!(&[&spy.called, &handle.cell.stepped], || (lock(&spy.inputs).len() >= 1 && idle(&handle)).then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(lock(&seen).len(), 1, "the session waits on background work: no continuation turn");
     let first = lock(&spy.inputs)[0].clone();
     assert!(first.awaiting_work, "an agent still runs");
@@ -298,7 +298,7 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
     gate.notify_one();
     // The script never drains steers, so the warning queued behind the turn runs as a turn of its
     // own: both turns have ended once two runs finished, and the thread is idle for good after.
-    tokio::time::timeout(Duration::from_secs(60), finished.wait_for(|count| *count == 2)).await.expect("both turns end").expect("the script is alive");
+    mixdog_rt::time::timeout(Duration::from_secs(60), finished.wait_for(|count| *count == 2)).await.expect("both turns end").expect("the script is alive");
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(())).await;
     changed(&spy, &handle, goal("g1", "active", 2, 120_000)).await;
     eventually_on!(&[&spy.called, &handle.cell.stepped], || (spy.resets() == 1).then_some(())).await;
@@ -329,7 +329,7 @@ async fn the_deadline_closeout_is_queued_when_the_goal_reaches_its_duration() {
     assert!(closeout["message"].as_str().unwrap().contains("<goal_deadline_reached>"), "{closeout}");
 
     changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(queued_entries(&rig, &handle).len(), 1, "the closeout is queued once");
     gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
@@ -410,7 +410,7 @@ async fn a_queued_closeout_runs_only_while_its_goal_is_at_its_duration() {
             eventually_on!(&[&handle.cell.stepped], || (sources(&seen) == ["user", "goal-closeout"]).then_some(())).await;
         }
         eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty())).then_some(())).await;
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
         let expected: &[&str] = if still_due { &["user", "goal-closeout"] } else { &["user"] };
         assert_eq!(sources(&seen), expected, "still due: {still_due}");
     }
@@ -430,7 +430,7 @@ async fn a_queued_continuation_runs_only_if_the_runtime_still_decides_to_run() {
     let handle = start_thread(&directory).await;
     spy.inner.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship the feature" })).await.expect("create");
     eventually_on!(&[&spy.called, &handle.cell.stepped], || (lock(&spy.inputs).len() >= 2).then_some(())).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
     assert!(lock(&seen).is_empty(), "the refused continuation never ran: {:?}", sources(&seen));
     assert_eq!(lock(&spy.inputs).len(), 2, "the dropped entry is not rescheduled");
     assert!(idle(&handle));

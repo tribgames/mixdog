@@ -133,7 +133,7 @@ impl Bound {
 
     async fn passed(&self) {
         #[cfg(not(all(feature = "test-support", not(test))))]
-        tokio::time::sleep_until(self.0).await;
+        mixdog_rt::time::sleep_until(self.0).await;
         #[cfg(all(feature = "test-support", not(test)))]
         seam::CLOCK.reached(self.0).await;
     }
@@ -431,7 +431,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
             }
         }
     };
-    tokio::time::timeout(REQUEST_READ_TIMEOUT, read).await.ok()??;
+    mixdog_rt::time::timeout(REQUEST_READ_TIMEOUT, read).await.ok()??;
     let head = String::from_utf8_lossy(&buf);
     let mut lines = head.lines();
     let mut first = lines.next()?.split(' ');
@@ -491,7 +491,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         return write_page(&mut stream, "400 Bad Request", &invalid, false).await;
     }
     // The code is only the start: the page stays open until the login reports its outcome.
-    let outcome = tokio::time::timeout(OUTCOME_WAIT, outcome).await;
+    let outcome = mixdog_rt::time::timeout(OUTCOME_WAIT, outcome).await;
     #[cfg(feature = "test-support")]
     let held = seam::HOLD_NEXT_PAGE.swap(false, Ordering::SeqCst);
     #[cfg(not(feature = "test-support"))]
@@ -511,7 +511,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         let delay = HELD_PAGE_DELAY_MS.swap(0, Ordering::SeqCst);
         if delay > 0 {
             HELD_PAGE_DELAYING.notify_one();
-            tokio::time::sleep(Duration::from_millis(delay)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(delay)).await;
         }
     }
     match outcome {

@@ -443,7 +443,7 @@ impl BodyStream for DeadlineBody {
     }
 
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        match tokio::time::timeout_at(self.until, self.inner.next()).await {
+        match mixdog_rt::time::timeout_at(self.until, self.inner.next()).await {
             Ok(item) => item,
             Err(_) => Some(Err(TransportFault::Io { os_code: None })),
         }
