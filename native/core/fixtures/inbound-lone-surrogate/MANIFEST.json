@@ -158,7 +158,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs",
-      "sha256": "8c4ad89a5c84f104a4be2b50aececee894ea738a6cced47b5edb3c52947c0f0c"
+      "sha256": "90cedd8782616f2fdcfddc058b51ce8fe177ed99b054e7385dcd9fac32871900"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-cases.mjs",
@@ -182,11 +182,19 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
-      "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+      "sha256": "1e531c667316f360f1556cd87799ae6378468d2ed574995a489885b5805d34f9"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
       "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/core-stop.mjs",
+      "sha256": "c3e584cfa44431a8d7b51ce7b5e7a2516bbcd5984a35ad385312a566404f379e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+      "sha256": "c21b47dd1896f6245063ad1765a84b4f5faf4c8f5d472881b3c1d094ae1051a6"
     }
   ],
   "refusedByRule": {
