@@ -108,12 +108,8 @@ async fn a_cancelled_claude_send_ends_as_node_ends_it() {
         let link = Arc::new(ReqwestLink::pinned(&KeepaliveSchedule::SPEC, loopback.addr, loopback.tls.clone()));
         let tapped: Arc<Mutex<Vec<WireRequest>>> = Arc::default();
         let tap = Arc::clone(&tapped);
-        // The socket warm-up (a raw `undici.request` in Node, which its endpoint never saw) is no request of the send's.
-        link.tap(Some(Box::new(move |wire: &WireRequest| {
-            if wire.method != "HEAD" {
-                tap.lock().unwrap().push(wire.clone());
-            }
-        })));
+        // Every request the client sends, HEAD included: Node's Vertex provider runs no socket warm-up, nor does the core's.
+        link.tap(Some(Box::new(move |wire: &WireRequest| tap.lock().unwrap().push(wire.clone()))));
         // Node's catalog answers for claude-sonnet-4-6: adaptive thinking with effort, 16k output.
         let caps = Arc::new(|_: &str| {
             Some(ModelCaps {
@@ -188,7 +184,7 @@ async fn a_cancelled_claude_send_ends_as_node_ends_it() {
         let conns: Vec<usize> = loopback
             .events()
             .iter()
-            .filter(|e| e["kind"] == "http" && !e["line"].as_str().unwrap_or_default().starts_with("HEAD "))
+            .filter(|e| e["kind"] == "http")
             .map(|e| e["conn"].as_u64().expect("conn") as usize)
             .collect();
         let records = recorded.exchange["records"].as_array().expect("records");
