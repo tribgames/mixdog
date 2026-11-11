@@ -273,7 +273,6 @@ pub(crate) enum JobDone {
     Recovered(Vec<(String, super::seams::CrashedRows)>),
     Encoded {
         id: u64,
-        generation: u64,
         result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>), CoreError>,
     },
     PromptSession { session: Vec<String>, publish: bool },
@@ -470,16 +469,23 @@ struct Submitter {
     restorable: bool,
 }
 
-/// A turn start waiting for the records a failed barrier left unsaved.
+/// A turn start (any: a client's, a queued one, a completion wake, a Goal turn) waiting for the previous turn's
+/// records to land.
 struct DeferredStart {
     input: TurnInput,
+    body: Value,
     op_ref: Option<OpRef>,
     reply: Option<Effect>,
     prompt: Option<String>,
+    wake: bool,
+    /// The fresh save `awaitPreviousTurnDurable` makes for it is underway: one more failure refuses it.
+    retried: bool,
 }
 
 struct RunSlot {
     turn: TurnId,
+    /// The run's draft as streamed, which its `draft` records hold redacted.
+    journal: super::turn_draft::DraftJournal,
     /// The prompt the run started on: what a stop may hand back.
     prompt: Arc<PromptState>,
     /// The provider of the route the turn started with (`routeMeta.provider`): a route change
@@ -602,6 +608,8 @@ pub(crate) struct SessionActor {
     /// A turn asked while records are unsaved (`awaitPreviousTurnDurable`): it starts once they land, and is refused
     /// if their retry fails.
     deferred_start: Option<DeferredStart>,
+    /// The outbox entry of the last closed turn's `turnCoverage` record: the turn is settled once it is gone.
+    coverage: Option<u64>,
     /// The runs the process died in are being finalized (`recover`): a turn waits for them as for unsaved records.
     recovering: bool,
     book: ApprovalBook,
@@ -630,6 +638,8 @@ pub(crate) struct SessionActor {
     suppressed: std::collections::HashSet<String>,
     /// Completions a wake drained that still wait for their own turns, oldest first.
     wake_tail: Vec<String>,
+    /// A queue drain waited for [`Self::starts_held`]: the pump runs it once starts are free.
+    drain_held: bool,
     /// A delete closed the thread (`Ctl::Delete`): no run starts again.
     deleting: bool,
     /// The thread's tombstone landed (`Ctl::Closed`).
@@ -959,6 +969,7 @@ impl SessionActor {
             retry_due: false,
             save_failure: Arc::from(""),
             deferred_start: None,
+            coverage: None,
             recovering: false,
             book: ApprovalBook::default(),
             ops: OpTable::default(),
@@ -975,6 +986,7 @@ impl SessionActor {
             listened: Default::default(),
             suppressed: Default::default(),
             wake_tail: Vec::new(),
+            drain_held: false,
             deleting: false,
             tombstoned: false,
             goal_suppressed: String::new(),
@@ -1415,7 +1427,6 @@ impl SessionActor {
     fn submit_encode(&mut self, entry: u64, record: Arc<Record>, shown: bool) {
         let deps = self.deps.clone();
         let jobs = self.jobs_tx.clone();
-        let generation = self.generation;
         let thread = self.id.clone();
         // The open turn's `completionVerb`, which its live rows carry.
         let verb = self.run.as_ref().map(|slot| slot.verb);
@@ -1464,14 +1475,12 @@ impl SessionActor {
             });
             let _ = jobs.send(JobDone::Encoded {
                 id: entry,
-                generation,
                 result,
             });
         });
         if let Err(full) = submitted {
             let _ = self.jobs_tx.send(JobDone::Encoded {
                 id: entry,
-                generation,
                 result: Err(full.into()),
             });
         }
@@ -1480,14 +1489,9 @@ impl SessionActor {
     fn on_job(&mut self, done: JobDone) {
         match done {
             JobDone::Recovered(ended) => self.recovered(ended),
-            JobDone::Encoded {
-                id,
-                generation,
-                result,
-            } => {
-                if generation != self.generation {
-                    return;
-                }
+            // An encode is pure and its entry's id is never reused: a result whose entry a failed barrier dropped finds
+            // none, and one whose entry was kept through a held barrier still lands.
+            JobDone::Encoded { id, result } => {
                 match result {
                     Ok((encoded, shown, notes)) => {
                         if let Some(entry) = self.outbox.get_mut(id) {
@@ -1499,6 +1503,11 @@ impl SessionActor {
                             entry.notes.extend(notes);
                         }
                         self.outbox.encoded(id, encoded);
+                        // Encoded behind records a failed barrier held (it was still encoding when it failed): Node's next
+                        // save writes the whole session, the held records and this one.
+                        if self.outbox.has_unsaved() {
+                            self.retry_due = true;
+                        }
                     }
                     Err(error) => {
                         if let Some(entry) = self.outbox.remove(id) {
@@ -1548,6 +1557,15 @@ impl SessionActor {
             // committed so far is durable.
             JobDone::SensitiveMarked => {
                 if self.run.is_some() {
+                    // The run's draft is written again, redacted with the new value (`commitHeader` on a new version).
+                    let marks = self.deps.sensitive.clone();
+                    if let Some(run) = self.run.as_mut()
+                        && !run.journal.is_empty()
+                    {
+                        let body = run.journal.reset(&*marks, &self.id);
+                        let record = Record::Draft(DraftRecord { rid: id(run.turn.as_str()), body: Slot::Inline(body) });
+                        self.accept_record(record, Class::Normal, Display::None, Vec::new(), Vec::new());
+                    }
                     let ack = self.ingest_when_durable();
                     self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
                 }
@@ -1916,12 +1934,14 @@ impl SessionActor {
             let _ = released.send(Ok(()));
         }
         self.publish_cell();
-        // The unsaved records landed (and the crashed runs ended): the turn that waited for them starts.
-        if !self.outbox.has_unsaved()
-            && !self.recovering
-            && let Some(start) = self.deferred_start.take()
-        {
-            self.start_run(start.input, start.op_ref, start.reply, start.prompt);
+        // The unsaved records landed (and the crashed runs ended): the turn that waited for them starts, or the queue
+        // drain that waited goes on.
+        if !self.starts_held() {
+            if let Some(start) = self.deferred_start.take() {
+                self.start_run_with(start.input, start.body, start.op_ref, start.reply, start.prompt, start.wake);
+            } else if std::mem::take(&mut self.drain_held) {
+                self.start_next_queued();
+            }
         }
     }
 
@@ -2264,8 +2284,28 @@ impl SessionActor {
         self.generation += 1;
         self.save_failure = cause;
         let mut notes = Vec::new();
-        for id in self.outbox.handed() {
-            let asked = self.outbox.get_mut(id).is_some_and(|entry| !entry.held && answers_a_client(entry));
+        let handed = self.outbox.handed();
+        // A turn whose start was not saved does not run: no provider call is made while the session cannot be saved,
+        // and its input row goes with it, as Node's ask is refused before it touches the session.
+        let refused: Vec<String> = handed
+            .iter()
+            .filter_map(|id| self.outbox.get(*id))
+            .filter(|entry| !entry.held && entry.effects.iter().any(|effect| matches!(effect, Effect::InputDurable)))
+            .filter_map(|entry| match &entry.change {
+                Change::Record { record, .. } => match &**record {
+                    Record::Run(run) => Some(run.rid.as_str().to_owned()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        for id in handed {
+            let asked = self.outbox.get_mut(id).is_some_and(|entry| {
+                !entry.held
+                    && (answers_a_client(entry)
+                        || entry.effects.iter().any(|effect| matches!(effect, Effect::InputDurable))
+                        || matches!(&entry.change, Change::Record { record, .. } if matches!(&**record, Record::Item(row) if row.turn.as_ref().is_some_and(|turn| refused.iter().any(|rid| rid == turn.as_str())))))
+            });
             if asked {
                 let gone = self.outbox.remove(id).into_iter().chain(self.outbox.remove_needing(id));
                 for entry in gone.collect::<Vec<_>>() {
@@ -2282,7 +2322,13 @@ impl SessionActor {
         if !notes.is_empty() {
             self.publish(notes);
         }
-        if let Some(start) = self.deferred_start.take() {
+        // A turn waiting for the barrier that failed gets the one fresh save `awaitPreviousTurnDurable` makes.
+        if let Some(start) = self.deferred_start.as_mut()
+            && !start.retried
+        {
+            start.retried = true;
+            self.retry_due = true;
+        } else if let Some(start) = self.deferred_start.take() {
             self.submitter = None;
             let refusal = coded(
                 "session",
@@ -2406,20 +2452,21 @@ impl SessionActor {
                 }
                 self.deps.notices.save_failed();
                 let (error, cause) = match error {
-                    super::seams::BarrierError::Failed { io_kind } => (
+                    // The refusal of the next turn names the error, as Node's names its save's (`cause.message`).
+                    super::seams::BarrierError::Failed { io_kind, cause } => (
                         CoreError::BarrierFailed {
                             scope: "thread".into(),
-                            io_kind: io_kind.clone(),
+                            io_kind,
                         },
-                        io_kind,
+                        cause,
                     ),
-                    super::seams::BarrierError::Indeterminate { io_kind } => {
+                    super::seams::BarrierError::Indeterminate { cause, .. } => {
                         self.indeterminate = true;
                         (
                             CoreError::StorageIndeterminate {
                                 scope: "thread".into(),
                             },
-                            io_kind,
+                            cause,
                         )
                     }
                 };
@@ -2737,14 +2784,14 @@ impl SessionActor {
                 // the session's tool-call total are written by each model call (`persistIterationMetrics`).
                 set.insert("turnCoverage".into(), json!(turn.as_str()));
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
-                self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+                self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             } else {
                 // A cancelled or failed turn is finalized too: `session.turnCoverage = turnCheckpointToken`
                 // (`ask-turn-failure.mjs:185`), and nothing else of the settle's stamps.
                 let mut set = serde_json::Map::new();
                 set.insert("turnCoverage".into(), json!(turn.as_str()));
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
-                self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+                self.coverage = Some(self.accept_record_entry(meta, Class::Control, Display::None, Vec::new(), Vec::new()));
             }
         }
         if self.deleting {
@@ -3018,6 +3065,13 @@ impl SessionActor {
     /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
         if self.turn_busy() || self.deleting {
+            return;
+        }
+        // Nothing is dequeued while starts are held: the drain goes on once they are not (an unsaved turn's records
+        // are written again first).
+        if self.starts_held() {
+            self.drain_held = true;
+            self.retry_due |= self.outbox.has_unsaved();
             return;
         }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
@@ -3432,6 +3486,9 @@ impl SessionActor {
                 // The model's reply is output (`completeTurn`, `settleSegmentBeforeToolCall`).
                 if item.role.as_deref() == Some("assistant") {
                     self.prompt_committed();
+                    if let Some(run) = self.run.as_mut() {
+                        run.journal.message_committed();
+                    }
                 }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
@@ -3442,6 +3499,12 @@ impl SessionActor {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
+                let marks = self.deps.sensitive.clone();
+                let written = self.run.as_mut().and_then(|run| run.journal.chunk(&body, &*marks, &self.id));
+                let Some(body) = written else {
+                    let _ = ack.send(Ok(()));
+                    return;
+                };
                 let record = Record::Draft(DraftRecord { rid: id(turn.as_str()), body: Slot::Inline(body) });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
             }
@@ -4991,15 +5054,21 @@ impl SessionActor {
         reply: Option<Effect>,
         prompt: Option<String>,
     ) {
-        // `awaitPreviousTurnDurable`: records a failed barrier left unsaved are written again first; the turn starts
-        // once they land and is refused if they do not.
-        if self.outbox.has_unsaved() || self.recovering {
-            self.retry_due = self.outbox.has_unsaved();
-            self.deferred_start = Some(DeferredStart { input, op_ref, reply, prompt });
-            return;
-        }
         let body = self.deps.transcript.user_message(&input);
         self.start_run_with(input, body, op_ref, reply, prompt, false);
+    }
+
+    /// The one check every path that starts work on the session passes (a turn of any origin in
+    /// [`Self::start_run_with`], a queue drain in [`Self::start_next_queued`]): while it holds, a start waits and is
+    /// resumed by [`Self::pump`]. Another reason to hold starts joins this condition.
+    fn starts_held(&self) -> bool {
+        self.turn_unsettled()
+    }
+
+    /// `awaitPreviousTurnDurable` (`ask-turn-open.mjs:41`), which every ask passes: the previous turn's records
+    /// (through its `turnCoverage`) have not all landed, or the crashed runs are still being finalized.
+    fn turn_unsettled(&self) -> bool {
+        self.outbox.has_unsaved() || self.recovering || self.coverage.is_some_and(|id| self.outbox.contains(id))
     }
 
     /// Whether a completion may wake this idle thread: the session did not turn
@@ -5021,6 +5090,14 @@ impl SessionActor {
         prompt: Option<String>,
         wake: bool,
     ) {
+        // Every turn waits here for the previous turn to land: records a failed barrier left unsaved are written again
+        // first (the fresh save), and the turn starts once they land and is refused if they do not.
+        if self.starts_held() {
+            let unsaved = self.outbox.has_unsaved();
+            self.retry_due = unsaved;
+            self.deferred_start = Some(DeferredStart { input, body, op_ref, reply, prompt, wake, retried: unsaved });
+            return;
+        }
         // A plain `turn/start` carrying the retry flags: the failed turn's provenance is read first
         // (`failedTurnProvenance(preSession.messages, input)`, `ask-session.mjs:199`), as the lane's retries
         // read it before they begin; the row is stamped with it like theirs.
@@ -5278,6 +5355,7 @@ impl SessionActor {
             reclaim: None,
         }));
         self.run = Some(RunSlot {
+            journal: Default::default(),
             prompt: prompt_state.clone(),
             turn: turn.clone(),
             provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
@@ -5462,11 +5540,15 @@ impl SessionActor {
                         None
                     }
                 };
-                let rows = match crashed {
-                    Some(job) => job.await.unwrap_or_default(),
-                    None => super::seams::CrashedRows::default(),
-                };
-                ended.push((rid, rows));
+                // A recovery that could not run leaves the run open, its draft kept: the next open recovers it (Node sets an
+                // unrecovered checkpoint aside, `setAsideUnrecoveredCheckpoint`).
+                match crashed {
+                    Some(job) => match job.await {
+                        Ok(rows) => ended.push((rid, rows)),
+                        Err(error) => tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open: {error:?}", thread.as_str()),
+                    },
+                    None => tracing::error!("session {}: the crashed turn {rid} was not finalized, it stays for the next open", thread.as_str()),
+                }
             }
             let _ = jobs.send(JobDone::Recovered(ended));
         }));

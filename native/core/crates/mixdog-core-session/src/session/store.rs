@@ -218,9 +218,14 @@ impl Projector {
 /// `AppendError::outcome()`: `NotApplied` → `Failed`, `Unknown` → `Indeterminate`.
 fn barrier(error: AppendError) -> BarrierError {
     let io_kind: Arc<str> = error.io_kind().into();
+    // What the disk said (`EIO: ...`), as Node's refusal names its save's error.
+    let cause: Arc<str> = match &error {
+        AppendError::BarrierFailed(e) | AppendError::Indeterminate(e) | AppendError::Refused(e) => e.source.to_string().into(),
+        _ => io_kind.clone(),
+    };
     match error.outcome() {
-        Outcome::NotApplied => BarrierError::Failed { io_kind },
-        Outcome::Unknown => BarrierError::Indeterminate { io_kind },
+        Outcome::NotApplied => BarrierError::Failed { io_kind, cause },
+        Outcome::Unknown => BarrierError::Indeterminate { io_kind, cause },
     }
 }
 
@@ -654,6 +659,14 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
     fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
         Box::new(self.0.on_marked(thread.as_str(), move |_| listener()))
     }
+
+    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String {
+        self.0.redact_settled_text(thread.as_str(), text)
+    }
+
+    fn redact_messages(&self, thread: &ThreadId, rows: &[Value]) -> Vec<Value> {
+        self.0.redact_messages(thread.as_str(), rows)
+    }
 }
 
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
@@ -772,7 +785,14 @@ impl ThreadStore for StoreThreads {
             if let Some(detail) = &record.detail {
                 record.detail = Some(self.resolve(lane, detail)?);
             }
-            drafts.push((run.rid.clone(), self.run_draft(lane, dir, &run.rid, run.started)?));
+            let mut draft = self.run_draft(lane, dir, &run.rid, run.started)?;
+            // The run's input row is the row just before its start; past the window (a turn of many rows) it is read here.
+            if let Some(cursor) = cursor {
+                let before = mixdog_store::sqlite::PageCursor { level: 0, before: run.started.ordinal, ..cursor };
+                let (input, _) = self.index.history_page_on_lane(lane, &lineage, fold.base_cut, Some(before), 1).map_err(|e| internal("window", &e))?;
+                draft.input = input.into_iter().find(|row| row.turn.as_deref() == Some(run.rid.as_str())).map(|row| row.iid);
+            }
+            drafts.push((run.rid.clone(), draft));
             runs.push((run.started.ordinal, record));
         }
         let mut approvals = Vec::new();
@@ -1064,15 +1084,12 @@ impl ThreadStore for StoreThreads {
     ) -> Result<Box<dyn SessionLog>, BarrierError> {
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
         self.wait(lane, self.index.mark_dirty(id.as_str()))
-            .map_err(|e| BarrierError::Failed {
-                io_kind: format!("index:{e}").into(),
-            })?;
+            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let writer = LogWriter::open(lane, opened, self.writer.clone()).map_err(|e| match e {
-            OpenAppendError::StoreDamaged(_) => BarrierError::Failed {
-                io_kind: "storeDamaged".into(),
-            },
+            OpenAppendError::StoreDamaged(_) => BarrierError::failed("storeDamaged"),
             OpenAppendError::Io(e) => BarrierError::Failed {
                 io_kind: e.op.to_string().into(),
+                cause: e.source.to_string().into(),
             },
         })?;
         Ok(Box::new(StoreLog {
@@ -1088,9 +1105,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
-        let failed = |kind: &str| BarrierError::Failed {
-            io_kind: kind.into(),
-        };
+        let failed = BarrierError::failed;
         let Record::Session(record) = session.record.as_ref() else {
             return Err(failed("notASession"));
         };
@@ -1116,9 +1131,7 @@ impl ThreadStore for StoreThreads {
             },
         );
         self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
-            .map_err(|e| BarrierError::Failed {
-                io_kind: format!("index:{e}").into(),
-            })?;
+            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let (writer, ack) = LogWriter::create(
             lane,
             &self.dir(id.as_str()),

@@ -217,18 +217,24 @@ pub fn set_publish_hook(hook: PublishHook) {
     assert!(PUBLISH_HOOK.set(hook).is_ok(), "the publish hook is installed once");
 }
 
-/// The boundaries of a session log's barrier (`LogWriter::append_barrier`), each reported with the batch's records:
-/// `Write` before its frames are written, `Synced` once they are durable. A test installs it in a child process that
-/// exits at the boundary it chooses.
+/// The boundaries of a session log's barrier (`LogWriter::append_barrier`), each reported with the batch's records (none at
+/// `Truncate`). A test installs it in a child process that exits at the boundary it chooses, or fails the step by returning
+/// an error: the writer then fails it as the disk would.
 #[cfg(feature = "crash-hook")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppendStep {
+    /// Before the frames are written. An error: the write stops half way (half the batch's bytes are in the file).
     Write,
+    /// Before the written frames are synced. An error: the sync fails.
+    Sync,
+    /// Before a rollback truncates the file back to its acked end. An error: the rollback fails (the outcome is unknown).
+    Truncate,
+    /// The frames are durable.
     Synced,
 }
 
 #[cfg(feature = "crash-hook")]
-pub type AppendHook = fn(AppendStep, &[crate::schema::record::Record]);
+pub type AppendHook = fn(AppendStep, &[crate::schema::record::Record]) -> std::io::Result<()>;
 
 #[cfg(feature = "crash-hook")]
 static APPEND_HOOK: std::sync::OnceLock<AppendHook> = std::sync::OnceLock::new();
@@ -240,10 +246,8 @@ pub fn set_append_hook(hook: AppendHook) {
 }
 
 #[cfg(feature = "crash-hook")]
-pub(crate) fn append_step(step: AppendStep, records: &[crate::schema::record::Record]) {
-    if let Some(hook) = APPEND_HOOK.get() {
-        hook(step, records);
-    }
+pub(crate) fn append_step(step: AppendStep, records: &[crate::schema::record::Record]) -> std::io::Result<()> {
+    APPEND_HOOK.get().map_or(Ok(()), |hook| hook(step, records))
 }
 
 #[cfg(feature = "crash-hook")]

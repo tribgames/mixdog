@@ -5,8 +5,8 @@
 //! answer on (`save-failure`, the same process going on), or killed its process at one point between the first request
 //! and the turn's completion record, then read the session in a new process as a desktop or phone read does. This drives
 //! the real Rust stack the same way: the session actor over the run host's factory (the loop, the scripted provider, a
-//! `read` tool), the save failure through the thread store's fault hook (`MemStore::failing`), and each crash in a child
-//! process over the real store, which exits at the store's crash hook (`mixdog-store` `crash-hook`) at the point Node was
+//! `read` tool) over the real store, with the store's barrier hook (`mixdog-store` `crash-hook`): the save failure as writes
+//! the disk stops half way (and a rollback that fails), and each crash in a child process that exits at the point Node was
 //! killed; the next process opens the thread (the recovery at open) and reads it twice.
 //!
 //! Compared per step, whole: the items a client is shown (`thread/read`, the snapshot desktop and phone render, each Node
@@ -239,17 +239,54 @@ fn drafts(records: &[Record]) -> impl Iterator<Item = &Value> {
     })
 }
 
+/// The disk refuses writes (`save-failure`): each barrier's write stops half way with `EIO: injected`.
+static DISK_FAILS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Rollbacks still to fail: the first failed write's rollback fails too, so that batch's outcome is unknown until the next
+/// barrier truncates it.
+static ROLLBACKS_FAILING: AtomicUsize = AtomicUsize::new(0);
+/// Every step of every barrier, in order, with its records' kinds: what the save-failure replay shows of the writer.
+static STEPS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The store's barrier hook of this process, installed once: the save failure, or a crash child's kill points.
+fn install_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| mixdog_store::fsio::set_append_hook(hook));
+}
+
+fn hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
+    if CASE.get().is_some() {
+        return crash_hook(step, records);
+    }
+    let fails = DISK_FAILS.load(Ordering::SeqCst);
+    let fault = match step {
+        AppendStep::Write if fails => Some("EIO: injected"),
+        AppendStep::Truncate if ROLLBACKS_FAILING.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() => Some("EIO: rollback injected"),
+        _ => None,
+    };
+    lock(&STEPS).push(format!("{step:?}{}", if fault.is_some() { " fails" } else { "" }));
+    fault.map_or(Ok(()), |fault| Err(std::io::Error::other(fault)))
+}
+
+/// `crash-sealed-unsaved`: from the answer on, every save of the session fails (`EIO: injected`) while the turn's draft
+/// still lands, as Node's session-log writes failed while its checkpoint journal was written.
+static SESSION_SAVES_FAIL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Node's kill points as the boundaries of the session log's barriers.
-fn crash_hook(step: AppendStep, records: &[Record]) {
-    let Some((case, _)) = CASE.get() else { return };
+fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
+    let Some((case, _)) = CASE.get() else { return Ok(()) };
     let case = case.as_str();
     let die = || kill(&format!("{step:?}"));
     match step {
         AppendStep::Write => match case {
-            // The finished message was not written: what streamed of it is the draft's.
-            "crash-answer-streamed" if has_role(records, "assistant") => die(),
-            // The answer is written and sealed; the completion record's write is lost.
-            "crash-sealed-unsaved" if has_run(records, RunPhase::Completed) => die(),
+            // The finished message and its seal were not written: what streamed of it is the draft's.
+            "crash-answer-streamed" if has_role(records, "assistant") || drafts(records).any(|body| body.get("sealed").is_some()) => die(),
+            // The sealed turn's saves fail; the process dies at its terminal save.
+            "crash-sealed-unsaved" if SESSION_SAVES_FAIL.load(Ordering::SeqCst) && drafts(records).next().is_none() => {
+                if has_run(records, RunPhase::Completed) {
+                    die();
+                }
+                return Err(std::io::Error::other("EIO: injected"));
+            }
             _ => {}
         },
         AppendStep::Synced => {
@@ -270,7 +307,9 @@ fn crash_hook(step: AppendStep, records: &[Record]) {
                 _ => {}
             }
         }
+        AppendStep::Sync | AppendStep::Truncate => {}
     }
+    Ok(())
 }
 
 /// The process dies where Node's was killed, after writing how many requests it sent.
@@ -288,7 +327,7 @@ async fn crash_child() {
     let (Ok(case), Ok(dir)) = (std::env::var("TD_CASE"), std::env::var("TD_DIR")) else { return };
     let dir = std::path::PathBuf::from(dir);
     CASE.set((case.clone(), dir.clone())).unwrap();
-    mixdog_store::fsio::set_append_hook(crash_hook);
+    install_hook();
     let on_send: OnSend = match case.as_str() {
         // Killed with the first request on the wire, once the turn's start is on disk.
         "crash-before-output" => Arc::new(|_| {
@@ -314,7 +353,11 @@ async fn crash_child() {
                 }
             })
         }),
-        "crash-answer-streamed" | "crash-sealed-unsaved" | "crash-saved-uncleared" => Arc::new(|_| Box::pin(async { answer("answer") })),
+        "crash-sealed-unsaved" => Arc::new(|_| {
+            SESSION_SAVES_FAIL.store(true, Ordering::SeqCst);
+            Box::pin(async { answer("answer") })
+        }),
+        "crash-answer-streamed" | "crash-saved-uncleared" => Arc::new(|_| Box::pin(async { answer("answer") })),
         other => panic!("unknown case {other}"),
     };
     let rig = Rig::new();
@@ -555,27 +598,31 @@ fn no_diffs() {
 
 // ---- the replays -------------------------------------------------------------------------------------------------------------
 
-/// The save failure in one process: every save fails from the answer on (the store's fault hook), the next turn is refused while
-/// they fail, and runs once they land.
+/// The save failure in one process over the real store: from the answer on, every barrier's write stops half way (the store's
+/// barrier hook) and is rolled back, the first rollback failing too (an unknown outcome, truncated by the next barrier); the next
+/// turn is refused while they fail, and runs once they land, each record written once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_save_replays_as_node_keeps_the_turn() {
     let case = cases().into_iter().find(|case| case["name"] == "save-failure").unwrap();
     let steps = case["steps"].as_array().unwrap();
+    install_hook();
     let rig = Rig::new();
-    let failing = rig.store.failing.clone();
     let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let on_send: OnSend = {
-        let (failing, armed) = (failing.clone(), armed.clone());
+        let armed = armed.clone();
         Arc::new(move |_| {
             if armed.swap(false, Ordering::SeqCst) {
-                *lock(&failing) = Some("EIO: injected".into());
+                ROLLBACKS_FAILING.store(1, Ordering::SeqCst);
+                DISK_FAILS.store(true, Ordering::SeqCst);
             }
             Box::pin(async { answer("answer") })
         })
     };
     let provider = stub(on_send);
     let workspace = tempfile::tempdir().unwrap();
-    let directory = stack(&rig, rig.store.clone(), provider.clone(), workspace.path(), RUN_AT);
+    let data = tempfile::tempdir().unwrap();
+    let store = real_store(data.path()).await;
+    let directory = stack(&rig, store, provider.clone(), workspace.path(), RUN_AT);
     let handle = start(&directory, workspace.path()).await;
     let settled = |view: &Value, rows: usize| !busy(view) && view["items"].as_array().is_some_and(|items| items.len() == rows);
 
@@ -594,12 +641,19 @@ async fn a_failed_save_replays_as_node_keeps_the_turn() {
     assert_eq!(provider.sends.load(Ordering::SeqCst), steps[1]["sends"].as_u64().unwrap() as usize, "the refused turn asks nothing");
     same("save-failure", &steps[1], rust_step(&observe(&directory, &handle).await));
 
-    *lock(&failing) = None;
+    DISK_FAILS.store(false, Ordering::SeqCst);
     ask(&handle, "second task", "op-3").await.expect("turn/start");
     until(&handle, "the second turn ends", async || settled(&observe(&directory, &handle).await, 6)).await;
     assert_eq!(provider.sends.load(Ordering::SeqCst), steps[2]["sends"].as_u64().unwrap() as usize);
     same("save-failure", &steps[2], rust_step(&observe(&directory, &handle).await));
     no_diffs();
+    // The writer went through each fault: a half write rolled back, a rollback that failed (truncated by the next barrier
+    // before it wrote), half writes rolled back while the disk refused, then the held records written once (the stored
+    // context above has each message once).
+    let steps = lock(&STEPS).clone();
+    let first = steps.iter().position(|step| step == "Write fails").expect("a write failed");
+    assert_eq!(steps[first..first + 3], ["Write fails", "Truncate fails", "Truncate"], "the unknown outcome is truncated by the next barrier: {steps:?}");
+    assert!(steps.iter().rev().take_while(|step| !step.ends_with("fails")).any(|step| step == "Synced"), "the held records landed: {steps:?}");
 }
 
 /// Each crash point: the child process runs the turn until the store's crash hook kills it, then the thread is opened (the
