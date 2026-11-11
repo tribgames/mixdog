@@ -110,6 +110,13 @@ impl SessionHandle {
         self.cell.busy.load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Node's `getSessionProgressSnapshot(id)?.stage`: the stage of the thread's runtime entry, `None` before the first
+    /// marker and once a settled turn's entry is evicted.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn runtime_stage(&self) -> Option<String> {
+        self.cell.progress.borrow().stage()
+    }
+
     /// The open-time recovery of the runs the last process died in is done and its records are released.
     #[cfg(any(test, feature = "test-support"))]
     pub fn recovered(&self) -> bool {
