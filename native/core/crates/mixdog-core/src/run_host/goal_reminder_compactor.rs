@@ -61,6 +61,7 @@ fn with_prefix<'a>(request: &CompactRequest<'a>, prefix: &'a str) -> CompactRequ
         trigger: request.trigger.clone(),
         require_reduction: request.require_reduction,
         reference_latest_attachments: request.reference_latest_attachments,
+        active_turn: request.active_turn,
         latest_user_prefix: prefix,
     }
 }

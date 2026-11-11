@@ -405,6 +405,8 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
     assert_eq!(transcript["attemptId"], json!("<uuid>"));
     transcript["at"] = json!(clock);
     transcript["attemptId"] = json!("<random>");
+    // Node persists the message's meta through `persistedUserTranscriptMetadata`, which keeps no `completionVerb` (the turn's).
+    transcript.as_object_mut().unwrap().remove("completionVerb");
     // Node keeps the shown text only as the row's `text`; Rust's record also holds it when it differs from the prompt.
     if asked["content"] != row["text"] {
         transcript["displayText"] = row["text"].clone();

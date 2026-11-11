@@ -1500,6 +1500,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mixdog_store::log::WriterDeps { io: Arc::new(mixdog_store::log::OsIo), blobs: blobs.clone(), ownership: ownership.clone(), index: Arc::new(catalog_index.clone()) },
         b.tokens.maintenance_io,
     ));
+    // One instance for the actors and the logs: what a log rewrites after a mark is what the actors hold in full.
+    let sensitive_marks: Arc<dyn mixdog_core_session::session::SensitiveMarks> = Arc::new(mixdog_core_session::session::store::SensitiveMarksOf::new(sensitive.clone()));
+    if store_threads.redact_with(sensitive_marks.clone()).is_err() {
+        unreachable!("the thread store is bound once, here");
+    }
+    // Before any thread is served (no directory can open a log yet): marks a previous run journaled and did not apply
+    // everywhere are marked again and their sessions rewritten.
+    store_threads.settle_marks(b.tokens.durability_io).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
     // The stored sessions, shared with the search backfill and `StoredConsumers`; the snapshot cleanups, built once.
     let session_lanes = || mixdog_core_session::session::SessionLanes { cpu: b.tokens.cpu_interactive, io: b.tokens.interactive_io, durability: b.tokens.durability_io };
     let stored_sessions = Arc::new(mixdog_core_session::session::search_backfill::StoredSearchSessions::new(
@@ -2050,7 +2058,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 )),
                 search: session_search,
                 memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()))),
-                sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
+                sensitive: sensitive_marks.clone(),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
                 session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
@@ -2203,6 +2211,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
         mixdog_services::bots::delivery::env::DeliveryConfig::node(),
     );
+    home_delivery.redact_with(sensitive.clone());
     held_home.bind_delivery(home_delivery.clone()).map_err(|_| ComposeError::AlreadyBound("held home delivery"))?;
     b.thread_gates.bind(directory.thread_ops()).map_err(|_| ComposeError::AlreadyBound("thread op gates"))?; // `thread_ops()` is called exactly once, here
     agent_evidence

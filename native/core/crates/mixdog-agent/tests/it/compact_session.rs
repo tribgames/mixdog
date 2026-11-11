@@ -145,7 +145,7 @@ fn conversation() -> Vec<AgentMessage> {
 }
 
 fn request(messages: &[AgentMessage]) -> CompactRequest<'_> {
-    CompactRequest { messages, budget_tokens: 4_000, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, latest_user_prefix: "" }
+    CompactRequest { messages, budget_tokens: 4_000, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" }
 }
 
 #[test]
@@ -199,4 +199,17 @@ async fn a_conversation_under_the_threshold_is_rebuilt_by_rules_alone() {
     let messages = conversation();
     compactor.compact(request(&messages)).await.expect("rules-only compaction");
     assert!(asked.0.lock().unwrap().is_empty());
+}
+
+/// `runHandoffCompaction` (a manual pass between turns) passes no `activeTurn`: a finished conversation that fits comes back
+/// as it is, with no active-turn continuation, so Node reports "nothing to compact"; a pass inside a turn gets the continuation.
+#[tokio::test]
+async fn only_a_pass_inside_a_turn_adds_the_active_turn_continuation() {
+    let compactor = FreshCompactor::for_session(session(settings(Some(200_000)), Some(10_000_000), Arc::default())).expect("a compactor");
+    let messages = vec![AgentMessage::user("is the code accepted?".to_owned()), AgentMessage::assistant("Yes.".to_owned(), Vec::new())];
+    let between = compactor.compact(CompactRequest { active_turn: false, ..request(&messages) }).await.expect("between turns");
+    assert_eq!(between.messages.len(), messages.len(), "{:?}", between.messages);
+    let inside = compactor.compact(request(&messages)).await.expect("inside a turn");
+    assert_eq!(inside.messages.len(), messages.len() + 1);
+    assert_eq!(inside.messages.last().and_then(|m| m.source.clone()), Some(mixdog_agent::message::Source::ActiveTurnContinuation));
 }

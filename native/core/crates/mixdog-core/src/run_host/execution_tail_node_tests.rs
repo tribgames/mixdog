@@ -24,7 +24,7 @@ use mixdog_core_session::session::StoredRows;
 use mixdog_protocol::ProviderId;
 use serde_json::{Value, json};
 
-use super::compaction_node_harness::{NoAttachments, NoSummary, World, archive, media, session_compactor};
+use super::compaction_node_harness::{NoAttachments, NoRedaction, NoSummary, World, archive, media, session_compactor};
 use super::compactors::CompactionRows;
 use super::message_row::{message_of, row_of};
 use super::summary_routes::{MaintainerRoute, SessionRoute, SummaryHost};
@@ -169,7 +169,7 @@ impl Replay {
         let owner = ProviderId::from("");
         let meter = MessageMeter { media: &*lowering, replay_owner: &owner };
         let archive = archive(&self.data_dir(o), session);
-        let tail = TailContext { meter: &meter, rows: &stored, archive: &archive, preview: false };
+        let tail = TailContext { meter: &meter, rows: &stored, archive: &archive, redactor: &NoRedaction, preview: false };
         let out = match op {
             "budget" => json!(tool_history_budget(o["contextWindow"].as_u64().unwrap())),
             "tail" => {
@@ -214,6 +214,7 @@ impl Replay {
                     trigger: CompactTrigger::Auto,
                     require_reduction: false,
                     reference_latest_attachments: false,
+                    active_turn: true,
                     latest_user_prefix: "",
                 };
                 match compactor.compact(request).await {

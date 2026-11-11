@@ -2345,6 +2345,30 @@ async fn a_fork_has_a_codex_wire_identity_of_its_own() {
     assert!(other.get("codexWireSessionId").is_none_or(Value::is_null), "no Codex identity for another provider");
 }
 
+/// A fork holds its source's text: a value the source marks sensitive after the fork is the fork's to redact too.
+#[tokio::test(start_paused = true)]
+async fn a_value_the_source_marks_after_a_fork_is_the_forks_too() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let mut header = Header::new();
+    header.insert("cwd".into(), json!("/repo"));
+    let source = ThreadId::from("src_marked".to_owned());
+    directory.create_with_id(source.clone(), header, json!({})).await.expect("source");
+    give_conversation(&directory.handle(&source).expect("loaded")).await;
+    let reply = directory
+        .handle(&source)
+        .expect("loaded")
+        .request(request("thread/fork", json!({ "threadId": "src_marked", "opId": "op-fork" }), "op-fork"))
+        .await
+        .expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = value["thread"]["id"].as_str().expect("heir id").to_owned();
+    let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "482913" } } });
+    assert!(rig.sensitive.remember("src_marked", &[fill]));
+    assert_eq!(rig.sensitive.redact_text(&heir, "code 482913"), "code [redacted]");
+}
+
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
 #[tokio::test(start_paused = true)]
@@ -4379,24 +4403,245 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
         "name": "browser",
         "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } },
     });
-    // Outside a turn a mark re-ingests nothing.
+    // Outside a turn no barrier of a turn follows the mark: the thread rewrites its log and re-ingests its copy itself,
+    // once.
     assert!(rig.sensitive.remember(handle.id.as_str(), std::slice::from_ref(&fill)));
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
     turn(&handle, "hold", "op-1").await;
     mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    assert!(lock(&rig.ingests.0).is_empty());
+    assert_eq!(lock(&rig.ingests.0).len(), 1);
 
     let again = json!({
         "name": "browser",
         "arguments": { "action": "fill", "input": { "sensitive": true, "text": "s3cret" } },
     });
     assert!(rig.sensitive.remember(handle.id.as_str(), &[again]));
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
-    let (thread, messages) = lock(&rig.ingests.0)[0].clone();
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
+    let (thread, messages) = lock(&rig.ingests.0)[1].clone();
     assert_eq!(thread, handle.id);
     assert_eq!(messages.len(), 1, "the turn's durable input row: {messages:?}");
 
     release.send(true).expect("release");
-    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 3).then_some(())).await;
+}
+
+/// A value a call marked sensitive (`rememberSensitiveValues`, before the assistant row carrying it is committed) is in
+/// no record the log is handed: the row is stored through the sensitive projection (`_messageForDisk`). The thread's
+/// model context still reads the row as it was committed, as Node's loaded session keeps it (`sensitive-values.mjs:7-9`).
+#[tokio::test(start_paused = true)]
+async fn a_sensitive_value_never_reaches_the_log_and_the_model_context_keeps_it() {
+    const CODE: &str = "482913";
+    let rig = Rig::new();
+    let committed = json!({
+        "role": "assistant",
+        "content": "",
+        "toolCalls": [{ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } }],
+    });
+    let body = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let body = body.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            assert!(run.context.remember_sensitive(&[body["toolCalls"][0].clone()]), "the fill's value is marked");
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "fill the code", "op-1").await;
+    let stored = eventually_on!(&[&rig.store.committed], || {
+        rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+            mixdog_store::schema::record::Record::Item(row) if row.iid.as_str() == "a-1" => Some(row.body),
+            _ => None,
+        })
+    })
+    .await;
+    let mixdog_store::schema::blob::Slot::Inline(stored) = stored else { panic!("an inline body") };
+    for record in rig.store.records(&handle.id) {
+        let bytes = serde_json::to_string(&record.1).expect("record json");
+        assert!(!bytes.contains(CODE), "record {} holds the value: {bytes}", record.0);
+    }
+    assert_eq!(stored, rig.sensitive.redact_message(handle.id.as_str(), &committed), "stored as the projection stores it");
+    let context = directory.model_context(&handle.id).read().await.expect("context");
+    let row = context.iter().find(|(iid, _)| iid.as_str() == "a-1").expect("the assistant row");
+    assert_eq!(row.1, committed, "the model context keeps the row as committed");
+}
+
+/// A value marked sensitive after records holding it were written (the prompt that brought it, its title and prompt-history
+/// rows) leaves every file the thread store and the prompt history wrote (`redactSessionFiles`): the log is rewritten at the
+/// next barrier, the thread's index rows are rebuilt from it with their old pages overwritten and the WAL emptied, and the
+/// cwd's persisted prompts take the marker. The model context still reads the prompt whole for the process.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_model_context_keeps_it() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    const CODE: &str = "482913";
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let deps = rig.deps_parts(threads.clone());
+    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
+    rig.set_script(Arc::new(move |run| {
+        let (body, fill) = (body.clone(), fill.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            assert!(run.context.remember_sensitive(&[fill]));
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let prompt = format!("{CODE} is the code from the mail");
+    turn(&handle, &prompt, "op-1").await;
+    let cwd = handle.cell.header.load_full()["cwd"].as_str().map(str::to_owned).expect("cwd");
+    let history = rig.prompts.file(&cwd).expect("a prompt history file");
+    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
+    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
+            }
+        }
+        out
+    };
+    // The log was rewritten at the barrier after the mark, inside the turn; the index rows follow the projector; the
+    // prompt history is written on the durability lane and tells the rig each time.
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    threads.projected().await;
+    eventually_on!(&[&*rig.prompts_wrote], || (history.is_file() && !holds(&history)).then_some(())).await;
+    let held: Vec<_> = files(data.path()).into_iter().filter(|path| holds(path)).collect();
+    assert!(held.is_empty(), "files holding the value: {held:?}");
+    let context = directory.model_context(&handle.id).read().await.expect("context");
+    let texts = serde_json::to_string(&context.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>()).expect("rows");
+    assert!(texts.contains(&prompt), "the model context keeps the prompt whole: {texts}");
+    assert!(std::fs::read_to_string(&history).expect("history").contains("[redacted] is the code from the mail"));
+    // The history a client is sent after the mark: the thread's own lists take the marker too.
+    let list = eventually_on!(&[&handle.cell.stepped], || {
+        let list = prompt_list(&handle);
+        list.iter().all(|entry| !entry.contains(CODE)).then_some(list)
+    })
+    .await;
+    assert_eq!(list, ["[redacted] is the code from the mail"]);
+    // What a client (the desktop, or a paired phone through the relay: the same `thread/read`) reads after the mark once
+    // the thread is loaded again from its stored files. The live view of the still-loaded thread keeps its rows as sent,
+    // as Node's does.
+    let restarted = SessionDirectory::new(Arc::new(rig.deps_parts(threads.clone())));
+    let reread = restarted.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    let read = reread
+        .request(request("thread/read", json!({ "threadId": handle.id }), "op-read"))
+        .await
+        .expect("thread/read");
+    let Reply::Value(read) = read else { panic!("thread/read answers a value") };
+    let read = serde_json::to_string(&read).expect("json");
+    assert!(!read.contains(CODE) && read.contains("[redacted] is the code from the mail"), "the loaded view: {read}");
+}
+
+/// A value a worker marks after its report reached its owner leaves the owner's stored files, and on up the chain: a
+/// grandchild's mark is carried to the child whose report quoted it and on to the parent (`carry`, as the worker's turn
+/// sets it up), and each of them, idle, rewrites its log, index rows and prompt history as for a mark of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    const CODE: &str = "482913";
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let deps = rig.deps_parts(threads.clone());
+    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
+    let marks = deps.sensitive.clone();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let row = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": "noted" }), prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let (parent, child, grandchild) = (start_thread(&directory).await, start_thread(&directory).await, start_thread(&directory).await);
+    // The reports as delivered before the mark: the child's quoted the value to the parent, the grandchild's to the child.
+    turn(&parent, &format!("the child reported {CODE}"), "op-p").await;
+    turn(&child, &format!("the grandchild reported {CODE}"), "op-c").await;
+    let all = [&parent, &child, &grandchild];
+    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped], || all.iter().all(|h| idle(h)).then_some(())).await;
+    threads.projected().await;
+    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
+    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
+            }
+        }
+        out
+    };
+    let held = || files(data.path()).into_iter().filter(|path| holds(path)).collect::<Vec<_>>();
+    assert!(!held().is_empty(), "the reports are stored before the mark");
+    // As each worker's turn sets it up (`TurnRunner::run`), then the grandchild marks the value.
+    marks.carry(&grandchild.id, &child.id);
+    marks.carry(&child.id, &parent.id);
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
+    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped, &*rig.prompts_wrote], || held().is_empty().then_some(())).await;
+    assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
+    assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
+}
+
+/// The memory ingest of an unloading thread (`ingestSessionIntoMemory`) goes to a database on disk: a value the thread
+/// marked sensitive goes there as the marker, though the model context holds it whole (Node bug, fixed on both sides:
+/// `memory-ingest.mjs` passes the loaded session's messages as they are).
+#[tokio::test(start_paused = true)]
+async fn an_unloading_thread_goes_to_memory_with_its_sensitive_values_as_the_marker() {
+    const CODE: &str = "482913";
+    let rig = Rig::new();
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
+    rig.set_script(Arc::new(move |run| {
+        let (body, fill) = (body.clone(), fill.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.context.remember_sensitive(&[fill]);
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, &format!("the code is {CODE}"), "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
+    let ingested = serde_json::to_string(&lock(&rig.closes.seen)[0].1).expect("messages json");
+    assert!(!ingested.contains(CODE), "the memory ingest holds the value: {ingested}");
+    assert!(ingested.contains("[redacted]"), "{ingested}");
 }
 
 #[tokio::test(start_paused = true)]
@@ -4844,4 +5089,129 @@ async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
         }
     }
     assert!(refused > 15, "the twin refuses {refused} renames");
+}
+
+/// A worker's reply committed while the io-interactive lane is full (its threads and queue taken by jobs a gate holds)
+/// waits for room: once the gate lets the lane go the row lands and the turn ends with it, never dropped as closed.
+#[tokio::test(start_paused = true)]
+async fn a_reply_committed_while_the_io_lane_is_full_lands_once_it_has_room() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    let committed: Arc<Mutex<Option<Result<(), super::run::RunError>>>> = Arc::default();
+    let seen = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (mut gate, seen) = (gate.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            let done = run
+                .port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "re: hello" }),
+                    prompt: None,
+                })
+                .await;
+            *lock(&seen) = Some(done);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    release.send(true).expect("release");
+    super::testing::awaiting(|| "the reply's commit to meet the full lane".into(), full.met_by_a_submit()).await;
+    assert!(lock(&committed).is_none(), "the commit waits for room");
+    assert!(!idle(&handle), "the run waits with it");
+    drop(full);
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    assert_eq!(*lock(&committed), Some(Ok(())));
+    let (_, messages) = lock(&rig.ingests.0)[0].clone();
+    assert_eq!(messages[1]["text"], "re: hello", "{messages:?}");
+}
+
+/// A Lead turn submitted while the io-interactive lane is full is accepted once it has room, not refused as closed.
+#[tokio::test(start_paused = true)]
+async fn a_turn_submitted_while_the_io_lane_is_full_starts_once_it_has_room() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    let submitted = {
+        let handle = handle.clone();
+        tokio::spawn(async move { turn(&handle, "hello", "op-1").await })
+    };
+    super::testing::awaiting(|| "the turn's start to meet the full lane".into(), full.met_by_a_submit()).await;
+    assert!(!submitted.is_finished(), "the start waits for room");
+    drop(full);
+    let started = super::testing::awaiting(|| "the turn's start once the lane has room".into(), submitted).await.expect("the submit's task");
+    assert_eq!(started["kind"], "started", "{started}");
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+}
+
+/// A turn whose input row's lane job can never run (a lane that cannot take it or signal room) is answered with an error
+/// that names the lane, never "The session is closed.".
+#[tokio::test]
+async fn a_turn_whose_lane_job_is_refused_hears_the_lane_not_closed() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let answer = {
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await
+    };
+    match answer {
+        Err(CoreError::QueueFull { queue }) => assert_eq!(&*queue, mixdog_rt::LaneKind::InteractiveIo.name()),
+        other => panic!("the refused start names the lane: {other:?}"),
+    }
+}
+
+/// Each lane job a turn submits, refused in its turn (a lane that cannot run it): the start is answered with its result or
+/// an error that names the cause, never "The session is closed.", and the thread takes the next turn.
+#[tokio::test]
+async fn a_refused_lane_job_anywhere_in_a_turn_never_closes_the_session() {
+    let closed = |answer: &Result<Reply, CoreError>| format!("{answer:?}").contains("The session is closed.");
+    for n in 0.. {
+        let rig = Rig::new();
+        // The run hears a refused input or commit as an error and ends interrupted: the refusal is the thread's to answer.
+        rig.set_script(Arc::new(|run| {
+            Box::pin(async move {
+                if run.port.input_durable().await.is_err() {
+                    return RunOutcome::Interrupted;
+                }
+                let commit = ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "re" }),
+                    prompt: None,
+                };
+                match run.port.commit_item(commit).await {
+                    Ok(_) => RunOutcome::Completed(Default::default()),
+                    Err(_) => RunOutcome::Interrupted,
+                }
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        let (answer, reached) = {
+            let _refused = mixdog_rt::testing::refuse_nth_job_on_this_thread(n);
+            let answer = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await;
+            eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+            (answer, mixdog_rt::testing::attempts_on_this_thread() > n)
+        };
+        assert!(!closed(&answer), "job {n} refused: {answer:?}");
+        let next = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await;
+        assert!(next.is_ok(), "job {n} refused, then the next turn: {next:?}");
+        if !reached {
+            break;
+        }
+    }
 }

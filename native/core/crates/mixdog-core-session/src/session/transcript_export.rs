@@ -71,6 +71,7 @@ impl TranscriptFiles {
     /// The stored session's log id, header and model context; `None` for an unknown session.
     async fn read(&self, thread: &ThreadId) -> Result<Option<(String, Header, Vec<Value>)>, CoreError> {
         let token = CancellationToken::new();
+        self.store.unheld().await;
         let (store, id) = (self.store.clone(), thread.clone());
         let header = match on_lane(self.lanes.io, &token, move |lane| store.read_header(lane, &id)).await? {
             Ok(header) => header,

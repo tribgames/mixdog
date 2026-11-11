@@ -225,6 +225,9 @@ pub(crate) enum Inbox {
     /// The job board's activity signal: a job of this thread was added or finished
     /// (`agent_activity.rs`).
     AgentActivity,
+    /// A value marked in a session whose text this thread holds reached it (`SensitiveMarks::carry`): what the thread
+    /// stored goes as for a mark of its own, whether a turn runs or not.
+    SensitiveCarried,
     Request {
         req: CoreRequest,
         tx: Waiter,
@@ -309,7 +312,8 @@ pub(crate) enum JobDone {
     Encoded {
         id: u64,
         generation: u64,
-        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>), CoreError>,
+        /// The encoding, the live items and notes, and the record as the log stores it when that differs.
+        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>, Option<Record>), CoreError>,
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
@@ -355,8 +359,12 @@ pub(crate) enum JobDone {
         facts: RowFacts,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// A run's row whose facts could never be read (the io lane cannot run the job): the run hears it was not applied.
+    CommitUnread { ack: oneshot::Sender<Result<(), RunError>>, error: CoreError },
     /// A starting turn's input row with its facts read.
     InputFacts(Box<InputStart>),
+    /// A starting turn whose input row's facts could never be read: the turn does not start, and its waiter hears why.
+    InputUnread { reply: Option<Effect>, error: CoreError },
     /// The failed turn's provenance read for a plain retry start.
     RetryProvenance(Box<RetryWait>),
     /// The Goal the runtime shows, read for the pending reminder the starting turn carries.
@@ -503,6 +511,24 @@ impl Submissions {
             self.order.retain(|kept| kept != id);
         }
     }
+}
+
+/// The input row's `meta.transcript` as Node persists it (`persistedUserTranscriptMetadata`): its fields in that order, then
+/// what the core adds (`clientSubmissionId`); `completionVerb` is the turn's (`beginTurn`) and is not persisted.
+fn persisted_user_order(meta: &mut serde_json::Map<String, Value>) {
+    const ORDER: [&str; 18] = [
+        "messageId", "attemptId", "at", "modelId", "model", "provider", "agent", "sender", "device", "fromAgent", "hop", "botChain", "roomRow", "checkpointId",
+        "submissionIds", "consumedExecutionIds", "attachments", "routineTrigger",
+    ];
+    meta.shift_remove("completionVerb");
+    let mut ordered = serde_json::Map::new();
+    for key in ORDER {
+        if let Some(value) = meta.shift_remove(key) {
+            ordered.insert(key.into(), value);
+        }
+    }
+    ordered.append(meta);
+    *meta = ordered;
 }
 
 /// The trimmed `clientSubmissionId` of a start, if it names one.
@@ -1370,10 +1396,14 @@ impl SessionActor {
         directory.unload(&self.id, &self.cell, self.close_ingest());
     }
 
-    /// Today's `ingestSessionIntoMemory(session)` over the model context.
+    /// Today's `ingestSessionIntoMemory(session)` over the model context, each message through the sensitive projection:
+    /// the memory database is written to disk, so a sensitive value goes there as its marker. Node passes the loaded
+    /// session's own messages (`memory-ingest.mjs:18`) and so writes the value itself into the memory database; fixed on
+    /// both sides (`redactSensitiveMessages(session.id, messages)`).
     fn close_ingest(&self) -> futures::future::BoxFuture<'static, ()> {
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -1387,7 +1417,8 @@ impl SessionActor {
             let Ok(rows) = context.read().await else {
                 return;
             };
-            let messages = rows.into_iter().map(|(_, body)| body).collect();
+            let messages: Vec<Value> = rows.into_iter().map(|(_, body)| body).collect();
+            let messages = context.sensitive.redacted(&context.thread, &messages);
             memory.ingest(&context.thread, &cwd, messages).await;
         })
     }
@@ -1511,8 +1542,11 @@ impl SessionActor {
         let verb = self.run.as_ref().map(|slot| slot.verb);
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
         let at = self.deps.clock.now_ms();
-        let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
-            let result = deps.codec.encode(lane, &record).map(|encoded| {
+        // A full cpu lane is waited out: the record is a row of the thread, never dropped for a busy lane.
+        let encode = move |lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>| {
+            // The log holds the record as the sensitive projection stores it; the live rows show it as committed.
+            let stored = deps.sensitive.stored(&thread, &record);
+            let result = deps.codec.encode(lane, stored.as_ref().unwrap_or(&record)).map(|encoded| {
                 let Record::Item(row) = &*record else {
                     return (encoded, Vec::new(), Vec::new());
                 };
@@ -1547,19 +1581,15 @@ impl SessionActor {
                     .collect();
                 (encoded, shown, notes)
             });
+            result.map(|(encoded, shown, notes)| (encoded, shown, notes, stored))
+        };
+        mixdog_core_base::support::lane_job(self.deps.lanes.cpu, "record-encode", encode, move |result| {
             let _ = jobs.send(JobDone::Encoded {
                 id: entry,
                 generation,
-                result,
+                result: result.and_then(|encoded| encoded),
             });
         });
-        if let Err(full) = submitted {
-            let _ = self.jobs_tx.send(JobDone::Encoded {
-                id: entry,
-                generation,
-                result: Err(full.into()),
-            });
-        }
     }
 
     fn on_job(&mut self, done: JobDone) {
@@ -1573,7 +1603,7 @@ impl SessionActor {
                     return;
                 }
                 match result {
-                    Ok((encoded, shown, notes)) => {
+                    Ok((encoded, shown, notes, stored)) => {
                         if let Some(entry) = self.outbox.get_mut(id) {
                             if let Change::Record { display, .. } = &mut entry.change
                                 && !shown.is_empty()
@@ -1582,7 +1612,7 @@ impl SessionActor {
                             }
                             entry.notes.extend(notes);
                         }
-                        self.outbox.encoded(id, encoded);
+                        self.outbox.encoded(id, encoded, stored);
                     }
                     Err(error) => {
                         if let Some(entry) = self.outbox.remove(id) {
@@ -1595,14 +1625,18 @@ impl SessionActor {
                     }
                 }
             }
+            // A list computed off the actor can land after a mark that its rows predate: it takes the marks here.
             JobDone::PromptSession { session, publish } => {
+                let session = self.redacted_session_prompts(&session);
                 self.accept_view(Change::PromptSession { session, publish }, Vec::new())
             }
             JobDone::PromptPersisted(persisted) => {
+                let persisted = self.redacted_prompts(&persisted);
                 self.accept_view(Change::PromptPersisted(persisted), Vec::new())
             }
             JobDone::PromptFlushed { list, unwritten } => {
                 if let Some(list) = list {
+                    let list = self.redacted_prompts(&list);
                     self.accept_view(Change::PromptPersisted(list), Vec::new());
                 }
                 let next = self.prompt_appends.flushed(unwritten);
@@ -1631,6 +1665,7 @@ impl SessionActor {
             // the search rows get a replacement under the new version, once what the turn
             // committed so far is durable.
             JobDone::SensitiveMarked => {
+                self.redact_prompts();
                 if self.run.is_some() {
                     let ack = self.ingest_when_durable();
                     self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
@@ -1659,6 +1694,18 @@ impl SessionActor {
             }
             JobDone::GoalSeen(None) => {}
             JobDone::CommitFacts { turn, item, facts, ack } => self.commit_with_facts(turn, item, facts, ack),
+            JobDone::CommitUnread { ack, error } => {
+                tracing::warn!(thread = %self.id, "a run's row was not committed: its facts could not be read ({error:?})");
+                let _ = ack.send(Err(RunError::NotApplied));
+            }
+            JobDone::InputUnread { reply, error } => {
+                tracing::warn!(thread = %self.id, "a turn did not start: its input row's facts could not be read ({error:?})");
+                self.starting = false;
+                self.submitter = None;
+                self.retry_provenance = None;
+                self.retry_prior = None;
+                self.refuse_start(reply, &error);
+            }
             JobDone::InputFacts(start) => {
                 // `snapshotPendingGoalReminder` reads the Goal at request preparation, after the
                 // earlier Goal calls of this thread.
@@ -1672,8 +1719,9 @@ impl SessionActor {
             JobDone::RetryProvenance(wait) => {
                 let RetryWait { input, body, op_ref, reply, prompt, wake, provenance, prior } = *wait;
                 self.starting = false;
-                // A delete closed the thread meanwhile: the turn never starts.
+                // A delete closed the thread meanwhile: the turn never starts, and its waiter hears so.
                 if self.deleting {
+                    self.refuse_start(reply, &CoreError::ThreadClosing { thread_id: self.id.clone() });
                     return;
                 }
                 self.retry_provenance = Some(provenance);
@@ -2442,6 +2490,7 @@ impl SessionActor {
             }
             FromDurability::Pending(pending) => self.pending = pending,
             FromDurability::Retried(result) => self.indeterminate = result.is_err(),
+            FromDurability::Redacted => {}
         }
     }
 
@@ -2783,6 +2832,7 @@ impl SessionActor {
             items: super::quota_lane::transcript_rows(self.acked.window.iter().map(|row| row.item.as_ref())),
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -2987,6 +3037,7 @@ impl SessionActor {
         let (tx, rx) = oneshot::channel();
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -3124,20 +3175,21 @@ impl SessionActor {
 
     // ───────────── producers ─────────────
 
-    /// A row's facts (`user_facts`) read the prompt-attachment store: an interactive-io lane job
-    /// whose answer comes back as `done(body, facts)`. False when the lane refused the job (the
-    /// job and what it carried are dropped).
-    fn with_facts(&self, body: Value, done: impl FnOnce(Value, RowFacts) -> JobDone + Send + 'static) -> bool {
+    /// A row's facts (`user_facts`) read the prompt-attachment store: an interactive-io lane job whose answer comes back
+    /// as `done(Ok((body, facts)))`. A full lane is waited out, never refused: the row (a reply, a turn's input) is not lost
+    /// to a busy lane; `done(Err)` names the lane when the job can never run.
+    fn with_facts(&self, body: Value, done: impl FnOnce(Result<(Value, RowFacts), CoreError>) -> JobDone + Send + 'static) {
         let (store, jobs) = (self.deps.attachments.clone(), self.jobs_tx.clone());
-        self.deps
-            .lanes
-            .io
-            .submit(&CancellationToken::new(), move |lane| {
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "row-facts",
+            move |lane| {
                 let mut body = body;
                 let facts = store.facts(lane, &mut body);
-                let _ = jobs.send(done(body, facts));
-            })
-            .is_ok()
+                (body, facts)
+            },
+            move |read| drop(jobs.send(done(read))),
+        );
     }
 
     /// A run's committed row, its facts read.
@@ -3467,7 +3519,10 @@ impl SessionActor {
                 }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
-                self.with_facts(body, move |body, facts| JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack });
+                self.with_facts(body, move |read| match read {
+                    Ok((body, facts)) => JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack },
+                    Err(error) => JobDone::CommitUnread { ack, error },
+                });
             }
             ProducerMsg::ProviderState { turn, state, ack } => {
                 if !self.active(&turn) {
@@ -4061,6 +4116,14 @@ impl SessionActor {
                 live,
             } => self.task_notification(&surface, task_id, status, text, origin, live),
             Inbox::AgentActivity => self.agent_activity(),
+            Inbox::SensitiveCarried => {
+                self.redact_prompts();
+                // The log now (a queued batch rewrites it before it appends anyway); the search rows once what is
+                // queued is durable. A running turn's own listener does the same; the second pass finds nothing.
+                let _ = self.ch.dur_tx.try_send(ToDurability::Redact);
+                let ack = self.ingest_when_durable();
+                self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
+            }
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
                     (
@@ -5223,6 +5286,7 @@ impl SessionActor {
             let retry_turn_id = options.retry_turn_id.clone().filter(|id| !id.is_empty());
             let context = ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -5284,15 +5348,21 @@ impl SessionActor {
         // meanwhile.
         self.starting = true;
         self.runs_begun += 1;
-        let read = self.with_facts(body, move |body, facts| {
-            JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent, routine }))
+        self.with_facts(body, move |read| match read {
+            Ok((body, facts)) => JobDone::InputFacts(Box::new(InputStart { input, body, facts, op_ref, reply, prompt, wake, agent, routine })),
+            Err(error) => JobDone::InputUnread { reply, error },
         });
-        if !read {
-            // The lane refused the read: the turn does not start (its waiter hears the drop).
-            self.starting = false;
-            self.submitter = None;
-            self.retry_provenance = None;
-            self.retry_prior = None;
+    }
+
+    /// A turn that does not start: its waiter hears why (never a dropped reply).
+    fn refuse_start(&mut self, reply: Option<Effect>, error: &CoreError) {
+        if let Some(Effect::Reply { op, tx, .. }) = reply {
+            if let Some(op) = &op {
+                self.ops.failed(op, error);
+            }
+            if let Some(tx) = tx {
+                let _ = tx.send(Err(error.clone()));
+            }
         }
     }
 
@@ -5300,8 +5370,9 @@ impl SessionActor {
     fn start_run_read(&mut self, start: InputStart, shown: Option<Goal>) {
         self.starting = false;
         let submitter = self.submitter.take();
-        // A delete closed the thread meanwhile: the turn never starts.
+        // A delete closed the thread meanwhile: the turn never starts, and its waiter hears so.
         if self.deleting {
+            self.refuse_start(start.reply, &CoreError::ThreadClosing { thread_id: self.id.clone() });
             return;
         }
         let InputStart { input, mut body, facts, op_ref, reply, prompt, wake, agent, routine } = start;
@@ -5369,6 +5440,7 @@ impl SessionActor {
             if !route_agent.is_empty() {
                 meta.entry("agent").or_insert_with(|| json!(route_agent));
             }
+            persisted_user_order(meta);
         }
         self.sync_turn_chain();
         // `mintTranscriptEpoch` (`transcript-durability.mjs`): a transcript lineage is named when the first turn
@@ -5526,6 +5598,7 @@ impl SessionActor {
             ready: input_rx.clone(),
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: input_iid.clone(),
@@ -5577,6 +5650,7 @@ impl SessionActor {
             port,
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: input_iid.clone(),
@@ -5668,8 +5742,9 @@ impl SessionActor {
         let prompts = self.deps.prompts.clone();
         let jobs = self.jobs_tx.clone();
         let cwd = self.cwd();
-        let _ = self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| {
-            let _ = jobs.send(JobDone::PromptPersisted(prompts.load(lane, &cwd)));
+        mixdog_core_base::support::lane_job(self.deps.lanes.io, "prompt-history-load", move |lane| prompts.load(lane, &cwd), move |loaded| match loaded {
+            Ok(list) => drop(jobs.send(JobDone::PromptPersisted(list))),
+            Err(error) => tracing::warn!("the persisted prompt history was not read: {error:?}"),
         });
     }
 
@@ -5706,19 +5781,22 @@ impl SessionActor {
     /// (`JobDropped`) wrote nothing, so retrying it duplicates nothing.
     fn flush_prompts(&mut self, batch: Vec<String>) {
         let (prompts, jobs, cwd, lanes) = (self.deps.prompts.clone(), self.jobs_tx.clone(), self.cwd(), self.deps.lanes);
+        let (marks, thread) = (self.deps.sensitive.clone(), self.id.clone());
         drop(mixdog_rt::spawn("prompt-history-append", TaskClass::Work, async move {
             let kept = batch.clone();
-            let submitted = lanes.durability.submit(&CancellationToken::new(), move |lane| {
+            let submitted = lanes.durability.submit_wait(&CancellationToken::new(), move |lane| {
                 let mut list = None;
                 for (at, text) in batch.iter().enumerate() {
-                    let done = prompts.append(lane, &cwd, text);
+                    // A value the thread marked sensitive is stored as the marker, as in its log.
+                    let done = prompts.append(lane, &cwd, &marks.redact_text(&thread, text));
                     list = Some(done.list);
                     if !done.written {
                         return (list, batch[at..].to_vec());
                     }
                 }
                 (list, Vec::new())
-            });
+            })
+            .await;
             let (list, unwritten) = match submitted {
                 Ok(job) => job.await.unwrap_or((None, kept)),
                 Err(_) => (None, kept),
@@ -5727,19 +5805,61 @@ impl SessionActor {
         }));
     }
 
+    /// A mark: the cwd's persisted prompt history keeps the marked values as the marker, entries written before included.
+    /// The lists the thread holds go the same way, so the history a client is sent after the mark carries the marker only.
+    /// A prompt list with this thread's marks applied.
+    fn redacted_prompts(&self, list: &[String]) -> Vec<String> {
+        list.iter().map(|text| self.deps.sensitive.redact_text(&self.id, text)).collect()
+    }
+
+    /// The session's prompt list (newest first) with the marks applied; oldest first into `recompute`, so two entries the
+    /// marker made equal keep the newer one.
+    fn redacted_session_prompts(&self, list: &[String]) -> Vec<String> {
+        prompt_history::recompute(&self.redacted_prompts(list).into_iter().rev().collect::<Vec<_>>())
+    }
+
+    fn redact_prompts(&mut self) {
+        let (prompts, cwd, marks, thread) = (self.deps.prompts.clone(), self.cwd(), self.deps.sensitive.clone(), self.id.clone());
+        let session = self.redacted_session_prompts(&self.acked.prompt_session);
+        let persisted = self.redacted_prompts(&self.acked.prompt_persisted);
+        if session != self.acked.prompt_session {
+            self.accept_view(Change::PromptSession { session, publish: true }, Vec::new());
+        }
+        if persisted != self.acked.prompt_persisted {
+            self.accept_view(Change::PromptPersisted(persisted), Vec::new());
+        }
+        // The mark's rewrite of the persisted history waits out a full lane; it is not lost to one.
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.durability,
+            "prompt-history-redact",
+            move |lane| prompts.redact(lane, &cwd, &|text| marks.redact_text(&thread, text)),
+            |done| {
+                if let Err(error) = done {
+                    tracing::warn!("the persisted prompt history was not rewritten for a mark: {error:?}");
+                }
+            },
+        );
+    }
+
     /// The session part over the remaining lineage after a history mutation.
     fn recompute_prompts(&mut self, publish: bool) {
         let deps = self.deps.clone();
         let jobs = self.jobs_tx.clone();
         let thread = self.id.clone();
-        let _ = self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| {
-            let Ok(rows) = deps.store.user_rows(lane, &thread) else {
-                return;
-            };
-            let texts: Vec<String> = rows.iter().filter_map(|row| row.prompt_text().map(str::to_owned)).collect();
-            let session = prompt_history::recompute(&texts);
-            let _ = jobs.send(JobDone::PromptSession { session, publish });
-        });
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "prompt-history-recompute",
+            move |lane| {
+                let rows = deps.store.user_rows(lane, &thread).ok()?;
+                let texts: Vec<String> = rows.iter().filter_map(|row| row.prompt_text().map(str::to_owned)).collect();
+                Some(prompt_history::recompute(&texts))
+            },
+            move |read| match read {
+                Ok(Some(session)) => drop(jobs.send(JobDone::PromptSession { session, publish })),
+                Ok(None) => {}
+                Err(error) => tracing::warn!("the session's prompt history was not recomputed: {error:?}"),
+            },
+        );
     }
 }
 

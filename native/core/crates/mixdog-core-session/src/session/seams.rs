@@ -102,6 +102,10 @@ pub trait SessionLog: Send + 'static {
     /// The user's "Retry storage" (SM §8): the `PendingRollback` truncation alone. A writer in
     /// `Clean` answers `Ok`.
     fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError>;
+
+    /// The rewrite a mark owes what the log stored before it (`redactSessionFiles`), with no batch to commit: what
+    /// [`Self::commit`] runs before it appends. Nothing for a log that redacts nothing.
+    fn redact(&mut self, _lane: &InLane<DurabilityIo>) {}
 }
 
 /// Store-private result of open job J1 (catalog row, reverse scan, tail bytes).
@@ -177,6 +181,60 @@ pub trait SensitiveMarks: Send + Sync + 'static {
     /// Calls `listener` whenever `thread` gains a sensitive value, until the returned guard
     /// drops.
     fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send>;
+
+    /// `rememberSensitiveValues(sessionId, executionCalls)` (`loop/tool-phase.mjs:49`): the values the sensitive fills of
+    /// `calls` (`{name, arguments}` objects, the execution view) carry are marked for `thread`, before any of the calls is
+    /// committed or runs. True when the thread gained a value.
+    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool;
+
+    /// Text of `from` went to `to` (a worker's turn reports to its owner): `from`'s values, now and later, are marked
+    /// for `to` and on along `to`'s own carries (`SensitiveStore::carry`).
+    fn carry(&self, _from: &ThreadId, _to: &ThreadId) {}
+
+    /// The one listener told every thread that gained a value carried from another; `false` when one is set already.
+    fn on_carried(&self, _listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
+        false
+    }
+
+    /// `values` marked for `thread` again (a mark an earlier run journaled), carried as a new mark is.
+    fn restore(&self, _thread: &ThreadId, _values: &[String]) -> bool {
+        false
+    }
+
+    /// The journal the marks and carries are written to before they take effect; `false` when one is bound already.
+    fn journal_with(&self, _journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {
+        false
+    }
+
+    /// `record` as the log stores it (`_messageForDisk`, `store/serialize.mjs:33`): every message body it carries (an item's
+    /// body and prompt text, an amend's body, a compaction's replacement entries) through the sensitive projection
+    /// (`redactSensitiveMessage`, `sensitive-projection.mjs:69`); `None` when it is stored as it is. A body the projection
+    /// changes is held in full for the process, as Node's loaded session keeps it ([`Self::held`]).
+    fn stored(&self, thread: &ThreadId, record: &Record) -> Option<Record>;
+
+    /// The model rows of `thread` as the process's own copy has them (Node's `session.messages`, which the stored
+    /// projection never touches): each row whose stored body was redacted gets back the body it was committed with.
+    fn held(&self, thread: &ThreadId, rows: &mut [(mixdog_core_api::ids::ItemId, Value)]);
+
+    /// `redactSensitiveMessages(sessionId, messages)` (`sensitive-projection.mjs:91`).
+    fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value>;
+
+    /// How many marks `thread` has taken (0: none); it moves at every mark.
+    fn version(&self, _thread: &ThreadId) -> u64 {
+        0
+    }
+
+    /// `redactSensitiveText(sessionId, text)`.
+    fn redact_text(&self, _thread: &ThreadId, text: &str) -> String {
+        text.to_owned()
+    }
+
+    /// One pass over the records `thread` stored before its newest mark, oldest first (`redactSessionFiles`,
+    /// `session-writers.mjs`): each as [`Self::stored`] stores it now, `None` when it stays as it is. A body it changes is
+    /// held in full like a new one's; a body it keeps leaves the held copy as it is unless this pass took it.
+    fn rewriter<'a>(&'a self, _thread: &ThreadId) -> Box<dyn FnMut(&Record) -> Option<Record> + 'a> {
+        Box::new(|_| None)
+    }
 }
 
 /// Today's `ingestSessionIntoMemory` (`memory-ingest.mjs:15`) when a session closes.
@@ -363,6 +421,12 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// fork-aware purge removes each deleted session no live lineage reads (files and index
     /// rows). The ids it removed.
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+
+    /// Resolves once no sensitive rewrite holds the reads: a read awaits it before it takes an io-interactive thread, so
+    /// reads issued during a rewrite wait off the lane instead of filling it. Stores that never rewrite resolve at once.
+    fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(std::future::ready(()))
+    }
 
     /// The cpu step of a model-context read.
     fn context_cpu(

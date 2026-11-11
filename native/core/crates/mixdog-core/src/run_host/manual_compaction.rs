@@ -88,6 +88,16 @@ impl HostManualCompaction {
     }
 }
 
+/// The stored bodies a compactor serializes for an execution archive: each conversation message's own row, as Node's
+/// `session.messages` hold them (an unregistered message would archive as `null`).
+fn registered(messages: &[AgentMessage], rows: &[Value]) -> Arc<StoredRows> {
+    let stored = Arc::new(StoredRows::new());
+    for (message, row) in messages.iter().zip(rows) {
+        stored.record(message, row.clone());
+    }
+    stored
+}
+
 fn number(value: f64) -> Value {
     mixdog_js::json_number(value)
 }
@@ -305,7 +315,7 @@ impl ManualCompaction for HostManualCompaction {
         let Some(settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: registered(&messages, &rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, thread.as_str())),
             blobs: parts.blobs.clone(),
         };
@@ -315,7 +325,7 @@ impl ManualCompaction for HostManualCompaction {
         compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
         // `runHandoffCompaction` passes no Goal reminder: a compaction outside a turn marks it for the next turn instead.
-        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, latest_user_prefix: "" };
+        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
@@ -378,6 +388,15 @@ impl ManualCompaction for HostManualCompaction {
             commit_started_at,
             committed_at: Arc::new(move || clock.now_ms() as f64),
         };
+        // `!changed` (`compaction-runner.mjs:690-731`): Node keeps the transcript, the provider
+        // continuation and the display as they are and writes only the header's compaction record.
+        let (mut working, result) = committed_header(&facts, &snapshot.header, &[]);
+        if result.get("changed") == Some(&Value::Bool(false)) {
+            manual_tail(&mut working, facts.now);
+            let change = header_change(&snapshot.header, &working);
+            self.parts.threads.patch_header(thread, change.set, change.unset).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+            return Ok(Some(result));
+        }
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
         let header: CompactionHeader = Box::new(move |header, appended| {
@@ -418,13 +437,13 @@ impl ManualCompaction for HostManualCompaction {
         let Some(settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
         let input = CompactorInput {
             settings,
-            rows: Arc::new(StoredRows::new()),
+            rows: registered(&messages[messages.len() - rows.len()..], &rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, source.as_str())),
             blobs: parts.blobs.clone(),
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, latest_user_prefix: "" };
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
         let output = compactor.compact(request).await.map_err(|error| match error {
             CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),
