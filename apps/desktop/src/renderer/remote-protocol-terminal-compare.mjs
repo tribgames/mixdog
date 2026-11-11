@@ -20,13 +20,17 @@
 //   - Every entry but output (answers, errors, activity changes, exits, tab list changes, pushes of every tab, fires, lane switches, clock
 //     steps, checkpoints) is compared at its position among the others, field by field (every leaf of its value, and the shape of every
 //     object and array): the non-output messages are compared in set, count and order among themselves.
+//   - Output is not compared against the answers to the phone's calls (MANIFEST.json `answersAgainstOutput`): Node sent output through its
+//     relay lane's 16 ms buffer (remote-relay-push-lanes.ts:80-89) and each answer on its call's own path, so where an answer falls among a
+//     tab's frames is timing. Each of the two is compared in its own order: the answers with the other messages, the output by the screens
+//     below at every other message and at the end.
 //   - Output is compared by the state it puts the terminal the app renders with in (@xterm/xterm, TerminalPane.tsx, with the pane's cursor
 //     options), parsing each tab's output and resized where the trace announces the tab's new size (a `sizeOwner` push with a size: Node
 //     resizes the PTY before it announces, terminal-manager.ts:485-487; a new PTY starts at 80x24, :322-325). The state is everything the
 //     terminal shows and holds (`stateOf`: both buffers cell by cell with every attribute, wrapped lines, cursors, viewport, scroll
 //     regions, tab stops, saved cursors, modes, cursor visibility and style, current attributes and character sets, title and icon name,
 //     bells, colour changes, every byte the terminal answered, and input the parser holds unfinished). Each tab's state is compared, whole,
-//     before every entry that is not that tab's own activity change, and at the list's end: the output of a command (after its input,
+//     before every entry that is neither that tab's own activity change nor an answer, and at the list's end: the output of a command (after its input,
 //     around its own `running` and `finished`) is compared by the screen it ends in, not by the states on the way or the bytes.
 //     An answer's `replay` is compared as the state it produces at the tab's size.
 //   - Where a command's output stands against its own activity changes: for each such change, whether the tab's screen when it is sent
@@ -328,8 +332,11 @@ function unitsOf(value, path = '', out = {}) {
   return out;
 }
 
-/** The kind of a non-output entry as the output rule reads it: `activity <tab>` for a tab's activity change, `other` for the rest. */
-const kindOf = (entry) => (entry.push === 'activity' ? `activity ${entry.event.id}` : 'other');
+/** The kind of a non-output entry as the output rule reads it: `activity <tab>` for a tab's activity change, `answer` for the answer (or
+ *  error) to a phone's call, `other` for the rest. Output is not compared against answers: Node sent a tab's output through its relay
+ *  lane's 16 ms buffer (remote-relay-push-lanes.ts:80-89) and each answer on its call's own path (remote-relay-client-calls.ts), two paths
+ *  whose interleaving is timing; each is compared in its own order (MANIFEST.json `answersAgainstOutput`). */
+const kindOf = (entry) => (entry.push === 'activity' ? `activity ${entry.event.id}` : entry.call !== undefined ? 'answer' : 'other');
 
 /** A list as the comparison reads it: its entries besides output (as units; an answer's replay as the state it produces) and their kinds,
  *  and per position k from 0 to the number of those entries (the last: the list's end): each tab's state after all output before entry k
@@ -402,8 +409,9 @@ export function stateAt(analysis, k, tab) {
   return id === null ? null : states[id];
 }
 
-/** A tab's commands in a list of entry kinds: each position where its state is compared (`end`: before an entry that is not the tab's own
- *  activity change, or the list's end), the one before it (`from`, -1 at the start) and the tab's own activity changes between them. */
+/** A tab's commands in a list of entry kinds: each position where its state is compared (`end`: before an entry that is neither the tab's
+ *  own activity change nor an answer, or the list's end), the one before it (`from`, -1 at the start) and the tab's own activity changes
+ *  between them. */
 export function windowsOf(kinds, tab) {
   const windows = [];
   let changes = [];
@@ -413,6 +421,7 @@ export function windowsOf(kinds, tab) {
       changes.push(k);
       continue;
     }
+    if (k < kinds.length && kinds[k] === 'answer') continue;
     windows.push({ from, end: k, changes });
     changes = [];
     from = k;
