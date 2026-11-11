@@ -152,22 +152,59 @@ async function startGuard(what, answerMs) {
   }
   return {
     pid: guard.pid,
+    /** The guard no longer keeps this process alive; if this process ends first, its stdin closes and the job ends what is in it. */
+    unref: () => {
+      guard.unref();
+      for (const stream of [guard.stdin, guard.stdout, guard.stderr]) stream.unref();
+    },
     assign: (pid) => ask(`assign ${pid}`, 'assigned', answerMs),
-    /** Ends every process in the job once `grace` ms passed without it emptying; resolves with how many it had to end. */
-    end: async (grace) => Number((await ask(`end ${grace} ${answerMs}`, 'ended', grace + answerMs * 2)).split(' ')[1]),
-    close: async () => {
+    /** Ends every process in the job once `grace` ms passed without it emptying; resolves with how many it had to end. The whole of it,
+     *  the guard's answer included, is over by `until` (a clock time): what is left after the grace is split between the guard's wait for
+     *  the ended processes and its answer. */
+    end: async (grace, until = Date.now() + grace + answerMs * 2) => {
+      const remaining = Math.max(0, until - Date.now());
+      const waited = Math.min(grace, remaining);
+      const reply = await ask(`end ${waited} ${Math.floor((remaining - waited) / 2)}`, 'ended', remaining);
+      return Number(reply.split(' ')[1]);
+    },
+    /** Closes the job's handle by letting the guard exit, by `until` (a clock time): the first half for the guard to exit, the rest for
+     *  ending it by force. */
+    close: async (until = Date.now() + answerMs * 2) => {
       guard.stdin.end();
       try {
-        await within(answerMs, exited, `${what}: the job guard to exit`);
+        await within(Math.max(0, (until - Date.now()) / 2), exited, `${what}: the job guard to exit`);
       } catch (error) {
         // A guard that no longer answers still holds the job's one handle. Ending the guard itself closes that handle, and the job
         // (KILL_ON_JOB_CLOSE) ends every process in it; the failure that brought us here is the one reported.
         guard.kill();
-        await within(answerMs, exited, `${what}: the job guard to exit after it was ended by force`);
+        await within(Math.max(0, until - Date.now()), exited, `${what}: the job guard to exit after it was ended by force`);
         throw error;
       }
     },
   };
+}
+
+/** A job for a process that outlives one call (a core a replay talks to): `assign`, `end(grace)` and `close()` as in `withJob`. It does not
+ *  keep this process alive; whoever opens it closes it. */
+export async function openJob(what, { answerMs = GUARD_DEADLINE_MS } = {}) {
+  const guard = await startGuard(what, answerMs);
+  guard.unref();
+  return guard;
+}
+
+/** Starts `command` in `job` through the gate, so it and everything it starts are in the job from their first instruction. Returns the
+ *  gate, whose stdout and stderr are the command's and whose exit is the command's. */
+export async function spawnInJob(job, command, args, { cwd, env } = {}) {
+  const child = spawn(process.execPath, ['-e', GATE, command, ...args], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  const failed = new Promise((_, reject) => child.once('error', (error) => reject(new Error(`the gate for ${command} did not start: ${error.message}`))));
+  try {
+    await Promise.race([job.assign(child.pid), failed]);
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
+  child.stdin.end('go\n');
+  return child;
 }
 
 /** Runs `use(job)` with a job of its own, closed (every process in it ended) however `use` ends. `job.guardPid` is the guard holding the

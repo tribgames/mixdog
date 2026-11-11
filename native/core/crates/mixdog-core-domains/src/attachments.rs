@@ -77,7 +77,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn stored_text_parts_read_as_nodes_attachment_text() {
         let twin: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-proxy-twin.json")).unwrap();
         let cases = twin["textCases"].as_array().unwrap();
         assert_eq!(cases.len(), 36);
         for case in cases {

@@ -238,15 +238,26 @@ test('an activity end moved from before the dispose answer to after it is a diff
 });
 
 test("a tab's frame moved past a message, swapped with another tab's, is a different trace", async () => {
+  // Past a message that is not an answer: output is not compared against answers (the next test).
+  const pastMessage = (kept, ki, j) => kept.slice(ki + 1, j).some((between) => !isData(between) && between.call === undefined);
   const point = await screenPoint(
-    ({ kept, ki, positions, entry }) => printable(entry) && kept.some((other, j) => j > ki && isData(other) && other.event.id !== entry.event.id && positions[j] !== positions[ki]),
+    ({ kept, ki, entry }) => printable(entry) && kept.some((other, j) => j > ki && isData(other) && other.event.id !== entry.event.id && pastMessage(kept, ki, j)),
     'drawing frame with a later frame of another tab past a message',
   );
-  const { kept, positions, list, trace, ki } = point;
-  const other = kept.find((entry, j) => j > ki && isData(entry) && entry.event.id !== point.entry.event.id && positions[j] !== positions[ki]);
+  const { kept, list, trace, ki } = point;
+  const other = kept.find((entry, j) => j > ki && isData(entry) && entry.event.id !== point.entry.event.id && pastMessage(kept, ki, j));
   const [i, j] = [point.at, list.indexOf(other)];
   [list[i], list[j]] = [list[j], list[i]];
   await assert.rejects(compareTraces(trace, runs), /screen/);
+});
+
+test("a tab's output and a call's answer pass in either order: Node sent them on independent paths (remote-relay-push-lanes.ts:80-89; MANIFEST.json answersAgainstOutput)", async () => {
+  const answer = { call: 'termProfiles', params: [], value: [] };
+  const node = recorded([STEP, D('A'), answer, STEP], [STEP, D('A'), answer, STEP]);
+  await compareTraces(traceOf([STEP, answer, D('A'), STEP]), node);
+  // Each still in its own order and whole: the answers among the other messages, the output by its screen at the next other message.
+  await assert.rejects(compareTraces(traceOf([answer, STEP, D('A'), STEP]), node), /entry 0/);
+  await assert.rejects(compareTraces(traceOf([STEP, answer, STEP, D('A')]), node), /screen before entry 2/);
 });
 
 test("two tabs' frames swapped with no message between them pass: each tab's screen is compared, not how the tabs' output interleaves (decided 2026-11-11)", async () => {

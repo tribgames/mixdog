@@ -639,7 +639,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn knowledge_and_fast_tiers_equal_node() {
         let s = golden_service(Vec::new()).await;
-        let golden = lookup::fixtures::json(lookup::fixtures::GOLDEN);
+        let golden = lookup::fixtures::json(&lookup::fixtures::GOLDEN);
         let none = json!({});
         let mut failures = Vec::new();
         for row in golden["rows"].as_array().unwrap() {

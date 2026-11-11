@@ -7,7 +7,7 @@ use mixdog_core_ports::ports::route::Route;
 
 use super::*;
 
-const TWIN: &str = include_str!("../../../../../fixtures/desktop/settings/config-hosts-twin.json");
+const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/desktop/settings/config-hosts-twin.json");
 
 struct Routes(Route);
 
@@ -123,7 +123,7 @@ fn none() -> Map<String, Value> {
 /// catalog consulted by `catalogRowFor(id, provider)`.
 #[tokio::test]
 async fn web_search_capability_is_nodes_for_every_form_of_the_model() {
-    let twin: Value = serde_json::from_str(TWIN).unwrap();
+    let twin: Value = serde_json::from_str(&TWIN).unwrap();
     let catalog = twin["catalog"].as_object().unwrap().clone();
     let dir = tempfile::tempdir().unwrap();
     let rig = rig(dir.path(), json!({}), catalog, &[]).await;

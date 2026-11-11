@@ -44,7 +44,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/oauth-callback-page/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-callback-page/golden.json");
 /// Recorded cases per provider; the golden lists the providers one after the other.
 const PER_PROVIDER: usize = 23;
 
@@ -237,7 +237,7 @@ async fn replay(case: &Value) {
 }
 
 async fn provider_chunk(chunk: usize) {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let cases = golden["cases"].as_array().unwrap();
     together(cases[mixdog_rt::testing::chunk_range(cases.len(), chunk, PER_PROVIDER)].iter().map(replay)).await;
 }
@@ -258,7 +258,7 @@ mixdog_rt::replay_chunks!(PROVIDER_TESTS, #[tokio::test] async provider_chunk; [
 
 #[test]
 fn every_recorded_case_has_its_test() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let cases = golden["cases"].as_array().unwrap();
     mixdog_rt::testing::assert_chunks_registered(PROVIDER_TESTS, cases.len(), PER_PROVIDER);
     let providers = ["anthropic", "openai", "grok", "devin", "antigravity"];
@@ -269,7 +269,7 @@ fn every_recorded_case_has_its_test() {
 
 // --- MiMo and Command Code -------------------------------------------------------------------------------------------
 
-const LOCAL: &str = include_str!("../../../../fixtures/oauth-callback-local/golden.json");
+const LOCAL: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/oauth-callback-local/golden.json");
 
 /// The platform's side of MiMo: `doc` sealed to the public key of the authorize URL.
 fn seal(authorize_url: &str, doc: &Value) -> String {
@@ -342,7 +342,7 @@ async fn the_mimo_callback_answers_as_nodes() {
     use mixdog_ai::providers::compat::login::mimo::MimoLogin;
     use mixdog_ai::providers::compat::login::mimo::key_name_path;
 
-    let golden: Value = serde_json::from_str(LOCAL).unwrap();
+    let golden: Value = serde_json::from_str(&LOCAL).unwrap();
     together(golden["mimo"].as_array().unwrap().iter().map(async |case| {
         let title = case["title"].as_str().unwrap();
         let served = Arc::new(Served(Mutex::new(case["served"].as_array().unwrap().iter().cloned().collect())));
@@ -366,7 +366,7 @@ async fn the_command_code_callback_answers_as_nodes() {
     use mixdog_ai::accounts::AccountStore;
     use mixdog_ai::providers::compat::login::command_code::CommandCodeLogin;
 
-    let golden: Value = serde_json::from_str(LOCAL).unwrap();
+    let golden: Value = serde_json::from_str(&LOCAL).unwrap();
     together(golden["commandCode"].as_array().unwrap().iter().map(async |case| {
         let title = case["title"].as_str().unwrap();
         let served = Arc::new(Served(Mutex::new(case["served"].as_array().unwrap().iter().cloned().collect())));

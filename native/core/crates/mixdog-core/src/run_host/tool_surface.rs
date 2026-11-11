@@ -684,7 +684,7 @@ mod tests {
     /// families and back.
     #[test]
     fn the_surface_follows_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/tool_surface.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
         let host = Host(golden["bridgeTools"].as_array().unwrap().clone());
         let surface = ToolSurface { host: &host, clock: &Fixed };
         for (name, rows) in golden["cases"].as_object().unwrap() {

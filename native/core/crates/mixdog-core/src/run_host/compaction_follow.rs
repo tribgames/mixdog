@@ -88,7 +88,7 @@ mod tests {
     /// change is the one Node's session holds after the sync.
     #[test]
     fn the_sync_change_leaves_the_header_node_s_sync_does() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/usage.json")).expect("golden");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/usage.json")).expect("golden");
         let cases: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["op"] == "sync").collect();
         assert!(!cases.is_empty());
         for case in cases {
@@ -182,7 +182,7 @@ mod tests {
     /// `syncSessionCompaction` over the reloaded `compaction: {}` (the `sync-to-the-empty-section-...` recording).
     #[tokio::test]
     async fn a_removed_compaction_section_syncs_a_loaded_thread_to_the_empty_defaults() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/usage.json")).expect("golden");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/compact/golden/usage.json")).expect("golden");
         let case = golden["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "sync-to-the-empty-section-after-the-saved-one-is-removed").expect("recorded case");
         let (_dir, config) = open_config().await;
         save_compaction(&config, json!({ "auto": false })).await;

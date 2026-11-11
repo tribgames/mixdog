@@ -39,12 +39,8 @@ use super::process_tests::world;
 use mixdog_ai::transport::loopback::{Loopback, Script, RANDOM};
 
 const SESSION: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/session.json");
-const SCENARIOS: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/scenarios.json");
-// Read at run time: an `include_str!` put the 4 MB recording into every test build of the crate.
-#[allow(clippy::disallowed_methods)] // test fixture loading
-static NODE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-recording.json")).unwrap()
-});
+const SCENARIOS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/scenarios.json");
+const NODE: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-recording.json");
 const CAPTURE: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-wire-capture.mjs");
 const SERVER: &str = include_str!("../../../../../../benchmarks/terminal-bench-2.1/analysis/parity/wire-server.mjs");
 
@@ -231,7 +227,7 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let _alone = within("the end of this process's other replay", REPLAY.lock()).await;
     mixdog_ai::reset_process_state();
     let session: Value = serde_json::from_str(SESSION).unwrap();
-    let doc: Value = serde_json::from_str(SCENARIOS).unwrap();
+    let doc: Value = serde_json::from_str(&SCENARIOS).unwrap();
     let now = doc["nowMs"].as_u64().unwrap();
 
     let model = "gpt-6.1-sol";
