@@ -8,7 +8,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-opencode-go-gemini',
   entry: 'opencode-go.mjs OpenCodeGoProvider({ apiKey, preconnect: false [, baseURL] }).resolveWireRoute / .send over a loopback endpoint (no fetchImpl injected: the product\'s own fetch); openai-compat-wire.mjs toOpenAIMessages; compat-request-policy.mjs applyCompatToolChoice.',
-  replay: 'mixdog-ai providers::compat (profile.rs Wire::Gemini, adapter.rs, chat/options.rs:243-246, encode.rs): compare `result`, the request sent (method, origin, path, every header, body) and the pure lowerings.',
+  compare: 'mixdog-ai providers::compat (profile.rs Wire::Gemini, adapter.rs, chat/options.rs:243-246, encode.rs): compare `result`, the request sent (method, origin, path, every header, body) and the pure lowerings.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The Gemini wire for OpenCode Go does not exist on the send path (K1 G1): work for the Rust side.",
 });
 const P = 'agent/orchestrator/providers/';
 const { OpenCodeGoProvider } = await rec.P(`${P}opencode-go.mjs`);
