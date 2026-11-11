@@ -486,11 +486,13 @@ impl SessionState {
         }
     }
 
-    /// The queued prompts the composer shows; a queued completion is runtime input, not one.
+    /// The queued prompts the composer shows; a queued completion is runtime input, not one, nor is a kickoff put back by a stop
+    /// (`isMeta`, `isQueuedEntryVisible`, queue-helpers.mjs).
     pub fn queued_rows(&self) -> Vec<Value> {
         self.queue
             .iter()
             .filter(|q| !super::completions::is_notification(&q.entry))
+            .filter(|q| q.entry.pointer("/options/kickoff") != Some(&Value::Bool(true)))
             .map(|q| q.display.clone())
             .collect()
     }

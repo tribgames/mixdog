@@ -488,6 +488,9 @@ struct RunSlot {
     /// A completion wake. Node wakes only the session it has current, so a wake of any other
     /// thread has no Node counterpart holding the ask lock (see [`Actor::ask_lock_held`]).
     wake: bool,
+    /// The run's input shows no row (a kickoff, a retained retry): Node pushes none, so no immediate flush publishes the
+    /// turn's start (frame-batched-store.mjs `flushImmediate`); its busy spinner shows with the runtime's next change.
+    hidden: bool,
     /// Tool results the turn committed (its tool cards).
     tool_calls: u64,
     cancel: mixdog_agent::cancel::Cancel,
@@ -1986,8 +1989,13 @@ impl SessionActor {
                                 turn,
                             },
                         ));
-                        // The runtime changes at both ends: busy with its spinner as the turn begins, idle as it ends.
-                        notes.push(self.runtime_note());
+                        // The runtime changes at both ends: busy with its spinner as the turn begins, idle as it ends. A hidden
+                        // input's start is published with the runtime's next change (`RunSlot::hidden`).
+                        let hidden_start = run.phase == RunPhase::Started
+                            && self.run.as_ref().is_some_and(|slot| slot.hidden && slot.turn.as_str() == run.rid.as_str());
+                        if !hidden_start {
+                            notes.push(self.runtime_note());
+                        }
                     }
                 }
                 // An entry edited where it stands changes no row of the queue, and a queued completion or notification is no row of it:
@@ -3494,15 +3502,18 @@ impl SessionActor {
                     return;
                 };
                 let previous = before.map(|i| window[i].item.id().clone());
+                // A hidden prompt with no shown row after it takes no row from the screen: Node's store never held one, so its
+                // rows are not replaced (no `structureRevision`).
+                let shown_leave = window.iter().any(|row| row.ordinal.is_some_and(|o| o >= ordinal));
                 let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
                 self.transcript_rewritten = true;
                 self.deps.side.forget(&self.id, false);
-                let note = self.history_reset(HistoryResetReason::Rewind, previous);
+                let notes: Vec<Note> = if shown_leave { vec![self.history_reset(HistoryResetReason::Rewind, previous)] } else { Vec::new() };
                 // The provider continuation described the rows that left.
                 match self.provider_state_change(None) {
-                    None => self.accept_record(record, Class::Normal, Display::None, vec![note], vec![Effect::ItemAck(ack)]),
+                    None => self.accept_record(record, Class::Normal, Display::None, notes, vec![Effect::ItemAck(ack)]),
                     Some(reset) => {
-                        self.accept_record(record, Class::Normal, Display::None, vec![note], Vec::new());
+                        self.accept_record(record, Class::Normal, Display::None, notes, Vec::new());
                         self.accept_record(reset, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
                     }
                 }
@@ -5271,6 +5282,7 @@ impl SessionActor {
             input_item: input_iid.clone(),
             automatic: super::goal_lane::automatic(&input_body),
             wake,
+            hidden,
             tool_calls: 0,
             cancel: cancel.clone(),
             input: input_tx,
