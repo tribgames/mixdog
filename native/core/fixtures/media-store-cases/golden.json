@@ -1,0 +1,715 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "media assets are organized by kind, provider, model, and local date while flat files migrate",
+      "observed": {
+        "files": [
+          "assets/legacy-image.jpg (image)",
+          "assets/legacy-video.mp4 (video)"
+        ],
+        "startIndex": {
+          "version": 1,
+          "assets": [
+            {
+              "id": "legacy-image",
+              "file": "legacy-image.jpg",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "image-alpha",
+              "prompt": "image",
+              "options": {
+                "aspectRatio": "4:3"
+              },
+              "mime": "image/jpeg",
+              "bytes": 5,
+              "createdAt": 1783252800000
+            },
+            {
+              "id": "legacy-video",
+              "file": "legacy-video.mp4",
+              "kind": "video",
+              "lane": "grok",
+              "model": "video-beta",
+              "prompt": "video",
+              "options": {
+                "aspectRatio": "16:9"
+              },
+              "mime": "video/mp4",
+              "bytes": 5,
+              "createdAt": 1783252800000
+            }
+          ]
+        },
+        "openCommands": [
+          [
+            "explorer.exe",
+            [
+              "/select,",
+              "C:\\Media Assets\\clip.mp4"
+            ]
+          ],
+          [
+            "open",
+            [
+              "-R",
+              "/Users/me/Media Assets/image.png"
+            ]
+          ]
+        ],
+        "beforeMigration": [
+          {
+            "id": "legacy-image",
+            "file": "legacy-image.jpg",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "image-alpha",
+            "prompt": "image",
+            "options": {
+              "aspectRatio": "4:3"
+            },
+            "mime": "image/jpeg",
+            "bytes": 5,
+            "createdAt": 1783252800000
+          },
+          {
+            "id": "legacy-video",
+            "file": "legacy-video.mp4",
+            "kind": "video",
+            "lane": "grok",
+            "model": "video-beta",
+            "prompt": "video",
+            "options": {
+              "aspectRatio": "16:9"
+            },
+            "mime": "video/mp4",
+            "bytes": 5,
+            "createdAt": 1783252800000
+          }
+        ],
+        "migrated": [
+          {
+            "id": "legacy-image",
+            "file": "images/gemini/image-alpha/2026-07-05/legacy-image.jpg",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "image-alpha",
+            "prompt": "image",
+            "options": {
+              "aspectRatio": "4:3"
+            },
+            "mime": "image/jpeg",
+            "bytes": 5,
+            "createdAt": 1783252800000
+          },
+          {
+            "id": "legacy-video",
+            "file": "videos/grok/video-beta/2026-07-05/legacy-video.mp4",
+            "kind": "video",
+            "lane": "grok",
+            "model": "video-beta",
+            "prompt": "video",
+            "options": {
+              "aspectRatio": "16:9"
+            },
+            "mime": "video/mp4",
+            "bytes": 5,
+            "createdAt": 1783252800000
+          }
+        ],
+        "migratedFilesExist": [
+          true,
+          true
+        ],
+        "legacyFlatFileRemains": false,
+        "thumbnailBurst": {
+          "before": {
+            "indexDiskReads": 1,
+            "indexCacheHits": 3,
+            "indexEntries": 3
+          },
+          "after": {
+            "indexDiskReads": 1,
+            "indexCacheHits": 6,
+            "indexEntries": 3
+          }
+        },
+        "cachedOnlyMiss": {
+          "id": "legacy-image",
+          "file": "images/gemini/image-alpha/2026-07-05/legacy-image.jpg",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "image-alpha",
+          "prompt": "image",
+          "options": {
+            "aspectRatio": "4:3"
+          },
+          "mime": "image/jpeg",
+          "bytes": 5,
+          "createdAt": 1783252800000,
+          "variant": "thumb",
+          "path": "",
+          "available": false
+        },
+        "readVideo": {
+          "id": "legacy-video",
+          "file": "videos/grok/video-beta/2026-07-05/legacy-video.mp4",
+          "kind": "video",
+          "lane": "grok",
+          "model": "video-beta",
+          "prompt": "video",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "mime": "video/mp4",
+          "bytes": 5,
+          "createdAt": 1783252800000,
+          "variant": "original",
+          "path": "<data>\\media\\assets\\videos\\grok\\video-beta\\2026-07-05\\legacy-video.mp4",
+          "available": true,
+          "base64": "dmlkZW8="
+        },
+        "readThumbMiss": {
+          "id": "legacy-image",
+          "file": "images/gemini/image-alpha/2026-07-05/legacy-image.jpg",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "image-alpha",
+          "prompt": "image",
+          "options": {
+            "aspectRatio": "4:3"
+          },
+          "mime": "image/jpeg",
+          "bytes": 5,
+          "createdAt": 1783252800000,
+          "variant": "thumb",
+          "path": "",
+          "available": false,
+          "base64": ""
+        },
+        "readThumbDowngraded": {
+          "id": "legacy-image",
+          "file": "images/gemini/image-alpha/2026-07-05/legacy-image.jpg",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "image-alpha",
+          "prompt": "image",
+          "options": {
+            "aspectRatio": "4:3"
+          },
+          "mime": "image/jpeg",
+          "bytes": 5,
+          "createdAt": 1783252800000,
+          "variant": "original",
+          "path": "<data>\\media\\assets\\images\\gemini\\image-alpha\\2026-07-05\\legacy-image.jpg",
+          "available": true,
+          "downgraded": true,
+          "base64": "aW1hZ2U="
+        },
+        "cachedThumbnail": {
+          "id": "legacy-video",
+          "available": true,
+          "variant": "thumb",
+          "mime": "image/jpeg",
+          "bytes": 27,
+          "durationSeconds": 7
+        },
+        "cachedTarget": {
+          "id": "legacy-video",
+          "file": "videos/grok/video-beta/2026-07-05/legacy-video.mp4",
+          "kind": "video",
+          "lane": "grok",
+          "model": "video-beta",
+          "prompt": "video",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "mime": "image/jpeg",
+          "bytes": 27,
+          "createdAt": 1783252800000,
+          "durationSeconds": 7,
+          "variant": "thumb",
+          "path": "<data>\\media\\renditions\\thumb\\legacy-video.jpg",
+          "available": true
+        },
+        "cachedRead": {
+          "id": "legacy-video",
+          "file": "videos/grok/video-beta/2026-07-05/legacy-video.mp4",
+          "kind": "video",
+          "lane": "grok",
+          "model": "video-beta",
+          "prompt": "video",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "mime": "image/jpeg",
+          "bytes": 27,
+          "createdAt": 1783252800000,
+          "durationSeconds": 7,
+          "variant": "thumb",
+          "path": "<data>\\media\\renditions\\thumb\\legacy-video.jpg",
+          "available": true,
+          "base64": "YnJvd3Nlci1nZW5lcmF0ZWQtdGh1bWJuYWls"
+        },
+        "saved": {
+          "asset": {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "kind": "video",
+            "lane": "gemini",
+            "model": "veo:3/preview",
+            "prompt": "new clip",
+            "options": {
+              "aspectRatio": "16:9"
+            },
+            "mime": "video/mp4",
+            "bytes": 9,
+            "createdAt": 1800000000000,
+            "file": "videos/gemini/veo-3-preview/2027-01-15/00000000-0000-4000-8000-000000000001.mp4"
+          },
+          "fileExists": true
+        },
+        "deleted": {
+          "result": {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "removed": true
+          },
+          "fileExists": false
+        },
+        "persistedIndex": {
+          "version": 2,
+          "assets": [
+            {
+              "id": "legacy-image",
+              "file": "images/gemini/image-alpha/2026-07-05/legacy-image.jpg",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "image-alpha",
+              "prompt": "image",
+              "options": {
+                "aspectRatio": "4:3"
+              },
+              "mime": "image/jpeg",
+              "bytes": 5,
+              "createdAt": 1783252800000
+            },
+            {
+              "id": "legacy-video",
+              "file": "videos/grok/video-beta/2026-07-05/legacy-video.mp4",
+              "kind": "video",
+              "lane": "grok",
+              "model": "video-beta",
+              "prompt": "video",
+              "options": {
+                "aspectRatio": "16:9"
+              },
+              "mime": "video/mp4",
+              "bytes": 5,
+              "createdAt": 1783252800000,
+              "durationSeconds": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "a failed duration write leaves the cached index row untouched",
+      "observed": {
+        "startIndex": {
+          "version": 2,
+          "assets": [
+            {
+              "id": "clip",
+              "file": "clip.mp4",
+              "kind": "video",
+              "lane": "grok",
+              "model": "m",
+              "mime": "video/mp4",
+              "bytes": 5,
+              "createdAt": 1
+            }
+          ]
+        },
+        "indexMadeReadOnly": true,
+        "cacheMediaThumbnail": {
+          "threw": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "EPERM: operation not permitted, rename '<data>\\media\\index.json.mixdog-tmp-<random>' -> '<data>\\media\\index.json'",
+            "code": "EPERM",
+            "props": {
+              "errno": -4048,
+              "syscall": "rename",
+              "path": "<data>\\media\\index.json.mixdog-tmp-<random>",
+              "dest": "<data>\\media\\index.json"
+            }
+          }
+        },
+        "cachedRow": {
+          "id": "clip",
+          "file": "clip.mp4",
+          "kind": "video",
+          "lane": "grok",
+          "model": "m",
+          "mime": "video/mp4",
+          "bytes": 5,
+          "createdAt": 1
+        },
+        "listedAfter": {
+          "total": 1,
+          "assets": [
+            {
+              "id": "clip",
+              "file": "clip.mp4",
+              "kind": "video",
+              "lane": "grok",
+              "model": "m",
+              "mime": "video/mp4",
+              "bytes": 5,
+              "createdAt": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "bulk media cleanup previews, then deletes by age, missing file, selection, and kind",
+      "observed": {
+        "assets": [
+          {
+            "id": "fresh",
+            "file": "fresh.png",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "m",
+            "prompt": "fresh",
+            "mime": "image/png",
+            "bytes": 1,
+            "createdAt": 1799913600000
+          },
+          {
+            "id": "old",
+            "file": "old.png",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "m",
+            "prompt": "old",
+            "mime": "image/png",
+            "bytes": 1,
+            "createdAt": 1796544000000
+          },
+          {
+            "id": "gone",
+            "file": "gone.png",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "m",
+            "prompt": "gone",
+            "mime": "image/png",
+            "bytes": 1,
+            "createdAt": 1799827200000
+          },
+          {
+            "id": "picked",
+            "file": "picked.png",
+            "kind": "image",
+            "lane": "gemini",
+            "model": "m",
+            "prompt": "picked",
+            "mime": "image/png",
+            "bytes": 1,
+            "createdAt": 1799740800000
+          },
+          {
+            "id": "clip",
+            "file": "clip.mp4",
+            "kind": "video",
+            "lane": "gemini",
+            "model": "m",
+            "prompt": "clip",
+            "mime": "video/mp4",
+            "bytes": 1,
+            "createdAt": 1794816000000
+          }
+        ],
+        "now": 1800000000000,
+        "noSelector": {
+          "threw": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "deleteMediaAssets needs ids, before, missing, or all",
+            "props": {}
+          }
+        },
+        "preview": {
+          "ids": [
+            "old"
+          ]
+        },
+        "idsAfterDryRun": [
+          "fresh",
+          "old",
+          "gone",
+          "picked",
+          "clip"
+        ],
+        "deleteByIds": [
+          "old"
+        ],
+        "oldFileExists": false,
+        "deleteMissing": [
+          "gone"
+        ],
+        "deletePickedWithinKind": [
+          "picked"
+        ],
+        "deleteAllImages": [
+          "fresh"
+        ],
+        "idsAfter": [
+          "clip"
+        ],
+        "clipFileExists": true
+      }
+    },
+    {
+      "case": "a NUL-filled media index lists an empty gallery, is kept aside, and saving still works",
+      "observed": {
+        "indexFile": "128 NUL bytes",
+        "listed": {
+          "total": 0,
+          "assets": []
+        },
+        "mediaDirNames": [
+          "assets",
+          "index.json.corrupt-1800000000000"
+        ],
+        "afterSave": {
+          "total": 1,
+          "fileBytes": "png-bytes"
+        },
+        "backup": {
+          "version": 2,
+          "assets": [
+            {
+              "id": "00000000-0000-4000-8000-000000000002",
+              "kind": "image",
+              "lane": "lane",
+              "model": "model",
+              "prompt": "p",
+              "options": {},
+              "mime": "image/png",
+              "bytes": 9,
+              "createdAt": 1800000000000,
+              "file": "images/lane/model/2027-01-15/00000000-0000-4000-8000-000000000002.png"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "boards persist with their results; deleting a board keeps its results in the catalog",
+      "observed": {
+        "board": {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "name": "Gacha sprites",
+          "createdAt": 1800000000000
+        },
+        "inBoardList": {
+          "total": 1,
+          "assets": [
+            {
+              "id": "00000000-0000-4000-8000-000000000006",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "m",
+              "prompt": "in board",
+              "options": {},
+              "mime": "image/png",
+              "bytes": 8,
+              "createdAt": 1800000000000,
+              "boardId": "00000000-0000-4000-8000-000000000004",
+              "file": "images/gemini/m/2027-01-15/00000000-0000-4000-8000-000000000006.png"
+            }
+          ]
+        },
+        "addLoose": {
+          "ids": [
+            "00000000-0000-4000-8000-000000000005"
+          ],
+          "boardId": "00000000-0000-4000-8000-000000000004"
+        },
+        "reopened": {
+          "total": 2,
+          "boards": [
+            {
+              "id": "00000000-0000-4000-8000-000000000004",
+              "name": "Icons",
+              "createdAt": 1800000000000,
+              "count": 2
+            }
+          ]
+        },
+        "setUnknownBoard": {
+          "threw": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "board not found",
+            "props": {}
+          }
+        },
+        "typeChecks": {
+          "createWithObject": {
+            "threw": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "board name must be a string",
+              "props": {}
+            }
+          },
+          "renameWithNumber": {
+            "threw": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "board id must be a string",
+              "props": {}
+            }
+          },
+          "setBoardFalse": {
+            "threw": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "board id must be a string",
+              "props": {}
+            }
+          },
+          "setObjectId": {
+            "threw": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "asset ids must be strings",
+              "props": {}
+            }
+          }
+        },
+        "assetsOfBoardAfterRefusals": {
+          "total": 2,
+          "assets": [
+            {
+              "id": "00000000-0000-4000-8000-000000000006",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "m",
+              "prompt": "in board",
+              "options": {},
+              "mime": "image/png",
+              "bytes": 8,
+              "createdAt": 1800000000000,
+              "boardId": "00000000-0000-4000-8000-000000000004",
+              "file": "images/gemini/m/2027-01-15/00000000-0000-4000-8000-000000000006.png"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000005",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "m",
+              "prompt": "loose",
+              "options": {},
+              "mime": "image/png",
+              "bytes": 5,
+              "createdAt": 1800000000000,
+              "file": "images/gemini/m/2027-01-15/00000000-0000-4000-8000-000000000005.png",
+              "boardId": "00000000-0000-4000-8000-000000000004"
+            }
+          ]
+        },
+        "removeFromBoard": {
+          "ids": [
+            "00000000-0000-4000-8000-000000000005"
+          ],
+          "boardId": ""
+        },
+        "deleteBoard": {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "removed": true
+        },
+        "boardsAfterDelete": {
+          "total": 2,
+          "boards": []
+        },
+        "assetsAfterDelete": {
+          "total": 2,
+          "assets": [
+            {
+              "id": "00000000-0000-4000-8000-000000000006",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "m",
+              "prompt": "in board",
+              "options": {},
+              "mime": "image/png",
+              "bytes": 8,
+              "createdAt": 1800000000000,
+              "file": "images/gemini/m/2027-01-15/00000000-0000-4000-8000-000000000006.png"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000005",
+              "kind": "image",
+              "lane": "gemini",
+              "model": "m",
+              "prompt": "loose",
+              "options": {},
+              "mime": "image/png",
+              "bytes": 5,
+              "createdAt": 1800000000000,
+              "file": "images/gemini/m/2027-01-15/00000000-0000-4000-8000-000000000005.png"
+            }
+          ]
+        },
+        "ids": {
+          "board": "00000000-0000-4000-8000-000000000004",
+          "loose": "00000000-0000-4000-8000-000000000005",
+          "inBoard": "00000000-0000-4000-8000-000000000006"
+        }
+      }
+    },
+    {
+      "case": "a boards file with a malformed list is recovered from its backup before a create, not overwritten",
+      "observed": {
+        "created": [
+          "One",
+          "Two",
+          "Three"
+        ],
+        "overwrittenWith": {
+          "version": 1,
+          "boards": null
+        },
+        "thenCreated": "Four",
+        "names": [
+          "Four",
+          "Two",
+          "One"
+        ],
+        "backup": {
+          "version": 1,
+          "boards": [
+            {
+              "id": "00000000-0000-4000-8000-000000000009",
+              "name": "Two",
+              "createdAt": 1800000000000
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000008",
+              "name": "One",
+              "createdAt": 1800000000000
+            }
+          ]
+        },
+        "note": "the backup holds One and Two at the moment of the damage; Three may not have been backed up"
+      }
+    }
+  ]
+}

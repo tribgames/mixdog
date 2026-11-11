@@ -1,0 +1,697 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "Git for Windows launchers resolve to the real binary of their install",
+      "observed": {
+        "files": [
+          "Git/cmd/git.exe",
+          "Git/bin/git.exe",
+          "Git/git-bash.exe",
+          "Git/usr/bin/",
+          "Git/mingw64/bin/git.exe"
+        ],
+        "launchers": [
+          {
+            "pathValue": "<root-1>\\Git\\cmd",
+            "launch": {
+              "command": "<root-1>\\Git\\mingw64\\bin\\git.exe",
+              "root": "<root-1>\\Git",
+              "msystem": "MINGW64",
+              "msysConfig": []
+            }
+          },
+          {
+            "pathValue": "<root-1>\\Git\\bin",
+            "launch": {
+              "command": "<root-1>\\Git\\mingw64\\bin\\git.exe",
+              "root": "<root-1>\\Git",
+              "msystem": "MINGW64",
+              "msysConfig": []
+            }
+          }
+        ],
+        "arm": {
+          "files": [
+            "Git/cmd/git.exe",
+            "Git/git-bash.exe",
+            "Git/usr/bin/",
+            "Git/clangarm64/bin/git.exe"
+          ],
+          "pathValue": "<root-2>\\Git\\cmd",
+          "launch": {
+            "command": "<root-2>\\Git\\clangarm64\\bin\\git.exe",
+            "root": "<root-2>\\Git",
+            "msystem": "CLANGARM64",
+            "msysConfig": []
+          }
+        }
+      }
+    },
+    {
+      "case": "every other git keeps plain `git`",
+      "observed": {
+        "files": [
+          "Git/cmd/git.exe",
+          "Git/bin/git.exe",
+          "Git/git-bash.exe",
+          "Git/usr/bin/",
+          "Git/mingw64/bin/git.exe",
+          "scoop/shims/git.exe",
+          "MinGit/cmd/git.exe",
+          "MinGit/usr/bin/",
+          "MinGit/mingw64/bin/git.exe",
+          "Both/cmd/git.exe",
+          "Both/git-bash.exe",
+          "Both/usr/bin/",
+          "Both/mingw64/bin/git.exe",
+          "Both/clangarm64/bin/git.exe",
+          "NoUsr/cmd/git.exe",
+          "NoUsr/git-bash.exe",
+          "NoUsr/mingw64/bin/git.exe",
+          "com/git.com"
+        ],
+        "cases": [
+          {
+            "label": "linux",
+            "platform": "linux",
+            "pathValue": "<root-3>\\Git\\cmd",
+            "launch": null
+          },
+          {
+            "label": "darwin",
+            "platform": "darwin",
+            "pathValue": "<root-3>\\Git\\cmd",
+            "launch": null
+          },
+          {
+            "label": "a scoop shim",
+            "platform": "win32",
+            "pathValue": "<root-3>\\scoop\\shims",
+            "launch": null
+          },
+          {
+            "label": "MinGit",
+            "platform": "win32",
+            "pathValue": "<root-3>\\MinGit\\cmd",
+            "launch": null
+          },
+          {
+            "label": "an ambiguous install",
+            "platform": "win32",
+            "pathValue": "<root-3>\\Both\\cmd",
+            "launch": null
+          },
+          {
+            "label": "an incomplete install",
+            "platform": "win32",
+            "pathValue": "<root-3>\\NoUsr\\cmd",
+            "launch": null
+          },
+          {
+            "label": "already the real binary",
+            "platform": "win32",
+            "pathValue": "<root-3>\\Git\\mingw64\\bin",
+            "launch": null
+          },
+          {
+            "label": "no git at all",
+            "platform": "win32",
+            "pathValue": "",
+            "launch": null
+          },
+          {
+            "label": "git.com first",
+            "platform": "win32",
+            "pathValue": "<root-3>\\com;<root-3>\\Git\\cmd",
+            "launch": null
+          },
+          {
+            "label": "a cwd-relative entry first",
+            "platform": "win32",
+            "pathValue": "relative;<root-3>\\Git\\cmd",
+            "launch": null
+          },
+          {
+            "label": "a scoop shim first",
+            "platform": "win32",
+            "pathValue": "<root-3>\\scoop\\shims;<root-3>\\Git\\cmd",
+            "launch": null
+          },
+          {
+            "label": "a quoted entry after a miss",
+            "platform": "win32",
+            "pathValue": "<root-3>\\empty;\"<root-3>\\Git\\cmd\"",
+            "launch": {
+              "command": "<root-3>\\Git\\mingw64\\bin\\git.exe",
+              "root": "<root-3>\\Git",
+              "msystem": "MINGW64",
+              "msysConfig": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "the child environment is the one the launcher builds",
+      "observed": {
+        "homeDirectoryExists": "home/",
+        "launch": {
+          "command": "C:\\Git\\mingw64\\bin\\git.exe",
+          "root": "C:\\Git",
+          "msystem": "MINGW64",
+          "msysConfig": []
+        },
+        "withHomeDir": {
+          "input": {
+            "Path": "C:\\Windows",
+            "MSYSTEM": "MSYS",
+            "USERPROFILE": "C:\\Users\\u",
+            "HOMEDRIVE": "",
+            "HOMEPATH": "<root-4>\\home"
+          },
+          "env": {
+            "Path": "C:\\Git\\mingw64\\bin;C:\\Git\\usr\\bin;<root-4>\\home\\bin;C:\\Windows",
+            "MSYSTEM": "MINGW64",
+            "USERPROFILE": "C:\\Users\\u",
+            "HOMEDRIVE": "",
+            "HOMEPATH": "<root-4>\\home",
+            "PLINK_PROTOCOL": "ssh",
+            "HOME": "<root-4>\\home"
+          },
+          "pathIsUndefined": true,
+          "callerAfter": {
+            "Path": "C:\\Windows",
+            "MSYSTEM": "MSYS",
+            "USERPROFILE": "C:\\Users\\u"
+          },
+          "callerBefore": {
+            "Path": "C:\\Windows",
+            "MSYSTEM": "MSYS",
+            "USERPROFILE": "C:\\Users\\u"
+          }
+        },
+        "homeMissing": {
+          "input": {
+            "Path": "C:\\Windows",
+            "MSYSTEM": "MSYS",
+            "USERPROFILE": "C:\\Users\\u",
+            "HOMEDRIVE": "",
+            "HOMEPATH": "<root-4>\\absent"
+          },
+          "env": {
+            "Path": "C:\\Git\\mingw64\\bin;C:\\Git\\usr\\bin;C:\\Users\\u\\bin;C:\\Windows",
+            "MSYSTEM": "MINGW64",
+            "USERPROFILE": "C:\\Users\\u",
+            "HOMEDRIVE": "",
+            "HOMEPATH": "<root-4>\\absent",
+            "PLINK_PROTOCOL": "ssh",
+            "HOME": "C:\\Users\\u"
+          }
+        },
+        "kept": {
+          "launch": {
+            "command": "C:\\Git\\mingw64\\bin\\git.exe",
+            "root": "C:\\Git",
+            "msystem": "MINGW64",
+            "msysConfig": [
+              "winsymlinks:nativestrict",
+              "disable_pcon"
+            ]
+          },
+          "input": {
+            "PATH": "C:\\bin",
+            "HOME": "D:\\h\\",
+            "PLINK_PROTOCOL": "telnet",
+            "MSYS": "noglob"
+          },
+          "env": {
+            "PATH": "C:\\Git\\mingw64\\bin;C:\\Git\\usr\\bin;D:\\h\\bin;C:\\bin",
+            "HOME": "D:\\h\\",
+            "PLINK_PROTOCOL": "telnet",
+            "MSYS": "disable_pcon winsymlinks:nativestrict noglob",
+            "MSYSTEM": "MINGW64"
+          }
+        }
+      }
+    },
+    {
+      "case": "each environment's own PATH decides the git it starts",
+      "observed": {
+        "files": [
+          "Git/cmd/git.exe",
+          "Git/bin/git.exe",
+          "Git/git-bash.exe",
+          "Git/usr/bin/",
+          "Git/mingw64/bin/git.exe",
+          "scoop/shims/git.exe"
+        ],
+        "install": {
+          "input": {
+            "PATH": "<root-5>\\Git\\cmd"
+          },
+          "command": "<root-5>\\Git\\mingw64\\bin\\git.exe",
+          "childEnv": {
+            "PATH": "<root-5>\\Git\\mingw64\\bin;<root-5>\\Git\\usr\\bin;\\bin;<root-5>\\Git\\cmd",
+            "MSYSTEM": "MINGW64",
+            "PLINK_PROTOCOL": "ssh"
+          }
+        },
+        "shim": {
+          "input": {
+            "Path": "<root-5>\\scoop\\shims"
+          },
+          "command": "git",
+          "childEnv": {
+            "Path": "<root-5>\\scoop\\shims"
+          },
+          "childEnvIsTheSameObject": true
+        }
+      }
+    },
+    {
+      "case": "a resolved binary that is gone is resolved again, and that spawn retried once",
+      "observed": {
+        "files": [
+          "Git/cmd/git.exe",
+          "Git/bin/git.exe",
+          "Git/git-bash.exe",
+          "Git/usr/bin/",
+          "Git/mingw64/bin/git.exe"
+        ],
+        "env": {
+          "PATH": "<root-6>\\Git\\cmd"
+        },
+        "resolvedBefore": "<root-6>\\Git\\mingw64\\bin\\git.exe",
+        "uninstalledAfterResolve": true,
+        "startGit": {
+          "result": "ran",
+          "spawnedCommands": [
+            {
+              "command": "<root-6>\\Git\\mingw64\\bin\\git.exe",
+              "childEnv": {
+                "PATH": "<root-6>\\Git\\mingw64\\bin;<root-6>\\Git\\usr\\bin;\\bin;<root-6>\\Git\\cmd",
+                "MSYSTEM": "MINGW64",
+                "PLINK_PROTOCOL": "ssh"
+              }
+            },
+            {
+              "command": "git",
+              "childEnv": {
+                "PATH": "<root-6>\\Git\\cmd"
+              }
+            }
+          ],
+          "secondChildEnvIsCallerEnv": true,
+          "resolutionAfterRetry": "git"
+        },
+        "startGitSync": {
+          "staleEnv": {
+            "PATH": "<root-7>\\Git\\cmd"
+          },
+          "outcome": {
+            "status": 0
+          },
+          "spawnedCommands": [
+            "<root-7>\\Git\\mingw64\\bin\\git.exe",
+            "git"
+          ]
+        }
+      }
+    },
+    {
+      "case": "only a missing binary retries, and only once",
+      "observed": {
+        "files": [
+          "Git/cmd/git.exe",
+          "Git/bin/git.exe",
+          "Git/git-bash.exe",
+          "Git/usr/bin/",
+          "Git/mingw64/bin/git.exe"
+        ],
+        "env": {
+          "PATH": "<root-8>\\Git\\cmd"
+        },
+        "binary": "<root-8>\\Git\\mingw64\\bin\\git.exe",
+        "enoentWithBinaryInPlace": {
+          "calls": 1,
+          "outcome": {
+            "rejected": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "spawn ENOENT",
+              "code": "ENOENT",
+              "props": {}
+            }
+          }
+        },
+        "resolutionAfter": "<root-8>\\Git\\mingw64\\bin\\git.exe",
+        "otherSpawnFailure": {
+          "calls": 1,
+          "outcome": {
+            "rejected": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "denied",
+              "code": "EACCES",
+              "props": {}
+            }
+          }
+        },
+        "goneAndRetryFails": {
+          "calls": 2,
+          "outcome": {
+            "rejected": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "spawn ENOENT",
+              "code": "ENOENT",
+              "props": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "case": "the git runner falls back to the git PATH names once the resolved one is removed",
+      "observed": {
+        "staleFiles": [
+          "Git/cmd/git.exe",
+          "Git/bin/git.exe",
+          "Git/git-bash.exe",
+          "Git/usr/bin/",
+          "Git/mingw64/bin/git.exe"
+        ],
+        "fallback": {
+          "files": [
+            "Git/cmd/git.exe",
+            "Git/bin/git.exe",
+            "Git/git-bash.exe",
+            "Git/usr/bin/",
+            "Git/mingw64/bin/git.exe"
+          ],
+          "realBinary": "Git/mingw64/bin/git.exe: stand-in answering",
+          "answers": [
+            [
+              "dumpenv",
+              0,
+              "$ENV",
+              ""
+            ],
+            [
+              "--version",
+              0,
+              "git version 2.50.0.windows.1\n",
+              ""
+            ]
+          ],
+          "launchers": "Git/cmd/git.exe and Git/bin/git.exe: stand-in launcher running",
+          "wrapper": [
+            "SET MSYSTEM=MINGW64",
+            "SET PLINK_PROTOCOL=ssh",
+            "PREPEND PATH=<root-10>\\Git\\mingw64\\bin;<root-10>\\Git\\usr\\bin;D:\\h\\bin;",
+            "EXEC <root-10>\\Git\\mingw64\\bin\\git.exe"
+          ]
+        },
+        "env": {
+          "SystemRoot": "C:\\Windows",
+          "WINDIR": "C:\\Windows",
+          "SYSTEMDRIVE": "C:",
+          "HOMEDRIVE": "C:",
+          "HOMEPATH": "\\Users\\recorder",
+          "USERPROFILE": "C:\\Users\\recorder",
+          "USERNAME": "recorder",
+          "USERDOMAIN": "RECORDING",
+          "LOGONSERVER": "\\\\RECORDING",
+          "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
+          "PATH": "<root-9>\\Git\\cmd;<root-10>\\Git\\cmd"
+        },
+        "options": {
+          "cwd": "<root-9>",
+          "env": {
+            "SystemRoot": "C:\\Windows",
+            "WINDIR": "C:\\Windows",
+            "SYSTEMDRIVE": "C:",
+            "HOMEDRIVE": "C:",
+            "HOMEPATH": "\\Users\\recorder",
+            "USERPROFILE": "C:\\Users\\recorder",
+            "USERNAME": "recorder",
+            "USERDOMAIN": "RECORDING",
+            "LOGONSERVER": "\\\\RECORDING",
+            "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
+            "PATH": "<root-9>\\Git\\cmd;<root-10>\\Git\\cmd"
+          },
+          "timeoutMs": 30000,
+          "maxBytes": 1000000
+        },
+        "staleCommand": "<root-9>\\Git\\mingw64\\bin\\git.exe",
+        "first": {
+          "rejected": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "spawn EFTYPE",
+            "code": "EFTYPE",
+            "props": {
+              "timing": {
+                "queueMs": "<ms>",
+                "spawnMs": "<ms>"
+              }
+            }
+          }
+        },
+        "afterRemoval": {
+          "resolved": {
+            "code": 0,
+            "stdout": "git version 2.50.0.windows.1\n",
+            "stderr": "",
+            "timing": {
+              "queueMs": "<ms>",
+              "spawnMs": "<ms>"
+            }
+          }
+        },
+        "standinStarts": {
+          "launcher": [],
+          "real": [
+            {
+              "argv": [
+                "--version"
+              ],
+              "cwd": "<root-9>",
+              "env": [
+                "HOME=C:\\Users\\recorder",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
+                "MSYSTEM=MINGW64",
+                "PATH=<root-10>\\Git\\mingw64\\bin;<root-10>\\Git\\usr\\bin;C:\\Users\\recorder\\bin;<root-9>\\Git\\cmd;<root-10>\\Git\\cmd",
+                "PLINK_PROTOCOL=ssh",
+                "SYSTEMDRIVE=C:",
+                "SystemRoot=C:\\Windows",
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "without a bypass the command and environment are unchanged",
+      "observed": {
+        "env": {
+          "PATH": "<root-11>\\empty"
+        },
+        "command": "git",
+        "gitChildEnvOfEnv": {
+          "PATH": "<root-11>\\empty"
+        },
+        "plain": {
+          "PATH": "x"
+        },
+        "sameEnvObject": true
+      }
+    },
+    {
+      "case": "the direct binary sees the environment the launcher would give it",
+      "observed": {
+        "fallbackInstall": {
+          "files": [
+            "Git/cmd/git.exe",
+            "Git/bin/git.exe",
+            "Git/git-bash.exe",
+            "Git/usr/bin/",
+            "Git/mingw64/bin/git.exe"
+          ],
+          "realBinary": "Git/mingw64/bin/git.exe: stand-in answering",
+          "answers": [
+            [
+              "dumpenv",
+              0,
+              "$ENV",
+              ""
+            ],
+            [
+              "--version",
+              0,
+              "git version 2.50.0.windows.1\n",
+              ""
+            ]
+          ],
+          "launchers": "Git/cmd/git.exe and Git/bin/git.exe: stand-in launcher running",
+          "wrapper": [
+            "SET MSYSTEM=MINGW64",
+            "SET PLINK_PROTOCOL=ssh",
+            "PREPEND PATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;",
+            "EXEC <root-12>\\Git\\mingw64\\bin\\git.exe"
+          ]
+        },
+        "env": {
+          "SystemRoot": "C:\\Windows",
+          "WINDIR": "C:\\Windows",
+          "SYSTEMDRIVE": "C:",
+          "HOMEDRIVE": "C:",
+          "HOMEPATH": "\\Users\\recorder",
+          "USERPROFILE": "C:\\Users\\recorder",
+          "USERNAME": "recorder",
+          "USERDOMAIN": "RECORDING",
+          "LOGONSERVER": "\\\\RECORDING",
+          "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
+          "PATH": "<root-12>\\Git\\cmd",
+          "HOME": "D:\\h"
+        },
+        "args": [
+          "-c",
+          "alias.dumpenv=!env",
+          "dumpenv"
+        ],
+        "command": "<root-12>\\Git\\mingw64\\bin\\git.exe",
+        "launcherEnvironment": {
+          "SystemRoot": "C:\\Windows",
+          "WINDIR": "C:\\Windows",
+          "SYSTEMDRIVE": "C:",
+          "HOMEDRIVE": "C:",
+          "HOMEPATH": "\\Users\\recorder",
+          "USERPROFILE": "C:\\Users\\recorder",
+          "USERNAME": "recorder",
+          "USERDOMAIN": "RECORDING",
+          "LOGONSERVER": "\\\\RECORDING",
+          "TEMP": "C:\\Users\\recorder\\AppData\\Local\\Temp",
+          "PATH": "<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd",
+          "HOME": "D:\\h",
+          "MSYSTEM": "MINGW64",
+          "PLINK_PROTOCOL": "ssh"
+        },
+        "viaLauncher": {
+          "status": 0,
+          "signal": null,
+          "output": [
+            null,
+            "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
+            ""
+          ],
+          "pid": "<pid>",
+          "stdout": "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
+          "stderr": ""
+        },
+        "direct": {
+          "status": 0,
+          "signal": null,
+          "output": [
+            null,
+            "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
+            ""
+          ],
+          "pid": "<pid>",
+          "stdout": "HOME=D:\\h\nHOMEDRIVE=C:\nHOMEPATH=\\Users\\recorder\nLOGONSERVER=\\\\RECORDING\nMSYSTEM=MINGW64\nPATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=C:\nSystemRoot=C:\\Windows\nTEMP=C:\\Users\\recorder\\AppData\\Local\\Temp\nUSERDOMAIN=RECORDING\nUSERNAME=recorder\nUSERPROFILE=C:\\Users\\recorder\nWINDIR=C:\\Windows\n",
+          "stderr": ""
+        },
+        "sameLines": true,
+        "onlyDirect": [],
+        "onlyLauncher": [],
+        "standinStarts": {
+          "launcher": [
+            {
+              "argv": [
+                "-c",
+                "alias.dumpenv=!env",
+                "dumpenv"
+              ],
+              "cwd": "<root-12>",
+              "env": [
+                "HOME=D:\\h",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
+                "PATH=<root-12>\\Git\\cmd",
+                "SYSTEMDRIVE=C:",
+                "SystemRoot=C:\\Windows",
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
+              ]
+            }
+          ],
+          "real": [
+            {
+              "argv": [
+                "-c",
+                "alias.dumpenv=!env",
+                "dumpenv"
+              ],
+              "cwd": "<root-12>",
+              "env": [
+                "HOME=D:\\h",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
+                "MSYSTEM=MINGW64",
+                "PATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd",
+                "PLINK_PROTOCOL=ssh",
+                "SYSTEMDRIVE=C:",
+                "SystemRoot=C:\\Windows",
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
+              ]
+            },
+            {
+              "argv": [
+                "-c",
+                "alias.dumpenv=!env",
+                "dumpenv"
+              ],
+              "cwd": "<root-12>",
+              "env": [
+                "HOME=D:\\h",
+                "HOMEDRIVE=C:",
+                "HOMEPATH=\\Users\\recorder",
+                "LOGONSERVER=\\\\RECORDING",
+                "MSYSTEM=MINGW64",
+                "PATH=<root-12>\\Git\\mingw64\\bin;<root-12>\\Git\\usr\\bin;D:\\h\\bin;<root-12>\\Git\\cmd",
+                "PLINK_PROTOCOL=ssh",
+                "SYSTEMDRIVE=C:",
+                "SystemRoot=C:\\Windows",
+                "TEMP=C:\\Users\\recorder\\AppData\\Local\\Temp",
+                "USERDOMAIN=RECORDING",
+                "USERNAME=recorder",
+                "USERPROFILE=C:\\Users\\recorder",
+                "WINDIR=C:\\Windows"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
