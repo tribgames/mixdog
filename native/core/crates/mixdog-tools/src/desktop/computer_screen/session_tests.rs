@@ -54,7 +54,7 @@ use super::testing::log_take;
 use super::testing::manifest_names;
 use super::testing::next_turn;
 
-const RECORDING: &str = include_str!("../../../../../fixtures/screen-control/session/scenarios.json");
+const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/screen-control/session/scenarios.json");
 const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/session/MANIFEST.json");
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -680,7 +680,7 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
 
 #[test]
 fn every_recorded_session_scenario_replays_to_nodes_whole_trace() {
-    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
+    let recording: Value = serde_json::from_str(&RECORDING).expect("the recording parses");
     let scenarios = recording["scenarios"].as_array().expect("scenarios");
     manifest_names(MANIFEST, scenarios);
     let mut failures = Vec::new();

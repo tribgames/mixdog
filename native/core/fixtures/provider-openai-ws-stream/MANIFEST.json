@@ -1,0 +1,163 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-openai-ws-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::openai decoder.rs (:696-745 bundle salvage, :1011-1027, :1144-1179 max-output), the WS transport (openai/pool.rs, transport/ws.rs) and mixdog-agent send.rs:541-556: serve each case's `events` as the loopback server does (the `server->client` frames and closes, in order, answering the request frame) and compare, in order, the client's upgrade request headers, its frames, the callback events (`progress`/`text`/`tool`, interleaved with the frames), the clock steps, and `result`/`error` (message, wsCloseCode, partialToolCalls, pendingToolUse, providerErrorCode, ...) and `state`. `recorder-cleanup-close` is the recorder's own marker; the `ping` / `pong` pairs after a keepalive frame are the recorder's proof that the client handled the frame.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs sendViaWebSocket({ auth, body, sendOpts, onStreamDelta, onToolCall, onTextDelta, onStageChange, externalSignal, poolKey, cacheKey, iteration, useModel, forceFresh }) (the real ws client, real upgrade request, the stream reader and the retry loop inside it) against a loopback WebSocket server (lib/ws-world.mjs); the four watchdog cases that end in the reader's own timeout (no output at the first-output deadline, semantic idle after output, the reopened stream, the retry after output) call the stream reader `_streamResponse` (the entry the Node test calls) over a real client socket to the loopback server, so the first error is the outcome; the watchdog cases advance the virtual clock (`rec.clock`) with the product's real timeouts (PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS, ...). Not run: a live chatgpt.com.",
+  "exclusions": [
+    "result.result.transportTiming.*Ms and result.nextSend.result.transportTiming.*Ms: measured with the real performance clock (declared mask); the other fields are compared",
+    "openai-ws-stream.test.mjs:187 (and :203) emit close(1006, \"gone\") on a mocked socket; that pair cannot occur on a socket: 1006 is never carried in a close frame (RFC 6455 7.4.1) and the product's `ws` client rejects a frame carrying it (node_modules/ws/lib/receiver.js:662, isValidStatusCode in node_modules/ws/lib/validation.js:37-45, WS_ERR_INVALID_CLOSE_CODE). Recorded instead are the two real closes: close-dropped-without-close-frame-before-terminal (the connection ends with no close frame: the client reports 1006 with an empty reason) and close-frame-1011-gone-before-terminal (a close frame a server may send, code 1011, reason \"gone\"); :203 is recorded with the dropped connection",
+    "internal fields the test reads are recorded through what they cause on the wire, in result.nextSend and the events after `next-send` (the next send on the same pool key / cache key, forceFresh off, store true for both sends): :58 result.responseId with state.sawCompleted -> the completed socket is kept and reused (no new dial); for the OpenAI OAuth (codex) transport the next request frame carries the full input and no previous_response_id, so the id itself does not reach the wire on this route; :361 state.userAbort / state.watchdogAbort -> the socket closed 4002 \"aborted\" (the user and watchdog aborts are the same on the wire), and the next send dials a fresh connection with the full input and no previous_response_id",
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 329524,
+      "path": "cases.json",
+      "sha256": "2a1042317e28f0e460ff7ea03fab21e2cf62a09cc76463f8a2d864eb6986d1a0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "text-call-and-usage-in-one-result",
+      "level": "wire"
+    },
+    {
+      "id": "call-id-only-in-completed-bundle-is-salvaged",
+      "level": "wire"
+    },
+    {
+      "id": "unsalvageable-call-fails",
+      "level": "wire"
+    },
+    {
+      "id": "leaked-tool-call-recovered-once",
+      "level": "wire"
+    },
+    {
+      "id": "max-output-tokens-truncated-success",
+      "level": "wire"
+    },
+    {
+      "id": "response-failed-rejects-with-frame",
+      "level": "wire"
+    },
+    {
+      "id": "response-done-cancelled-rejects",
+      "level": "wire"
+    },
+    {
+      "id": "close-dropped-without-close-frame-before-terminal",
+      "level": "wire"
+    },
+    {
+      "id": "close-frame-1011-gone-before-terminal",
+      "level": "wire"
+    },
+    {
+      "id": "close-after-finished-call-carries-it",
+      "level": "wire"
+    },
+    {
+      "id": "external-abort-tags-user-abort",
+      "level": "wire"
+    },
+    {
+      "id": "external-abort-tags-watchdog-abort",
+      "level": "wire"
+    },
+    {
+      "id": "prestream-watchdog-closes-silent-socket-first-byte-timeout",
+      "level": "wire"
+    },
+    {
+      "id": "inter-chunk-stall-after-output-rejects-as-continuation",
+      "level": "wire"
+    },
+    {
+      "id": "silent-thinking-past-semantic-idle-until-first-output",
+      "level": "wire"
+    },
+    {
+      "id": "no-output-aborted-at-first-output-deadline",
+      "level": "wire"
+    },
+    {
+      "id": "semantic-idle-applies-after-first-output",
+      "level": "wire"
+    },
+    {
+      "id": "reopened-stream-aborts-at-original-request-deadline",
+      "level": "wire"
+    },
+    {
+      "id": "ws-retry-after-output-stays-under-semantic-idle",
+      "level": "wire"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-openai-ws-stream.mjs",
+  "recorderSha256": "9857807d816ab5791d6603e619e1b784b4e9a099e5989b9f7a602b67da8da51d",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
+  "set": "provider-openai-ws-stream",
+  "totalBytes": 329524,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

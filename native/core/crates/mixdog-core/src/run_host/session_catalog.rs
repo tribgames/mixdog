@@ -425,7 +425,7 @@ mod tests {
     /// Node's `renderToolSearch` and `resolveBridgeTarget` answer them.
     #[tokio::test]
     async fn describe_and_resolve_answer_as_node_does() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/tool-pool/catalog.json")).expect("fixture");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-pool/catalog.json")).expect("fixture");
         let thread = ThreadId::from("t1");
         for case in golden["cases"].as_array().expect("cases") {
             let store = Store::of(&case["session"]);
@@ -459,7 +459,7 @@ mod tests {
     /// the record the page leaves (`mcpInstructionsAnnounced`, `mcpInstructionHashes`) is Node's.
     #[tokio::test]
     async fn a_pages_instructions_are_recorded_so_the_next_page_does_not_repeat_them() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/tool-pool/catalog.json")).expect("fixture");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-pool/catalog.json")).expect("fixture");
         let thread = ThreadId::from("t1");
         let sequence = &golden["sequence"];
         let store = Store::of(&sequence["session"]);

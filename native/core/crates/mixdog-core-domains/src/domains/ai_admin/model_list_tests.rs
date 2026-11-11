@@ -27,7 +27,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/model-list-service-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-list-service-twin.json")).unwrap()
 }
 
 pub(super) struct Offline;

@@ -27,7 +27,7 @@ use crate::session::tests::start_thread;
 use crate::session::tests::turn;
 use crate::session::SessionDirectory;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/gateway-usage-failures/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/gateway-usage-failures/golden.json");
 
 /// How Node's turn ended, as the run host reports it.
 #[derive(Clone, Copy)]
@@ -82,7 +82,7 @@ fn ends(name: &str) -> Vec<End> {
 
 #[tokio::test(start_paused = true)]
 async fn the_asks_that_fail_or_abort_record_no_event_as_in_node() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let start = golden["start"].as_i64().unwrap();
     let usage = Usage {
         input_tokens: golden["usage"]["inputTokens"].as_u64().unwrap(),

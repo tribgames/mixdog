@@ -26,7 +26,7 @@ use crate::session::tests::turn;
 
 fn recording(name: &str) -> Value {
     let text = match name {
-        "session-switches.json" => include_str!("../../../../fixtures/thread-settings/session-switches.json"),
+        "session-switches.json" => mixdog_testkit::fixture!("../../fixtures/thread-settings/session-switches.json"),
         "context-switch.json" => include_str!("../../../../fixtures/thread-settings/context-switch.json"),
         _ => unreachable!("a recording of this set"),
     };
