@@ -925,7 +925,8 @@ impl ReadTool {
 
     async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&str>, mode: Mode) -> ToolOutcome {
         match self.plan(ctx, be).await? {
-            Plan::Text(text) => text_output(text),
+            // A refused path (none, a URL) is an `Error:` answer, a failed call to Node's caller (classifyResultKind).
+            Plan::Text(text) => Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text)),
             Plan::Glance { path, mode, n, offset } => {
                 let mut seen = None;
                 let text = self.glance_text(ctx, &path, &mode, n.as_ref(), offset, &mut seen).await?;
@@ -1229,7 +1230,8 @@ impl ReadTool {
             Err(err) => return Err(fs_failure(&err, &shown)),
         };
         match stat.kind {
-            EntryKind::Dir => return Ok(Body::text(self.directory_error(ctx, &abs, raw).await)),
+            // Not a navigation miss to Node's caller (classifyResultKind): a failed call; in a batch its own `[error]`.
+            EntryKind::Dir => return Ok(Body { error: true, ..Body::text(self.directory_error(ctx, &abs, raw).await) }),
             EntryKind::Special => {
                 return Ok(Body::text(format!(
                     "Error: cannot read special file (FIFO / character / block device / socket): {shown}"

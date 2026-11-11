@@ -608,6 +608,48 @@ const SCENARIOS = [
       { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['beta'], cwd: '<ROOT>/mono' } },
     ],
   },
+  // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
+  // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
+  // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
+  // executeCodeGraphTool, which no guard precedes).
+  ...(() => {
+    const shapes = [['a', 'b'], ['a'], [], 3, { p: 'a' }, true, null, '', ' \t ', ['', null], [['a']]];
+    return [{
+      name: 'path-arg-shapes',
+      files: {
+        'a/x.ts': 'export const xa = 1;\n',
+        'b/xy.ts': 'export const xb = 2;\n',
+        'top.ts': 'export const top = 3;\n',
+      },
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }, { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'] } }],
+      calls: [
+        ...shapes.map((path) => ({ tool: 'list', input: { path } })),
+        ...shapes.map((path) => ({ tool: 'find', input: { query: 'x', path } })),
+        ...shapes.map((path) => ({ tool: 'glob', input: { pattern: '*.ts', path } })),
+        ...shapes.map((path) => ({ tool: 'grep', input: { pattern: 'export', path } })),
+        { tool: 'grep', input: { pattern: 'export', path: ['a', ''] } },
+        // Several scopes: one `# grep <path>` section each, a scope without a hit in the closing no-match line, a missing
+        // one answered in its own section, duplicates and padding dropped.
+        { tool: 'grep', input: { pattern: 'xb', path: ['a', 'b', 'top.ts'] } },
+        { tool: 'grep', input: { pattern: 'export', path: ['a', 'nope', ' a ', 'top.ts'] } },
+        { tool: 'grep', input: { pattern: 'zzz', path: ['a', 'b'] } },
+        { tool: 'grep', input: { pattern: 'export', path: ['a', 'b'], mode: 'files' } },
+        { tool: 'grep', input: { pattern: 'export', path: Array.from({ length: 11 }, (_, i) => `p${i}`) } },
+        ...shapes.map((path) => ({ tool: 'read', input: { path } })),
+        ...[['top.ts'], 3, null, ''].map((file_path) => ({ tool: 'read', input: { file_path } })),
+        ...shapes.map((file_path) => ({ tool: 'edit', input: { file_path, old_string: 'nothing-here', new_string: 'y' } })),
+        ...shapes.map((cwd) => ({ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['xa'], cwd } })),
+        ...shapes.map((files) => ({ tool: 'code_graph', input: { mode: 'symbols', files } })),
+        ...shapes.map((file) => ({ tool: 'code_graph', input: { mode: 'symbols', file } })),
+        ...[false, 0].map((file) => ({ tool: 'code_graph', input: { mode: 'symbols', file } })),
+        ...['find_symbol', 'references', 'callers', 'overview', 'imports', 'dependents', 'search'].map((mode) => ({
+          tool: 'code_graph',
+          input: { mode, symbols: ['xa'], file: 3 },
+        })),
+        ...[[3], [true], [{ p: 'a' }], [['a', 'b']], ['a', null]].map((files) => ({ tool: 'code_graph', input: { mode: 'symbols', files } })),
+      ],
+    }];
+  })(),
 ];
 
 const deadline = (promise, ms, what) => {

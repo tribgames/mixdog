@@ -110,7 +110,8 @@ impl Tool for EditTool {
             return Err(invalid("new_string", "same_as_old", SAME_STRINGS));
         }
         let replace_all = replace_all_arg(&args);
-        let raw = arg_str(&args, "file_path").or_else(|| arg_str(&args, "path")).ok_or_else(|| {
+        // An empty target is no target (Node tests the argument's truthiness); a blank one is the cwd.
+        let raw = arg_str(&args, "file_path").filter(|p| !p.is_empty()).or_else(|| arg_str(&args, "path").filter(|p| !p.is_empty())).ok_or_else(|| {
             invalid(
                 "file_path",
                 "required",

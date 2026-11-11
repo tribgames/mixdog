@@ -68,6 +68,25 @@ pub(crate) fn invalid(field: &str, reason: &str, message: impl Into<String>) -> 
     )
 }
 
+/// The optional scope `key` of list, find or glob as Node's argument guard leaves it (arg-guard.mjs
+/// `validateBuiltinArgs`): null and a blank string are absent (the cwd); an array is flattened one level with null and
+/// blank entries dropped, and is absent when that left nothing of a non-empty array; any other value, an array included,
+/// is refused with `refusal(<type>)`.
+pub(crate) fn optional_path_arg<'a>(args: &'a JsonValue, key: &str, refusal: impl Fn(&str) -> String) -> Result<Option<&'a str>, ToolError> {
+    let blank = |v: &JsonValue| v.is_null() || v.as_str().is_some_and(|s| mixdog_js::js_trim(s).is_empty());
+    match args.get(key) {
+        None | Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::String(s)) => Ok((!mixdog_js::js_trim(s).is_empty()).then_some(s.as_str())),
+        Some(JsonValue::Array(items))
+            if !items.is_empty()
+                && items.iter().flat_map(|item| item.as_array().map_or(std::slice::from_ref(item), Vec::as_slice)).all(blank) =>
+        {
+            Ok(None)
+        }
+        Some(other) => Err(invalid(key, "type", refusal(super::read_legacy::describe_type(other)))),
+    }
+}
+
 pub(crate) fn cancelled() -> ToolError {
     fail(ToolErrorCode::Cancelled, "Error: tool call cancelled")
 }

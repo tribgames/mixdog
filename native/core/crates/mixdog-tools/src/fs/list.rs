@@ -133,7 +133,9 @@ impl Tool for ListTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let raw = arg_str(&args, "path").unwrap_or(".");
+        // arg-guard.mjs (list): a `path` that is not a string is refused; a null or blank one is the cwd.
+        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
+            .unwrap_or(".");
         let hidden = arg_bool(&args, "hidden");
         let meta = arg_bool(&args, "meta");
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;

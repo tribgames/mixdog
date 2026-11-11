@@ -272,7 +272,8 @@ async fn replay_fs_search(scenario: &str) {
     // One instance of each tool for the whole scenario, as one Node process answered it; the arguments go in as
     // recorded and the failure flag is the tool's own outcome.
     let graph_cache = Arc::new(crate::code_graph::GraphCache::new(dir.path().join("graph-cache")));
-    let tools: [(&str, Box<dyn Tool>); 6] = [
+    let tools: [(&str, Box<dyn Tool>); 7] = [
+        ("edit", Box::new(EditTool::new())),
         ("list", Box::new(ListTool::new())),
         ("glob", Box::new(GlobTool::new())),
         ("find", Box::new(FindTool::new())),
@@ -392,6 +393,14 @@ async fn glob_refuses_unc_and_expands_from_nodes_root_as_node_does() {
 #[tokio::test]
 async fn glob_refuses_a_path_that_is_not_a_string_as_node_does() {
     replay_fs_search("glob-path-array").await;
+}
+
+/// Every non-string path shape (array, number, object, boolean, null, blank, blank-only and nested arrays) at list,
+/// find, glob, grep, read, edit and code_graph: refused, read as the cwd, or (grep) taken as several scopes, as Node's
+/// argument normalisation and guards answer it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_path_shape_is_answered_as_node_does() {
+    replay_fs_search("path-arg-shapes").await;
 }
 
 /// A Win32 verbatim path or pattern (`\\?\C:\x`, `\\?\UNC\…`), present or missing, is a UNC/device spelling and

@@ -127,6 +127,9 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     if !MODES.contains(&mode) {
         return Err(format!("code_graph: unknown mode \"{mode}\""));
     }
+    if let Some(error) = &args.file_type_error {
+        return Err(error.clone());
+    }
 
     let anchors = args.file_list();
     let single_file = match anchors.as_slice() {

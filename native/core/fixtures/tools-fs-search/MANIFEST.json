@@ -4,7 +4,7 @@
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 24,
+  "fileCount": 25,
   "files": [
     {
       "bytes": 5739,
@@ -102,6 +102,11 @@
       "sha256": "c0b66247e7c17c99266c79aea3bdd763355a145ee0787f83d4b27775cfef6258"
     },
     {
+      "bytes": 31646,
+      "path": "path-arg-shapes.json",
+      "sha256": "9eada400ffabc8b517dd313a7fb9d8deb89ade5a35afac84bd5a8060b799cf40"
+    },
+    {
       "bytes": 21316,
       "path": "read-ipynb-base64-junk.json",
       "sha256": "39eecfd7d021db61f6bb15729575d5c7313bc614be750383059b1c7486d7aa9f"
@@ -187,7 +192,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "bb411346fbd2113b3bea63388cc40a0cc23e2d4becd6d3ed406d81aacf415057",
+  "recorderSha256": "bd4a9e437d724bb2d6dd08623f16304ba59a7bc8ce109098342532ef6a9d81a8",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -212,8 +217,9 @@
     "glob-path-array",
     "glob-verbatim",
     "read-ipynb-base64-junk",
-    "code-graph-self-case"
+    "code-graph-self-case",
+    "path-arg-shapes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 2163343
+  "totalBytes": 2194989
 }

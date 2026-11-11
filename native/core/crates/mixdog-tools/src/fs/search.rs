@@ -45,6 +45,8 @@ pub(super) const GLOB_ACCUM_CAP: usize = 50_000;
 const FIND_DEFAULT_LIMIT: usize = 25;
 const FIND_UNLIMITED_CAP: usize = 1_000;
 const GREP_DEFAULT_LIMIT: usize = 250;
+/// `PUBLIC_PATH_BATCH_LIMIT`: the scopes one grep `path` array may name.
+const GREP_PATH_BATCH_LIMIT: usize = 10;
 const GREP_CONTENT_MATCH_CAP: usize = 300;
 const GREP_AUTO_BEFORE: u64 = 8;
 const GREP_AUTO_AFTER: u64 = 12;
@@ -475,19 +477,15 @@ impl Tool for GlobTool {
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         // arg-guard.mjs (glob): a `path` or `root` that is not a string, an array included, is refused; a null or
-        // blank one never reaches the guard (it is dropped as an absent argument) and the search runs from the cwd.
-        for key in ["path", "root"] {
-            if let Some(value) = args.get(key).filter(|v| !v.is_null() && !v.is_string()) {
-                let got = super::read_legacy::describe_type(value);
-                return Err(invalid(key, "type", format!("Error: glob arg \"{key}\" must be string (got {got})")));
-            }
-        }
+        // blank one is absent and the search runs from the cwd.
+        let path = super::common::optional_path_arg(&args, "path", |got| format!("Error: glob arg \"path\" must be string (got {got})"))?;
+        super::common::optional_path_arg(&args, "root", |got| format!("Error: glob arg \"root\" must be string (got {got})"))?;
         // rg reads `/` only; Node turns a Windows `\` into one (`canonicalizeGlobSlashes`).
         let patterns: Vec<String> = arg_strings(&args, "pattern")
             .into_iter()
             .map(|p| if cfg!(windows) { p.replace('\\', "/") } else { p })
             .collect();
-        let raw = arg_str(&args, "path").filter(|p| !mixdog_js::js_trim(p).is_empty()).unwrap_or(".");
+        let raw = path.unwrap_or(".");
         let natural = arg_str(&args, "sort") == Some("natural");
         let limit = match arg_u64(&args, "limit") {
             Some(0) => usize::MAX,
@@ -773,7 +771,9 @@ impl Tool for FindTool {
         if query.is_empty() {
             return Err(invalid("query", "required", "Error: find requires query."));
         }
-        let raw = arg_str(&args, "path").unwrap_or(".");
+        // arg-guard.mjs (find): a `path` that is not a string is refused; a null or blank one is the cwd.
+        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: find arg \"path\" must be a string (got {got})"))?
+            .unwrap_or(".");
         let limit = match arg_u64(&args, "limit") {
             Some(0) => FIND_UNLIMITED_CAP,
             Some(n) => n as usize,
@@ -1020,6 +1020,61 @@ impl Tool for GrepTool {
         if patterns.is_empty() || patterns.iter().all(|p| p.is_empty()) {
             return Err(invalid("pattern", "required", "Error: grep requires pattern."));
         }
+        // arg-guard.mjs (grep): a null or blank `path`/`root` is absent (the cwd); an array is kept as the scopes and must
+        // hold 1-10 non-empty strings; any other non-string is refused.
+        let mut args = args;
+        for key in ["path", "root"] {
+            match args.get(key) {
+                Some(JsonValue::Null) => {
+                    args.as_object_mut().map(|o| o.shift_remove(key));
+                }
+                Some(JsonValue::String(s)) if mixdog_js::js_trim(s).is_empty() => {
+                    args.as_object_mut().map(|o| o.shift_remove(key));
+                }
+                Some(JsonValue::Array(items)) => {
+                    let non_empty = |v: &JsonValue| v.as_str().is_some_and(|s| !mixdog_js::js_trim(s).is_empty());
+                    if items.is_empty() || items.len() > GREP_PATH_BATCH_LIMIT || !items.iter().all(non_empty) {
+                        let text = format!(
+                            "Error: grep arg \"{key}\" must contain 1-{GREP_PATH_BATCH_LIMIT} non-empty path strings ({} given, max {GREP_PATH_BATCH_LIMIT})",
+                            items.len()
+                        );
+                        return Err(invalid(key, "type", text));
+                    }
+                }
+                Some(other) if !other.is_string() => {
+                    let got = super::read_legacy::describe_type(other);
+                    return Err(invalid(key, "type", format!("Error: grep arg \"{key}\" must be string or string[] (got {got})")));
+                }
+                _ => {}
+            }
+        }
+        // search-grep-tool.mjs: two or more distinct paths are independent greps, one `# grep <path>` section each
+        // (lib/grep-path-fanout.mjs); one is that path.
+        if let Some(JsonValue::Array(items)) = args.get("path") {
+            let mut list: Vec<String> = Vec::new();
+            for item in items {
+                let p = mixdog_js::js_trim(item.as_str().unwrap_or_default()).to_owned();
+                if !p.is_empty() && !list.contains(&p) {
+                    list.push(p);
+                }
+            }
+            if list.len() > 1 {
+                let mut bodies = Vec::with_capacity(list.len());
+                for p in &list {
+                    let mut one = args.clone();
+                    one["path"] = JsonValue::String(p.clone());
+                    bodies.push(match self.call(ctx, one).await {
+                        Ok(out) => out.parts.iter().filter_map(|part| if let ToolPart::Text(t) = part { Some(t.as_str()) } else { None }).collect(),
+                        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                        Err(e) => e.message_for_model,
+                    });
+                }
+                return Ok(text_output(fanout_sections(Fanout::Path, &list, &bodies)));
+            }
+            if let Some(one) = list.pop() {
+                args["path"] = JsonValue::String(one);
+            }
+        }
         let mode = match arg_str(&args, "mode") {
             Some("files") => Mode::Files,
             Some("count") => Mode::Count,
@@ -1034,7 +1089,7 @@ impl Tool for GrepTool {
                 let body = self.search(ctx, &args, pattern, mode, true).await?;
                 bodies.push(dedupe_fanout_match_lines(&body, &mut seen));
             }
-            return Ok(text_output(fanout_sections(&patterns, &bodies)));
+            return Ok(text_output(fanout_sections(Fanout::Pattern, &patterns, &bodies)));
         }
         let pattern = if patterns.len() == 1 {
             patterns[0].clone()
@@ -1183,12 +1238,20 @@ fn dedupe_fanout_match_lines(body: &str, seen: &mut std::collections::HashSet<St
     out.join("\n")
 }
 
-/// Node `formatGrepFanoutSections` for patterns: `# grep pattern:"x"` sections; the patterns that
-/// matched nothing named in one closing `(no matches) patterns=[…]` line (bare when all missed);
-/// one missing path answered once.
-fn fanout_sections(patterns: &[String], bodies: &[String]) -> String {
+/// The axis of a grep fan-out (Node `formatGrepFanoutSections`' `dimension`).
+#[derive(Clone, Copy, PartialEq)]
+enum Fanout {
+    Pattern,
+    Path,
+}
+
+/// Node `formatGrepFanoutSections`: `# grep pattern:"x"` (or `# grep <path>`) sections; the patterns or paths that
+/// matched nothing named in one closing `(no matches) patterns=[…]` / `paths=[…]` line (bare when all missed); for
+/// patterns, one missing path answered once.
+fn fanout_sections(dimension: Fanout, patterns: &[String], bodies: &[String]) -> String {
     const MISSING: &str = "Error: path does not exist:";
-    if bodies.len() > 1 && bodies[0].starts_with(MISSING) && bodies.iter().all(|b| *b == bodies[0]) {
+    let by_pattern = dimension == Fanout::Pattern;
+    if by_pattern && bodies.len() > 1 && bodies[0].starts_with(MISSING) && bodies.iter().all(|b| *b == bodies[0]) {
         return bodies[0].clone();
     }
     let mut parts = Vec::new();
@@ -1196,7 +1259,7 @@ fn fanout_sections(patterns: &[String], bodies: &[String]) -> String {
     let mut i = 0;
     while i < patterns.len() {
         let body = &bodies[i];
-        if body.starts_with(MISSING) {
+        if by_pattern && body.starts_with(MISSING) {
             let mut grouped = vec![patterns[i].clone()];
             while i + 1 < patterns.len() && bodies[i + 1] == *body {
                 i += 1;
@@ -1213,10 +1276,12 @@ fn fanout_sections(patterns: &[String], bodies: &[String]) -> String {
         } else if *body == no_matches(false) {
             partial_missed.push(patterns[i].clone());
         } else if !body.trim().is_empty() {
-            parts.push(format!("# grep pattern:{}\n{body}", serde_json::to_string(&patterns[i]).unwrap_or_default()));
+            let label = if by_pattern { format!("pattern:{}", serde_json::to_string(&patterns[i]).unwrap_or_default()) } else { patterns[i].clone() };
+            parts.push(format!("# grep {label}\n{body}"));
         }
         i += 1;
     }
+    let plural = if by_pattern { "patterns" } else { "paths" };
     for (items, complete) in [(missed, true), (partial_missed, false)] {
         if items.is_empty() {
             continue;
@@ -1224,7 +1289,7 @@ fn fanout_sections(patterns: &[String], bodies: &[String]) -> String {
         let scope = if items.len() == patterns.len() {
             String::new()
         } else {
-            format!(" patterns={}", serde_json::to_string(&items).unwrap_or_default())
+            format!(" {plural}={}", serde_json::to_string(&items).unwrap_or_default())
         };
         parts.push(format!("{}{scope}", no_matches(complete)));
     }
