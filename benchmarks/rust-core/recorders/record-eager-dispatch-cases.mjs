@@ -105,10 +105,12 @@ const excluded = {};
   const checkpoints = [];
   d.startEagerRun(calls, 0, new Set());
   await tick();
-  checkpoints.push({ released: null, events: [...events] });
+  // Sorted: the different-file edits run in parallel, so their relative order is scheduling, not behaviour; the
+  // serialization shows as A.TXT absent while a.txt is held, present once it is released.
+  checkpoints.push({ released: null, events: [...events].sort() });
   first.release();
   await settleAll(d);
-  checkpoints.push({ released: 'e1', events: [...events] });
+  checkpoints.push({ released: 'e1', events: [...events].sort() });
   cases.push({ case: 'same-file edits serialize while different-file edits stay parallel', kind: 'edits', calls, checkpoints });
 }
 
@@ -250,7 +252,7 @@ writeSetManifest(stage, {
   extra: {
     ...recorderProvenance(import.meta.url),
     compared:
-      "order cases: every start and end at each point the test checks (the Computer Use case: the calls that ran, sorted); the batch: the calls that ran and every answer (id, kind, text); the repeat cases: every tool answer (id, kind, text with the cwd as <cwd>) and the final text",
+      "order cases: every start and end at each point the test checks (the parallel-edits and Computer Use cases: sorted, as their parallel calls' order is scheduling); the batch: the calls that ran and every answer (id, kind, text); the repeat cases: every tool answer (id, kind, text with the cwd as <cwd>) and the final text",
     excluded,
   },
 });
