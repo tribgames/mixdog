@@ -2758,38 +2758,46 @@ mod tests {
         assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
     }
 
-    /// A connected server's tool: notes every call that reaches it and answers `ran <server> <tool>`, as the recorded server did.
-    struct RecordingServerTool {
-        spec: ToolSpec,
-        answer: String,
-        reached: Arc<Mutex<Vec<String>>>,
+    /// The test function the scripted MCP servers run as (`mixdog_testkit::mcp_server`): nothing unless started as one.
+    #[test]
+    fn scripted_server() {
+        mixdog_testkit::mcp_server::serve_if_asked();
     }
 
-    #[async_trait]
-    impl Tool for RecordingServerTool {
-        fn spec(&self) -> &ToolSpec {
-            &self.spec
-        }
-        async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
-            lock(&self.reached).push(self.spec.name.clone());
-            Ok(ToolOutput { parts: vec![ToolPart::Text(self.answer.clone())], ..ToolOutput::default() })
+    /// What reached the real servers: each server's reach log, read for the lines it gained since the last read, named as
+    /// the tools are (`mcp__<server>__<tool>`).
+    struct ReachLogs {
+        logs: Vec<std::path::PathBuf>,
+        seen: Mutex<Vec<usize>>,
+    }
+
+    impl ReachLogs {
+        fn take(&self) -> Vec<String> {
+            let mut seen = lock(&self.seen);
+            let mut gained = Vec::new();
+            for (log, seen) in self.logs.iter().zip(seen.iter_mut()) {
+                let lines = mixdog_testkit::mcp_server::reached(log);
+                gained.extend(lines[*seen..].iter().map(|line| {
+                    let (server, tool) = line.split_once(' ').expect("a reach line");
+                    format!("mcp__{server}__{tool}")
+                }));
+                *seen = lines.len();
+            }
+            gained
         }
     }
 
-    /// The recorded registry, each server kept for a folder as the hub keeps it (`McpHub::tools_for_cwd`): its own scope
-    /// intersected with its owning plugin's.
+    /// The hub's own tools of a scope, each server kept for a folder as the hub keeps it (`McpHub::tools_for_cwd`): its own
+    /// scope intersected with its owning plugin's.
     struct ScopedServers {
         scopes: mixdog_mcp::scopes::ExtensionScopes,
-        servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)>,
+        hub: Arc<mixdog_mcp::McpHub>,
+        scope: &'static str,
     }
 
     impl super::super::session_tools::SessionMcp for ScopedServers {
         fn tools(&self, _: Option<&str>, cwd: &std::path::Path) -> Vec<Arc<dyn Tool>> {
-            self.servers
-                .iter()
-                .filter(|(server, plugin, _)| self.scopes.mcp_server_allowed_for_cwd(server, plugin.as_deref(), cwd))
-                .flat_map(|(_, _, tools)| tools.iter().cloned())
-                .collect()
+            self.hub.tools_for_cwd(self.scope, &self.scopes, cwd)
         }
     }
 
@@ -2800,7 +2808,7 @@ mod tests {
         inner: Scripted,
         cwds: Vec<Value>,
         thread: std::sync::OnceLock<(ThreadId, Arc<mixdog_core_session::session::SessionHandle>)>,
-        reached: Arc<Mutex<Vec<String>>>,
+        reached: Arc<ReachLogs>,
         observed: Mutex<Vec<(Value, Value)>>,
     }
 
@@ -2821,7 +2829,7 @@ mod tests {
         async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
             let n = lock(&self.inner.requests).len();
             let (id, handle) = self.thread.get().expect("the thread is started before its turn");
-            let ran = Value::from(std::mem::take(&mut *lock(&self.reached)));
+            let ran = Value::from(self.reached.take());
             let names = handle.header_snapshot().get("deferredMcpToolNames").cloned().unwrap_or(Value::Null);
             lock(&self.observed).push((ran, names));
             if let Some(cwd) = self.cwds.get(n).filter(|_| n > 0) {
@@ -2857,39 +2865,38 @@ mod tests {
             let case = &rec["cases"][case_index];
             let label = &format!("{} ({origin:?})", case["name"].as_str().unwrap());
             let steps = case["steps"].as_array().unwrap();
-            let reached = Arc::new(Mutex::new(Vec::new()));
-            let servers: Vec<(String, Option<String>, Vec<Arc<dyn Tool>>)> = rec["registry"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|entry| {
-                    let server = entry["server"].as_str().unwrap().to_owned();
-                    let tools: Vec<Arc<dyn Tool>> = entry["tools"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|doc| {
-                            let tool = doc["name"].as_str().unwrap();
-                            let spec = ToolSpec {
-                                name: format!("mcp__{server}__{tool}"),
-                                title: None,
-                                trigger: None,
-                                public: true,
-                                aliases: Vec::new(),
-                                description: doc["description"].as_str().unwrap().into(),
-                                input_schema: doc["inputSchema"].clone(),
-                                annotations: ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() },
-                                parallel_safe: true,
-                                exclusive_with: Vec::new(),
-                            };
-                            Arc::new(RecordingServerTool { spec, answer: format!("ran {server} {tool}"), reached: reached.clone() }) as Arc<dyn Tool>
-                        })
-                        .collect();
-                    (server, entry["pluginId"].as_str().map(str::to_owned), tools)
-                })
-                .collect();
-            let connected: Vec<Arc<dyn Tool>> = servers.iter().flat_map(|(_, _, tools)| tools.iter().cloned()).collect();
-            let mcp = Arc::new(ScopedServers { scopes: mixdog_mcp::scopes::ExtensionScopes::from_config(&rec["extensionScopes"]), servers });
+            // The recorded registry as real servers: one process per server, listing the recorded tools and answering
+            // `ran <server> <tool>`, each call appended to the server's reach log. The hub connects them in one scope and
+            // hands the session its tools; what reached a server is read from its log.
+            let tokens = mixdog_rt::testing::tokens();
+            let hub = mixdog_mcp::McpHub::new(
+                mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+                sandbox.path().join("artifacts"),
+                mixdog_mcp::result::OutputPolicy::default(),
+            );
+            let (mut configs, mut logs) = (Vec::new(), Vec::new());
+            for entry in rec["registry"].as_array().unwrap() {
+                let server = entry["server"].as_str().unwrap();
+                let tools: Vec<&str> = entry["tools"].as_array().unwrap().iter().map(|doc| doc["name"].as_str().unwrap()).collect();
+                let reach = sandbox.path().join(format!("reach-{server}.log"));
+                let launch = mixdog_testkit::mcp_server::launch("run_host::factory::tests::scripted_server", server, &tools, &reach);
+                let mut raw = json!({ "command": launch.command, "args": launch.args, "env": launch.env });
+                if let Some(plugin) = entry["pluginId"].as_str() {
+                    raw["_mixdogPlugin"] = json!({ "id": plugin, "key": server.strip_prefix(&format!("plugin-{plugin}-")).unwrap_or(server) });
+                }
+                configs.push(mixdog_mcp::McpServerConfig::from_entry(server, &raw, &std::env::vars().collect()).unwrap());
+                logs.push(reach);
+            }
+            hub.apply_in("scope-test", configs);
+            for entry in rec["registry"].as_array().unwrap() {
+                let name = entry["server"].as_str().unwrap();
+                let mut state = hub.server_in("scope-test", name).unwrap().subscribe();
+                let ready = tokio::time::timeout(Duration::from_secs(60), state.wait_for(|s| matches!(&**s, mixdog_mcp::server::ServerState::Ready(_)))).await;
+                assert!(ready.is_ok(), "{label}: timed out after 60 s waiting for the server {name} to be ready");
+            }
+            let reached = Arc::new(ReachLogs { seen: Mutex::new(vec![0; logs.len()]), logs });
+            let connected: Vec<Arc<dyn Tool>> = hub.tools_in("scope-test");
+            let mcp = Arc::new(ScopedServers { scopes: mixdog_mcp::scopes::ExtensionScopes::from_config(&rec["extensionScopes"]), hub: hub.clone(), scope: "scope-test" });
             let done = |stop| StreamEvent::Completed { stop: Some(stop), pricing_model: None, request_ms: None };
             let mut script: VecDeque<Vec<StreamEvent>> = steps
                 .iter()
@@ -2965,6 +2972,7 @@ mod tests {
                 assert_eq!(observed[n + 1].1, step["mcpNames"], "{label} step {n}: the session's MCP snapshot");
                 checked += 1;
             }
+            hub.close_all().await;
         }
         assert_eq!(checked, 24);
     }
@@ -3291,31 +3299,30 @@ mod tests {
         restored
     }
 
-    /// `got` with the identities the core draws itself set to the recorded ones, each only where both rows have one: a row's
-    /// `messageId`, `attemptId` and `checkpointId` (Node's came from the client turn's transcript meta, Rust's core draws its
-    /// own), a steered prompt's `submissionIds`, and no restored `id` (Node counts `hist_<session>_<n>`). Everything else is
-    /// compared as it is.
-    fn with_recorded_ids(mut got: Value, want: &Value) -> Value {
-        for path in ["/meta/transcript/messageId", "/meta/transcript/attemptId", "/meta/transcript/checkpointId", "/messageId", "/attemptId", "/checkpointId"] {
-            if let (Some(recorded), Some(slot)) = (want.pointer(path).filter(|v| v.is_string()), got.pointer_mut(path).filter(|v| v.is_string())) {
-                *slot = recorded.clone();
+    /// The identities declared by name in `fixtures/applied-skills/MANIFEST.json` `exclusions`: each is drawn by the core
+    /// (the client's turn carried Node's, `record-applied-skills.mjs` `turnMeta`; Node's restored `id` counts
+    /// `hist_<session>_<n>`). Both sides must carry the same ones, the core's must be non-empty strings, and each is then
+    /// replaced by one token on both sides; everything else is compared as it is.
+    fn mask_declared_ids(row: &Value, side: &str, what: &str) -> Value {
+        let mut row = row.clone();
+        for path in ["/meta/transcript/messageId", "/meta/transcript/attemptId", "/meta/transcript/checkpointId", "/messageId", "/attemptId", "/checkpointId", "/id"] {
+            if let Some(slot) = row.pointer_mut(path) {
+                assert!(slot.as_str().is_some_and(|id| !id.is_empty()), "{what}: {side} {path} is an id, got {slot}");
+                *slot = json!("<id>");
             }
         }
-        if let (Some(Value::Array(recorded)), Some(Value::Array(ids))) = (want.pointer("/meta/submissionIds"), got.pointer_mut("/meta/submissionIds"))
-            && recorded.len() == ids.len()
-        {
-            *ids = recorded.clone();
+        if let Some(Value::Array(ids)) = row.pointer_mut("/meta/submissionIds") {
+            assert!(ids.iter().all(|id| id.as_str().is_some_and(|id| !id.is_empty())), "{what}: {side} submission ids");
+            let count = ids.len();
+            *ids = vec![json!("<id>"); count];
         }
-        if let Some(row) = got.as_object_mut() {
-            row.shift_remove("id");
-        }
-        got
+        row
     }
 
-    /// Each of `got` against each of `want`, whole, but for the identities `with_recorded_ids` sets.
+    /// Each of `got` against each of `want`, whole, but for the identities `mask_declared_ids` names.
     fn assert_rows(got: &[Value], want: &[Value], what: &str) {
-        let want: Vec<Value> = want.iter().map(|row| with_recorded_ids(row.clone(), row)).collect();
-        let got: Vec<Value> = got.iter().zip(want.iter().chain(std::iter::repeat(&Value::Null))).map(|(row, recorded)| with_recorded_ids(row.clone(), recorded)).collect();
+        let want: Vec<Value> = want.iter().map(|row| mask_declared_ids(row, "recorded", what)).collect();
+        let got: Vec<Value> = got.iter().map(|row| mask_declared_ids(row, "core", what)).collect();
         assert_eq!(got, want, "{what}");
     }
 

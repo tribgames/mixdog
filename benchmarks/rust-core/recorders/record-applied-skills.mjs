@@ -188,6 +188,11 @@ writeSetManifest(out, {
       'each prompt\'s transcriptMeta, as a client turn carries it: { messageId (msg_turn, msg_<n>), attemptId, checkpointId, at: 1000, device: "desktop-1", completionVerb: "Mapped" }',
     ],
     keptWhole: 'per case: the prompt(s), the applied names, every stored user row, every restored user row',
+    exclusions: {
+      'meta.transcript.messageId / attemptId / checkpointId': 'the client turn carried Node\'s (turnMeta); the core draws its own, so both sides are compared as an id (a non-empty string)',
+      'meta.submissionIds': 'a steered prompt\'s submission id is drawn by each side; the count and non-empty ids are compared',
+      'restored row id': 'Node counts hist_<session>_<n>, the core uses the record\'s iid; both sides are compared as an id',
+    },
   },
 });
 commitStage(out, finalOut);

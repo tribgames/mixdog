@@ -45,7 +45,14 @@ async fn ready(extra: Value, artifacts: &std::path::Path) -> Arc<McpServer> {
 
 async fn until(server: &McpServer, wanted: impl Fn(&ServerState) -> bool) {
     let mut rx = server.subscribe();
-    rx.wait_for(|s| wanted(s)).await.unwrap();
+    let reached = tokio::time::timeout(Duration::from_secs(60), rx.wait_for(|s| wanted(s))).await;
+    reached.expect("timed out after 60 s waiting for the server to reach the awaited state").unwrap();
+}
+
+/// The test function the scripted servers run as (`mixdog_testkit::mcp_server`): nothing unless started as one.
+#[test]
+fn scripted_server() {
+    mixdog_testkit::mcp_server::serve_if_asked();
 }
 
 fn text_of(parts: &[ToolPart]) -> String {
@@ -354,28 +361,50 @@ async fn an_mcp_tool_hook_runs_in_its_sessions_scope_only() {
 }
 
 /// `fixtures/mcp-cwd-scope` `hook`: an `mcp_tool` hook of a session whose cwd is outside a plugin's scope still runs the
-/// plugin's tool (Node's `executeMcpTool` resolves it in the session's MCP scope only, no session catalog): the server is
-/// reached once and the hook reads the tool's answer. The stand-in server answers the recorded text.
+/// plugin's tool (Node's `executeMcpTool` resolves it in the session's MCP scope only, no session catalog). The recorded
+/// registry is connected as real servers (`mixdog_testkit::mcp_server`: each lists its recorded tools, answers
+/// `ran <server> <tool>` and logs what reaches it); the hook runs the recorded call, and the tool's answer and the servers
+/// and tools its reach logs hold are compared with Node's recording (`result`, `ran`).
 #[tokio::test(flavor = "multi_thread")]
 async fn an_mcp_tool_hook_outside_the_plugins_scope_runs_as_nodes_does() {
     use mixdog_mcp::hook_runner::run_mcp_tool_handler;
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
     let recorded = &golden["hook"];
-    assert_eq!(recorded["ran"], json!([recorded["name"]]), "Node's hook reached the server once");
-    let answer = recorded["result"].as_str().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let hub = McpHub::new(io(), dir.path().to_path_buf(), OutputPolicy::default());
-    let server = recorded["name"].as_str().unwrap().strip_prefix("mcp__").unwrap().split("__").next().unwrap();
-    let plugin = golden["registry"].as_array().unwrap().iter().find(|entry| entry["server"] == server).unwrap()["pluginId"].clone();
-    hub.apply_in("session-b", vec![config(server, json!({"_mixdogPlugin": {"id": plugin}, "env": {"MOCK_FIXTURES": json!([answer]).to_string()}}))]);
-    let live = hub.server_in("session-b", server).unwrap();
-    until(&live, |s| matches!(s, ServerState::Ready(_))).await;
+    let (mut configs, mut logs) = (Vec::new(), Vec::new());
+    for entry in golden["registry"].as_array().unwrap() {
+        let server = entry["server"].as_str().unwrap();
+        let tools: Vec<&str> = entry["tools"].as_array().unwrap().iter().map(|doc| doc["name"].as_str().unwrap()).collect();
+        let reach = dir.path().join(format!("reach-{server}.log"));
+        let launch = mixdog_testkit::mcp_server::launch("mcp_suite::scripted_server", server, &tools, &reach);
+        let mut entry_config = json!({"command": launch.command, "args": launch.args, "env": launch.env});
+        if let Some(plugin) = entry["pluginId"].as_str() {
+            entry_config["_mixdogPlugin"] = json!({"id": plugin});
+        }
+        configs.push(McpServerConfig::from_entry(server, &entry_config, &std::env::vars().collect()).unwrap());
+        logs.push((server.to_owned(), reach));
+    }
+    hub.apply_in("session-b", configs);
+    for (server, _) in &logs {
+        until(&hub.server_in("session-b", server).unwrap(), |s| matches!(s, ServerState::Ready(_))).await;
+    }
+    let name = recorded["name"].as_str().unwrap();
+    let (server, tool) = name.strip_prefix("mcp__").unwrap().split_once("__").unwrap();
     let cancel = CancellationToken::new();
-    let hook = hook_handler(json!({"type": "mcp_tool", "server": server, "tool": "fixture_0"}));
+    let hook = hook_handler(json!({"type": "mcp_tool", "server": server, "tool": tool}));
     let payload = json!({"session_id": "session-b", "cwd": recorded["cwd"]});
     let ran = run_mcp_tool_handler(&hub, Some("session-b"), &hook, payload, "PreToolUse", &cancel).await;
-    // The answer is the server's own: the hook reached it.
-    assert_eq!((ran.exit_code, ran.stdout.as_str()), (0, answer));
+    assert_eq!((ran.exit_code, ran.stdout.as_str()), (0, recorded["result"].as_str().unwrap()), "the hook's result");
+    let reached: Vec<String> = logs
+        .iter()
+        .flat_map(|(_, reach)| mixdog_testkit::mcp_server::reached(reach))
+        .map(|line| {
+            let (server, tool) = line.split_once(' ').unwrap();
+            format!("mcp__{server}__{tool}")
+        })
+        .collect();
+    assert_eq!(json!(reached), recorded["ran"], "the servers and tools that reached a live server");
     hub.close_all().await;
 }
 
