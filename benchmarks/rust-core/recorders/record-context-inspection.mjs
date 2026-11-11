@@ -1,175 +1,152 @@
 #!/usr/bin/env node
-// What the desktop's Context inspector gets (`ContextInspector.tsx` asks `contextStatus [{ inspect: true }]`, then
-// `{ inspect: true, entryId, revision }` for the entry it opens): Node's own live gauge (`createContextStatus`,
-// runtime-core/context-status.mjs, with its inspection snapshots from context-status-inspection.mjs) over crafted
-// sessions at a fixed clock. Each case keeps its calls in the order made: the plain status, the list, a preview of every
-// listed entry against the list's revision, an entry the list never had, and an entry asked for under a revision that is
-// not the list's. The facts the gauge reads from modules the Rust gauge does not own come from the same Node functions,
-// as record-context-status.mjs takes them (request tools, native prefix, tool breakdown, mode, history flag).
+// What the desktop's Context inspector gets, recorded through Node's own request path: a real session runtime
+// (`createMixdogSessionRuntime`, the headless profile the exec creates) whose session is built by real turns (`runtime.ask`, the
+// session loop, the `read` tool) against a scripted Anthropic endpoint (lib/intercept.mjs answers every provider request on
+// loopback), then the calls the inspector makes, each through the runtime's async boundary the desktop's IPC uses
+// (`runtime.contextStatusSettled`, boot/tools.mjs:271): the list (`{ inspect: true }`, ContextInspector.tsx /
+// command-surface-lifecycle.ts:145), a preview of every listed entry against the list's revision (ContextInspector.tsx:178), an
+// entry id the list never had, a listed entry under the revision of a list read before a restart and the session's second turn
+// (stale) and under a revision no list had, and the list again.
 //
-//   node benchmarks/rust-core/recorders/record-context-inspection.mjs --tree <exact export of b6f10295a> [--only <case>]
-// Output: native/core/fixtures/context-inspection/golden.json
+// The session's data directory is kept (`.mixdog/data/sessions`), so the replay opens the very session these answers were read
+// from. The clock is fixed and the sandbox path is a fixed one (`<tmp>/context-inspection-live`), so two recordings write the
+// same bytes.
+//
+//   node benchmarks/rust-core/recorders/record-context-inspection.mjs --tree <exact export of b6f10295a with node_modules>
+// Output: native/core/fixtures/context-inspection/{golden.json,.mixdog/data/sessions,MANIFEST.json}
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { recorderProvenance } from './lib/provenance.mjs';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const NOW = 1_800_000_000_000;
-Date.now = () => NOW;
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-context-inspection.mjs';
+const NOW = 1_800_000_000_000;
+const MODEL = 'claude-sonnet-4-6';
 
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, NODE_COMMIT);
-const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null;
-const orch = 'src/runtime/agent/orchestrator';
-const { createContextStatus } = await importFrom(tree, `${orch}/runtime-core/context-status.mjs`);
-const { snapshotProviderRequestTools, estimateToolSchemaBreakdown } = await importFrom(tree, `${orch}/runtime-core/tool-catalog.mjs`);
-const { providerNativeToolPrefixCount } = await importFrom(tree, `${orch}/runtime-core/provider-request-tools.mjs`);
-const { hasRouteHistoryMessage } = await importFrom(tree, `${orch}/runtime-core/session-route-policy.mjs`);
-const { isAgentModeSession } = await importFrom(tree, `${orch}/session/agent-mode.mjs`);
-const { recordProviderContextBaseline } = await importFrom(tree, `${orch}/session/loop/compact-policy.mjs`);
-const { SUMMARY_PREFIX } = await importFrom(tree, `${orch}/session/compact.mjs`);
+const root = join(tmpdir(), 'context-inspection-live');
+rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+const home = join(root, '.mixdog');
+const data = join(home, 'data');
+const work = join(root, 'work');
+for (const dir of [data, work]) mkdirSync(dir, { recursive: true });
+writeFileSync(join(work, 'a.txt'), 'hello\n');
+for (const key of ['HOME', 'USERPROFILE']) process.env[key] = root;
+for (const [key, sub] of [['APPDATA', 'appdata'], ['LOCALAPPDATA', 'localappdata'], ['MIXDOG_CONFIG_DIR', 'config'], ['MIXDOG_RUNTIME_ROOT', 'runtime']]) process.env[key] = join(root, sub);
+process.env.MIXDOG_HOME = home;
+process.env.MIXDOG_DATA_DIR = data;
+for (const [k, v] of Object.entries(JSON.parse(readFileSync(join(tree, 'src/runtime/shared/pristine-execution-contract.json'), 'utf8')).guardEnv)) process.env[k] = v;
+process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
+process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+process.env.TZ = 'UTC';
+process.env.ANTHROPIC_API_KEY = 'sk-fake';
+// The session id is minted from the process id and the clock: both are fixed.
+Object.defineProperty(process, 'pid', { value: 4242 });
 
-const tools = [
-  { name: 'read', description: 'Read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
-  { name: 'grep', description: 'Search files', inputSchema: { type: 'object', properties: { pattern: { type: 'string' } } } },
-  { name: 'mcp__docs__lookup', description: 'Look up docs', inputSchema: { type: 'object', properties: { q: { type: 'string' } } } },
-  { name: 'Skill', description: 'Load a skill', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } },
-  { name: 'recall', description: 'Recall memory', inputSchema: { type: 'object' } },
-  { name: 'agent', description: 'Run an agent', inputSchema: { type: 'object' } },
-  { name: 'tool_search', description: 'Find deferred tools', inputSchema: { type: 'object' }, deferLoading: true },
-];
-const call = (id, name, args) => ({ id, name, arguments: args });
-const system = [
-  '# Core Memory\n- prefers short answers',
-  '# Active Workflow\nDo the task.',
-  '# Skills\nUse a skill when it fits.',
-  '# available-skills\n- pptx: decks',
-  '<available-deferred-tools>\n- web_fetch\n</available-deferred-tools>',
-  '# Environment\ncwd: C:/w\x1b[31m red \x1b[0m\x07',
-].join('\n\n');
-const convo = [
-  { role: 'system', content: system },
-  { role: 'user', content: 'Please read the config file.' },
-  { role: 'assistant', content: 'Reading it.', toolCalls: [call('c1', 'read', { path: 'config.json' }), call('c2', 'grep', { pattern: 'a' })] },
-  { role: 'tool', toolCallId: 'c1', content: '{"a":1,"b":[1,2,3]}' },
-  { role: 'tool', toolCallId: 'c2', content: [{ type: 'text', text: 'config.json:1: "a"' }] },
-  { role: 'assistant', content: 'The config sets a to 1.', toolCalls: [call('c3', 'read', { path: 'other.json' })] },
-  { role: 'tool', toolCallId: 'c3', content: 'missing' },
-  { role: 'user', content: '<system-reminder>\n# Workspace\nrepo: mixdog\n\n# Core Memory\nnote\n</system-reminder>' },
-  { role: 'user', content: '<system-reminder>\n# Workspace\nbranch: main\n</system-reminder>\nAnd the second file?' },
-  {
-    role: 'user',
-    content: '<system-reminder>\n# Environment\ntime: noon\n</system-reminder>\n\nWhat changed?\n\n<system-reminder>\n# Core Memory\nkeep it brief\n</system-reminder>',
-    meta: { runtimeUserContext: { prefix: '<system-reminder>\n# Environment\ntime: noon\n</system-reminder>\n\n', suffix: '\n\n<system-reminder>\n# Core Memory\nkeep it brief\n</system-reminder>' } },
+const { install } = await import('./lib/intercept.mjs');
+const hub = await install(tree);
+// The provider gzips its request body; the hub reads bodies as text, so the transport stand-in inflates it on the way in.
+const hubFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const headers = new Headers(init?.headers ?? {});
+  if (headers.get('content-encoding') !== 'gzip' || init?.body === undefined) return hubFetch(input, init);
+  headers.delete('content-encoding');
+  headers.delete('content-length');
+  return hubFetch(input, { ...init, headers, body: gunzipSync(init.body) });
+};
+Date.now = () => NOW;
+
+// The model's turns: a `read` of the working file, then the answer.
+const TURNS = [{ text: 'Reading it.', calls: [['read', { path: 'a.txt' }]] }, { text: 'The file says hello.' }];
+const sse = (type, value) => `event: ${type}\ndata: ${JSON.stringify(value)}\n\n`;
+function messageSse(turn, index) {
+  const parts = [sse('message_start', { type: 'message_start', message: { id: `msg_${index}`, type: 'message', role: 'assistant', model: MODEL, content: [], usage: { input_tokens: 1200 + index, output_tokens: 1 } } })];
+  let block = 0;
+  parts.push(sse('content_block_start', { type: 'content_block_start', index: block, content_block: { type: 'text', text: '' } }));
+  parts.push(sse('content_block_delta', { type: 'content_block_delta', index: block, delta: { type: 'text_delta', text: turn.text } }));
+  parts.push(sse('content_block_stop', { type: 'content_block_stop', index: block }));
+  block += 1;
+  for (const [name, input] of turn.calls ?? []) {
+    parts.push(sse('content_block_start', { type: 'content_block_start', index: block, content_block: { type: 'tool_use', id: `toolu_${index}_${block}`, name, input: {} } }));
+    parts.push(sse('content_block_delta', { type: 'content_block_delta', index: block, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } }));
+    parts.push(sse('content_block_stop', { type: 'content_block_stop', index: block }));
+    block += 1;
+  }
+  parts.push(sse('message_delta', { type: 'message_delta', delta: { stop_reason: turn.calls ? 'tool_use' : 'end_turn' }, usage: { output_tokens: 10 + index } }));
+  parts.push(sse('message_stop', { type: 'message_stop' }));
+  return parts.join('');
+}
+let served = 0;
+const script = {
+  http: (record) => {
+    if (!/\/v1\/messages$/.test(record.path)) return { status: 404, contentType: 'text/plain', body: 'no script' };
+    served += 1;
+    return { body: messageSse(TURNS[Math.min(served - 1, TURNS.length - 1)], served) };
   },
-  { role: 'user', content: '<skill>\n<name>pptx &amp; decks</name>\nBuild decks with care.\n</skill>' },
-  {
-    role: 'user',
-    content: '<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Shell task t1 finished</summary>\n</task-notification>',
-  },
-  { role: 'user', content: '<mixdog-runtime kind="runtime-control">\n# Notice\nThe app restarted.\n</mixdog-runtime>' },
-  { role: 'user', content: '[mixdog-runtime] Continue from where you left off.' },
-  { role: 'assistant', content: 'Done.', name: 'helper\tbot' },
-  { role: 'user', content: 'Thanks, now summarise it.' },
-];
-const summary = [
-  { role: 'user', content: `${SUMMARY_PREFIX}\n\nmessages=12 sha256=abc\nThe user asked for a config summary.` },
-  { role: 'user', content: 'Continue.' },
-  {
-    role: 'assistant',
-    content: 'Done thinking.',
-    thinkingBlocks: [{ type: 'thinking', thinking: 'Let me weigh the options carefully before answering.', signature: 'A'.repeat(120) }],
-  },
-  { role: 'user', content: 'ok' },
-];
-const base = { id: 's_inspect', provider: 'openai', model: 'gpt-test', contextWindow: 100000, cwd: 'C:/w', tools };
-const withBaseline = (id, messages, input, extra = {}) => {
-  const s = { ...base, id, messages, lastContextTokens: 1200, lastContextTokensUpdatedAt: NOW - 5000, ...extra };
-  recordProviderContextBaseline(s, messages, { inputTokens: input, outputTokens: 100, cachedTokens: 0 }, { sendTools: tools });
-  return s;
 };
 
-const sessions = [
-  ['empty conversation', { ...base, id: 's_empty', messages: [] }],
-  ['conversation', { ...base, messages: convo }],
-  ['summary and reasoning', { ...base, id: 's_summary', messages: summary }],
-  ['provider baseline over the whole transcript', withBaseline('s_base', convo, 1500)],
-  ['provider baseline plus growth', withBaseline('s_growth', convo, 1500, {})],
-  ['provider reading out of band', withBaseline('s_band', convo, 20)],
-  [
-    'anthropic deferred catalog',
-    {
-      ...base,
-      id: 's_defer',
-      provider: 'anthropic',
-      model: 'claude-test',
-      deferredNativeTools: true,
-      deferredMcpToolNames: ['mcp__ok__found'],
-      deferredDiscoveredTools: ['web_search', 'mcp__ok__found'],
-      deferredToolCatalog: [
-        { name: 'web_search', description: 'Search the web', inputSchema: { type: 'object', properties: { q: { type: 'string' } } } },
-        { name: 'mcp__ok__found', description: 'Listed MCP tool', inputSchema: { type: 'object' } },
-      ],
-      deferredLateToolCatalog: [{ name: 'read', description: 'Late', inputSchema: { type: 'object' } }],
-      messages: convo.slice(0, 7),
-    },
-  ],
-];
-// The growth case: the provider measured the transcript, then one more message arrived.
-sessions[4][1].messages = [...convo, { role: 'user', content: 'and one more question please' }];
-
-const cases = [];
-for (const [name, session] of sessions) {
-  if (only && only !== name) continue;
-  const route = { provider: session.provider || '', model: session.model || '', contextWindow: session.contextWindow || null };
-  const { contextStatus } = createContextStatus({
-    getSession: () => session,
-    getRoute: () => route,
-    getCurrentCwd: () => session.cwd || '',
-    getMode: () => 'default',
-  });
-  const messages = session.messages;
-  const requestTools = snapshotProviderRequestTools({ provider: session.provider, tools: session.tools, nativeTools: [], messages, session });
-  const calls = [];
-  const ask = (options) => {
-    const status = contextStatus(options);
-    calls.push({ options: options ?? null, status });
+const { createMixdogSessionRuntime } = await importFrom(tree, 'src/mixdog-session-runtime.mjs');
+const { settleRecorder } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store/session-writers.mjs');
+const { awaitPreviousTurnDurable } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/turn-durability.mjs');
+const calls = [];
+let sessionId = null;
+let route = null;
+const options = {
+  provider: 'anthropic',
+  model: MODEL,
+  cwd: work,
+  toolMode: 'full',
+  toolProfile: 'headless',
+  approvalMode: 'implicit',
+  disallowDelegation: true,
+  autoWakeCompletions: false,
+};
+await hub.run(script, async () => {
+  const first = await within('create the runtime', createMixdogSessionRuntime(options));
+  await within('the turn', first.ask('Please read a.txt.', {}));
+  sessionId = first.id;
+  await within('the turn durable', awaitPreviousTurnDurable(sessionId));
+  // The list an inspector held before the core restarted and the session took another turn: its revision is the stale one
+  // asked below (a running core keeps its last readings, `createInspectionSnapshots`; a restarted one has none).
+  const { revision: stale } = (await within('the earlier list', first.contextStatusSettled({ inspect: true }))).inspection;
+  await within('the writer settled', settleRecorder(sessionId));
+  await within('close the first runtime', first.close('restart'));
+  const runtime = await within('create the runtime again', createMixdogSessionRuntime(options));
+  await within('resume the session', runtime.resume(sessionId));
+  await within('the second turn', runtime.ask('Thanks.', {}));
+  await within('the second turn durable', awaitPreviousTurnDurable(sessionId));
+  await within('the writer settled', settleRecorder(sessionId));
+  const ask = async (options) => {
+    const status = await within('contextStatus', runtime.contextStatusSettled(options));
+    calls.push({ options, status: JSON.parse(JSON.stringify(status)) });
     return status;
   };
-  ask(undefined);
-  const listed = ask({ inspect: true });
+  const listed = await ask({ inspect: true });
   const { revision, entries } = listed.inspection;
-  for (const entry of entries) ask({ inspect: true, entryId: entry.id, revision });
-  ask({ inspect: true, entryId: 'message:999', revision });
-  ask({ inspect: true, entryId: entries[0]?.id ?? 'message:0', revision: 'not-a-revision' });
-  // The list again: the reading the previews were answered from is the one retained.
-  ask({ inspect: true });
-  const header = Object.fromEntries(Object.entries(session).filter(([k]) => k !== 'messages' && k !== 'tools'));
-  cases.push({
-    name,
-    header,
-    messages,
-    tools: session.tools,
-    route,
-    cwd: session.cwd || '',
-    mode: 'default',
-    active: hasRouteHistoryMessage(messages),
-    agentMode: isAgentModeSession(session),
-    requestTools: [...requestTools],
-    nativePrefix: providerNativeToolPrefixCount(requestTools),
-    breakdown: estimateToolSchemaBreakdown(requestTools),
-    calls,
-  });
-}
+  for (const entry of entries) await ask({ inspect: true, entryId: entry.id, revision });
+  await ask({ inspect: true, entryId: 'message:999', revision });
+  await ask({ inspect: true, entryId: entries[0].id, revision: stale });
+  await ask({ inspect: true, entryId: entries[0].id, revision: 'not-a-revision' });
+  await ask({ inspect: true });
+  route = { provider: listed.provider, model: listed.model, contextWindow: listed.rawContextWindow };
+  await within('close the runtime', runtime.close('done'));
+}, 'context-inspection');
+await hub.close();
 
 const finalOut = join(FIXTURES_ROOT, 'context-inspection');
 const out = stageSet(finalOut);
+cpSync(join(data, 'sessions'), join(out, '.mixdog', 'data', 'sessions'), { recursive: true, filter: (path) => !path.endsWith('.lock') && !path.endsWith('.lock-journal') });
 writeJson(join(out, 'golden.json'), {
-  note: 'createContextStatus(...).contextStatus(options) over crafted sessions at a fixed clock, every call of a case in the order made',
+  note: 'runtime.contextStatusSettled(options) of a real session runtime over a session built by a real turn, every call in the order made',
   now: NOW,
-  cases,
+  sessionId,
+  route,
+  calls,
 });
 writeSetManifest(out, {
   set: 'context-inspection',
@@ -178,14 +155,18 @@ writeSetManifest(out, {
   identity,
   extra: {
     ...recorderProvenance(import.meta.url),
-    cases: cases.length,
+    calls: calls.length,
     syntheticInputs: [
-      'the sessions: plain objects as the session store loads them; provider baselines written by recordProviderContextBaseline',
-      'the request tools: snapshotProviderRequestTools for the session, as the gauge itself takes them',
+      'the provider: a scripted Anthropic endpoint answering a read of a.txt, then a text',
+      'the working folder: a.txt holding "hello"',
+      'the clock: fixed at `now`',
     ],
-    keptWhole: 'per call: the options and the whole status returned (inspection included)',
+    keptWhole: 'per call: the options and the whole status returned (inspection included); the session store the answers were read from',
   },
 });
 commitStage(out, finalOut);
-console.log(`cases=${cases.length}`);
+// The runtime's usage ledger stays open after its close (the exec closes it on its way out, headless-exec.mjs:77).
+(await importFrom(tree, 'src/runtime/shared/llm/usage-ledger.mjs')).closeUsageLedgers();
+rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+console.log(`calls=${calls.length}`);
 process.exit(0);

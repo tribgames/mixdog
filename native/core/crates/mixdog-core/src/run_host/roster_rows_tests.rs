@@ -83,12 +83,21 @@ fn copy_tree(from: &Path, to: &Path) {
 
 /// The recording copied to a scratch directory and migrated with its desktop profile, as the core does at its first start.
 async fn migrated() -> (tempfile::TempDir, MigrationRoots) {
+    migrated_from(&fixture()).await
+}
+
+/// A recorded `.mixdog` (and its desktop `profile`, when the recording has one) copied to a scratch directory and migrated, as
+/// the core does at its first start.
+pub(super) async fn migrated_from(recording: &Path) -> (tempfile::TempDir, MigrationRoots) {
     let dir = tempfile::tempdir().expect("scratch dir");
     let home = dir.path().join(".mixdog");
-    copy_tree(&fixture().join(".mixdog"), &home);
-    let profile = dir.path().join("profile");
-    copy_tree(&fixture().join("profile"), &profile);
-    let roots = MigrationRoots { data: home.join("data"), home, profile: Some(profile) };
+    copy_tree(&recording.join(".mixdog"), &home);
+    let profile = recording.join("profile").exists().then(|| {
+        let profile = dir.path().join("profile");
+        copy_tree(&recording.join("profile"), &profile);
+        profile
+    });
+    let roots = MigrationRoots { data: home.join("data"), home, profile };
     let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: tokio::runtime::Handle::current() };
     Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector), office), MigrateOptions::default())
         .run()
@@ -156,7 +165,7 @@ fn on_the_wire(row: &Value) -> Value {
 }
 
 /// The migrated directory's index and thread store, as the core opens them.
-async fn opened(roots: &MigrationRoots) -> (mixdog_store::sqlite::SqliteStore, Arc<StoreThreads>) {
+pub(super) async fn opened(roots: &MigrationRoots) -> (mixdog_store::sqlite::SqliteStore, Arc<StoreThreads>) {
     let tokens = mixdog_rt::testing::tokens();
     let root = roots.data.clone();
     let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
