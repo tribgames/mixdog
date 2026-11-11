@@ -1306,13 +1306,21 @@ impl DirInner {
         let (dur_out, dur_rx) = mpsc::channel(8);
         let epoch = new_epoch();
         let feed_id = FeedId::from(id.as_str());
-        let view = Arc::new(SessionView::build(
+        let mut view = SessionView::build(
             feed_id.clone(),
             deps.transcript.summary(&id, &state.header),
             &state,
             mixdog_app_protocol::v2::thread::StorageState::Ok,
             None,
-        ));
+        );
+        // Node's store holds the agent scope from its first state (`initial-state.mjs:57`), and the scope needs only the header: a
+        // `thread/read` answered before the actor's first publish shows it too (the actor publishes it as its load's first change).
+        let agents = view.state.agents.take().unwrap_or_default();
+        view.state.agents = Some(mixdog_app_protocol::v2::thread::ThreadAgents {
+            agent_scope: Some(super::agent_registry::status_rows::agent_scope(&id, &state.header)),
+            ..agents
+        });
+        let view = Arc::new(view);
         let feed = deps.feeds.thread_feed(feed_id, epoch.clone(), view.clone());
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = Arc::new(ControlCell {
@@ -1629,7 +1637,7 @@ impl SessionDirectory {
         // composed for it, as Node composes the session from `rt.route`.
         let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
         // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
-        let settings = self.inner.deps.compaction.settings_changes().map(super::actor::SettingsFollow::begin);
+        let settings = self.inner.deps.compaction.settings_changes(&id).map(super::actor::SettingsFollow::begin);
         // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
         let route = if control {
             self.inner.deps.new_route.adopt_control(&id).await

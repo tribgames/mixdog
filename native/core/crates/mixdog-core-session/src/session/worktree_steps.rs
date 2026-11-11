@@ -360,6 +360,9 @@ impl Inner {
             self.host.set_workspace(session, stored);
         }
         drop(leave);
+        // The settled workspace reaches the session's clients before the transition answers (Node's next status pass).
+        let live = self.live_workspace(session).await;
+        self.host.publish_workspace(session, live).await;
         outcome
     }
 

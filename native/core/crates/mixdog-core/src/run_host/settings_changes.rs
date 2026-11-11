@@ -45,26 +45,80 @@ fn settings_signature(config: &Config, secrets: &SecretChanges) -> String {
 
 pub struct SettingsChanges {
     announced: watch::Sender<u64>,
+    /// The count each following thread has shown ([`SettingsChanges::feed`]), by thread; a thread that is gone has closed its own.
+    shown: Followers,
+    _adoption: mixdog_core_config::config::AdoptionGuard,
+}
+
+type Followers = Arc<std::sync::Mutex<Vec<(String, watch::Receiver<u64>)>>>;
+
+/// How long a settings call waits for the threads to show its change. A thread shows it from its mailbox, also mid-turn, so only a
+/// wedged thread reaches this.
+const SHOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Resolves once every following thread has shown the count announced when it was called; a thread that is closing, crashed or
+/// gone (its feed dropped) is not waited for. At [`SHOWN_DEADLINE`] it resolves all the same, logging each thread still behind: Node
+/// answers a settings write without waiting for any session (config-writers.mjs:67-75 debounces the save behind the answer), so a
+/// slow thread never turns that answer into an error.
+async fn all_shown(announced: watch::Receiver<u64>, shown: &std::sync::Mutex<Vec<(String, watch::Receiver<u64>)>>) -> Result<(), String> {
+    let target = *announced.borrow();
+    let followers = {
+        let mut followers = shown.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        followers.retain(|(_, follower)| follower.has_changed().is_ok());
+        followers.clone()
+    };
+    let deadline = tokio::time::Instant::now() + SHOWN_DEADLINE;
+    for (thread, mut follower) in followers {
+        if tokio::time::timeout_at(deadline, follower.wait_for(|count| *count >= target)).await.is_err() {
+            tracing::warn!("thread {thread} did not show settings change {target} within {}s; the settings call answers without it", SHOWN_DEADLINE.as_secs());
+        }
+    }
+    Ok(())
 }
 
 impl SettingsChanges {
     /// Starts following `config`: the configuration as it is now is the applied baseline.
     pub fn start(config: Config, secrets: Arc<SecretChanges>) -> Arc<Self> {
         let (announced, _) = watch::channel(0_u64);
-        let this = Arc::new(Self { announced });
-        let mut ticks = config.changes();
-        let mut applied = settings_signature(&config, &secrets);
-        let sender = this.announced.clone();
-        drop(mixdog_rt::spawn("settings-changes", TaskClass::Work, async move {
-            while ticks.changed().await.is_ok() {
+        let applied = Arc::new(std::sync::Mutex::new(settings_signature(&config, &secrets)));
+        let check = {
+            let (config, sender) = (config.clone(), announced.clone());
+            move || {
                 let next = settings_signature(&config, &secrets);
-                if next != applied {
-                    applied = next;
+                let mut applied = applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if next != *applied {
+                    *applied = next;
                     sender.send_modify(|count| *count += 1);
                 }
             }
+        };
+        // A written document is counted inside its adoption, before the write is acknowledged: a read sent after a write's answer
+        // sees it (Node's announcement reached the session before its next read). The ticks still follow a secret change, which
+        // adopts no document.
+        let adoption = config.on_adoption(check.clone());
+        let mut ticks = config.changes();
+        drop(mixdog_rt::spawn("settings-changes", TaskClass::Work, async move {
+            while ticks.changed().await.is_ok() {
+                check();
+            }
         }));
-        this
+        let shown: Followers = Arc::default();
+        config.shown_by({
+            let (announced, shown) = (announced.subscribe(), shown.clone());
+            Arc::new(move || {
+                let (announced, shown) = (announced.clone(), shown.clone());
+                Box::pin(async move { all_shown(announced, &shown).await })
+            })
+        });
+        Arc::new(Self { announced, shown, _adoption: adoption })
+    }
+
+    /// A following thread's feed: the counter, and where the thread reports what it has shown, which a settings call waits for.
+    pub fn feed(&self, thread: &mixdog_core_api::ids::ThreadId) -> mixdog_core_session::session::turn_ops::SettingsFeed {
+        let changes = self.announced.subscribe();
+        let (shown, follower) = watch::channel(*changes.borrow());
+        self.shown.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((thread.as_str().to_owned(), follower));
+        mixdog_core_session::session::turn_ops::SettingsFeed { changes, shown }
     }
 
     /// The count of settings changes announced so far; it moves once per announcement.
@@ -79,6 +133,7 @@ mod tests {
     use mixdog_core_api::CoreRequest;
     use mixdog_core_api::Reply;
     use mixdog_core_api::ThreadDirectory;
+    use mixdog_core_api::ThreadHandle;
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::ids::Method;
     use mixdog_core_api::ids::OpId;
@@ -140,6 +195,118 @@ mod tests {
             .await
             .expect("the agent section");
         assert_ne!(settings_signature(&config, &secrets), applied, "the agent section is");
+    }
+
+    /// A written settings change is counted before the write returns: a read the caller sends after the answer sees it.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_write_is_counted_before_it_answers() {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
+        let changes = SettingsChanges::start(config.clone(), secrets);
+        let counted = changes.subscribe();
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "worktree": { "branchPrefix": "" } }));
+                Ok(())
+            })
+            .await
+            .expect("a setting");
+        assert_eq!(*counted.borrow(), 1);
+    }
+
+    /// A settings call answers only once every following thread has shown the change it wrote; a thread that is gone holds nothing.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_settings_call_waits_until_the_threads_have_shown_its_change() {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
+        let changes = SettingsChanges::start(config.clone(), secrets);
+        let (follower, gone) = (changes.feed(&ThreadId::from("open")), changes.feed(&ThreadId::from("closed")));
+        drop(gone);
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "worktree": { "branchPrefix": "" } }));
+                Ok(())
+            })
+            .await
+            .expect("a setting");
+        let shown = config.shown();
+        tokio::pin!(shown);
+        assert!(futures::poll!(shown.as_mut()).is_pending(), "the thread has not shown the change");
+        follower.shown.send_replace(1);
+        assert_eq!(shown.await, Ok(()), "a closed thread is not waited for");
+    }
+
+    /// A thread that never shows the change does not fail the call: at the deadline it answers as Node's settings write does, without
+    /// the thread, and no earlier.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_settings_call_answers_at_the_deadline_without_a_thread_that_does_not_show_its_change() {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
+        let changes = SettingsChanges::start(config.clone(), secrets);
+        let _wedged = changes.feed(&ThreadId::from("wedged"));
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "worktree": { "branchPrefix": "" } }));
+                Ok(())
+            })
+            .await
+            .expect("a setting");
+        let started = tokio::time::Instant::now();
+        assert_eq!(config.shown().await, Ok(()), "the call answers as Node's");
+        assert!(tokio::time::Instant::now() - started >= SHOWN_DEADLINE, "after the wedged thread's deadline");
+    }
+
+    /// A thread held inside a turn shows a settings change from its mailbox at once: the settings call never waits for the turn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_thread_held_inside_a_turn_shows_a_settings_change_at_once() {
+        let rig = Rig::new();
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let open = gate.clone();
+        rig.set_script(Arc::new(move |run| {
+            let open = open.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                open.notified().await;
+                mixdog_core_session::session::RunOutcome::Completed(Default::default())
+            })
+        }));
+        let (announced, changes) = watch::channel(0_u64);
+        let (shown, mut seen) = watch::channel(0_u64);
+        *lock(&rig.compaction.settings) = Some(changes);
+        *lock(&rig.compaction.shown) = Some(shown);
+        let directory = SessionDirectory::new(rig.deps());
+        let request = |method: &'static str, params: Value, op: &str| CoreRequest {
+            method: Method(method),
+            params,
+            op: Some(OpId::from(op)),
+            ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
+        };
+        let reply = directory.request(request("thread/start", serde_json::json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let turn = serde_json::json!({ "threadId": id.as_str(), "opId": "op-1", "input": { "prompt": "work" } });
+        handle.request(request("turn/start", turn, "op-1")).await.expect("turn/start");
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while !handle.turn_busy() {
+                handle.stepped().notified().await;
+            }
+        })
+        .await
+        .expect("the turn runs");
+        announced.send_replace(1);
+        tokio::time::timeout(std::time::Duration::from_secs(10), seen.wait_for(|count| *count >= 1)).await.expect("shown while the turn is held").expect("open");
+        assert!(handle.turn_busy(), "the turn is still held");
+        gate.notify_one();
     }
 
     /// A parent the removal empties goes with its key; one that was already empty, or still holds something, stays.

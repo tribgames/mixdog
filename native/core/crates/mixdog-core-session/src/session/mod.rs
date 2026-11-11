@@ -350,6 +350,11 @@ pub struct SessionDeps {
     /// The agent tool's status for a session, published as its `agents` section when a job of
     /// the session is added or finishes (`agent_activity.rs`).
     pub agent_status: Arc<dyn agent_activity::AgentStatus>,
+    /// The context gauge (`thread/contextStatus`) the load's status pass reads for the display fields
+    /// (`syncContextStats` → `syncContextDisplayFields`).
+    pub context_status: Arc<dyn thread_context::ContextStatusHost>,
+    /// The session's live workspace (`getLiveWorkspace`), published by the load's pass and after its `cwd`/`workspace` move.
+    pub live_workspace: Arc<dyn worktree::LiveWorkspace>,
     /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
     pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).

@@ -167,6 +167,10 @@ pub(super) const IDLE_EVICT: Duration = Duration::from_secs(5 * 60);
 /// `STATUS_SETTLE_MS` (`session-status-scheduler.mjs:14`): the beat a status pass waits after its
 /// first mark, here the load's.
 pub(super) const STATUS_SETTLE: Duration = Duration::from_millis(16);
+/// How long a route move waits for its new route's context status before it is accepted without it.
+const ROUTE_STATUS_DEADLINE: Duration = Duration::from_secs(10);
+/// The header keys that move the route's context window (`applyRouteContextWindow`).
+const WINDOW_KEYS: [&str; 5] = ["provider", "model", "contextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -266,6 +270,29 @@ pub(crate) enum Inbox {
     AskEnded,
 }
 
+/// A route move waiting for its new route's context status: applied, with those figures, when the read returns.
+struct PendingMove {
+    seq: u64,
+    apply: MoveApply,
+}
+
+/// What a pending route move writes once its figures are read.
+enum MoveApply {
+    /// A `thread/header/patch` request, handled as it would have been.
+    Request { req: CoreRequest, tx: Waiter },
+    /// The change an [`Inbox::UpdateHeaderAwaiting`] computed.
+    Change { change: mixdog_store::schema::record::HeaderChange, tx: Waiter },
+}
+
+/// Whether `msg` writes the thread's header: such a message waits behind a pending route move.
+fn writes_header(msg: &Inbox) -> bool {
+    match msg {
+        Inbox::UpdateHeader { .. } | Inbox::UpdateHeaderAwaiting { .. } => true,
+        Inbox::Request { req, .. } => req.method.as_str() == "thread/header/patch",
+        _ => false,
+    }
+}
+
 /// Where a test's injected unwind of the actor happens.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) enum UnwindAt {
@@ -339,6 +366,13 @@ pub(crate) enum JobDone {
     /// `agentStatusState()` read on load or after a job of this thread changed; `listener`: the
     /// status listener's read (see `read_agent_status`).
     AgentStatus { agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool },
+    /// The context status the load's status pass read (`read_context_display`), `null` for none.
+    ContextStatus(Value),
+    /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `None` when the read
+    /// failed or missed its deadline.
+    RouteStatus { seq: u64, status: Option<Value> },
+    /// The session's live workspace (`read_live_workspace`).
+    LiveWorkspace(u64, Option<Value>),
     /// The idle deadline found the thread quiet; `working`: its background work still runs.
     IdleChecked { working: bool },
     /// A turn operation's answer (`session/turn_ops.rs`) for the request that asked.
@@ -612,6 +646,8 @@ pub(crate) struct SessionActor {
     room_approvals_resolved: Vec<String>,
     /// The running turn is that first turn and has not shown visible output yet.
     turn_prewarm_armed: bool,
+    /// The live-workspace reads started; only the latest one's answer is published.
+    live_workspace_reads: u64,
     /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
     turns_closed: usize,
     /// state.stats (usage totals), folded from each model call's usage event.
@@ -619,6 +655,16 @@ pub(crate) struct SessionActor {
     steer_marked: Vec<QueuedId>,
     /// The context display fields a running turn published, held for the turn's end ([`Self::on_context_section`]).
     held_display: Option<ThreadContext>,
+    /// What a route move read for the header it is about to write ([`Self::route_status_read`]), taken by the step that accepts the
+    /// move: the new route's status, or `None` when the read failed.
+    route_status: Option<Option<Value>>,
+    /// The route move whose new figures are being read off the actor ([`Self::start_route_move`]).
+    route_move: Option<PendingMove>,
+    /// The header writes that arrived while a route move was pending, in order: they follow it, as Node's route writes queue behind
+    /// the one in flight (`routeWrite`, routes-write.mjs:112,129).
+    route_queue: std::collections::VecDeque<Inbox>,
+    /// The count of route moves started, which names each pending one.
+    route_moves: u64,
     /// Which completions showed a live card (Node's per-session execution dedup).
     cards: super::cards::CardGate,
     /// Executions the session's listener took: their queued copy is `suppressDisplay`.
@@ -662,6 +708,9 @@ pub(crate) struct SessionActor {
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
     after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
+    /// Whether [`Self::pump`] is releasing acked entries now, and the replies they released, sent once the pump published.
+    releasing: bool,
+    replies_after_publish: Vec<(Waiter, Value)>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -956,10 +1005,15 @@ impl SessionActor {
             room_questions_moved: false,
             room_approvals_resolved: Vec::new(),
             turn_prewarm_armed: false,
+            live_workspace_reads: 0,
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
             held_display: None,
+            route_status: None,
+            route_move: None,
+            route_queue: Default::default(),
+            route_moves: 0,
             cards: Default::default(),
             listened: Default::default(),
             suppressed: Default::default(),
@@ -979,6 +1033,8 @@ impl SessionActor {
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
             after_publish: Vec::new(),
+            releasing: false,
+            replies_after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
             #[cfg(any(test, feature = "test-support"))]
@@ -1057,15 +1113,22 @@ impl SessionActor {
         // later (`session-status-scheduler.mjs` `register`), publishing the agent status it reads.
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
+        if let Some(agents) = self.agents_with_scope() {
+            self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
+        }
         self.read_agent_status(false);
         self.reconcile_offloads();
-        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
+        self.read_context_display();
+        self.read_live_workspace();
+        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes(&self.id).map(SettingsFollow::begin));
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
             let marking = self.delete_closed.is_none() && self.delete_mark.is_some();
             tokio::select! {
                 biased;
+                // First: a write announces before it answers, so a read sent after the answer sees the change counted.
+                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
                 go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
@@ -1076,14 +1139,19 @@ impl SessionActor {
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
-                Some(msg) = self.ch.inbox_rx.recv() => match msg {
-                    Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
-                    msg => self.on_inbox(msg),
-                },
-                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
+                Some(msg) = self.ch.inbox_rx.recv() => self.take_inbox(msg).await,
                 else => break,
             }
+            // The header writes a finished route move held, in order, until one of them starts the next move.
+            while self.route_move.is_none()
+                && let Some(msg) = self.route_queue.pop_front()
+            {
+                self.take_inbox(msg).await;
+            }
             self.pump();
+            if let Some(follow) = &settings {
+                follow.shown();
+            }
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -1352,12 +1420,18 @@ impl SessionActor {
         let record = Arc::new(record);
         let shown = !matches!(display, Display::Suppressed);
         // The session's route moved (`provider`/`model` of the header): its state follows, as Node's route state does.
-        let route_moved = match &*record {
-            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => ["provider", "model"]
+        let moved = |keys: &[&str]| match &*record {
+            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => keys
                 .iter()
                 .any(|key| change.set.get(*key).is_some_and(|value| self.projected.header.get(*key) != Some(value)) || (change.unset.iter().any(|unset| unset.as_str() == *key) && self.projected.header.contains_key(*key))),
             _ => false,
         };
+        // A workspace transition moves the runtime's cwd (routeState's `cwd`); its workspace record the transition publishes.
+        let window_moved = moved(&WINDOW_KEYS);
+        // A pick held for the next turn is the runtime's route at once (the state's provider, model, effort and contextPercent).
+        let held_moved = moved(&["pendingRoute"]);
+        let route_moved = moved(&["provider", "model"]) || moved(&["cwd"]) || held_moved;
+        let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
         let change = Change::Record {
             record: record.clone(),
             display,
@@ -1367,10 +1441,34 @@ impl SessionActor {
             .outbox
             .push(Some((record.clone(), class)), change, notes, effects);
         self.submit_encode(entry, record, shown);
+        // A route move read its new figures before this step (`syncContextStats` before `publishRoute`, routes-write.mjs:133-142):
+        // they go out with it, ahead of the route, so no state shows the new model with the old figures.
+        let figures = match self.route_status.take().filter(|_| window_moved) {
+            Some(Some(status)) => Some(self.display_figures(&status)),
+            Some(None) => Some(self.unread_figures(&window_before)),
+            None => None,
+        };
+        if window_moved || held_moved {
+            // The context section's settled figures follow the header (the seated window and limits, the held pick's percent); the
+            // frame carries the whole section.
+            let context = figures.clone().unwrap_or_default();
+            self.accept_view_after(Some(entry), Change::Section(Section::Context(context)), Vec::new(), Vec::new());
+        }
         if route_moved {
             // The route's own values (`autoClear` is the provider's) are read under the new provider; the frame carries the whole route.
             let route = self.deps.compaction.route_config(&self.projected.header);
             self.accept_view_after(Some(entry), Change::Section(Section::Route(route)), Vec::new(), Vec::new());
+        }
+        if window_moved {
+            // A route change marks the status pass (`syncContextStats` of the next pulse) unless the move read it already; a seated
+            // route makes the session the agent status's scope.
+            if figures.is_none() {
+                self.read_context_display();
+            }
+            if let Some(agents) = self.agents_with_scope() {
+                self.accept_view_after(Some(entry), Change::Section(Section::Agents(agents)), Vec::new(), Vec::new());
+            }
+            self.read_agent_status(false);
         }
         entry
     }
@@ -1598,6 +1696,14 @@ impl SessionActor {
                 self.show_live(turn, item, None);
             }
             JobDone::AgentStatus { agents, listener } => self.agent_status(agents, listener),
+            JobDone::ContextStatus(status) => self.context_display(&status),
+            JobDone::RouteStatus { seq, status } => self.route_status_read(seq, status),
+            JobDone::LiveWorkspace(read, workspace) => {
+                if read == self.live_workspace_reads
+                    && !self.tombstoned && !self.cell.closed.load(SeqCst) && self.projected.sections.workspace != workspace {
+                    self.accept_view(Change::Section(Section::Workspace(workspace)), Vec::new());
+                }
+            }
             JobDone::IdleChecked { working } => self.idle_checked(working),
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
             JobDone::GoalEntryChecked { entry, seen } => self.goal_entry_checked(entry, seen),
@@ -1870,9 +1976,11 @@ impl SessionActor {
             }
         }
         let mut notes = Vec::new();
+        self.releasing = true;
         while let Some((entry, ordinal)) = self.outbox.pop_ready() {
             self.release(entry, ordinal, &mut notes);
         }
+        self.releasing = false;
         let storage = self.storage();
         if storage != self.published_storage {
             self.published_storage = storage;
@@ -1883,6 +1991,9 @@ impl SessionActor {
         }
         for released in self.after_publish.drain(..) {
             let _ = released.send(Ok(()));
+        }
+        for (tx, value) in self.replies_after_publish.drain(..) {
+            let _ = tx.send(Ok(Reply::Value(value)));
         }
         self.publish_cell();
     }
@@ -2106,8 +2217,14 @@ impl SessionActor {
                 if let Some(op) = &op {
                     self.ops.applied(op, &value);
                 }
-                if let Some(tx) = tx {
-                    let _ = tx.send(Ok(Reply::Value(value)));
+                // A change released by the pump is answered once its view is published: a caller reading the thread's view
+                // after the answer (a route move's model and figures) sees what it answered.
+                match tx {
+                    Some(tx) if self.releasing => self.replies_after_publish.push((tx, value)),
+                    Some(tx) => {
+                        let _ = tx.send(Ok(Reply::Value(value)));
+                    }
+                    None => {}
                 }
             }
             Effect::InputDurable => {
@@ -3231,6 +3348,8 @@ impl SessionActor {
     /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
     fn on_settings_changed(&mut self, announced: u64) {
         // Node's router counts every delivery (setupChangeSeq += 1): announcements that reached this thread together count one each.
+        // Node delivers them to a session's listener, which exists from its creation: a task's from `client.create`, the control's
+        // from the first control call (`ensureControlSession`, session-host-transport.ts:235), seated route or not - as this thread.
         for _ in 0..announced {
             self.setup_changes += 1;
             let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
@@ -4035,6 +4154,14 @@ impl SessionActor {
             let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
             return;
         };
+        // `updateSessionRoute`: a route move is written once its new figures are read ([`Self::start_route_move`]).
+        let unset: Vec<&str> = change.unset.iter().map(String::as_str).collect();
+        if self.run.is_none()
+            && let Some(next) = self.window_move_of(Some(&change.set), &unset)
+        {
+            self.start_route_move(MoveApply::Change { change, tx }, next);
+            return;
+        }
         self.write_header_change(change, tx);
     }
 
@@ -4798,6 +4925,14 @@ impl SessionActor {
         self.read_agent_status(true);
     }
 
+    /// The agents section's scope as the header now gives it, with the rows it holds: seated in the step that moves the
+    /// header (load, a route move), so no state shows the thread without its scope or with the old one. `None` when it holds it.
+    fn agents_with_scope(&self) -> Option<mixdog_app_protocol::v2::thread::ThreadAgents> {
+        let current = self.projected.sections.agents.clone().unwrap_or_default();
+        let scope = super::agent_registry::status_rows::agent_scope(&self.id, &self.projected.header);
+        (current.agent_scope.as_ref() != Some(&scope)).then(|| mixdog_app_protocol::v2::thread::ThreadAgents { agent_scope: Some(scope), ..current })
+    }
+
     /// Reads the thread's agent status off the actor. `listener`: the read is the status
     /// listener's (`onAgentStatusChange`), which also schedules the Goal continuation; the
     /// load's first status pass (`runtimePulse`) only publishes.
@@ -4812,12 +4947,160 @@ impl SessionActor {
         });
     }
 
+    /// The load's status pass also runs `syncContextStats` (local-session-runtime.mjs createRuntimePulse): the context status of
+    /// the thread, read off the actor one settle beat later, fills the display fields.
+    fn read_context_display(&self) {
+        let (jobs, gauge, thread) = (self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            tokio::time::sleep(STATUS_SETTLE).await;
+            let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
+            let _ = jobs.send(JobDone::ContextStatus(status));
+        });
+    }
+
+    /// The workspace `routeState` publishes (`getLiveWorkspace`), read off the actor: at load and whenever the header's `cwd`,
+    /// `workspace` or `desktopSession` moved.
+    fn read_live_workspace(&mut self) {
+        self.live_workspace_reads += 1;
+        let (jobs, live, thread, read) = (self.jobs_tx.clone(), self.deps.live_workspace.clone(), self.id.clone(), self.live_workspace_reads);
+        tokio::spawn(async move {
+            let workspace = live.live(thread.as_str()).await;
+            let _ = jobs.send(JobDone::LiveWorkspace(read, workspace));
+        });
+    }
+
+    /// `syncContextDisplayFields(status)` (context-state.mjs:116-136): the window the status shows, the compaction boundary and
+    /// the auto-compact trigger (`compaction.triggerTokens || compaction.autoCompactTokenLimit || session.autoCompactTokenLimit`),
+    /// each only once known (> 0).
+    fn context_display(&mut self, status: &Value) {
+        if self.tombstoned || self.cell.closed.load(SeqCst) || !status.is_object() {
+            return;
+        }
+        let context = self.display_figures(status);
+        if context != ThreadContext::default() {
+            self.on_context_section(context);
+        }
+    }
+
+    /// The display fields `syncContextDisplayFields` takes from `status`, each only once known (> 0).
+    fn display_figures(&self, status: &Value) -> ThreadContext {
+        let positive = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map(|n| n as i64);
+        let compaction = status.get("compaction");
+        ThreadContext {
+            display_context_window: positive(status.get("contextWindow")),
+            compact_boundary_tokens: positive(compaction.and_then(|c| c.get("boundaryTokens"))),
+            auto_compact_token_limit: positive(compaction.and_then(|c| c.get("triggerTokens")))
+                .or_else(|| positive(compaction.and_then(|c| c.get("autoCompactTokenLimit"))))
+                .or_else(|| positive(self.projected.header.get("autoCompactTokenLimit"))),
+            ..Default::default()
+        }
+    }
+
+    /// The header a `thread/header/patch` leaves when it moves the session's route window (`updateSessionRoute`); `None` for any
+    /// other request, and while a turn runs (its display fields wait for the turn's end, [`Self::on_context_section`]).
+    fn window_move_header(&self, req: &CoreRequest) -> Option<Header> {
+        if req.method.as_str() != "thread/header/patch" || matches!(req.ctx.caller, Caller::Connection(_)) || self.run.is_some() {
+            return None;
+        }
+        let set = req.params.get("set").and_then(Value::as_object);
+        let unset: Vec<&str> = req.params.get("unset").and_then(Value::as_array).map(|keys| keys.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        self.window_move_of(set, &unset)
+    }
+
+    /// The header `set`/`unset` leave when they move the route window; `None` when they do not.
+    fn window_move_of(&self, set: Option<&serde_json::Map<String, Value>>, unset: &[&str]) -> Option<Header> {
+        let header = &self.projected.header;
+        let moves = WINDOW_KEYS.iter().any(|key| {
+            set.and_then(|set| set.get(*key)).is_some_and(|value| header.get(*key) != Some(value)) || (unset.contains(key) && header.contains_key(*key))
+        });
+        if !moves {
+            return None;
+        }
+        let mut next = header.clone();
+        for key in unset {
+            next.shift_remove(*key);
+        }
+        for (key, value) in set.into_iter().flatten() {
+            next.insert(key.clone(), value.clone());
+        }
+        Some(next)
+    }
+
+    /// A message from the inbox. While a route move is pending, a header write waits behind it; a `thread/header/patch` that moves
+    /// the route window becomes the next pending move.
+    async fn take_inbox(&mut self, msg: Inbox) {
+        if self.route_move.is_some() && writes_header(&msg) {
+            self.route_queue.push_back(msg);
+            return;
+        }
+        match msg {
+            Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
+            Inbox::Request { req, tx } => match self.window_move_header(&req) {
+                Some(header) => self.start_route_move(MoveApply::Request { req, tx }, header),
+                None => self.on_inbox(Inbox::Request { req, tx }),
+            },
+            msg => self.on_inbox(msg),
+        }
+    }
+
+    /// A route move as a pending step: the new route's context status is read off the actor for the header the move writes, and the
+    /// actor goes on serving (a cancel, a read, a turn: in Node the read is awaited by `setRoute` alone, routes-write.mjs:168, and a
+    /// turn started meanwhile runs on the route the runtime holds, set-route.mjs:272,300-311). When the read returns, the move is
+    /// accepted with its figures in one step ([`Self::accept_record_entry`]) and answered after it.
+    fn start_route_move(&mut self, apply: MoveApply, header: Header) {
+        self.route_moves += 1;
+        let (seq, jobs, gauge, thread) = (self.route_moves, self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            let status = match tokio::time::timeout(ROUTE_STATUS_DEADLINE, gauge.context_status_for(thread.clone(), header)).await {
+                Ok(Ok(status)) if status.is_object() => Some(status),
+                Ok(Ok(_)) => None,
+                Ok(Err(error)) => {
+                    tracing::warn!(thread = %thread, "the route move's context status failed: {error:?}");
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!(thread = %thread, "the route move's context status missed its {}s deadline", ROUTE_STATUS_DEADLINE.as_secs());
+                    None
+                }
+            };
+            let _ = jobs.send(JobDone::RouteStatus { seq, status });
+        });
+        self.route_move = Some(PendingMove { seq, apply });
+    }
+
+    /// The pending route move `seq` read its figures (`None`: the read failed): the move is written now, with them.
+    fn route_status_read(&mut self, seq: u64, status: Option<Value>) {
+        let Some(pending) = self.route_move.take_if(|pending| pending.seq == seq) else { return };
+        self.route_status = Some(status);
+        match pending.apply {
+            MoveApply::Request { req, tx } => self.on_inbox(Inbox::Request { req, tx }),
+            MoveApply::Change { change, tx } => self.write_header_change(change, tx),
+        }
+        self.route_status = None;
+    }
+
+    /// The display figures of a route move whose status read failed, as Node's `syncContextStats` leaves them when the runtime has no
+    /// status (context-state.mjs:137-142: no patch) and `publishRoute` publishes `routeState()`: the figures held for an unchanged
+    /// window, 0 for a moved one (context-state.mjs:100-113). Nothing is read again for it.
+    fn unread_figures(&self, before: &(Option<Value>, Option<Value>)) -> ThreadContext {
+        let header = &self.projected.header;
+        if (header.get("contextWindow").cloned(), header.get("rawContextWindow").cloned()) == *before {
+            return ThreadContext::default();
+        }
+        ThreadContext { display_context_window: Some(0), compact_boundary_tokens: Some(0), auto_compact_token_limit: Some(0), ..Default::default() }
+    }
+
     /// `set({ ...agentStatusState() })` publishes the lists only when they changed. A thread
     /// that never published them shows Node's initial empty lists (`initial-state.mjs:55`), so
     /// empty lists are no change. The status listener then calls `scheduleGoalContinuation()`.
     fn agent_status(&mut self, agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool) {
         if self.tombstoned || self.cell.closed.load(SeqCst) {
             return;
+        }
+        // The scope is the header's (seated with it); a read that could not see the thread's handle keeps it.
+        let mut agents = agents;
+        if agents.agent_scope.is_none() {
+            agents.agent_scope = Some(super::agent_registry::status_rows::agent_scope(&self.id, &self.projected.header));
         }
         if self.projected.sections.agents.clone().unwrap_or_default() != agents {
             self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
@@ -5528,13 +5811,21 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 pub(crate) struct SettingsFollow {
     changes: watch::Receiver<u64>,
     seen: u64,
+    shown: watch::Sender<u64>,
 }
 
 impl SettingsFollow {
     /// Follows `changes` from now: what the counter holds is behind the thread.
-    pub(crate) fn begin(mut changes: watch::Receiver<u64>) -> Self {
+    pub(crate) fn begin(feed: super::turn_ops::SettingsFeed) -> Self {
+        let super::turn_ops::SettingsFeed { mut changes, shown } = feed;
         let seen = *changes.borrow_and_update();
-        Self { changes, seen }
+        shown.send_replace(seen);
+        Self { changes, seen, shown }
+    }
+
+    /// Reports the announcements read so far as shown: the thread's state that counts them is published.
+    fn shown(&self) {
+        self.shown.send_if_modified(|shown| std::mem::replace(shown, self.seen) != self.seen);
     }
 
     /// The announcements since the last one read, however many the counter moved while the thread was busy; None once the configuration is gone.

@@ -104,6 +104,8 @@ pub struct TestCompaction {
     pub route: Mutex<mixdog_app_protocol::v2::thread::ThreadRoute>,
     /// The saved configuration's settings-change counter, when the test follows one.
     pub settings: Mutex<Option<tokio::sync::watch::Receiver<u64>>>,
+    /// Where the next thread to follow the counter reports what it has shown, when the test watches it.
+    pub shown: Mutex<Option<tokio::sync::watch::Sender<u64>>>,
     /// What `compact_for_heir` answers (the rows of the compacted conversation), and each ask: the budget and `summarize`.
     pub heir_rows: Mutex<Option<Vec<Value>>>,
     pub heir_asked: Mutex<Vec<(u64, bool)>>,
@@ -216,8 +218,12 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     fn route_config(&self, _: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
         lock(&self.route).clone()
     }
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
-        lock(&self.settings).clone()
+    fn settings_changes(&self, _: &ThreadId) -> Option<super::turn_ops::SettingsFeed> {
+        let changes = lock(&self.settings).clone()?;
+        Some(match lock(&self.shown).take() {
+            Some(shown) => super::turn_ops::SettingsFeed { changes, shown },
+            None => super::turn_ops::SettingsFeed::unwatched(changes),
+        })
     }
 }
 
@@ -1646,6 +1652,16 @@ impl super::prewarm_signals::CodeGraphPrewarmSignals for TestCodeGraphPrewarm {
     }
 }
 
+/// The rig's context gauge: no status (the status of no session), so the load's pass publishes no display fields.
+pub struct NoContextStatus;
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for NoContextStatus {
+    async fn context_status(&self, _: Option<ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(Value::Null)
+    }
+}
+
 /// The agent status the rig answers, and the threads it was read for, in order.
 #[derive(Default)]
 pub struct TestAgents {
@@ -2011,6 +2027,8 @@ impl Rig {
             todos: self.todos.clone(),
             work: self.work.clone(),
             agent_status: self.agents.clone(),
+            context_status: Arc::new(NoContextStatus),
+            live_workspace: Arc::new(super::worktree::NoLiveWorkspace),
             code_graph_prewarm: self.code_graph.clone(),
             agent_signals: self.signals.clone(),
             side: self.side.clone(),
