@@ -1,6 +1,5 @@
 {
   "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-management.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
-  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "PostgreSQL (SQLite stand-in of the test file)",
     "runs": "listManagedMemories and formatManagedMemories (core-memory-management.mjs); createMemoryActionHandlers(...).handleMemoryAction({action:\"core\", op:\"list\"}) (memory-action-handlers.mjs) over real .mixdog/project.id directories"
@@ -9,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 40217,
+      "bytes": 40367,
       "path": "golden.json",
-      "sha256": "88c872ddcf95646d76f784ef3f8f9a82ba76799b21849c4ac1789d832ee1e852"
+      "sha256": "390d14345648bbe9f561381782ab034b7734281f794f83f883b070368d2653b3"
     }
   ],
   "inputs": [
@@ -20,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -50,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-core-management.mjs",
-  "recorderSha256": "4460caf38a01059a27aa7f94c5df49bf47cb27fdf62877e1701c5f10c00aff5d",
-  "replay": "mixdog-services memory: mem/core/list.rs list + format and mem/core/action.rs list with project_paths (project id from each path's .mixdog/project.id), over the same four rows; compares entries, nextOffset, projectScopes, formatted text, error text, the pg_advisory_xact_lock count per call (indexReads) and the ordered statements",
+  "recorderSha256": "0c8024aa12e461523ef28d94ba288ee6a8ae372a8d5f9350792234c86cf49133",
+  "replay": "mixdog-services memory/core/list.rs: pub async fn list (:65) and pub fn format (:144); memory/core/action.rs: pub async fn run (:119) with project_paths. The TUI parser round trip (`roundTrip`) is proven on the Rust side the same way as in memory-core-index. A replay compares entries, nextOffset, projectScopes, formatted text, error text, the pg_advisory_xact_lock count per call and the ordered statements",
   "set": "memory-core-management",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 40217,
-  "uuidsNormalised": "golden.json: 3 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)"
+  "totalBytes": 40367,
+  "uuidsNormalised": "golden.json: 3 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
