@@ -28,11 +28,11 @@
   "recorder": "native/core/crates/mixdog-statefile/src/lock_record.mjs",
   "recorderSha256": "366a97d99e6caa80df65362846392f4ba48c0286c5fca97a799a22db9c8385f8",
   "runtime": {
-    "electron": "43.8.4",
-    "node": "v24.22.1"
+    "electron": null,
+    "node": "v22.20.0"
   },
   "scripts": {
-    "benchmarks/rust-core/recorders/lib/common.mjs": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+    "benchmarks/rust-core/recorders/lib/common.mjs": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
   },
   "set": "shared-file-lock",
   "totalBytes": 4209
