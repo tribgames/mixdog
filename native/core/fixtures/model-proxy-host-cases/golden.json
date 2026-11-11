@@ -7668,9 +7668,12 @@
         "outcome": {
           "rejected": {
             "$exact": "error",
-            "name": "Error",
-            "message": "the provider config deadline: the 30 ms timer to be armed: no answer within 10000 ms",
-            "props": {}
+            "name": "ModelProxyUnavailableError",
+            "message": "model proxy unavailable: the desktop provider request timed out",
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "props": {
+              "name": "ModelProxyUnavailableError"
+            }
           }
         },
         "requestId": "mp_00000000000040008000000000000100",
@@ -7688,19 +7691,14 @@
               "atMs": 0
             }
           ],
-          "fired": [],
-          "pending": [
+          "fired": [
             {
               "api": "setTimeout",
               "ms": 30,
-              "dueMs": 30
-            },
-            {
-              "api": "setTimeout",
-              "ms": 10000,
-              "dueMs": 10000
+              "atMs": 30
             }
-          ]
+          ],
+          "pending": []
         }
       }
     },
@@ -7712,9 +7710,12 @@
         "outcome": {
           "rejected": {
             "$exact": "error",
-            "name": "Error",
-            "message": "the provider config deadline: the 30 ms timer to be armed: no answer within 10000 ms",
-            "props": {}
+            "name": "ModelProxyUnavailableError",
+            "message": "model proxy unavailable: the desktop provider request timed out",
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "props": {
+              "name": "ModelProxyUnavailableError"
+            }
           }
         },
         "requestId": "mp_00000000000040008000000000000101",
@@ -7735,19 +7736,25 @@
               "api": "setTimeout",
               "ms": 20000,
               "atMs": 0
-            }
-          ],
-          "fired": [],
-          "pending": [
-            {
-              "api": "setTimeout",
-              "ms": 30,
-              "dueMs": 30
             },
             {
               "api": "setTimeout",
               "ms": 20000,
-              "dueMs": 20000
+              "atMs": 30
+            }
+          ],
+          "fired": [
+            {
+              "api": "setTimeout",
+              "ms": 30,
+              "atMs": 30
+            }
+          ],
+          "pending": [
+            {
+              "api": "setTimeout",
+              "ms": 20000,
+              "dueMs": 20030
             }
           ]
         }

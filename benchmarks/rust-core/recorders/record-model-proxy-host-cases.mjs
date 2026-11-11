@@ -93,10 +93,12 @@ const send = (channel, name, args = {}) => new ModelProxyProvider(name, {}, chan
 const providerConfigOf = (channel) => channel.request({ provider: '', method: 'providerConfig' });
 /** Waits for the timers the step is known to arm (each the event that says the code is now waiting on it), advances the virtual clock by each, and waits for the promise. */
 async function driven(virtual, label, promise, timersMs) {
+  // the promise was created by the caller, so its first timer may already be armed: the first search starts at the case's first timer
+  let from = 0;
   for (const ms of timersMs) {
-    const from = virtual.armed.length;
     await settled(`${label}: the ${ms} ms timer to be armed`, virtual.whenArmedAfter(from, (t) => t.api === 'setTimeout' && t.ms === ms));
     virtual.advance(ms);
+    from = virtual.armed.length;
   }
   return settled(`${label}: the promise to settle`, promise);
 }async function run(name, fn, extra) {
