@@ -1,0 +1,162 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "the desktop and the runtime agree on the lookup event",
+      "observed": {
+        "desktopEvent": "system-proxy-request",
+        "daemonEvent": "system-proxy-request"
+      }
+    },
+    {
+      "case": "the window answers a lookup with Chromium’s answer for its origin, and failures by name only",
+      "observed": {
+        "requests": [
+          {
+            "id": "r1",
+            "method": "resolveProxy",
+            "args": [
+              "https://api.openai.com"
+            ]
+          },
+          {
+            "id": "r2",
+            "args": [
+              "file:///etc/passwd"
+            ]
+          },
+          {
+            "args": [
+              "https://a.test"
+            ]
+          },
+          {
+            "id": "r3",
+            "args": [
+              "https://b.test"
+            ]
+          }
+        ],
+        "chromiumAnswer": "PROXY proxy.corp:8080",
+        "r3Throws": "PAC http://user:pass@pac.corp/p.pac failed",
+        "chromiumAskedFor": [
+          "https://api.openai.com"
+        ],
+        "settled": [
+          [
+            "r1",
+            true,
+            "PROXY proxy.corp:8080",
+            null
+          ],
+          [
+            "r2",
+            false,
+            null,
+            "TypeError"
+          ],
+          [
+            "r3",
+            false,
+            null,
+            "Error"
+          ]
+        ]
+      }
+    },
+    {
+      "case": "the lease attaches one resolver while any asking client is connected",
+      "observed": {
+        "log": [
+          {
+            "step": "attach(1)",
+            "answer": true,
+            "attachedCount": 1
+          },
+          {
+            "step": "attach(2)",
+            "answer": true,
+            "attachedCount": 1,
+            "attachedIsTheRequestFunction": true
+          },
+          {
+            "step": "release(1)",
+            "detached": 0
+          },
+          {
+            "step": "release(2)",
+            "detached": 1
+          },
+          {
+            "step": "attach(NaN)",
+            "answer": false
+          },
+          {
+            "step": "older daemon without a per-origin resolver: attach(1)",
+            "answer": false
+          }
+        ]
+      }
+    },
+    {
+      "case": "an attached app routes the daemon per origin; when it leaves the fallback applies again",
+      "observed": {
+        "registry": {
+          "proxyEnable": "0x1",
+          "proxyServer": "127.0.0.1:7890",
+          "proxyOverride": "<local>"
+        },
+        "pac": {
+          "api.openai.com": "PROXY proxy.corp:8080",
+          "intranet.corp.example": "DIRECT"
+        },
+        "otherwise": "PROXY other.corp:3128",
+        "chromiumAskedFor": [
+          "https://api.openai.com",
+          "https://intranet.corp.example",
+          "https://api.anthropic.com"
+        ],
+        "log": [
+          {
+            "step": "before attach, registry fallback",
+            "origin": "https://api.openai.com",
+            "route": {
+              "proxy": "http://127.0.0.1:7890"
+            }
+          },
+          {
+            "step": "attached",
+            "origin": "https://api.openai.com",
+            "route": {
+              "proxy": "http://proxy.corp:8080"
+            }
+          },
+          {
+            "step": "attached",
+            "origin": "https://intranet.corp.example",
+            "route": {
+              "proxy": null
+            }
+          },
+          {
+            "step": "attached",
+            "origin": "https://api.anthropic.com",
+            "route": {
+              "proxy": "http://other.corp:3128"
+            }
+          },
+          {
+            "step": "released, fallback again",
+            "origin": "https://intranet.corp.example",
+            "route": {
+              "proxy": "http://127.0.0.1:7890"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
