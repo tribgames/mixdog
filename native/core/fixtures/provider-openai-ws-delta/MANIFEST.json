@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (scripted _acquireWithRetryFn / _sendFrameFn / _streamFn; _agentTraceFn collects the trace rows), openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a real socket.",
+  "entry": "openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (over a real loopback WebSocket; _agentTraceFn collects the trace rows); Not run: the seams of the Node test (:316-318); the real acquire, send and stream run instead, openai-compat-stream.mjs isInvalidToolArgsMarker.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 89026,
+      "bytes": 88416,
       "path": "cases.json",
-      "sha256": "06334b521315669aeda5c0b3baff6788b4ff324ca63dd25e06ae9704d2c39f7c"
+      "sha256": "c473ac9fd504391ed8f8f68e6034f4fcc7a65e16662c0ca77ef15df985064226"
     }
   ],
   "inputs": [
@@ -67,9 +67,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-delta.mjs",
-  "recorderSha256": "8666f7cf7243e8d31a9f69ea2d39a457369c55c05145071f4bbdb0ad0bd7320a",
+  "recorderSha256": "66795265a799af48f323cf3e047982fc77ca44b0640aa88568550f0488da9ffe",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "set": "provider-openai-ws-delta",
-  "totalBytes": 89026,
+  "totalBytes": 88416,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

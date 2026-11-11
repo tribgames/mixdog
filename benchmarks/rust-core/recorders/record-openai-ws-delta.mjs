@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // openai-ws-delta.test.mjs (13 tests): the real WS delta computation (`_computeDelta`), canonical frame builder, tool_search argument
-// parser, mismatch diagnostics, cache observation helpers and `sendViaWebSocket`'s trace rows (over the product's injection points
-// `_acquireWithRetryFn` / `_sendFrameFn` / `_streamFn`: the scripted socket side), with MIXDOG_OAI_TRANSPORT set as the test sets it.
+// parser, mismatch diagnostics, cache observation helpers and `sendViaWebSocket`'s trace rows (the one transport case, :262, goes over a real loopback WebSocket), with MIXDOG_OAI_TRANSPORT set as the test sets it.
 //   node benchmarks/rust-core/recorders/record-openai-ws-delta.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
@@ -9,7 +8,7 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openai-ws-delta',
   net: false,
-  entry: 'openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (scripted _acquireWithRetryFn / _sendFrameFn / _streamFn; _agentTraceFn collects the trace rows), openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a real socket.',
+  entry: 'openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (over a real loopback WebSocket; _agentTraceFn collects the trace rows); Not run: the seams of the Node test (:316-318); the real acquire, send and stream run instead, openai-compat-stream.mjs isInvalidToolArgsMarker.',
   compare: 'mixdog-ai providers::openai delta.rs (:197-298) and decoder.rs:271-287; mixdog-trace builders.rs:765-781 (no production caller: K1 gaps G12): compare `result` whole (frame mode/reason/previous_response_id/input, hashes of the mismatch diagnostics, parsed tool_search args, cache observations). `traceRows` are the rows Node writes; Rust writes none today (diagnostic only).',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
 });
@@ -17,6 +16,7 @@ const P = 'agent/orchestrator/providers/';
 const { isInvalidToolArgsMarker } = await rec.P(`${P}openai-compat-stream.mjs`);
 const { _computeDelta, _buildResponseCreateFrame, _sansInput, _stableStringify } = await rec.P(`${P}openai-ws-delta.mjs`);
 const { _cacheObservationForTest, _cacheContinuityResetReasonForTest, sendViaWebSocket, parseToolSearchArgs } = await rec.P(`${P}openai-oauth-ws.mjs`);
+const world = await rec.wsWorld();
 const SRC = 'scripts/provider-toolcall/openai-ws-delta.test.mjs';
 const withEnv = async (value, fn) => {
   const prev = process.env.MIXDOG_OAI_TRANSPORT;
@@ -79,8 +79,9 @@ await rec.run('diagnostic-hashes-normalize-equivalent-forms', `${SRC}:195`, {}, 
   const b = fn('{"nested":{"a":1,"z":2},"api_key":"function-secret"}');
   return { messageExpected, messageActual, messageHashesEqual: messageExpected.response_output_mismatch_expected_hash === messageActual.response_output_mismatch_actual_hash, functionA: a, functionB: b, functionHashesEqual: a.response_output_mismatch_expected_hash === b.response_output_mismatch_expected_hash };
 }));
-await rec.run('mismatch-diagnostics-reach-trace-rows', `${SRC}:262`, { env: 'ws-delta' }, () => withEnv('ws-delta', async () => {
-  const rows = [];
+// Over a real WebSocket: send 1 learns the response (resp_prev + the expected output item); send 2 replays a different item, so the product itself
+// builds the mismatch diagnostics and writes them to the trace rows. The trace sink (`_agentTraceFn`) is an output hook: its rows are events of the case.
+await rec.run('mismatch-diagnostics-reach-trace-rows', `${SRC}:262`, { env: 'ws-delta', sends: 'two sendViaWebSocket calls per item type on one pool key, a real loopback WebSocket' }, () => withEnv('ws-delta', async () => {
   const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
   const cases = [
     { expected: { type: 'function_call', call_id: 'call_expected', name: 'tool', arguments: '{"api_key":"provider-function-secret","nested":{"z":2,"a":1}}' }, actual: { type: 'function_call', call_id: 'call_actual', name: 'tool', arguments: '{"nested":{"a":1,"z":2},"api_key":"replayed-function-secret"}' } },
@@ -88,21 +89,29 @@ await rec.run('mismatch-diagnostics-reach-trace-rows', `${SRC}:262`, { env: 'ws-
   ];
   const sends = [];
   for (const { expected, actual } of cases) {
-    const body = { model: 'gpt-5.5', input: [prior, actual] };
-    const entry = { socket: { close() {} }, lastRequestSansInput: _stableStringify(_sansInput(body)), lastResponseId: 'resp_prev', lastRequestInput: [prior], lastResponseItems: [expected] };
-    const expectedDiagnostics = _computeDelta({ entry, body }).responseOutputMismatch;
-    const before = rows.length;
-    await sendViaWebSocket({
-      auth: { type: 'xai', access_token: 'test-token' }, body, poolKey: `mismatch-trace-${expected.type}`, cacheKey: 'mismatch-trace-test', iteration: 1, useModel: 'gpt-5.5', traceProvider: 'xai',
-      _acquireWithRetryFn: async () => ({ entry, reused: false }), _sendFrameFn: async () => {},
-      _streamFn: async () => ({ content: 'ok', model: 'gpt-5.5', toolCalls: [], usage: {}, responseId: 'resp_next', responseItems: [], closeSocket: true }),
-      _agentTraceFn: (row) => rows.push(row),
-    });
-    const emitted = rows.slice(before);
-    sends.push({ type: expected.type, expectedDiagnostics, emittedRows: emitted, emittedPayloadsEqualDiagnostics: emitted.map((row) => Object.keys(expectedDiagnostics).every((k) => row.payload[k] === expectedDiagnostics[k])) });
+    const answers = [
+      [{ type: 'response.created', response: { id: 'resp_prev', model: 'gpt-5.5' } }, { type: 'response.completed', response: { id: 'resp_prev', model: 'gpt-5.5', output: [expected], usage: { input_tokens: 1, output_tokens: 1 } } }],
+      [{ type: 'response.created', response: { id: 'resp_next', model: 'gpt-5.5' } }, { type: 'response.completed', response: { id: 'resp_next', model: 'gpt-5.5', output: [], usage: { input_tokens: 1, output_tokens: 1 } } }],
+    ];
+    world.reset({ onFrame: (conn, _frame, n) => { for (const frame of answers[n - 1]) conn.send(frame); } });
+    const rows = [];
+    const send = async (body, phase) => {
+      world.note({ event: 'send-start', phase, type: expected.type });
+      const out = await sendViaWebSocket({
+        auth: { type: 'xai', access_token: 'test-token' }, body, poolKey: `mismatch-trace-${expected.type}`, cacheKey: 'mismatch-trace-test', iteration: 1, useModel: 'gpt-5.5', traceProvider: 'xai',
+        _agentTraceFn: (row) => { rows.push(row); world.note({ event: 'trace-row', row }); },
+      });
+      world.note({ event: 'send-result', phase, content: out.content, responseId: out.responseId ?? null });
+      return out;
+    };
+    await send({ model: 'gpt-5.5', input: [prior] }, 'learn');
+    await send({ model: 'gpt-5.5', input: [prior, actual] }, 'replay-with-mismatch');
+    sends.push({ type: expected.type, events: world.trace.map((e) => ({ ...e })) });
+    for (const conn of world.conns) conn.close(1000, 'recorder-end');
+    await world.until((trace) => trace.some((e) => e.event === 'closed'), 'socket closed');
   }
-  const traceText = JSON.stringify(rows);
-  return { sends, rows, secretsInTrace: ['provider-function-secret', 'replayed-function-secret', 'provider-custom-input-secret', 'replayed-custom-input-secret'].map((s) => [s, traceText.includes(s)]) };
+  const text = JSON.stringify(sends.map((s) => s.events.filter((e) => e.event === 'trace-row')));
+  return { sends, secretsInTrace: ['provider-function-secret', 'replayed-function-secret', 'provider-custom-input-secret', 'replayed-custom-input-secret'].map((s) => [s, text.includes(s)]) };
 }));
 await rec.run('native-tool-search-output-replays-canonically', `${SRC}:351`, { env: 'ws-delta' }, () => withEnv('ws-delta', () => {
   const baseTools = [{ type: 'tool_search', execution: 'client', description: 'load tools', parameters: { type: 'object', properties: {} } }];
