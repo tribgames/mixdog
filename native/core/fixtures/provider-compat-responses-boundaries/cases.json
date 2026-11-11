@@ -1,0 +1,1470 @@
+{
+  "set": "provider-compat-responses-boundaries",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "no-replay-after-onStreamDelta-reaches-caller",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:14",
+      "input": {
+        "callback": "onStreamDelta"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "received": [
+          "text"
+        ],
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "no-replay-after-onTextDelta-reaches-caller",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:14",
+      "input": {
+        "callback": "onTextDelta"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "received": [
+          {
+            "id": "call-1",
+            "text": "already delivered"
+          }
+        ],
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "no-replay-after-onToolCall-reaches-caller",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:14",
+      "input": {
+        "callback": "onToolCall"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "received": [
+          {
+            "id": "call-1",
+            "text": "already delivered"
+          }
+        ],
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "pre-output-rejection-after-transport-progress-replays",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:46",
+      "input": {
+        "kind": "transport"
+      },
+      "result": {
+        "result": {
+          "content": "ok"
+        },
+        "attempts": 2,
+        "received": [
+          [
+            "transport",
+            {
+              "connected": true
+            }
+          ],
+          [
+            "text"
+          ]
+        ],
+        "retryOpts": [
+          {
+            "effortConfigurationEnabled": false,
+            "effort": "high"
+          }
+        ],
+        "modeAfter": null
+      }
+    },
+    {
+      "id": "pre-output-rejection-after-semantic-progress-replays",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:46",
+      "input": {
+        "kind": "semantic"
+      },
+      "result": {
+        "result": {
+          "content": "ok"
+        },
+        "attempts": 2,
+        "received": [
+          [
+            "semantic",
+            {
+              "connected": true
+            }
+          ],
+          [
+            "text"
+          ]
+        ],
+        "retryOpts": [
+          {
+            "effortConfigurationEnabled": false,
+            "effort": "high"
+          }
+        ],
+        "modeAfter": null
+      }
+    },
+    {
+      "id": "pre-output-rejection-after-ack-progress-replays",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:46",
+      "input": {
+        "kind": "ack"
+      },
+      "result": {
+        "result": {
+          "content": "ok"
+        },
+        "attempts": 2,
+        "received": [
+          [
+            "ack",
+            {
+              "connected": true
+            }
+          ],
+          [
+            "text"
+          ]
+        ],
+        "retryOpts": [
+          {
+            "effortConfigurationEnabled": false,
+            "effort": "high"
+          }
+        ],
+        "modeAfter": null
+      }
+    },
+    {
+      "id": "no-replay-after-visible-reasoning-progress",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:73",
+      "input": {
+        "kind": "reasoning"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses",
+        "visible": true
+      }
+    },
+    {
+      "id": "no-replay-after-visible-tool-progress",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:73",
+      "input": {
+        "kind": "tool"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses",
+        "visible": true
+      }
+    },
+    {
+      "id": "respects-liveTextEmitted-without-caller-callback",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:91",
+      "input": {
+        "flag": "liveTextEmitted"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400,
+          "liveTextEmitted": true
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "respects-emittedToolCall-without-caller-callback",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:91",
+      "input": {
+        "flag": "emittedToolCall"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400,
+          "emittedToolCall": true
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "respects-unsafeToRetry-without-caller-callback",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:91",
+      "input": {
+        "flag": "unsafeToRetry"
+      },
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400,
+          "unsafeToRetry": true
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "no-retry-or-memory-after-cancellation",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:107",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "explicitly-disabled-update-not-retried-or-remembered",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:124",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 1,
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "pre-output-rejection-retries-once-with-current-effort",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:140",
+      "input": {},
+      "result": {
+        "result": {
+          "content": "ok"
+        },
+        "attempts": [
+          {
+            "effort": "high"
+          },
+          {
+            "effort": "high",
+            "effortConfigurationEnabled": false,
+            "retryFlag": true
+          }
+        ],
+        "received": [
+          "ok"
+        ],
+        "modeAfter": null
+      }
+    },
+    {
+      "id": "failed-replay-never-replayed-third-time",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:162",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "Unsupported input item type: configuration_update",
+          "status": 400
+        },
+        "errorIsTheOriginal": true,
+        "attempts": 2
+      }
+    },
+    {
+      "id": "provider-opt-out-with-old-update-history",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:242",
+      "input": {},
+      "result": {
+        "updatesBeforeOptOut": 1,
+        "modeAfterOptOut": "custom",
+        "request": {
+          "body": {
+            "model": "openai/gpt-6.1-sol",
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "low"
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "high"
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "medium"
+                  }
+                ]
+              }
+            ],
+            "store": false,
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "stream": true,
+            "reasoning": {
+              "effort": "medium"
+            },
+            "prompt_cache_key": "boundary-session"
+          },
+          "headers": {
+            "session-id": "boundary-session",
+            "x-client-request-id": "boundary-session"
+          }
+        },
+        "messagesUnchanged": true,
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": {
+              "session-id": "boundary-session",
+              "x-client-request-id": "boundary-session"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": {
+              "session-id": "boundary-session",
+              "x-client-request-id": "boundary-session"
+            }
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "medium"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "medium"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": {
+              "session-id": "boundary-session",
+              "x-client-request-id": "boundary-session"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "per-request-override-either-direction",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:261",
+      "input": {},
+      "result": {
+        "first": {
+          "body": {
+            "model": "openai/gpt-6.1-sol",
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "low"
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "high"
+                  }
+                ]
+              }
+            ],
+            "store": false,
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "stream": true,
+            "reasoning": {
+              "effort": "H"
+            },
+            "prompt_cache_key": "boundary-session"
+          },
+          "headers": {
+            "session-id": "boundary-session",
+            "x-client-request-id": "boundary-session"
+          }
+        },
+        "second": {
+          "body": {
+            "model": "openai/gpt-6.1-sol",
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "low"
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              },
+              {
+                "type": "configuration_update",
+                "reasoning": {
+                  "effort": "H"
+                }
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "high"
+                  }
+                ]
+              }
+            ],
+            "store": false,
+            "include": [
+              "reasoning.encrypted_content"
+            ],
+            "stream": true,
+            "reasoning": {
+              "effort": "low"
+            },
+            "prompt_cache_key": "boundary-session"
+          },
+          "headers": {
+            "session-id": "boundary-session",
+            "x-client-request-id": "boundary-session"
+          }
+        }
+      }
+    },
+    {
+      "id": "update-rejection-replays-once-through-stream:http-400-before-stream-opens",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:409",
+      "input": {
+        "shape": "http-400-before-stream-opens"
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "openai/gpt-6.1-sol",
+          "stopReason": null,
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-boundary-e2e-retry-http-400-before-stream-opens",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "response-2",
+              "store": false,
+              "owner": "compat-responses:custom-boundary-e2e-retry-http-400-before-stream-opens",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 3,
+              "model": "openai/gpt-6.1-sol",
+              "updatedAt": 1794225600000
+            }
+          }
+        },
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": [
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ]
+            ]
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "H"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": [
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ]
+            ]
+          }
+        ],
+        "progress": [
+          [
+            2,
+            "transport"
+          ],
+          [
+            2,
+            "transport"
+          ],
+          [
+            2,
+            "text"
+          ]
+        ],
+        "visibleBeforeReplay": [],
+        "modeAfter": null
+      }
+    },
+    {
+      "id": "update-rejection-replays-once-through-stream:response-failed-after-created-ack",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:409",
+      "input": {
+        "shape": "response-failed-after-created-ack"
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "openai/gpt-6.1-sol",
+          "stopReason": null,
+          "providerReplay": {
+            "version": 1,
+            "provider": "compat-responses:custom-boundary-e2e-retry-response-failed-after-created-ack",
+            "items": [
+              {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "ok"
+                  }
+                ]
+              }
+            ]
+          },
+          "providerState": {
+            "compatResponses": {
+              "previousResponseId": null,
+              "responseId": "response-2",
+              "store": false,
+              "owner": "compat-responses:custom-boundary-e2e-retry-response-failed-after-created-ack",
+              "encryptedReasoningItems": [],
+              "encryptedReasoningHistory": [],
+              "seenMessageCount": 3,
+              "model": "openai/gpt-6.1-sol",
+              "updatedAt": 1794225600000
+            }
+          }
+        },
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": [
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ]
+            ]
+          },
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "H"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": [
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ]
+            ]
+          }
+        ],
+        "progress": [
+          [
+            1,
+            "transport"
+          ],
+          [
+            1,
+            "transport"
+          ],
+          [
+            1,
+            "transport"
+          ],
+          [
+            1,
+            "transport"
+          ],
+          [
+            2,
+            "transport"
+          ],
+          [
+            2,
+            "transport"
+          ],
+          [
+            2,
+            "text"
+          ]
+        ],
+        "visibleBeforeReplay": [],
+        "modeAfter": null
+      }
+    },
+    {
+      "id": "visible-output-then-rejection-not-replayed",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:432",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "custom-boundary-e2e-visible:responses stream response.failed: Unsupported input item type: configuration_update",
+          "httpStatus": 400,
+          "providerErrorCode": "invalid_request_error",
+          "providerError": {
+            "status": 400,
+            "code": "invalid_request_error",
+            "message": "Unsupported input item type: configuration_update"
+          },
+          "providerWireError": true,
+          "status": 400,
+          "code": "invalid_request_error",
+          "partialContent": "partial",
+          "pendingToolUse": false,
+          "partialModel": "openai/gpt-6.1-sol",
+          "liveTextEmitted": true,
+          "unsafeToRetry": true,
+          "streamOutcome": {
+            "version": 1,
+            "provider": "openai-compat-responses",
+            "transport": "sse",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": true,
+            "textObservedChars": 7,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": true,
+            "observedOutput": true,
+            "sideEffectDispatched": false,
+            "replayUnsafe": true,
+            "replaySafe": false,
+            "successEligible": false
+          },
+          "emittedText": true
+        },
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": [
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ]
+            ]
+          }
+        ],
+        "text": [
+          "partial"
+        ],
+        "modeAfter": "responses"
+      }
+    },
+    {
+      "id": "rejection-after-cancellation-not-replayed",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-responses-boundaries.test.mjs:450",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        },
+        "requests": [
+          {
+            "body": {
+              "model": "openai/gpt-6.1-sol",
+              "input": [
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "low"
+                    }
+                  ]
+                },
+                {
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                },
+                {
+                  "type": "configuration_update",
+                  "reasoning": {
+                    "effort": "H"
+                  }
+                },
+                {
+                  "role": "user",
+                  "content": [
+                    {
+                      "type": "input_text",
+                      "text": "high"
+                    }
+                  ]
+                }
+              ],
+              "store": false,
+              "include": [
+                "reasoning.encrypted_content"
+              ],
+              "stream": true,
+              "reasoning": {
+                "effort": "low"
+              },
+              "prompt_cache_key": "boundary-session"
+            },
+            "headers": [
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "authorization",
+                "Bearer test-only"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "session-id",
+                "boundary-session"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-client-request-id",
+                "boundary-session"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ]
+            ]
+          }
+        ],
+        "modeAfter": "responses"
+      }
+    }
+  ]
+}
