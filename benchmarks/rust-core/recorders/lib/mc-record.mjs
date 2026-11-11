@@ -7,6 +7,28 @@ import { recorderProvenance } from './provenance.mjs';
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 export { importFrom, within };
 
+/** JSON-safe copy of a value: what JSON cannot hold is written as a tagged object (NaN, infinities, undefined, bigint, Set, Map). */
+export function plain(value) {
+  if (value === undefined) return { $undefined: true };
+  if (typeof value === 'number' && !Number.isFinite(value)) return { $number: String(value) };
+  if (typeof value === 'number' && Object.is(value, -0)) return { $number: '-0' };
+  if (typeof value === 'bigint') return { $bigint: String(value) };
+  if (value instanceof Set) return { $set: [...value].map(plain) };
+  if (value instanceof Map) return { $map: [...value].map(([k, v]) => [plain(k), plain(v)]) };
+  if (Array.isArray(value)) return value.map(plain);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)]));
+  return value;
+}
+
+/** Runs `fn`: `{ result }` or `{ error: { name, message, code } }`, the product's own error text. */
+export async function capture(fn) {
+  try {
+    return { result: plain(await fn()) };
+  } catch (error) {
+    return { error: { name: error?.name ?? null, message: String(error?.message ?? error), code: error?.code ?? null } };
+  }
+}
+
 /** The tree under test (must be exactly NODE_COMMIT) and its identity. */
 export function begin() {
   const tree = resolveTree(parseArgs());
