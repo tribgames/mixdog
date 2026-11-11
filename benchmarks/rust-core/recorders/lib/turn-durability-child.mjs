@@ -150,7 +150,16 @@ const textOf = (content) => (typeof content === 'string' ? content : (content ??
 function queueFlow(id) {
   const state = { busy: false, commandBusy: false, queued: [], items: [], promptHistoryList: [], stats: { turns: 0, inputTokens: 0, outputTokens: 0 } };
   const flags = { leadTurnEpoch: 0 };
-  const pending = [];
+  // Told on every change of what `idle` waits on: the busy flag (`set`) and the queue's length (a push or splice ends in its
+  // `length` write).
+  let changed = () => {};
+  const pending = new Proxy([], {
+    set(target, key, value) {
+      target[key] = value;
+      if (key === 'length') changed();
+      return true;
+    },
+  });
   let sequence = 0;
   const { askCallbacks, plannedToolCalls } = createAskCallbacks({
     transcript: { appendAssistantText() {} },
@@ -178,9 +187,17 @@ function queueFlow(id) {
     pending,
     pendingNotificationKeys: new Set(),
     getState: () => state,
-    set: (patch) => Object.assign(state, patch),
+    set: (patch) => {
+      Object.assign(state, patch);
+      changed();
+      return state;
+    },
     nextId: () => `${id}-item-${++sequence}`,
-    appendItems: (items, extra) => Object.assign(state, { items: [...state.items, ...items] }, extra),
+    appendItems: (items, extra) => {
+      Object.assign(state, { items: [...state.items, ...items] }, extra);
+      changed();
+      return state;
+    },
     pushItem: (item) => state.items.push(item),
     pushUserOrSyntheticItem: (text, itemId, kind, extra) => state.items.push({ text, id: itemId, kind, ...extra }),
     patchItem: (itemId, patch) => Object.assign(state.items.find((item) => item.id === itemId) || {}, patch),
@@ -204,8 +221,21 @@ function queueFlow(id) {
     },
     // Settled: no turn runs and nothing is queued.
     async idle() {
-      for (let i = 0; i < 10_000 && (state.busy || pending.length); i += 1) await new Promise((resolve) => setImmediate(resolve));
-      if (state.busy || pending.length) throw new Error(`${caseName}: the drain did not settle`);
+      const settled = () => !state.busy && !pending.length;
+      if (!settled()) {
+        await new Promise((resolve, reject) => {
+          const deadline = setTimeout(() => {
+            changed = () => {};
+            reject(new Error(`${caseName}: the turn did not end and the queue did not empty within 60 s (busy ${state.busy}, queued ${pending.length})`));
+          }, 60_000);
+          changed = () => {
+            if (!settled()) return;
+            clearTimeout(deadline);
+            changed = () => {};
+            resolve();
+          };
+        });
+      }
       await settleTurnCheckpointWrites(id);
       await flushTuiSteeringPersist();
     },
@@ -248,14 +278,18 @@ const USAGE_BOOKS = [
   'lastUncachedInputTokens', 'lastContextTokens', 'usageMetricsTurnId', 'reasoningUsage', 'lastIterationIndex',
 ];
 const headerOf = (record) => (record ? Object.fromEntries(USAGE_BOOKS.map((key) => [key, record[key] ?? null])) : null);
+// The turn checkpoint on disk now: null when none, else its seal and the turn's messages it copies.
+const checkpointOf = (id) => {
+  const checkpoint = readTurnCheckpoint(id);
+  return checkpoint ? { sealed: checkpoint.sealed === true, turnMessages: checkpoint.turnMessages.length } : null;
+};
 async function observe(id) {
   const disk = readDurableSessionRecord(id);
   const view = await projectStoredTranscript(id, disk, { includeMessages: true, itemLimit: 100 });
-  const checkpoint = readTurnCheckpoint(id);
   return {
     view: { messages: view.messages ?? null, items: view.items ?? null },
     disk: { messages: readDurableSessionRecord(id)?.messages ?? null, usage: headerOf(readDurableSessionRecord(id)) },
-    checkpoint: checkpoint ? { sealed: checkpoint.sealed === true, turnMessages: checkpoint.turnMessages.length } : null,
+    checkpoint: checkpointOf(id),
     stage: getSessionProgressSnapshot(id)?.stage ?? null,
   };
 }
@@ -312,9 +346,10 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
   });
   const id = session.id;
   writeFileSync(idFile, id);
-  const settleThenKill = async () => {
+  // `extra` is read once the checkpoint's writes have settled, so it shows what is on disk at the kill.
+  const settleThenKill = async (extra = () => ({})) => {
     await settleTurnCheckpointWrites(id);
-    step({ step: 'killed', sends, ...(caseName === 'crash-sensitive' ? { secretFiles: secretFiles() } : {}) });
+    step({ step: 'killed', sends, ...(caseName === 'crash-sensitive' ? { secretFiles: secretFiles() } : {}), ...extra() });
     kill();
   };
   if (caseName === 'save-failure') {
@@ -487,7 +522,8 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
       });
       // The checkpoint's streaming flush is due 150 ms after the previous one.
       advance(150);
-      await settleThenKill();
+      // The draft written, the run not ended: the checkpoint is on disk.
+      await settleThenKill(() => ({ checkpoint: checkpointOf(id) }));
     };
   } else if (caseName === 'crash-sensitive') {
     // A value streams and is checkpointed, then is marked sensitive (a browser fill); the next flush rewrites the checkpoint
@@ -496,10 +532,12 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
       scoped(() => opts.onTextDelta?.(`the code is ${SECRET}, `));
       advance(150);
       await settleTurnCheckpointWrites(id);
+      // Before the mark the value is in the checkpoint on disk: what makes "no file holds it" after the mark a claim.
+      const secretFilesBeforeMark = secretFiles();
       rememberSensitiveValues(id, [{ name: 'browser', arguments: { action: 'fill', input: { ref: 'p1-s1-e3', text: SECRET, sensitive: true } } }]);
       scoped(() => opts.onTextDelta?.('entered.'));
       advance(150);
-      await settleThenKill();
+      await settleThenKill(() => ({ secretFilesBeforeMark }));
     };
   } else if (caseName === 'crash-tool-wire') {
     // A tool round is done and the follow-up request is on the wire.
@@ -542,7 +580,9 @@ await _withRegisteredProviderForTestAsync('durability-stub', provider, async () 
     };
     const synced = () => {
       if (!covered) return;
-      step({ step: 'killed', sends });
+      // The end is durable, the checkpoint not yet removed: it is still on disk. Only that it is there is recorded: its seal
+      // and message count depend on how far its async journal had flushed (two recordings differed).
+      step({ step: 'killed', sends, checkpointPresent: checkpointOf(id) !== null });
       kill();
     };
     const realSync = sessionLogIo.fsyncSync;

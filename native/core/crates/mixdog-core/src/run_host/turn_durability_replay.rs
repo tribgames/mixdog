@@ -460,7 +460,12 @@ fn draft_hook(step: DraftStep, _rid: &str, body: Option<&Value>) -> std::io::Res
         // The finished message and its seal were not written: what streamed of it is the draft's.
         DraftStep::Append | DraftStep::Replace if case == "crash-answer-streamed" && sealed => kill(&format!("draft {step:?}")),
         // The value is in the draft: the turn's driver marks it (`crash_child`).
-        DraftStep::Appended if case == "crash-sensitive" && text.contains(SECRET) => SECRET_DRAFTED.notify_one(),
+        DraftStep::Appended if case == "crash-sensitive" && text.contains(SECRET) => {
+            // The value is in the draft file just written: whether a file holds it before the mark.
+            let (_, dir) = CASE.get().expect("a crash child");
+            std::fs::write(dir.join("secret-before"), secret_on_disk(&dir.join("data")).to_string()).unwrap();
+            SECRET_DRAFTED.notify_one();
+        }
         // What streamed after the mark is in the redacted draft: the process dies.
         DraftStep::Appended | DraftStep::Replaced if case == "crash-sensitive" && text.contains("entered.") => kill(&format!("draft {step:?}")),
         DraftStep::Appended => {
@@ -539,7 +544,9 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
 /// The process dies where Node's was killed, after writing how many requests it sent.
 fn kill(at: &str) -> ! {
     let (case, dir) = CASE.get().expect("a crash child");
-    std::fs::write(dir.join("secret"), secret_on_disk(&dir.join("data")).to_string()).unwrap();
+    // Only `crash-sensitive` compares it; the other cases kill on a write, with the log's file locked against this read.
+    let held = case == "crash-sensitive" && secret_on_disk(&dir.join("data"));
+    std::fs::write(dir.join("secret"), held.to_string()).unwrap();
     std::fs::write(dir.join("sends"), SENDS.load(Ordering::SeqCst).to_string()).unwrap();
     eprintln!("[turn-durability] {case}: killed at {at}");
     kill_self()
@@ -550,6 +557,10 @@ fn kill(at: &str) -> ! {
 fn kill_self() -> ! {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        // A process the product started (a `git` of its workspace reads) outlives a killed parent on Windows; ending the tree
+        // by this process's id leaves nothing behind the run (the files the kill is observed through are written already).
+        let _ = std::process::Command::new("taskkill").args(["/F", "/T", "/PID", &std::process::id().to_string()]).creation_flags(0x0800_0000).status();
         use windows_sys::Win32::System::Threading::GetCurrentProcess;
         use windows_sys::Win32::System::Threading::TerminateProcess;
         // SAFETY: the pseudo-handle of this process is always valid.
@@ -750,6 +761,11 @@ static DATA_DIR: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
 /// Node's `checkpoint` as Rust keeps it: thread `id`'s run drafts under the data dir (`null` for none), `sealed` when one holds
 /// the turn's final reply (the checkpoint's seal).
 fn checkpoint_of(id: &str) -> Value {
+    checkpoint_in(&lock(&DATA_DIR).clone().expect("a store is open"), id)
+}
+
+/// [`checkpoint_of`] for the data dir `data`: what a dead process left on disk.
+fn checkpoint_in(data: &Path, id: &str) -> Value {
     fn drafts(dir: &Path, id: &str, out: &mut Vec<Value>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -762,9 +778,8 @@ fn checkpoint_of(id: &str) -> Value {
             }
         }
     }
-    let data = lock(&DATA_DIR).clone().expect("a store is open");
     let mut bodies = Vec::new();
-    drafts(&data, id, &mut bodies);
+    drafts(data, id, &mut bodies);
     if bodies.is_empty() {
         return Value::Null;
     }
@@ -863,6 +878,8 @@ fn rust_rows(items: &Value) -> Vec<Value> {
                     put("text", item.get("displayText").cloned());
                     put("messageId", pick(item, &["/meta/messageId", "/meta/ext/messageId"]));
                     put("at", pick(item, &["/meta/at", "/meta/ext/at"]));
+                    // `userMessageRow` (`rows.ts`): a steering message (`details.source`) is the row `steered`.
+                    put("steered", item.pointer("/details/steered").filter(|steered| *steered == &json!(true)).cloned());
                     for key in ["modelId", "model", "provider"] {
                         put(key, pick(item, &[&format!("/meta/{key}"), &format!("/meta/ext/{key}")]));
                     }
@@ -1006,6 +1023,61 @@ fn rust_step(view: &Value) -> Value {
     out
 }
 
+/// A queue case's step without what the two sides do not share (each is declared in the manifest's exclusions):
+/// - the submission's stamps: Node's `checkpointId` is Rust's `clientSubmissionId`, and Rust's rows and stored meta also
+///   carry model, modelId and provider, which Node's TUI queue flow stamps on none (outside this change);
+/// - at `queued` and `taken`, the owning process's live view: Node's turn is busy with a checkpoint from its start while
+///   Rust's draft file starts with the first chunk and its `runtime.busy` follows (open, blocker-d.md); Node's stored disk
+///   lags the running turn (its checkpoint holds the turn), Rust's log holds it as it goes;
+/// - `repeats_answer`: Node's recovery of a request killed while it took the queue appends the answer a second time, after the
+///   steered rows (its checkpoint re-played over a log that already held it); Rust shows it once.
+fn queue_comparable(step: &mut Value, label: &str, repeats_answer: bool) {
+    let live = label == "queued" || label == "taken";
+    for row in step["rows"].as_array_mut().unwrap() {
+        for key in ["checkpointId", "model", "modelId", "provider"] {
+            row.as_object_mut().unwrap().shift_remove(key);
+        }
+    }
+    for message in step["disk"].as_array_mut().unwrap() {
+        if let Some(transcript) = message.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
+            for key in ["checkpointId", "clientSubmissionId", "model", "modelId", "provider"] {
+                transcript.shift_remove(key);
+            }
+            if let Some(completion) = transcript.get_mut("completion").and_then(Value::as_object_mut) {
+                completion.shift_remove("checkpointId");
+            }
+        }
+    }
+    if live {
+        let step = step.as_object_mut().unwrap();
+        step.shift_remove("busy");
+        step.shift_remove("checkpoint");
+    }
+    if label == "taken" {
+        step["disk"] = json!([]);
+    }
+    // The turn this process ran after the restart: Node shows its live end row, which names no message (as `same` drops it).
+    if label == "drained" {
+        for row in step["rows"].as_array_mut().unwrap().iter_mut().filter(|row| row["kind"] == "turndone") {
+            row.as_object_mut().unwrap().shift_remove("messageId");
+        }
+    }
+    if repeats_answer && (label == "reopened" || label == "drained") {
+        for key in ["rows", "disk"] {
+            let mut seen: Vec<Value> = Vec::new();
+            step[key].as_array_mut().unwrap().retain(|entry| {
+                let answer = entry["kind"] == "assistant" || entry["role"] == "assistant";
+                let said = entry.get("text").or_else(|| entry.get("content")).cloned().unwrap_or(Value::Null);
+                let again = answer && seen.contains(&said);
+                if answer {
+                    seen.push(said);
+                }
+                !again
+            });
+        }
+    }
+}
+
 fn same(case: &str, step: &Value, got: Value) {
     let mut want = node_step(step);
     // In the process that ran the turn, Node shows its live end row (`turnDoneItem`, `tui/session/turn.mjs:577`), which names
@@ -1018,6 +1090,11 @@ fn same(case: &str, step: &Value, got: Value) {
                 row.as_object_mut().unwrap().shift_remove("messageId");
             }
         }
+    }
+    let mut got = got;
+    if case.starts_with("crash-queued-") {
+        queue_comparable(&mut got, label, false);
+        queue_comparable(&mut want, label, case == "crash-queued-while-take");
     }
     if got != want {
         let diff = format!("{case} / {}:\n got {}\nwant {}", step["step"], serde_json::to_string(&got).unwrap(), serde_json::to_string(&want).unwrap());
@@ -1239,7 +1316,6 @@ async fn crashes_replay_as_node_recovers() {
 /// The queue cases: prompts queued while a turn's request is on the wire, killed before the turn takes them, while the request
 /// that took them is on the wire, and after it answered (the draft file removed).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "the desktop queue's delivery shape (Node's TUI steers each prompt, the core merges them) awaits the decision in D:\\mixdog-build\\tmp\\w12\\blocker-d.md"]
 async fn queued_prompts_replay_as_node_keeps_them_across_a_kill() {
     crash_replays(|name| name.starts_with("crash-queued-")).await;
 }
@@ -1286,6 +1362,23 @@ async fn crash_replays(wanted: fn(&str) -> bool) {
         let at_kill: bool = std::fs::read_to_string(dir.path().join("secret")).unwrap().parse().unwrap();
         if let Some(want) = secret(&steps[killed]) {
             assert_eq!(at_kill, want, "{name}: a file holds the value at the kill");
+        }
+        // Before the mark the value was in the draft file (so the redaction is what removed it).
+        if let Some(files) = steps[killed].get("secretFilesBeforeMark") {
+            let before: bool = std::fs::read_to_string(dir.path().join("secret-before")).unwrap().parse().unwrap();
+            assert_eq!(before, !files.as_array().unwrap().is_empty(), "{name}: a file holds the value before the mark");
+        }
+        // The draft file the dead process left, which the next open recovers from: present while the run is not ended, and
+        // also when its end is durable and the file not yet removed (`crash-mid-stream`, `crash-saved-uncleared`).
+        let id = std::fs::read_to_string(dir.path().join("id")).unwrap();
+        let left = checkpoint_in(&dir.path().join("data"), &id);
+        if let Some(want) = steps[killed].get("checkpoint") {
+            let want = if want.is_null() { Value::Null } else { json!({ "sealed": want["sealed"] }) };
+            assert_eq!(left, want, "{name}: the draft file left at the kill");
+        }
+        // `crash-saved-uncleared`: only that the file is left is recorded (its seal depends on Node's async journal flush).
+        if let Some(present) = steps[killed].get("checkpointPresent") {
+            assert_eq!(!left.is_null(), present.as_bool().unwrap(), "{name}: the draft file left at the kill");
         }
         if queued {
             let (reopened, drained) = reopen_queued(dir.path()).await;
