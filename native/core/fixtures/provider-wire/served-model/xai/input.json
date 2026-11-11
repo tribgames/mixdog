@@ -1,0 +1,33 @@
+{
+  "provider": "xai",
+  "config": {
+    "apiKey": "fixture-key",
+    "preconnect": false,
+    "apiMode": "chat"
+  },
+  "clientVersion": "1.4.5",
+  "model": "grok-4",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "sessionId": "fixture-session"
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}
