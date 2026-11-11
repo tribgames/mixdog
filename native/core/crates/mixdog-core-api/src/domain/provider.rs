@@ -999,6 +999,9 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
+    /// The wire's finish reason of a turn that ended on one other than a clean stop (Node `finishReason` of a
+    /// `ProviderIncompleteError`), as sent; `None` for every other failure.
+    pub finish_reason: Option<Box<str>>,
 }
 
 impl ProviderError {
@@ -1026,6 +1029,7 @@ impl ProviderError {
             timed_out: false,
             quota_limit: None,
             notices: Vec::new(),
+            finish_reason: None,
         }
     }
 

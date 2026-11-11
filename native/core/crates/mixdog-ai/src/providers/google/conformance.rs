@@ -1024,9 +1024,9 @@ fn no_content_timer_exists_in_the_provider_sources() {
 }
 
 #[test]
-fn error_text_is_never_matched() {
-    // Classification reads typed fields; the same wording under different
-    // typed fields classifies differently.
+fn error_wording_sets_only_the_codes_node_reads_it_for() {
+    // The kind is read from typed fields; wording counts only where Node's `antigravityError` reads it (capacity or
+    // rate-limit wording on an untyped 429), never for a context overflow.
     let codec = GoogleCodec::antigravity(ENDPOINT, "p", "2.19.1", traits());
     let classify = |status, message: &str| {
         codec
@@ -1037,7 +1037,7 @@ fn error_text_is_never_matched() {
             })
             .kind
     };
-    assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::RateLimited);
+    assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::Overloaded);
     assert_eq!(classify(400, "prompt is too long, maximum context length exceeded"), ErrorKind::InvalidRequest);
 }
 

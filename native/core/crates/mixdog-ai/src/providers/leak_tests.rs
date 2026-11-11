@@ -221,7 +221,7 @@ fn the_gemini_decoder_replays_node_s_leaked_calls() {
             owner: ProviderId::from("gemini"),
             envelope: false,
             usage: UsageStyle::Inclusive,
-            errors: ErrorDialect { capacity_by_status: false },
+            errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
         })
         .with_known_tools(known(&scenario));
         let steps = run(&mut decoder, &scenario, gemini_unit);

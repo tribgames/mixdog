@@ -412,11 +412,10 @@ impl CreateJob {
         let response = self.http.send(self.post.clone(), CACHE_CREATE).await?;
         if !response.is_success() {
             let rejected = response.read_all().await?;
-            let mut error = classify(&rejected, ErrorDialect { capacity_by_status: false });
-            // `geminiRestError`'s message, which the create's catch writes to stderr.
-            let text = String::from_utf8_lossy(&rejected.body);
-            error.message = format!("Gemini cachedContents.create {}: {}", rejected.status.unwrap_or(0), mixdog_js::slice_utf16(&text, 300));
-            return Err(error);
+            // `geminiRestError(res, text, 'Gemini cachedContents.create')`, whose message the create's catch writes to
+            // stderr.
+            let now = std::time::UNIX_EPOCH + std::time::Duration::from_millis(self.runtime.now_ms());
+            return Err(classify(&rejected, &ErrorDialect::gemini("Gemini cachedContents.create"), now));
         }
         let (read, connection) = response.read_all_held().await?;
         *self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(connection);

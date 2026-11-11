@@ -3110,7 +3110,7 @@ fn leaked_events(route: &str, scenario: &JsonValue) -> Vec<StreamEvent> {
                 owner: ProviderId::from("gemini"),
                 envelope: false,
                 usage: UsageStyle::Inclusive,
-                errors: ErrorDialect { capacity_by_status: false },
+                errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
             })
             .with_known_tools(known);
             drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\r\n\r\n").into_bytes()).collect())

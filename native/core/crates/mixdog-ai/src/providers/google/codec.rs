@@ -3,6 +3,7 @@
 //! the adapter's; the codec writes none.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
@@ -228,7 +229,7 @@ impl GoogleCodec {
         let mut error = match (&maas, &claude) {
             (Some(_), _) => maas::classify(response),
             (_, Some(_)) => claude::classify(response),
-            _ => classify(response, self.error_dialect()),
+            _ => classify(response, &self.error_dialect(), SystemTime::now()),
         };
         let vertex = match maas.or(claude) {
             Some(model) => Some(model),
@@ -290,9 +291,13 @@ impl GoogleCodec {
         claude::wire(&self.claude_caps, request, model, &base)
     }
 
+    /// The labels Node's senders give `geminiRestError` and the stream consumer (`gemini.mjs`, `vertex-ai.mjs`), and
+    /// the endpoint `antigravityError` names.
     fn error_dialect(&self) -> ErrorDialect {
-        ErrorDialect {
-            capacity_by_status: matches!(self.target, Target::Antigravity { .. }),
+        match &self.target {
+            Target::Gemini { .. } => ErrorDialect::gemini("Gemini REST streamGenerateContent"),
+            Target::Vertex { .. } => ErrorDialect::gemini("Vertex AI Gemini streamGenerateContent"),
+            Target::Antigravity { origin, .. } => ErrorDialect::antigravity(origin.clone()),
         }
     }
 
@@ -332,7 +337,7 @@ impl WireCodec for GoogleCodec {
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify(response, self.error_dialect())
+        classify(response, &self.error_dialect(), SystemTime::now())
     }
 }
 
