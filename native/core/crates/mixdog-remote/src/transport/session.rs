@@ -522,8 +522,8 @@ async fn relay_writer(session: Weak<TransportSession>, mut messages: mpsc::Unbou
 
 /// The delayed-ack timer, loss recovery, probes, keep-alive and path health.
 async fn ticker(session: Weak<TransportSession>) {
-    let mut every = tokio::time::interval(Duration::from_millis(MAX_ACK_DELAY_MS));
-    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut every = mixdog_rt::time::interval(Duration::from_millis(MAX_ACK_DELAY_MS));
+    every.set_missed_tick_behavior(mixdog_rt::time::MissedTickBehavior::Delay);
     loop {
         every.tick().await;
         let Some(session) = session.upgrade() else { return };

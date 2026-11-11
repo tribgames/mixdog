@@ -817,13 +817,13 @@ async fn a_boot_ended_between_the_projection_and_the_row_reconciles_again() {
     let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
     crate::sqlite::reconcile_seam::arm(&env.data);
     let ended = open_index(&env.data).unwrap();
-    let outcome = tokio::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
+    let outcome = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), ended.reconciled())
         .await
         .expect("the reconcile the seam ended answered within 60 s");
     assert!(matches!(outcome, Err(DbError::Stopped)));
     drop(ended);
     let reopened = open_index(&env.data).unwrap();
-    let projected = tokio::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
+    let projected = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), reopened.projected("s1"))
         .await
         .expect("the reconciled cursor answered within 60 s");
     assert_eq!(projected.unwrap().unwrap().ordinal, end);
@@ -928,7 +928,7 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
     store.project(first).await.unwrap();
     drop(store);
     let release = crate::sqlite::reconcile_seam::hold(&data);
-    let reopened = tokio::time::timeout(BOUND, open(data.clone()))
+    let reopened = mixdog_rt::time::timeout(BOUND, open(data.clone()))
         .await
         .expect("the open returned within 60 s while its reconcile was held")
         .unwrap();
@@ -966,13 +966,13 @@ async fn the_store_opens_before_its_reconcile_and_reads_wait_for_it() {
         })
         .expect("lane");
     let mut waiters = reopened.reconcile_waiters();
-    tokio::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
+    mixdog_rt::time::timeout(BOUND, waiters.wait_for(|n| *n == 3))
         .await
         .expect("the read, the write and the lane read waited at the gate within 60 s")
         .unwrap();
     note("released")();
     release.send(()).unwrap();
-    let ((rows, _), (laned_rows, _)) = tokio::time::timeout(BOUND, async {
+    let ((rows, _), (laned_rows, _)) = mixdog_rt::time::timeout(BOUND, async {
         let read = read.await.unwrap().unwrap();
         write.await.unwrap().unwrap();
         (read, on_lane.await.expect("job ran").unwrap())

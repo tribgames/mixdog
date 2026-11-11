@@ -59,7 +59,7 @@ const FAR: u64 = 4_102_444_800_000;
 const DEADLINE: Duration = Duration::from_secs(30);
 
 async fn within<T>(what: impl std::fmt::Display, future: impl std::future::Future<Output = T>) -> T {
-    match tokio::time::timeout(DEADLINE, future).await {
+    match mixdog_rt::time::timeout(DEADLINE, future).await {
         Ok(value) => value,
         Err(_) => panic!("timed out after {} ms awaiting {what}", DEADLINE.as_millis()),
     }

@@ -429,7 +429,7 @@ impl Shared {
         };
         let (shared, scope) = (Arc::clone(self), scope.to_owned());
         handle.spawn(async move {
-            tokio::time::sleep(shared.debounce).await;
+            mixdog_rt::time::sleep(shared.debounce).await;
             let mut inner = shared.lock();
             // Only the timer that is still the session's own fires; a release cancelled the rest.
             if inner.timers.iter().any(|(s, g)| *s == scope && *g == generation) {
@@ -968,7 +968,7 @@ mod tests {
         let state = persistent(store.clone());
         fill_past_the_scope_cap(&state);
         // s0's debounce timer would fire during this wait; the release cancelled it.
-        tokio::time::sleep(DEBOUNCE * 4).await;
+        mixdog_rt::time::sleep(DEBOUNCE * 4).await;
         state.settle().await;
         assert!(state.shared.lock().timers.iter().all(|(s, _)| s != "s0"), "the release cancelled the flush timer");
         let saved = store.load("s0").expect("the released session's file survives its cancelled flush");
@@ -990,7 +990,7 @@ mod tests {
         let state = persistent(store.clone());
         state.record(Some("gone"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
         state.forget_session("gone");
-        tokio::time::sleep(DEBOUNCE * 4).await;
+        mixdog_rt::time::sleep(DEBOUNCE * 4).await;
         state.settle().await;
         assert!(store.load("gone").is_none());
         assert!(state.snapshot(Some("gone"), "/x").is_none());
@@ -1004,7 +1004,7 @@ mod tests {
         let state = persistent(store.clone());
         state.record(Some("closed"), "/x", Some(version(1.0, 1)), SnapshotMeta::new("read"));
         state.release_session("closed");
-        tokio::time::sleep(DEBOUNCE * 4).await;
+        mixdog_rt::time::sleep(DEBOUNCE * 4).await;
         state.settle().await;
         assert!(state.shared.lock().scopes.iter().all(|s| s.key != "closed"), "gone from memory");
         assert!(store.load("closed").unwrap().contains("\"/x\""), "its file is what a resume reads");

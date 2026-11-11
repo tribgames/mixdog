@@ -212,7 +212,7 @@ async fn run(shared: Arc<Shared>) {
             let _ = catch_unwind(AssertUnwindSafe(callback));
         }
         if let Some(at) = next {
-            let _ = tokio::time::timeout_at(at, changed).await;
+            let _ = crate::time::timeout_at(at, changed).await;
         } else {
             changed.await;
         }
@@ -238,7 +238,7 @@ mod tests {
         let _ = ticker.register(Instant::now() + Duration::from_secs(10), move || {
             let _ = tx.send(tokio::time::Instant::now());
         });
-        let fired = tokio::time::timeout(Duration::from_secs(60), rx).await.expect("fired inside the bound").unwrap();
+        let fired = crate::time::timeout(Duration::from_secs(60), rx).await.expect("fired inside the bound").unwrap();
         // The std clock moved a few microseconds between `Instant::now()` and the registration.
         let waited = fired - started;
         assert!(waited > Duration::from_secs(9) && waited <= Duration::from_secs(10), "{waited:?}");
@@ -262,9 +262,9 @@ mod tests {
             let _ = ticker().register(Instant::now() + Duration::from_secs(60), move || {
                 let _ = tx.send(());
             });
-            tokio::time::sleep(Duration::from_secs(59)).await;
+            crate::time::sleep(Duration::from_secs(59)).await;
             assert!(rx.try_recv().is_err(), "not before its time");
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            crate::time::sleep(Duration::from_secs(2)).await;
             assert!(rx.try_recv().is_ok(), "at its time, on this runtime's clock");
         });
     }

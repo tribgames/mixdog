@@ -960,21 +960,21 @@ mod tests {
         frame(0xa1, None, b"x", &mut rsv2);
         far.write_all(&rsv2).await.unwrap();
         let mut byte = [0u8; 1];
-        let error = tokio::time::timeout(WITHIN, ws.read(&mut byte)).await.expect("the read fails within 20 s").unwrap_err();
+        let error = mixdog_rt::time::timeout(WITHIN, ws.read(&mut byte)).await.expect("the read fails within 20 s").unwrap_err();
         let refused = violation_of(&error).expect("the violation travels in the error");
         assert_eq!((refused.code, refused.ws_code, refused.text.as_str()), (1002, "WS_ERR_UNEXPECTED_RSV_2_3", "Invalid WebSocket frame: RSV2 and RSV3 must be clear"));
         assert!(ws.read(&mut byte).await.is_err(), "and every later read");
         let mut flush = Box::pin(ws.flush());
         assert!(futures::poll!(flush.as_mut()).is_pending(), "the close is not over while the server's side is open");
         let mut sent = Vec::new();
-        tokio::time::timeout(WITHIN, far.read_to_end(&mut sent)).await.expect("the close and this side's end within 20 s").unwrap();
+        mixdog_rt::time::timeout(WITHIN, far.read_to_end(&mut sent)).await.expect("the close and this side's end within 20 s").unwrap();
         assert_eq!(sent.len(), 8, "{sent:02x?}");
         assert_eq!(&sent[..2], [0x88, 0x82], "a masked close with the code alone");
         assert_eq!(u16::from_be_bytes([sent[6] ^ sent[2], sent[7] ^ sent[3]]), 1002);
         // What the server sends meanwhile is dropped; its end finishes the close.
         far.write_all(b"after").await.unwrap();
         far.shutdown().await.unwrap();
-        tokio::time::timeout(WITHIN, flush).await.expect("the close is over within 20 s of the server's end").unwrap();
+        mixdog_rt::time::timeout(WITHIN, flush).await.expect("the close is over within 20 s of the server's end").unwrap();
     }
 
     // W4: the buffer the inflater grows is bounded while it inflates. A bomb that expands to 64 times the limit leaves
@@ -1076,13 +1076,13 @@ mod tests {
             let packed = deflate(&mut encoder, message.as_bytes()).unwrap();
             let mut wire = Vec::new();
             frame(0xc1, None, &packed, &mut wire);
-            tokio::time::timeout(WITHIN, far.write_all(&wire)).await.expect("the client reads while its send is stuck").unwrap();
+            mixdog_rt::time::timeout(WITHIN, far.write_all(&wire)).await.expect("the client reads while its send is stuck").unwrap();
         }
-        assert_eq!(tokio::time::timeout(WITHIN, receiver).await.unwrap().unwrap(), server_messages);
+        assert_eq!(mixdog_rt::time::timeout(WITHIN, receiver).await.unwrap().unwrap(), server_messages);
         let mut decoder = Decompress::new(false);
         let (mut raw, mut chunk, mut read_back) = (Vec::new(), [0u8; 8192], Vec::new());
         while read_back.len() < 2 {
-            let n = tokio::time::timeout(WITHIN, far.read(&mut chunk)).await.expect("the stuck send goes on once the far side reads").unwrap();
+            let n = mixdog_rt::time::timeout(WITHIN, far.read(&mut chunk)).await.expect("the stuck send goes on once the far side reads").unwrap();
             assert!(n > 0, "the client closed");
             raw.extend_from_slice(&chunk[..n]);
             while let Some(head) = parse(&raw, usize::MAX).unwrap() {
@@ -1095,7 +1095,7 @@ mod tests {
                 raw.drain(..head.total());
             }
         }
-        tokio::time::timeout(WITHIN, sender).await.expect("the sender ends within 20 s").unwrap();
+        mixdog_rt::time::timeout(WITHIN, sender).await.expect("the sender ends within 20 s").unwrap();
         assert_eq!(read_back, client_messages);
     }
 }

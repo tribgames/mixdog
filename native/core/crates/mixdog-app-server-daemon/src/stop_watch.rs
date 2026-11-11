@@ -127,7 +127,7 @@ mod tests {
         let watch = StopWatch::from_source(receive, || {});
         send.send(Err(io::Error::from(io::ErrorKind::PermissionDenied))).unwrap();
         assert_eq!(watch.wait().await.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
-        assert!(tokio::time::timeout(Duration::from_secs(60), watch.arrived()).await.is_err(), "no stop was requested");
+        assert!(mixdog_rt::time::timeout(Duration::from_secs(60), watch.arrived()).await.is_err(), "no stop was requested");
     }
 
     /// A stalled composition (it waits on the token its slow acquisitions take) ends once the stop arrives, and its own failure path runs.

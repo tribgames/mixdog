@@ -909,7 +909,7 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
     }
     assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, as Node's {} fs.watch calls", paths.len());
     std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
-    let frames = tokio::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
+    let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
     for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
         let dir = folder.fill(reported["dir"].as_str().unwrap());
         let paths = changed(&frames, id);
@@ -945,7 +945,7 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
             None => {
                 got.unwrap_or_else(|error| panic!("{}: Node watched it, got {error:?}", case["name"]));
                 std::fs::write(&path, "b").unwrap();
-                let frames = tokio::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
+                let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| !changed(texts, id).is_empty())).await.expect("the watched file's change within 60 s");
                 let under = folder.fill(case["reportedUnder"].as_str().unwrap());
                 assert!(changed(&frames, id).iter().all(|p| *p == under), "{}: reported under {under}: {:?}", case["name"], changed(&frames, id));
             }

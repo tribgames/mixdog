@@ -142,10 +142,10 @@ impl Deadline {
 
     async fn passed(&self) {
         #[cfg(not(feature = "test-support"))]
-        tokio::time::sleep_until(self.at).await;
+        mixdog_rt::time::sleep_until(self.at).await;
         #[cfg(feature = "test-support")]
         match self.wall {
-            Some(at) => tokio::time::sleep_until(at).await,
+            Some(at) => mixdog_rt::time::sleep_until(at).await,
             None => crate::oauth::callback::seam::DEADLINE.after(self.seen).await,
         }
     }

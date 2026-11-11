@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(unary.total_deadline(), Some(Duration::from_secs(30)));
         assert_eq!(unary.bound_head(async { 7 }).await, Ok(7));
         // A cancel-only exchange has no timer: only the caller's own bound ends it.
-        let waited = tokio::time::timeout(
+        let waited = crate::time::timeout(
             Duration::from_secs(24 * 3600),
             Liveness::cancel_only().bound_head(std::future::pending::<()>()),
         )

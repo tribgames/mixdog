@@ -1528,7 +1528,7 @@ done
             let cancel = CancellationToken::new();
             let trip = cancel.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(200)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(200)).await;
                 trip.cancel();
             });
             let hung = backend

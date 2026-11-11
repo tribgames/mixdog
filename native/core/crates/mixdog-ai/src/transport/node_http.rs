@@ -550,7 +550,7 @@ impl NodeClient {
                 None => {
                     #[cfg(test)]
                     self.pool.at(pool::At::Dial);
-                    let dialled = tokio::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
+                    let dialled = mixdog_rt::time::timeout(CONNECT_TIMEOUT, self.dial(&url, &proxy, surface))
                         .await
                         .map_err(|_| timed_out("UND_ERR_CONNECT_TIMEOUT", "Connect Timeout Error", DeliveryState::NotSent, surface))??;
                     let (io, h2) = dialled;
@@ -604,7 +604,7 @@ impl NodeClient {
         // Once the first byte may have left, the request is never sent again: undici fails the request that was running
         // when its socket dies (`client-h1.js` `onHttpSocketClose`) and re-queues only those not yet written. A write
         // error, wherever in the head, the body or the final flush, is therefore the request's error.
-        let answered = tokio::time::timeout(HEADERS_TIMEOUT, conn.exchange(&head, &request.body, &request.method, close)).await;
+        let answered = mixdog_rt::time::timeout(HEADERS_TIMEOUT, conn.exchange(&head, &request.body, &request.method, close)).await;
         let (response, written) = match answered {
             Err(_) => {
                 let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
@@ -683,7 +683,7 @@ impl NodeClient {
         if !request.body.is_empty() {
             stream.send_data(Bytes::from(request.body.clone()), true).map_err(|e| failed(&e, false))?;
         }
-        let response = match tokio::time::timeout(HEADERS_TIMEOUT, response).await {
+        let response = match mixdog_rt::time::timeout(HEADERS_TIMEOUT, response).await {
             Err(_) => {
                 let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
                 return Err(Failure { error, replay: false });
@@ -752,7 +752,7 @@ impl BodyStream for H2Body {
             if self.ended {
                 return None;
             }
-            let data = match tokio::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
+            let data = match mixdog_rt::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
                 Err(_) => return Some(Err(TransportFault::Io { os_code: None })),
                 Ok(data) => data,
             };
@@ -821,13 +821,13 @@ mod tests {
             headers: Vec::new(),
             body: Vec::new(),
         };
-        let mut response = tokio::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
-        while let Some(chunk) = tokio::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
+        let mut response = mixdog_rt::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        while let Some(chunk) = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
             chunk.unwrap();
         }
         let key = client.key(&url::Url::parse(&request.url).unwrap(), &None);
         assert_eq!(client.pool.idle_count(&key), 0, "not pooled under the old route");
-        let read = tokio::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
+        let read = mixdog_rt::time::timeout(WITHIN, server).await.expect("the peer sees the close within 20 s").unwrap();
         assert_eq!(read, 0, "the peer sees the close");
     }
 }

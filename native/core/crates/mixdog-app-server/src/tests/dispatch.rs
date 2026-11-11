@@ -378,7 +378,7 @@ async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
         assert_eq!(holds.len(), 1, "one call");
         holds[0].clone()
     };
-    tokio::time::timeout(DEADLINE, hold.cancelled())
+    mixdog_rt::time::timeout(DEADLINE, hold.cancelled())
         .await
         .expect("the call's hold never ended after its response was queued");
 }

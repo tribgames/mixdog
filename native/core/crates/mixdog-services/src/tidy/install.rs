@@ -380,7 +380,7 @@ async fn download_asset(lane: DurabilityIo, target: &Target, archive_file: &Path
     loop {
         // Any bytes prove the connection is alive; silence for `stall` ends the install.
         let chunk = tokio::select! {
-            c = tokio::time::timeout(stall, response.body.next()) => match c {
+            c = mixdog_rt::time::timeout(stall, response.body.next()) => match c {
                 Ok(r) => r.map_err(|e| format!("{LABEL} {}: {e}", target.id))?,
                 Err(_) => return Err(format!("{LABEL} {}: download stalled (no data for {}s)", target.id, stall.as_secs())),
             },

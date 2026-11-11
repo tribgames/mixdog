@@ -157,7 +157,7 @@ async fn cancel_ends_the_retry_wait() {
     let cancel = CancellationToken::new();
     let stopper = cancel.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         stopper.cancel();
     });
     let err = broker
@@ -215,7 +215,7 @@ impl ModelStream for ScriptedStream {
         let Some((after, event)) = self.0.pop_front() else {
             return std::future::pending().await;
         };
-        tokio::time::sleep(after).await;
+        mixdog_rt::time::sleep(after).await;
         Some(Ok(event))
     }
 

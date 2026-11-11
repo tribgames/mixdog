@@ -759,6 +759,6 @@ mod tests {
         let log = DaemonLog::new(dir.path().join("daemon.log"), tokens().maintenance_io, cancel);
         log.enable_file_logging();
         log.log("never written");
-        tokio::time::timeout(Duration::from_secs(10), log.flush()).await.expect("flush must not hang");
+        mixdog_rt::time::timeout(Duration::from_secs(10), log.flush()).await.expect("flush must not hang");
     }
 }

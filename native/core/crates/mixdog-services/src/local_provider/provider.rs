@@ -641,7 +641,7 @@ pub(crate) mod tests {
             if p.installs.status().iter().all(|j| j["state"] != "running") {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(p.installs.status()[0]["state"], "complete");
         assert_eq!(p.catalog.state.get(&id)["verification"]["valid"], true);
@@ -651,7 +651,7 @@ pub(crate) mod tests {
             if p.installs.status().iter().all(|j| j["state"] != "running") {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         let status = p.installs.status();
         assert_eq!(status[0]["state"], "failed");
@@ -699,7 +699,7 @@ pub(crate) mod tests {
             if p.installs.status().iter().all(|j| j["state"] != "running") {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
         }
         assert!(ticked(&mut rx));
         // Installations: a discard removes the finished row.

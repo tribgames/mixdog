@@ -15,8 +15,9 @@
 //! Real I/O (sockets, children, PTY, dedicated threads) completes in real time: before advancing past it, wait for its observable,
 //! a message on your own connection or `wait <deadline-ms> <log-line prefix>`, answered `seen <line>` or `missed <prefix>`.
 //!
-//! Ordered exactly: `mixdog_rt::time`, the ticker, `Scope`, `Liveness`. Timers armed on `tokio::time` directly fire at the first stop
-//! at or after their due, unordered among themselves.
+//! Ordered exactly: `mixdog_rt::time`, the ticker, `Scope`, `Liveness`; `clippy.toml` refuses `tokio::time`'s timer functions in
+//! every other crate, and here only `time.rs` (its wrappers, for use off this clock) and tests arm them; such a timer fires at the
+//! first stop at or after its due, unordered among its kind.
 //!
 //! Disconnect, a malformed command, a wrong token, a non-loopback address, or no settle within settle-ms: the process exits
 //! [`EXIT_CODE`] with the cause on stderr.
@@ -48,7 +49,7 @@
 //! | 3 | deferred wake (`yield_now`, coop budget) | defer list while the busy flag is set | same loop: `park_yield`, which runs no hook, while `defer` is not empty |
 //! | 4 | task woken by this clock's timer | row 1 from this clock's thread | `advance`: `fire_next`, then `settle`, on one thread |
 //! | 5 | ticker callback | a task spawned on RT-C from this clock's thread (row 1) | `run` |
-//! | 6 | tokio timer (`tokio::time` armed directly) | fired by its runtime's driver in `park_yield` while the move task runs (row 2) | `move_to` spawns the move on each runtime (row 1) |
+//! | 6 | tokio timer (`tokio::time` armed directly: this crate's tests) | fired by its runtime's driver in `park_yield` while the move task runs (row 2) | `move_to` spawns the move on each runtime (row 1) |
 //! | 7 | task woken by the I/O driver in a real park | local queue while the busy flag is clear: unseen until row 8 | not upheld: real I/O, which the replay waits for (`wait`) |
 //! | 8 | runtime unparked | busy flag set before any task is taken (rule 3) | `build`: the `on_thread_unpark` hook runs in tokio's `park` before the loop's `next_task` |
 //! | 9 | runtime parks | bump, busy flag cleared, bump | `build`: the `on_thread_park` hook |
@@ -101,7 +102,7 @@
 //! Under this clock, on RT-C and RT-W, `tokio::time::Instant::now()` reads V: each runtime's tokio clock is paused and moved to V
 //! at every stop (`move_to`), its origin within half a millisecond of the other's. Wall-clock readers in the crates with
 //! this feature (mixdog-rt, mixdog-core-session, mixdog-app-server-daemon, mixdog-cli) go through [`system_now`]
-//! (`mixdog_rt::wall_clock!`, `mixdog_rt::utc_now!`), and mixdog-core-session's timers through `mixdog_rt::time`. These read real
+//! (`mixdog_rt::wall_clock!`, `mixdog_rt::utc_now!`), and every crate's timers through `mixdog_rt::time`. These read real
 //! time on purpose, none of them compared by a replay:
 //! - measures of the machine: poll, queue-wait and service durations and the lane leases (mixdog-rt `lib.rs` `Instrumented`,
 //!   `exec/pool.rs`, `lanes.rs`), the daemon's stall monitor and its `atMs` lines (`lifecycle/stall.rs`), its boot timing
@@ -115,8 +116,7 @@
 //!   `late_session.rs`): their time bits sit beside random bits, so no replay compares them;
 //! - `tokio::time::Instant::now()` off the runtimes (lane and dedicated threads) reads the real clock.
 //!
-//! Timers armed on `tokio::time` directly (the daemon, the CLI and every crate without this feature) fire at the first stop at or
-//! after their due. A frozen core's I/O timeouts, on either kind of timer, fire only when an advance passes them.
+//! A frozen core's I/O timeouts fire only when an advance passes them.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;

@@ -151,7 +151,7 @@ impl Pool {
         if tokio::runtime::Handle::try_current().is_ok() {
             let pool: Weak<Self> = Arc::downgrade(self);
             tokio::spawn(async move {
-                tokio::time::sleep_until(until).await;
+                mixdog_rt::time::sleep_until(until).await;
                 if let Some(pool) = pool.upgrade() {
                     pool.expire(&key, stamp);
                 }
@@ -239,7 +239,7 @@ impl Pool {
             let (pool, key): (Weak<Self>, String) = (Arc::downgrade(self), key.to_owned());
             let until = Instant::now() + super::KEEP_ALIVE;
             tokio::spawn(async move {
-                tokio::time::sleep_until(until).await;
+                mixdog_rt::time::sleep_until(until).await;
                 if let Some(pool) = pool.upgrade() {
                     pool.expire_h2(&key, id, stamp);
                 }
@@ -476,7 +476,7 @@ mod tests {
     /// What the peer reads next: 0 is the close. Bounded: a connection kept open would leave it waiting.
     async fn eof(far: &mut tokio::io::DuplexStream) -> usize {
         let mut byte = [0u8; 1];
-        tokio::time::timeout(Duration::from_secs(20), far.read(&mut byte)).await.expect("the peer reads within 20 s").unwrap()
+        mixdog_rt::time::timeout(Duration::from_secs(20), far.read(&mut byte)).await.expect("the peer reads within 20 s").unwrap()
     }
 
     /// An HTTP/2 connection idle in `pool` under "k", its first stream over: its idle timer is armed for the stamp returned.

@@ -491,7 +491,7 @@ impl RoomTurnHost for View {
     }
 
     async fn sleep(&self, ms: u64) {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
 
     /// `roomLog.post`: the rows' files taken in, each row stored in its canonical shape, and the

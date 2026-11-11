@@ -51,7 +51,7 @@ impl HttpSend for FakeHttp {
     ) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().unwrap().push(request);
         // A create takes time on the wire; callers race while it is in flight.
-        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(30)).await;
         let body = serde_json::json!({"name": format!("cachedContents/created-{}", self.case), "usageMetadata": {"totalTokenCount": 5000 + self.case}});
         Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Once(Some(Bytes::from(body.to_string())))) })
     }
@@ -302,7 +302,7 @@ async fn a_stalled_create_settles_at_the_deadline_and_releases_the_key() {
     }
     let settle = std::time::Duration::from_secs(5);
     for task in [owner, joiner] {
-        let answer = tokio::time::timeout(settle, task).await.expect("settles at the deadline").unwrap();
+        let answer = mixdog_rt::time::timeout(settle, task).await.expect("settles at the deadline").unwrap();
         assert_eq!(answer.cache_name, None);
         assert_eq!(answer.state, None);
     }
@@ -481,7 +481,7 @@ async fn a_create_attempt_stalled_past_its_limit_is_retried_inside_the_total() {
         assert!((800..=1200).contains(&wait), "the first backoff step is 1 s ±20 %: {wait}");
         // The second attempt answers at once; its attempt deadline is never fired.
     };
-    let (answer, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(work, drive) })
+    let (answer, ()) = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(work, drive) })
         .await
         .expect("settles");
     assert_eq!(answer.cache_name.as_deref(), Some("cachedContents/second"));

@@ -290,7 +290,7 @@ impl World {
                 Some(tick) if tick <= target => {
                     self.manual.advance(tick - now);
                     let swept = self.transfers.sweeper.swept.notified();
-                    tokio::time::timeout(std::time::Duration::from_secs(10), swept).await.unwrap_or_else(|_| panic!("the sweeper did not sweep at {tick} ms"));
+                    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), swept).await.unwrap_or_else(|_| panic!("the sweeper did not sweep at {tick} ms"));
                 }
                 _ => {
                     self.manual.advance(target - now);
