@@ -1338,6 +1338,21 @@ impl crate::common::HasOpId for RoomLeaveParams {
     }
 }
 
+/// Params of `room/send`: `input` is `{ threadId, prompt, options }`, the room log and the turn input `turn/start` takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RoomSendParams {
+    pub op_id: OpId,
+    pub input: JsonValue,
+}
+
+impl crate::common::HasOpId for RoomSendParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
 /// Params of `room/reset`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

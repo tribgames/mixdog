@@ -20,6 +20,31 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "the harness of the node tests left in the library because they call crate-private items (`CompactionRows`, `NoApprovals`, `manual_compaction::offload_candidates`); nothing else uses it",
     ),
     (
+        "mixdog-core/src/run_host/mod.rs",
+        "mod room_rows_replay;",
+        "a replay that stays in the library because it reads crate-private items (`room_files::tests::NoDocuments`, `DirectoryRoomDaemon`); the replay package cannot reach them",
+    ),
+    (
+        "mixdog-core/src/run_host/mod.rs",
+        "mod room_send_replay;",
+        "a replay that stays in the library because it reuses `room_rows_replay::Log` and `room_files::SessionFiles`, which are crate-private",
+    ),
+    (
+        "mixdog-core/src/run_host/mod.rs",
+        "mod pool_list_replay;",
+        "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",
+    ),
+    (
+        "mixdog-core/src/run_host/prompt_session.rs",
+        "mod home_replay;",
+        "a replay that stays in the library because it calls the private `role_fields` and the private `PromptPaths`, `PromptSources` and `SessionPromptInput` of `prompt_session`",
+    ),
+    (
+        "mixdog-core-session/src/session/thread_switches.rs",
+        "mod home_replay;",
+        "a replay that stays in the library because it calls the private `is_scratch` of `thread_switches`",
+    ),
+    (
         "mixdog-core/src/run_host/side_question_store.rs",
         "pub(crate) fn tests_material()",
         "builds its value with the inline `tests` module's helper; crate-private, so no replay package can reach it",

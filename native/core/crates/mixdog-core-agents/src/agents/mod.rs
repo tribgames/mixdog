@@ -23,6 +23,7 @@ mod memory_runtime;
 mod permissions;
 mod pool_list;
 pub mod pool_section;
+pub mod quiet_progress;
 pub mod section;
 mod service;
 #[cfg(test)]

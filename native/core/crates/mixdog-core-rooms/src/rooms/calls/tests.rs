@@ -91,6 +91,62 @@ async fn relays_held_while_the_room_talks_run_after_it_as_one_exchange_each_memb
     );
 }
 
+/// `settled` waits out the exchange in flight, the relays it held back and a message on its way: it resolves only once the
+/// last of them has run, so nothing is routed into the room after it.
+#[tokio::test]
+async fn settled_waits_for_the_exchange_its_held_relays_and_messages_on_their_way() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    let calls = scheduler(&runner);
+    let (first, _) = relay("bench", "awake_1");
+    calls.relay_when_idle("room01", first);
+    runner.entered.notified().await;
+    let (held, _) = relay("lead", "awake_2");
+    calls.relay_when_idle("room01", held);
+    let intake = calls.intake("room01");
+    let settled = calls.settled("room01");
+    tokio::pin!(settled);
+    let pending = std::future::poll_fn(|cx| std::task::Poll::Ready(settled.as_mut().poll(cx).is_pending())).await;
+    assert!(pending, "an exchange runs");
+    runner.release.notify_one();
+    drop(intake);
+    tokio::time::timeout(std::time::Duration::from_secs(60), settled).await.expect("the room settled within the deadline");
+    assert_eq!(runner.seen.lock().unwrap().len(), 2, "the held relay ran before the room settled");
+    assert!(!calls.is_running("room01"));
+}
+
+/// A sender routes and only then drops its intake. An observation that read the exchanges, let go, and read the intakes
+/// afterwards could see "no exchange", then the route and the drop, then "no intake": settled while the exchange runs. Here the
+/// route and the drop happen while the observer waits at the intakes' lock (the gate); it must see the exchange.
+#[tokio::test]
+async fn a_sender_routing_and_leaving_between_two_reads_is_never_seen_as_neither() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    let calls = scheduler(&runner);
+    std::mem::forget(calls.intake("room01"));
+    // The observer says when it is about to read the intakes: any read it made before that is behind it, so the route below
+    // always comes after it, and an observation that reads the exchanges first is bound to see none.
+    let deadline = std::time::Duration::from_secs(60);
+    let (about, about_to_read) = std::sync::mpsc::channel::<()>();
+    assert!(calls.before_intakes.set(Arc::new(move || about.send(()).expect("the test waits for the observer"))).is_ok());
+    let gate = calls.intakes.lock().unwrap();
+    let (seen, observed) = std::sync::mpsc::channel::<bool>();
+    {
+        let calls = calls.clone();
+        drop(std::thread::spawn(move || seen.send(calls.quiet("room01")).expect("the test waits for the observation")));
+    }
+    about_to_read.recv_timeout(deadline).expect("the observer reached the intakes within the deadline");
+    calls.route("room01", Request { to: vec!["lead".into()], only: true, calls: Vec::new(), ..Request::default() });
+    let mut gate = gate;
+    gate.remove("room01");
+    drop(gate);
+    assert!(!observed.recv_timeout(deadline).expect("the observation ended within the deadline"), "the exchange runs");
+    tokio::time::timeout(deadline, runner.entered.notified()).await.expect("the exchange began within the deadline");
+    assert!(calls.is_running("room01"));
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled once the exchange ended");
+}
+
 #[tokio::test]
 async fn a_request_routed_into_a_running_room_merges_cuts_off_and_carries_the_unsettled_calls() {
     let runner = Arc::new(Fake::default());
