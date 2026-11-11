@@ -482,6 +482,13 @@ async fn list_and_grep_answer_a_missing_path_as_node_does() {
     replay_fs_search("not-found-hints").await;
 }
 
+/// A missing grep path the basename scans could not settle is looked up as a `**/<basename>` glob, as Node's
+/// `_suggestIndexedPaths` does; `list` has no such fallback.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_suggests_indexed_paths_for_a_missing_path_as_node_does() {
+    replay_fs_search("grep-missing-indexed").await;
+}
+
 /// gaps-tools item 6: several content patterns are independent greps, one section each.
 #[tokio::test]
 async fn grep_answers_several_patterns_as_node_does() {
