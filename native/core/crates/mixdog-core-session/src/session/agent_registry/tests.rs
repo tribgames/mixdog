@@ -789,6 +789,471 @@ async fn only_an_existing_lead_row_moves() {
     assert!(rig.store.map("s-agent").is_none() && rig.store.map("s-absent").is_none());
 }
 
+/// The status-signal scenario of the Node daemon's profile (`status-pulse.test.mjs` "activity bursts over a large unchanged
+/// index"): one Lead, 300 worker rows (30 running, 270 finished and kept for the day) with their stored sessions, 500 tag
+/// tombstones, and 30 loaded threads (the Lead and 29 running workers).
+struct Crowd {
+    registry: AgentRegistry,
+    /// The scope of every loaded thread, as `AgentToolStatus::status` reads it.
+    scopes: Vec<Scope>,
+    /// A running worker's session record and tag.
+    running: Vec<(Row, String)>,
+}
+
+const LOADED: usize = 30;
+
+fn crowd_rig() -> Crowd {
+    let rig = Rig::new();
+    let scope_of = |id: &str| Scope { caller_session_id: Some(id.to_owned()), host_pid: Some(PID) };
+    let mut stored = Vec::new();
+    let mut running = Vec::new();
+    rig.live.headers.lock().unwrap().insert("lead-a".into(), obj(json!({ "status": "idle", "clientHostPid": PID })));
+    let mut scopes = vec![scope_of("lead-a")];
+    for i in 0..300 {
+        let busy = i < 30;
+        let (id, tag) = if busy { (format!("s-run-{i}"), format!("r{i}")) } else { (format!("s-done-{i}"), format!("d{i}")) };
+        let (status, created, updated) = if busy { ("running", NOW - HOUR, NOW - 60_000) } else { ("completed", NOW - 3 * HOUR, NOW - 2 * HOUR) };
+        let mut row = worker_row(&id, &tag, json!({ "status": status, "stage": status, "createdAt": at(created), "updatedAt": at(updated), "cwd": "/w" }));
+        if !busy {
+            row.insert("finishedAt".into(), json!(at(updated)));
+        }
+        rig.store.write(&id, Some(row));
+        let session = session(&id, &tag, &at(created), json!({ "status": if busy { "running" } else { "idle" }, "updatedAt": at(updated), "cwd": "/w" }));
+        if busy && i < LOADED - 1 {
+            rig.live.headers.lock().unwrap().insert(id.clone(), session.clone());
+            scopes.push(scope_of(&id));
+        }
+        if busy {
+            running.push((session.clone(), tag));
+        }
+        stored.push(session);
+    }
+    *rig.store.sessions.lock().unwrap() = stored;
+    for i in 0..500 {
+        let gone = obj(json!({ "tombstone": tombstone(&format!("g{i}"), &at(NOW - HOUR - i), json!({})) }));
+        rig.store.write(&format!("s-gone-{i}"), without_row(&gone));
+    }
+    let registry = rig.registry();
+    Crowd { registry, scopes, running }
+}
+
+/// What one loaded thread's status re-read asks of the registry (`AgentToolStatus::status`) once the index is loaded: the
+/// refresh, then the scope's agents. The tags it lists.
+fn status_read(registry: &AgentRegistry, scope: &Scope) -> Vec<String> {
+    let mut st = registry.lock();
+    registry.refresh(&mut st, false, scope);
+    drop(st);
+    registry.status_entries(scope).iter().map(|(tag, _)| tag.clone()).collect()
+}
+
+/// A status signal: every loaded thread re-reads its status (`AgentActivity::everyone`), over one load of the index.
+async fn signal(crowd: &Crowd) -> Vec<Vec<String>> {
+    crowd.registry.reload().await;
+    crowd.scopes.iter().map(|scope| status_read(&crowd.registry, scope)).collect()
+}
+
+/// The per-row, per-tombstone and per-tag operations a status signal may cost: what the loaded threads hold (each thread's
+/// re-read reads the live sessions behind the loaded tags again, as their live state has no version), never the finished
+/// rows or the tombstones.
+fn signal_budget() -> usize {
+    6 * LOADED * LOADED + 8 * LOADED
+}
+
+/// The work of a status signal is what changed, not the size of the index: 1,000 signals over an unchanged index, and 1,000
+/// single-row writes (one worker's stage change, each followed by its signal), stay within what the loaded threads cost,
+/// while every re-read answers what it answered before.
+#[tokio::test]
+async fn a_status_signal_costs_what_changed_not_the_finished_rows_and_tombstones() {
+    let crowd = crowd_rig();
+    let first = signal(&crowd).await;
+    assert_eq!(first[0].len(), 30, "the Lead's status lists its working agents");
+    assert!(first[1..].iter().all(Vec::is_empty), "a worker has no agents of its own");
+
+    let start = rows::work::counts().total();
+    for n in 1..=1000 {
+        assert_eq!(signal(&crowd).await, first);
+        let spent = rows::work::counts().total() - start;
+        assert!(spent <= n * signal_budget(), "{n} signal(s) over an unchanged index did {spent} operations (budget {} each)", signal_budget());
+    }
+    let unchanged = rows::work::counts().total() - start;
+
+    let start = rows::work::counts().total();
+    for n in 1..=1000 {
+        let (session, tag) = &crowd.running[n % crowd.running.len()];
+        let stage = if n % 2 == 0 { "streaming" } else { "tool_running" };
+        crowd.registry.upsert_worker_row(session, tag, &obj(json!({ "status": "running", "stage": stage })));
+        let read = signal(&crowd).await;
+        assert_eq!(read[0].len(), 30);
+        let spent = rows::work::counts().total() - start;
+        assert!(spent <= n * (signal_budget() + 64), "{n} write(s) did {spent} operations (budget {} each)", signal_budget() + 64);
+    }
+    let written = rows::work::counts().total() - start;
+    eprintln!("status signal work: 1,000 signals {unchanged} operations; 1,000 single-row writes {written} operations");
+    let st = crowd.registry.lock();
+    let stages: Vec<String> = st.rows(&lead("lead-a"), crowd.registry.now()).iter().filter(|r| r["status"] == "running").map(|r| clean(r.get("stage"))).collect();
+    assert_eq!(stages.len(), 30);
+    assert!(stages.iter().all(|s| s == "streaming" || s == "tool_running"), "{stages:?}");
+}
+
+// ---- the reads before the views, as the reference ------------------------------------------
+
+/// `readAllWorkerRows` as the registry computed it before its views (`State::all_rows`, uncached).
+fn old_all_rows(st: &State, now: f64) -> Vec<Row> {
+    st.maps.iter().filter_map(|(id, map)| st.row(id, map, now)).collect()
+}
+
+/// `store.readTombstones` as computed before (`State::stored_tombstones`).
+fn old_stored_tombstones(st: &State, now: f64) -> Vec<Row> {
+    let rows = st.maps.iter().filter_map(|(id, map)| normalize_tombstone(map.get("tombstone")?.as_object()?, id, now)).collect();
+    order_tombstones(rows)
+}
+
+/// `readAllTagTombstones` as computed before (`State::tombstones`).
+fn old_tombstones(st: &State, now: f64) -> Vec<Row> {
+    old_stored_tombstones(st, now)
+        .into_iter()
+        .map(|row| match st.owners.get(&identity(&row)) {
+            Some(Some(fields)) if is_legacy(&row) => {
+                let mut out = row;
+                out.extend(fields.clone());
+                out
+            }
+            _ => row,
+        })
+        .collect()
+}
+
+/// `tagTombstoneIndex` as computed before (`State::tombstone_index`).
+fn old_tombstone_index(st: &State, now: f64) -> HashMap<String, Row> {
+    let mut by_key = HashMap::new();
+    for row in old_tombstones(st, now) {
+        by_key.entry(tombstone_key(&row)).or_insert(row);
+    }
+    by_key
+}
+
+/// `readWorkerRows(context)` as computed before (`State::rows`).
+fn old_rows(st: &State, scope: &Scope, now: f64) -> Vec<Row> {
+    let by_key = old_tombstone_index(st, now);
+    old_all_rows(st, now)
+        .into_iter()
+        .filter(|row| {
+            let tag = clean(either(row, "tag", "agentTag"));
+            !blocks_work(row, find_tombstone(row, &by_key, &tag))
+        })
+        .filter(|row| matches_scope(row, scope))
+        .collect()
+}
+
+/// `tombstoneBlocksScan` as computed before: the scan guard over every unblocked row.
+fn old_blocks_scan(registry: &AgentRegistry, st: &State, session: &Row, tag: &str, by_key: &HashMap<String, Row>, now: f64) -> bool {
+    if registry.scan_is_terminal(session) && past_settled_retention(&registry.reap_ms(), session, now) {
+        return true;
+    }
+    let tag = clean_str(tag);
+    let id = clean(session.get("id"));
+    if tag.is_empty() || id.is_empty() || !blocks_work(session, find_tombstone(session, by_key, &tag)) {
+        return false;
+    }
+    !old_rows(st, &Scope::default(), now).iter().any(|row| clean(row.get("sessionId")) == id && clean(row.get("tag")) == tag)
+}
+
+/// The rows `transitionStaleNonterminalRows` reaped before: every row of the scope checked.
+fn old_stale_rows(registry: &AgentRegistry, st: &State, scope: &Scope, now: f64) -> Vec<Row> {
+    let reap = registry.reap_ms();
+    old_rows(st, scope, now)
+        .into_iter()
+        .filter(|row| {
+            if is_lead_pool_agent(row.get("agent")) {
+                return false;
+            }
+            let id = clean(row.get("sessionId"));
+            if is_terminal_row(row) {
+                return !is_unnotified_restart_failure(row) && past_settled_retention(&reap, row, now) && !registry.live.has_live_work(&id);
+            }
+            if registry.live_session_row(st, &id).is_some() {
+                return false;
+            }
+            now >= nonterminal_reap_deadline(&reap, row)
+        })
+        .collect()
+}
+
+/// `tags`, `tagAgents`, `tagCwds`.
+#[derive(Debug, PartialEq)]
+struct TagMaps {
+    tags: Vec<(String, String)>,
+    agents: HashMap<String, String>,
+    cwds: HashMap<String, String>,
+}
+
+fn tag_maps(st: &State) -> TagMaps {
+    TagMaps { tags: st.tags.iter().map(|(t, id)| (t.clone(), id.clone())).collect(), agents: st.tag_agents.clone(), cwds: st.tag_cwds.clone() }
+}
+
+/// What a refresh did to the tag maps before (its staleness pass already run): every row of the scope bound, then every
+/// tag the rows do not hold read again and unbound when its session is gone or the scan guard blocks it.
+fn old_bind_and_unbind(registry: &AgentRegistry, st: &State, scope: &Scope, now: f64) -> TagMaps {
+    let mut maps = tag_maps(st);
+    let indexed = old_rows(st, scope, now);
+    for row in &indexed {
+        let (tag, id) = (clean(row.get("tag")), clean(row.get("sessionId")));
+        match maps.tags.iter_mut().find(|(t, _)| *t == tag) {
+            Some(entry) => entry.1 = id,
+            None => maps.tags.push((tag.clone(), id)),
+        }
+        for (key, into) in [("agent", &mut maps.agents), ("cwd", &mut maps.cwds)] {
+            let value = clean(row.get(key));
+            if !value.is_empty() {
+                into.insert(tag.clone(), value);
+            }
+        }
+    }
+    let keys: HashSet<String> = indexed.iter().map(|r| format!("{}\0{}", clean(r.get("tag")), clean(r.get("sessionId")))).collect();
+    let by_key = old_tombstone_index(st, now);
+    for (tag, id) in maps.tags.clone() {
+        if keys.contains(&format!("{tag}\0{id}")) {
+            continue;
+        }
+        let session = registry.live_session_row(st, &id);
+        if session.as_ref().is_none_or(|s| old_blocks_scan(registry, st, s, &tag, &by_key, now)) {
+            maps.tags.retain(|(t, _)| *t != tag);
+            maps.agents.remove(&tag);
+            maps.cwds.remove(&tag);
+        }
+    }
+    maps
+}
+
+/// `agentSessionEntries({ context })` as listed before.
+fn old_entries(registry: &AgentRegistry, st: &State, scope: &Scope, now: f64) -> Vec<(String, Row)> {
+    let by_key = old_tombstone_index(st, now);
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for row in old_rows(st, scope, now) {
+        let (tag, id) = (clean(row.get("tag")), clean(row.get("sessionId")));
+        if tag.is_empty() || id.is_empty() || is_lead_pool_agent(row.get("agent")) || !seen.insert(id) {
+            continue;
+        }
+        out.push((tag, row_to_session(&row)));
+    }
+    for (tag, id) in tag_maps(st).tags {
+        if seen.contains(&id) {
+            continue;
+        }
+        let Some(session) = registry.live_session_row(st, &id) else { continue };
+        if old_blocks_scan(registry, st, &session, &tag, &by_key, now) {
+            continue;
+        }
+        let tag = Some(agent_tag_of(&session)).filter(|t| !t.is_empty()).unwrap_or_else(|| clean_str(&tag));
+        let sid = clean(session.get("id"));
+        if tag.is_empty() || sid.is_empty() || session.get("closed") == Some(&json!(true)) || is_lead_pool_agent(session.get("agent")) {
+            continue;
+        }
+        if !matches_scope(&session, scope) || !seen.insert(sid) {
+            continue;
+        }
+        out.push((tag, session));
+    }
+    out
+}
+
+/// What the agent status keeps of a listing: the entries whose state is active (`AgentToolStatus::status`).
+fn listed_by_status(entries: Vec<(String, Row)>) -> Vec<(String, Row)> {
+    entries
+        .into_iter()
+        .filter(|(_, session)| {
+            let (status, stage) = status_rows::row_state(session, None);
+            mixdog_agent::agent_tool::views::is_active_worker(&status, &stage)
+        })
+        .collect()
+}
+
+/// Every read of the registry at its clock, against the reads made before its views; then a refresh and the listings.
+fn check_reads(registry: &AgentRegistry, scope: &Scope, label: &str) {
+    let now = registry.now();
+    {
+        let st = registry.lock();
+        assert_eq!(*st.all_rows(now), old_all_rows(&st, now), "all rows, {label}");
+        assert_eq!(*st.stored_tombstones(now), old_stored_tombstones(&st, now), "stored tombstones, {label}");
+        assert_eq!(*st.tombstones(now), old_tombstones(&st, now), "tombstones, {label}");
+        assert_eq!(*st.tombstone_index(now), old_tombstone_index(&st, now), "tombstone index, {label}");
+        assert_eq!(st.rows(scope, now).iter().cloned().collect::<Vec<_>>(), old_rows(&st, scope, now), "rows, {label}");
+        assert_eq!(registry.stale_rows(&st, scope), old_stale_rows(registry, &st, scope, now), "stale rows, {label}");
+    }
+    let mut st = registry.lock();
+    // The refresh's own owners and staleness passes, until they change nothing more; then its tag passes.
+    for _ in 0..4 {
+        registry.resolve_owners(&mut st);
+        if registry.stale_rows(&st, scope).is_empty() {
+            break;
+        }
+        registry.transition_stale(&mut st, scope);
+    }
+    let want = old_bind_and_unbind(registry, &st, scope, now);
+    registry.refresh(&mut st, false, scope);
+    assert_eq!(tag_maps(&st), want, "tag maps after a refresh, {label}");
+    let want = old_entries(registry, &st, scope, now);
+    drop(st);
+    let have: Vec<(String, Row)> = registry.session_entries(false, scope).into_iter().map(|(tag, s)| (tag, (*s).clone())).collect();
+    assert_eq!(have, want, "listing, {label}");
+    let status: Vec<(String, Row)> = registry.status_entries(scope).into_iter().map(|(tag, s)| (tag, (*s).clone())).collect();
+    assert_eq!(listed_by_status(status), listed_by_status(want), "status listing, {label}");
+}
+
+/// A deterministic generator for the sequence below (xorshift64*).
+struct Dice(u64);
+
+impl Dice {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+
+    fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+        &items[self.below(items.len())]
+    }
+}
+
+/// For random sequences of writes (this process's and another's), expiries, loads and reads, every read of the views, every
+/// refresh and every listing answers what the reads made before the views answered over the same index.
+#[tokio::test]
+async fn the_views_answer_what_the_reads_before_them_answered() {
+    const STATUSES: [&str; 8] = ["running", "streaming", "tool_running", "idle", "completed", "failed", "cancelled", ""];
+    let ttl = TAG_TOMBSTONE_TTL_MS as i64;
+    for seed in [7_u64, 1_234_567, 0x00de_c0de, 99_991] {
+        let mut dice = Dice(seed);
+        let rig = Rig::new();
+        let workers: Vec<(String, String, String)> =
+            (0..14).map(|i| (format!("w-{i}"), format!("t{}", i % 9), ["lead-a", "lead-b", ""][i % 3].to_owned())).collect();
+        let stored = |id: &str, tag: &str, owner: &str, status: &str| {
+            session(id, tag, &at(NOW - 3 * HOUR), json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "updatedAt": at(NOW - 2 * HOUR), "cwd": "/w" }))
+        };
+        for (i, (id, tag, owner)) in workers.iter().enumerate() {
+            let status = *dice.pick(&STATUSES);
+            let mut map = if i % 4 == 3 {
+                Row::new()
+            } else {
+                worker_row(id, tag, json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "createdAt": at(NOW - 3 * HOUR), "updatedAt": at(NOW - 2 * HOUR) }))
+            };
+            if i % 3 == 1 {
+                let legacy = if i % 2 == 0 { json!({ "parentSessionId": null, "ownerSessionId": null }) } else { json!({ "parentSessionId": owner, "ownerSessionId": owner }) };
+                map.insert("tombstone".into(), Value::Object(tombstone(tag, &at(NOW - HOUR - i as i64), legacy)));
+            }
+            if i % 5 == 2 {
+                map.insert("releasedAt".into(), json!(at(NOW - DAY)));
+            }
+            let map = if map.contains_key("sessionId") { Some(map) } else { without_row(&map) };
+            rig.store.write(id, map);
+            if i % 6 != 5 {
+                rig.store.sessions.lock().unwrap().push(stored(id, tag, owner, status));
+            }
+            if i % 4 == 0 {
+                rig.live.headers.lock().unwrap().insert(id.clone(), stored(id, tag, owner, status));
+            }
+        }
+        let future = obj(json!({ "tombstone": tombstone("t1", &at(NOW + 2 * HOUR), json!({})) }));
+        rig.store.write("s-future", without_row(&future));
+        let registry = rig.registry();
+        registry.reload().await;
+        let scopes = [
+            lead("lead-a"),
+            lead("lead-b"),
+            Scope { caller_session_id: Some("lead-a".into()), host_pid: Some(PID) },
+            Scope { caller_session_id: None, host_pid: Some(PID) },
+            Scope::default(),
+            lead("w-0"),
+        ];
+        for step in 0..250 {
+            let (id, tag, owner) = dice.pick(&workers).clone();
+            let status = *dice.pick(&STATUSES);
+            match dice.below(12) {
+                0 | 1 => registry.upsert_worker_row(&stored(&id, &tag, &owner, status), &tag, &obj(json!({ "status": status, "stage": status }))),
+                2 => registry.mark_released(std::slice::from_ref(&id)),
+                3 => crate::session::TurnStarts::turn_started(&registry, &mixdog_core_api::ids::ThreadId::from(id.as_str())),
+                4 => registry.remove_worker_row(&id),
+                5 => {
+                    registry.forget_deleted_session(&id).await;
+                }
+                6 => {
+                    let tombstones = registry.read_all_tag_tombstones();
+                    if !tombstones.is_empty() {
+                        registry.consume_tag_tombstone(dice.pick(&tombstones));
+                    }
+                }
+                7 => {
+                    // Another process wrote the index.
+                    let mut map = rig.store.map(&id).unwrap_or_default();
+                    match dice.below(3) {
+                        0 => map = worker_row(&id, &tag, json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "createdAt": at(NOW - HOUR) })),
+                        1 => {
+                            map.insert("tombstone".into(), Value::Object(tombstone(&tag, &at(registry.now() as i64 - HOUR), json!({ "parentSessionId": null, "ownerSessionId": null }))));
+                        }
+                        _ => map = Row::new(),
+                    }
+                    let map = if map.contains_key("sessionId") { Some(map) } else { without_row(&map) };
+                    rig.store.write(&id, map);
+                    registry.reload().await;
+                }
+                8 => {
+                    // A stored session changed (or left the store), then a reload.
+                    let mut sessions = rig.store.sessions.lock().unwrap();
+                    sessions.retain(|s| s["id"] != json!(id));
+                    if dice.below(4) != 0 {
+                        let mut s = stored(&id, &tag, &owner, status);
+                        if dice.below(5) == 0 {
+                            s.insert("closed".into(), json!(true));
+                        }
+                        let at = dice.below(sessions.len() + 1);
+                        sessions.insert(at, s);
+                    }
+                    drop(sessions);
+                    registry.reload().await;
+                }
+                9 => {
+                    // A session loads, unloads, or its live header changes.
+                    let mut headers = rig.live.headers.lock().unwrap();
+                    if dice.below(3) == 0 {
+                        headers.remove(&id);
+                    } else {
+                        headers.insert(id.clone(), stored(&id, &tag, &owner, status));
+                    }
+                }
+                10 => {
+                    // The clock: a step, a day, across the TTL, or back.
+                    let now = registry.now() as i64;
+                    let to = match dice.below(6) {
+                        0 => now + 1,
+                        1 => now + HOUR,
+                        2 => now + DAY + 1,
+                        3 => NOW + ttl - HOUR + *dice.pick(&[-1_i64, 0, 1]),
+                        4 => NOW + 2 * HOUR + *dice.pick(&[-1_i64, 0, 1]),
+                        _ => now - HOUR,
+                    };
+                    rig.clock.0.store(to, Ordering::SeqCst);
+                }
+                _ => {
+                    if dice.below(2) == 0 {
+                        registry.bind_tag(&tag, &session_facts(&stored(&id, &tag, &owner, status)), &at(registry.now() as i64));
+                    } else {
+                        registry.unbind_tag(&tag);
+                    }
+                }
+            }
+            for _ in 0..2 {
+                let scope = dice.pick(&scopes).clone();
+                check_reads(&registry, &scope, &format!("seed {seed} step {step} scope {scope:?}"));
+            }
+        }
+    }
+}
+
 /// The exit flush settles the rows this process wrote as active and still holds, as failed
 /// `process-restart` and stamped now; a row another process took over, and a row that went idle, stay.
 #[test]

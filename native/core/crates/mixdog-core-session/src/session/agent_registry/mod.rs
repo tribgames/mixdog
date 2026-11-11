@@ -31,6 +31,7 @@ mod world_rows;
 pub mod restart;
 pub mod signals;
 pub mod status_rows;
+mod views;
 #[cfg(test)]
 mod tests;
 
@@ -46,7 +47,6 @@ pub use self::workers::AgentWorkers;
 pub use self::world_rows::CancelScope;
 
 use std::cell::RefCell;
-use std::cell::RefMut;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -75,6 +75,9 @@ use tokio::sync::mpsc;
 
 pub use self::rows::Row;
 use self::rows::*;
+use self::views::Maps;
+use self::views::Tags;
+use self::views::Views;
 use super::Clock;
 use mixdog_core_ports::ports::threads::ThreadState;
 
@@ -123,15 +126,19 @@ pub struct AgentRegistry {
 #[derive(Default)]
 struct State {
     /// `tags` (insertion order), `tagAgents`, `tagCwds`.
-    tags: Vec<(String, String)>,
+    tags: Tags,
     tag_agents: HashMap<String, String>,
     tag_cwds: HashMap<String, String>,
+    /// Bumped whenever `tags`, `tag_agents` or `tag_cwds` change.
+    tag_generation: u64,
     /// Every session's worker map: the index as last loaded, with this process's writes.
-    maps: Vec<(String, Row)>,
+    maps: Maps,
     /// Writes the loaded index did not show yet.
     pending: HashMap<String, Option<Row>>,
     /// The agent-only sessions as last loaded.
     sessions: Vec<Row>,
+    /// The first of `sessions` with each id.
+    session_at: HashMap<String, usize>,
     /// A legacy tombstone's resolved owner fields, by its identity (`row-reads.mjs` `owners`).
     owners: HashMap<String, Option<Row>>,
     /// A Lead pool row's worker map as this process last wrote it, until the stored header shows
@@ -144,9 +151,10 @@ struct State {
     cancelling: HashMap<String, usize>,
     /// `cancellationEpochs`: how many cancellations have covered a session.
     epochs: HashMap<String, u64>,
-    /// Bumped whenever `maps` or `owners` change; the reads kept in `kept` belong to one value of it.
-    version: u64,
-    kept: RefCell<Kept>,
+    /// Bumped when the views must start over (the maps replaced, a legacy owner recovered).
+    epoch: u64,
+    /// The reads of the index as shared views, following each write (views.rs).
+    views: RefCell<Views>,
 }
 
 /// The `now` values over which every read of the index answers the same: a read of an unchanged index at a
@@ -169,94 +177,57 @@ impl Window {
     }
 }
 
-#[derive(Default)]
-struct Kept {
-    window: Option<(u64, Window)>,
-    all_rows: Option<Vec<Row>>,
-    stored_tombstones: Option<Vec<Row>>,
-    tombstones: Option<Vec<Row>>,
-    unblocked_rows: Option<Vec<Row>>,
-    index: Option<HashMap<String, Row>>,
-    /// Every legacy tombstone of the index has its owner looked up (`resolve_owners`).
-    owners_resolved: bool,
-}
-
 impl State {
     /// The window `now` is in for the index as it is.
     fn window_at(&self, now: f64) -> Window {
         let mut w = Window { from: f64::NEG_INFINITY, after: f64::NEG_INFINITY, upto: f64::INFINITY };
-        let ends = |end: f64, w: &mut Window, from: Option<f64>| {
-            if now <= end {
-                w.upto = w.upto.min(end);
-                if let Some(from) = from {
-                    w.from = w.from.max(from);
-                }
-            } else {
-                w.after = w.after.max(end);
-            }
-        };
-        for (_, map) in &self.maps {
-            let released = stamp_ms(map.get("releasedAt"));
-            if released > 0.0 {
-                ends(released + TAG_TOMBSTONE_TTL_MS, &mut w, None);
-            }
-            let Some(tombstone) = map.get("tombstone").and_then(Value::as_object) else { continue };
-            let reaped = mixdog_js::time::date_parse(&clean(tombstone.get("reapedAt")));
-            if reaped.is_nan() || reaped == 0.0 || clean(tombstone.get("tag")).is_empty() {
-                continue;
-            }
-            if reaped > now {
-                (w.from, w.upto) = (now, now);
-            } else {
-                ends(reaped + TAG_TOMBSTONE_TTL_MS, &mut w, Some(reaped));
-            }
+        for (_, map) in self.maps.iter() {
+            views::constrain(&mut w, map, now);
         }
         w
     }
 
-    /// Any change of what the reads are built from.
+    /// A change the views cannot follow one session at a time: they start over.
     fn changed(&mut self) {
-        self.version += 1;
-    }
-
-    /// The reads kept for `now`, emptied first when the index changed or `now` left their window.
-    fn kept(&self, now: f64) -> RefMut<'_, Kept> {
-        let mut kept = self.kept.borrow_mut();
-        if !kept.window.is_some_and(|(version, window)| version == self.version && window.holds(now)) {
-            *kept = Kept { window: Some((self.version, self.window_at(now))), ..Kept::default() };
-        }
-        kept
+        self.epoch += 1;
     }
 }
 
 impl State {
     fn tag(&self, tag: &str) -> Option<&String> {
-        self.tags.iter().find(|(t, _)| t == tag).map(|(_, id)| id)
-    }
-
-    fn set_tag(&mut self, tag: &str, session: &str) {
-        match self.tags.iter_mut().find(|(t, _)| t == tag) {
-            Some(entry) => entry.1 = session.to_owned(),
-            None => self.tags.push((tag.to_owned(), session.to_owned())),
-        }
+        self.tags.get(tag)
     }
 
     /// `tagMaps.bind`.
     fn bind(&mut self, tag: &str, session: &str, agent: &str, cwd: &str) {
-        self.set_tag(tag, session);
-        if !agent.is_empty() {
-            self.tag_agents.insert(tag.to_owned(), agent.to_owned());
+        let mut changed = self.tags.set(tag, session);
+        if changed {
+            self.views.get_mut().facts.touch(tag);
         }
-        if !cwd.is_empty() {
+        if !agent.is_empty() && self.tag_agents.get(tag).map(String::as_str) != Some(agent) {
+            self.tag_agents.insert(tag.to_owned(), agent.to_owned());
+            changed = true;
+        }
+        if !cwd.is_empty() && self.tag_cwds.get(tag).map(String::as_str) != Some(cwd) {
             self.tag_cwds.insert(tag.to_owned(), cwd.to_owned());
+            changed = true;
+        }
+        if changed {
+            self.tag_generation += 1;
         }
     }
 
     /// `tagMaps.unbind`.
     fn unbind(&mut self, tag: &str) {
-        self.tags.retain(|(t, _)| t != tag);
-        self.tag_agents.remove(tag);
-        self.tag_cwds.remove(tag);
+        let bound = self.tags.remove(tag).is_some();
+        if bound {
+            self.views.get_mut().facts.drop_tag(tag);
+        }
+        let agent = self.tag_agents.remove(tag).is_some();
+        let cwd = self.tag_cwds.remove(tag).is_some();
+        if bound || agent || cwd {
+            self.tag_generation += 1;
+        }
     }
 
     /// `tagMaps.unbindIfOwned`.
@@ -267,21 +238,13 @@ impl State {
     }
 
     fn map(&self, session: &str) -> Option<&Row> {
-        self.maps.iter().find(|(id, _)| id == session).map(|(_, m)| m)
+        self.maps.get(session)
     }
 
     fn put(&mut self, session: &str, map: Option<Row>) {
-        let at = self.maps.iter().position(|(id, _)| id == session);
-        match (at, map.clone()) {
-            (Some(i), Some(m)) => self.maps[i].1 = m,
-            (Some(i), None) => {
-                self.maps.remove(i);
-            }
-            (None, Some(m)) => self.maps.insert(0, (session.to_owned(), m)),
-            (None, None) => {}
-        }
+        self.maps.set(session, map.clone());
         self.pending.insert(session.to_owned(), map);
-        self.changed();
+        self.views.get_mut().touched(session);
     }
 
     /// The session's row as readers see it.
@@ -297,86 +260,15 @@ impl State {
         }
         Some(row)
     }
+}
 
-    /// `readAllWorkerRows`.
-    fn all_rows(&self, now: f64) -> Vec<Row> {
-        let mut kept = self.kept(now);
-        kept.all_rows.get_or_insert_with(|| self.maps.iter().filter_map(|(id, map)| self.row(id, map, now)).collect()).clone()
+/// The first stored session of each id (`sessions.find(s => clean(s.id) === id)`).
+fn sessions_by_id(sessions: &[Row]) -> HashMap<String, usize> {
+    let mut at = HashMap::new();
+    for (i, session) in sessions.iter().enumerate() {
+        at.entry(clean(session.get("id"))).or_insert(i);
     }
-
-    /// The stored tombstones, newest first and capped (`store.readTombstones`).
-    fn stored_tombstones(&self, now: f64) -> Vec<Row> {
-        let mut kept = self.kept(now);
-        kept.stored_tombstones
-            .get_or_insert_with(|| {
-                let rows = self
-                    .maps
-                    .iter()
-                    .filter_map(|(id, map)| normalize_tombstone(map.get("tombstone")?.as_object()?, id, now))
-                    .collect();
-                order_tombstones(rows)
-            })
-            .clone()
-    }
-
-    /// `readAllTagTombstones`: legacy tombstones with the owner resolved so far.
-    fn tombstones(&self, now: f64) -> Vec<Row> {
-        let stored = self.stored_tombstones(now);
-        let mut kept = self.kept(now);
-        kept.tombstones
-            .get_or_insert_with(|| {
-                stored
-                    .into_iter()
-                    .map(|row| match self.owners.get(&identity(&row)) {
-                        Some(Some(fields)) if is_legacy(&row) => {
-                            let mut out = row;
-                            out.extend(fields.clone());
-                            out
-                        }
-                        _ => row,
-                    })
-                    .collect()
-            })
-            .clone()
-    }
-
-    /// `tagTombstoneIndex`: the newest tombstone of each key.
-    fn tombstone_index(&self, now: f64) -> HashMap<String, Row> {
-        let have = self.kept(now).index.clone();
-        if let Some(index) = have {
-            return index;
-        }
-        let mut by_key = HashMap::new();
-        for row in self.tombstones(now) {
-            by_key.entry(tombstone_key(&row)).or_insert(row);
-        }
-        self.kept(now).index = Some(by_key.clone());
-        by_key
-    }
-
-    /// `readWorkerRows(context)`: a row a tombstone still blocks never reads as work.
-    fn rows(&self, scope: &Scope, now: f64) -> Vec<Row> {
-        let unblocked = {
-            let have = self.kept(now).unblocked_rows.clone();
-            match have {
-                Some(rows) => rows,
-                None => {
-                    let by_key = self.tombstone_index(now);
-                    let rows: Vec<Row> = self
-                        .all_rows(now)
-                        .into_iter()
-                        .filter(|row| {
-                            let tag = clean(either(row, "tag", "agentTag"));
-                            !blocks_work(row, find_tombstone(row, &by_key, &tag))
-                        })
-                        .collect();
-                    self.kept(now).unblocked_rows = Some(rows.clone());
-                    rows
-                }
-            }
-        };
-        unblocked.into_iter().filter(|row| matches_scope(row, scope)).collect()
-    }
+    at
 }
 
 fn released_at(map: &Row, now: f64) -> bool {
@@ -444,18 +336,45 @@ impl AgentRegistry {
         let (Ok(maps), Ok(sessions)) = (self.store.worker_maps().await, self.store.agent_sessions().await) else {
             return;
         };
-        let mut st = self.lock();
-        if st.maps != maps {
-            st.maps = maps;
-            st.changed();
-        }
-        st.sessions = sessions;
+        let mut guard = self.lock();
+        let st = &mut *guard;
+        // The index as loaded, with this process's writes it does not show yet applied on top.
+        let mut next = Maps::from_vec(maps);
         let pending: Vec<(String, Option<Row>)> = st.pending.drain().collect();
         for (session, map) in pending {
-            if st.map(&session) == map.as_ref() {
+            if next.get(&session) == map.as_ref() {
                 continue;
             }
-            st.put(&session, map);
+            next.set(&session, map.clone());
+            st.pending.insert(session, map);
+        }
+        if !st.maps.same_as(&next) {
+            if st.maps.same_order(&next) {
+                // The same sessions in the same order: only the maps that differ are read again.
+                let differ: Vec<(String, Row)> =
+                    next.iter().filter(|(id, map)| st.maps.get(id) != Some(*map)).map(|(id, map)| (id.clone(), map.clone())).collect();
+                for (id, map) in differ {
+                    st.maps.set(&id, Some(map));
+                    st.views.get_mut().touched(&id);
+                }
+            } else {
+                st.maps = next;
+                st.changed();
+            }
+        }
+        if st.sessions != sessions {
+            let before = std::mem::take(&mut st.session_at);
+            let old = std::mem::replace(&mut st.sessions, sessions);
+            st.session_at = sessions_by_id(&st.sessions);
+            // A tag's session read from the stored rows is read again when its row changed.
+            let mut changed: HashSet<&String> = st.session_at.iter().filter(|(id, at)| before.get(*id).map(|was| &old[*was]) != Some(&st.sessions[**at])).map(|(id, _)| id).collect();
+            changed.extend(before.keys().filter(|id| !st.session_at.contains_key(*id)));
+            let views = st.views.get_mut();
+            for id in changed {
+                for tag in st.tags.of_session(id) {
+                    views.facts.touch(&tag);
+                }
+            }
         }
     }
 
@@ -502,7 +421,14 @@ impl AgentRegistry {
         if id.is_empty() {
             return None;
         }
-        self.loaded_session(id).or_else(|| st.sessions.iter().find(|s| clean(s.get("id")) == id).cloned())
+        #[cfg(test)]
+        work::note(|c| c.sessions_visited += 1);
+        self.loaded_session(id).or_else(|| {
+            let at = *st.session_at.get(id)?;
+            #[cfg(test)]
+            work::note(|c| c.sessions_visited += 1);
+            Some(st.sessions[at].clone())
+        })
     }
 
     /// `mgr.getSession(id)` for a worker's turn (`sessionOf`).
@@ -633,13 +559,13 @@ impl AgentRegistry {
     /// `resolveTombstoneOwners`.
     fn resolve_owners(&self, st: &mut State) {
         let now = self.now();
-        if st.kept(now).owners_resolved {
+        if st.views(now).owners_resolved {
             return;
         }
-        let legacy: Vec<Row> = st.stored_tombstones(now).into_iter().filter(is_legacy).collect();
+        let legacy: Vec<Row> = st.stored_tombstones(now).iter().filter(|row| is_legacy(row)).cloned().collect();
         let unresolved: Vec<&Row> = legacy.iter().filter(|row| !st.owners.contains_key(&identity(row))).collect();
         if unresolved.is_empty() {
-            st.kept(now).owners_resolved = true;
+            st.views(now).owners_resolved = true;
             return;
         }
         let sessions = self.list_sessions(st, true);
@@ -656,7 +582,7 @@ impl AgentRegistry {
         st.owners.retain(|id, _| current.contains(id));
         st.owners.extend(found);
         st.changed();
-        st.kept(now).owners_resolved = true;
+        st.views(now).owners_resolved = true;
     }
 
     /// `scanSessionIsTerminal`.
@@ -684,7 +610,7 @@ impl AgentRegistry {
             return false;
         }
         let now = self.now();
-        !st.rows(&Scope::default(), now).iter().any(|row| clean(row.get("sessionId")) == id && clean(row.get("tag")) == tag)
+        !st.indexed_row(&id, now).is_some_and(|row| clean(row.get("sessionId")) == id && clean(row.get("tag")) == tag)
     }
 
     /// `terminal-reaper.mjs` `tombstoneBlocksScan`: aged out, or a tombstone blocks it.
@@ -714,7 +640,7 @@ impl AgentRegistry {
         }
         let stamp = iso(at);
         let id = clean(session.get("id"));
-        let existing = st.rows(&Scope::default(), self.now()).into_iter().find(|row| clean(row.get("sessionId")) == id);
+        let existing = st.indexed_row(&id, self.now()).filter(|row| clean(row.get("sessionId")) == id);
         let mut finished = stamp_ms(session.get("finishedAt"));
         if finished == 0.0 {
             finished = stamp_ms(existing.as_ref().and_then(|r| r.get("finishedAt")));
@@ -728,12 +654,21 @@ impl AgentRegistry {
 
     /// `transitionStaleNonterminalRows`.
     fn transition_stale(&self, st: &mut State, scope: &Scope) {
+        let stale = self.stale_rows(st, scope);
+        self.tombstone_rows(st, &stale);
+    }
+
+    /// The scope's rows `transitionStaleNonterminalRows` turns into tombstones now.
+    fn stale_rows(&self, st: &State, scope: &Scope) -> Vec<Row> {
         let now = self.now();
         let reap = self.reap_ms();
-        let stale: Vec<Row> = st
-            .rows(scope, now)
+        // Only a row not settled, or settled a day ago, can be stale (`pastSettledRetention`).
+        st
+            .stale_candidates(scope, now)
             .into_iter()
             .filter(|row| {
+                #[cfg(test)]
+                work::note(|c| c.rows_visited += 1);
                 if is_lead_pool_agent(row.get("agent")) {
                     return false;
                 }
@@ -748,8 +683,8 @@ impl AgentRegistry {
                 }
                 now >= nonterminal_reap_deadline(&reap, row)
             })
-            .collect();
-        self.tombstone_rows(st, &stale);
+            .map(|row| (*row).clone())
+            .collect()
     }
 
     /// `refreshTagsFromSessions` over the index as loaded.
@@ -757,24 +692,29 @@ impl AgentRegistry {
         self.resolve_owners(st);
         self.transition_stale(st, scope);
         let now = self.now();
-        let indexed = st.rows(scope, now);
-        for row in &indexed {
+        for row in st.rows_to_bind(scope, now) {
+            #[cfg(test)]
+            work::note(|c| c.rows_visited += 1);
             st.bind(&clean(row.get("tag")), &clean(row.get("sessionId")), &clean(row.get("agent")), &clean(row.get("cwd")));
         }
-        let keys: HashSet<String> = indexed.iter().map(|r| format!("{}\0{}", clean(r.get("tag")), clean(r.get("sessionId")))).collect();
-        let by_key = st.tombstone_index(now);
-        for (tag, id) in st.tags.clone() {
-            if keys.contains(&format!("{tag}\0{id}")) {
+        st.bound(scope, now);
+        // The unbinding pass: a tag the scope's rows do not hold goes when its session is gone or
+        // the scan guard blocks it. Only a tag whose kept facts say so, or whose session is
+        // loaded, can.
+        let pass = self.tag_pass(st, now);
+        for tag in self.unbind_candidates(st, &pass, scope, now) {
+            let Some(id) = st.tag(&tag).cloned() else { continue };
+            if st.holds_key(scope, &tag, &id, now) {
                 continue;
             }
-            let session = self.live_session_row(st, &id);
-            if session.as_ref().is_none_or(|s| self.blocks_scan(st, s, &tag, &by_key)) {
+            if self.facts_of(st, &pass, &tag, &id, now).unbinds() {
                 st.unbind(&tag);
             }
         }
         if !scan_sessions {
             return;
         }
+        let by_key = st.tombstone_index(now);
         for session in self.list_sessions(st, false) {
             if is_lead_pool_agent(session.get("agent")) {
                 continue;
@@ -790,18 +730,51 @@ impl AgentRegistry {
 
     /// `agentSessionEntries` for the views (list and status keep terminal traces), over the
     /// index as last refreshed.
-    pub fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Row)> {
+    pub fn session_entries(&self, scan_sessions: bool, scope: &Scope) -> Vec<(String, Arc<Row>)> {
         let mut st = self.lock();
         self.entries(&mut st, scan_sessions, scope, false)
     }
 
+    /// What the agent status lists for `scope` (`agentSessionEntries` as `statusFor` reads it, after
+    /// `refresh_tags_from_sessions`): the entries of [`Self::session_entries`] in their order, less
+    /// the rows whose own state is not active (`isActiveWorkerRow`, which the status applies to
+    /// every entry). A caller scope reads only the rows a write changed and the tags that can list
+    /// a session for it.
+    pub fn status_entries(&self, scope: &Scope) -> Vec<(String, Arc<Row>)> {
+        let Some(caller) = scope.caller_session_id.clone() else {
+            return self.session_entries(false, scope);
+        };
+        let st = self.lock();
+        let now = self.now();
+        let mut out: Vec<(String, Arc<Row>)> = st.active_listed(scope, now).into_iter().map(|listed| (listed.tag, listed.session)).collect();
+        let pass = self.tag_pass(&st, now);
+        let mut added: HashSet<String> = HashSet::new();
+        for tag in self.listing_candidates(&st, &pass, &caller, now) {
+            let Some(id) = st.tag(&tag).cloned() else { continue };
+            if added.contains(&id) || st.lists_row(scope, &id, now) {
+                continue;
+            }
+            let Some(session) = self.listing_session(&st, &pass, &tag, &id, scope, now) else { continue };
+            let listed_tag = Some(agent_tag_of(&session)).filter(|t| !t.is_empty()).unwrap_or_else(|| clean_str(&tag));
+            let sid = clean(session.get("id"));
+            if listed_tag.is_empty() || sid.is_empty() || session.get("closed") == Some(&Value::Bool(true)) {
+                continue;
+            }
+            if is_lead_pool_agent(session.get("agent")) || !matches_scope(&session, scope) || st.lists_row(scope, &sid, now) || !added.insert(sid) {
+                continue;
+            }
+            out.push((listed_tag, session));
+        }
+        out
+    }
+
     /// `agentSessionEntries`: the tag-bound sessions visible in `scope`, as `(tag, session)`.
-    fn entries(&self, st: &mut State, scan_sessions: bool, scope: &Scope, exclude_terminal_traces: bool) -> Vec<(String, Row)> {
+    fn entries(&self, st: &mut State, scan_sessions: bool, scope: &Scope, exclude_terminal_traces: bool) -> Vec<(String, Arc<Row>)> {
         let now = self.now();
         let by_key = st.tombstone_index(now);
-        let mut out: Vec<(String, Row)> = Vec::new();
+        let mut out: Vec<(String, Arc<Row>)> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
-        let add = |out: &mut Vec<(String, Row)>, seen: &mut HashSet<String>, session: &Row, fallback: &str| {
+        let add = |out: &mut Vec<(String, Arc<Row>)>, seen: &mut HashSet<String>, session: &Arc<Row>, fallback: &str| {
             let tag = Some(agent_tag_of(session)).filter(|t| !t.is_empty()).unwrap_or_else(|| clean_str(fallback));
             let id = clean(session.get("id"));
             if tag.is_empty() || id.is_empty() || session.get("closed") == Some(&Value::Bool(true)) {
@@ -812,17 +785,18 @@ impl AgentRegistry {
             }
             out.push((tag, session.clone()));
         };
-        for row in st.rows(scope, now) {
-            let tag = clean(row.get("tag"));
+        let rows = st.rows(scope, now);
+        for listed in rows.listed() {
+            let row = &listed.row;
             let id = clean(row.get("sessionId"));
-            if tag.is_empty() || id.is_empty() || is_lead_pool_agent(row.get("agent")) || seen.contains(&id) {
+            if listed.tag.is_empty() || id.is_empty() || is_lead_pool_agent(row.get("agent")) || seen.contains(&id) {
                 continue;
             }
-            if exclude_terminal_traces && is_terminal_row(&row) && self.live_session_row(st, &id).is_none() {
+            if exclude_terminal_traces && is_terminal_row(row) && self.live_session_row(st, &id).is_none() {
                 continue;
             }
             seen.insert(id);
-            out.push((tag, row_to_session(&row)));
+            out.push((listed.tag.clone(), listed.session.clone()));
         }
         if scan_sessions {
             for session in self.list_sessions(st, false) {
@@ -830,21 +804,41 @@ impl AgentRegistry {
                 if !tag.is_empty() && self.blocks_scan(st, &session, &tag, &by_key) {
                     continue;
                 }
-                add(&mut out, &mut seen, &session, &tag);
+                add(&mut out, &mut seen, &Arc::new(session.clone()), &tag);
                 if !tag.is_empty() {
                     self.scan_upsert(st, &session, &tag, &by_key);
                 }
             }
         }
-        for (tag, id) in st.tags.clone() {
-            if seen.contains(&id) {
-                continue;
+        match scope.caller_session_id.as_deref().filter(|_| !scan_sessions) {
+            // Only a tag whose kept facts list a session for the caller, or whose session is
+            // loaded, can add one.
+            Some(caller) => {
+                let pass = self.tag_pass(st, now);
+                for tag in self.listing_candidates(st, &pass, caller, now) {
+                    let Some(id) = st.tag(&tag).cloned() else { continue };
+                    if seen.contains(&id) {
+                        continue;
+                    }
+                    let Some(session) = self.listing_session(st, &pass, &tag, &id, scope, now) else { continue };
+                    add(&mut out, &mut seen, &session, &tag);
+                }
             }
-            let Some(session) = self.live_session_row(st, &id) else { continue };
-            if self.blocks_scan(st, &session, &tag, &by_key) {
-                continue;
+            None => {
+                let tags: Vec<(String, String)> = st.tags.iter().map(|(tag, id)| (tag.clone(), id.clone())).collect();
+                for (tag, id) in tags {
+                    #[cfg(test)]
+                    work::note(|c| c.tags_visited += 1);
+                    if seen.contains(&id) {
+                        continue;
+                    }
+                    let Some(session) = self.live_session_row(st, &id) else { continue };
+                    if self.blocks_scan(st, &session, &tag, &by_key) {
+                        continue;
+                    }
+                    add(&mut out, &mut seen, &Arc::new(session), &tag);
+                }
             }
-            add(&mut out, &mut seen, &session, &tag);
         }
         out
     }
@@ -917,9 +911,10 @@ impl AgentRegistry {
         if value.is_empty() {
             return None;
         }
-        st.rows(scope, self.now()).into_iter().find(|row| {
-            clean(row.get("tag")) == value && is_terminal_row(row) && self.live_session_row(st, &clean(row.get("sessionId"))).is_none()
-        })
+        st.rows(scope, self.now())
+            .iter()
+            .find(|row| clean(row.get("tag")) == value && is_terminal_row(row) && self.live_session_row(st, &clean(row.get("sessionId"))).is_none())
+            .cloned()
     }
 }
 
@@ -963,7 +958,7 @@ impl Registry for AgentRegistry {
         if !persisted.is_empty() {
             return Some(persisted);
         }
-        st.tags.iter().find(|(_, id)| id == session_id).map(|(tag, _)| tag.clone())
+        st.tags.first_of(session_id).cloned()
     }
 
     fn unbind_tag(&self, tag: &str) {
@@ -1063,7 +1058,7 @@ impl Registry for AgentRegistry {
         let now = self.now();
         let reaped_at = st
             .tombstones(now)
-            .into_iter()
+            .iter()
             .find(|t| tombstone_key(t) == key && clean(t.get("sessionId")) == tombstone.session_id)
             .and_then(|t| t.get("reapedAt").cloned());
         let mut legacy = Row::new();

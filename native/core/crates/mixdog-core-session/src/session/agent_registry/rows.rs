@@ -28,10 +28,51 @@ pub(super) mod work {
         pub tombstones_keyed: usize,
         pub rows_normalized: usize,
         pub rows_tested: usize,
+        /// A row a read handed out or kept as a copy of its own.
+        pub rows_copied: usize,
+        /// A tombstone a read handed out or kept as a copy of its own.
+        pub tombstones_copied: usize,
+        /// A row tested against a caller's scope.
+        pub rows_scoped: usize,
+        /// A row a refresh bound, checked for staleness, or a listing turned into a session.
+        pub rows_visited: usize,
+        /// A bound tag a refresh's unbinding pass or a listing's tag pass looked at.
+        pub tags_visited: usize,
+        /// A session record looked at to find one session (a header copied, a stored row compared).
+        pub sessions_visited: usize,
+    }
+
+    impl Counts {
+        /// Every per-row, per-tombstone and per-tag operation counted.
+        pub fn total(&self) -> usize {
+            self.tombstones_normalized
+                + self.tombstones_keyed
+                + self.rows_normalized
+                + self.rows_tested
+                + self.rows_copied
+                + self.tombstones_copied
+                + self.rows_scoped
+                + self.rows_visited
+                + self.tags_visited
+                + self.sessions_visited
+        }
     }
 
     thread_local! {
-        static COUNTS: Cell<Counts> = const { Cell::new(Counts { tombstones_normalized: 0, tombstones_keyed: 0, rows_normalized: 0, rows_tested: 0 }) };
+        static COUNTS: Cell<Counts> = const {
+            Cell::new(Counts {
+                tombstones_normalized: 0,
+                tombstones_keyed: 0,
+                rows_normalized: 0,
+                rows_tested: 0,
+                rows_copied: 0,
+                tombstones_copied: 0,
+                rows_scoped: 0,
+                rows_visited: 0,
+                tags_visited: 0,
+                sessions_visited: 0,
+            })
+        };
     }
 
     pub fn note(count: impl FnOnce(&mut Counts)) {

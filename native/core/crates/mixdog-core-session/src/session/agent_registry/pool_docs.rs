@@ -15,14 +15,14 @@ impl AgentRegistry {
         let now = self.clock.now_ms() as f64;
         let state = self.lock();
         let is_lead = |row: &Row| is_lead_pool_agent(row.get("agent"));
-        let workers: Vec<Value> = state.all_rows(now).into_iter().filter(|row| !is_lead(row)).map(Value::Object).collect();
+        let workers: Vec<Value> = state.all_rows(now).iter().filter(|row| !is_lead(*row)).map(|row| Value::Object(row.clone())).collect();
         let leads: Vec<Value> = state
             .maps
             .iter()
             .filter(|(_, map)| !clean(map.get("sessionId")).is_empty() && is_lead(map))
             .map(|(id, map)| Value::Object(super::lead_row::normalized(map, id)))
             .collect();
-        let tombstones: Vec<Value> = state.stored_tombstones(now).into_iter().map(Value::Object).collect();
+        let tombstones: Vec<Value> = state.stored_tombstones(now).iter().map(|row| Value::Object(row.clone())).collect();
         (json!({ "workers": workers, "tombstones": tombstones }), json!({ "workers": leads }))
     }
 }
