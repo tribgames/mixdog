@@ -136,11 +136,21 @@ const cases = [];
 
 const excluded = {
   'a busy session is skipped and retried at the next start':
-    "equality impossible: the core migrates at boot under the data dir's owner lock, before it serves anything, so no " +
-    'other writer can hold a session (Node migrates after boot, beside processes that may hold one); there is no busy state to skip',
+    "equality impossible: Node skips a session whose writer claim another process holds (session-log-migration.mjs:250, " +
+    'MIGRATION_SKIP.BUSY :43), migrating after boot beside running writers; the core migrates at boot step 5 under the data ' +
+    "dir's lock, before anything serves (native/core/crates/mixdog-app-server-daemon/src/boot.rs:1-7), so no writer can hold a session",
   'a file that fails verification is skipped permanently until it changes':
-    "the case needs Node's test loader (`unstableLoad`: a document that loads differently on every read); the product's " +
-    'loader and the core read a json the same way every time, so no file fails this verification',
+    "nothing outside the module can reach it: VERIFY_MISMATCH (session-log-migration.mjs:56) needs a loader that reads the " +
+    "same json differently twice; the test injects one (`unstableLoad`, session-log-migration.test.mjs:104); the product's " +
+    'LEGACY_SESSION_LOADER is a pure parse of the bytes, so no product json fails this verification',
+};
+
+const differences = {
+  'legacy jsons after a completed run':
+    'Node keeps every legacy json byte for byte (jsonsUnchanged: true); the core removes them once the run is verified complete. ' +
+    'Decision: no rollback support (rust-core decisions.md:12, "Version transition"); the core asserts it in ' +
+    'native/core/crates/mixdog-migrate/tests/it/recorded_145.rs:149 (`data/sessions/*.json` removed by contract). The replay checks ' +
+    'that Node kept them, that the core left none after a complete run, and that a run which did not complete changed none.',
 };
 
 const finalDir = join(FIXTURES_ROOT, 'session-log-migration-cases');
@@ -158,6 +168,7 @@ writeSetManifest(stage, {
       'every legacy json kept its bytes and mtime, and the leftover .tmp files; the disk-full case also after its failed run',
     loader: "the product's LEGACY_SESSION_LOADER (the test passes its fixture loader); the claim is the test's held claim",
     excluded,
+    differences,
   },
 });
 commitStage(stage, finalDir);
