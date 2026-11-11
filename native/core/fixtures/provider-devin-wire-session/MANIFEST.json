@@ -19,7 +19,7 @@
     {
       "bytes": 35000,
       "path": "cases.json",
-      "sha256": "74de6e659f82c5509398c2f034d4a0eb3f6420c737b0358e10636bbf8b8efdf1"
+      "sha256": "43ac6d80c7087edd4fc9f4e36a77b51d97e355a0c8b88339a43e39507bb4c34b"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-devin-wire-session.mjs",
-  "recorderSha256": "9a56854a5520302b7d51e85f5e50927f4b9f15b087ecb084fa0c8c2e93c57009",
+  "recorderSha256": "e2c446834c75bba8294aafffd3f75c5e7bd7d25301c367fecc78189375b2f8e7",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The session login (JWT exchange) has no pub item located (devin/session.rs is private): work for the Rust side.",
   "set": "provider-devin-wire-session",
   "totalBytes": 35000,

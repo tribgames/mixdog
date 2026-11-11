@@ -439,7 +439,7 @@
     },
     {
       "id": "failure-never-echoes-session-token",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:126",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:107",
       "input": {
         "secret": "S3ssionSecretValue42"
       },
@@ -504,7 +504,7 @@
     },
     {
       "id": "empty-jwt-missing-token-unsafe-host",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:142",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:126",
       "input": {},
       "result": {
         "emptyJwt": {
