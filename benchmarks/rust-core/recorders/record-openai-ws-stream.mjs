@@ -116,7 +116,7 @@ await row('leaked-tool-call-recovered-once', 140, [created, { type: 'response.ou
 await row('max-output-tokens-truncated-success', 155, [created, { type: 'response.output_text.delta', delta: 'partial' }, { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } }]);
 await row('response-failed-rejects-with-frame', 155, [created, { type: 'response.failed', response: { error: { message: 'boom', code: 'server_error', status: 503 } } }]);
 await row('response-done-cancelled-rejects', 155, [created, { type: 'response.done', response: { status: 'cancelled' } }]);
-await row('close-before-terminal-keeps-partial-state', 133, [created, { type: 'response.output_text.delta', delta: 'half' }, { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_open', call_id: 'c', name: 'n' } }], { close: [1006, 'gone'] });
+await row('close-before-terminal-keeps-partial-state', 187, [created, { type: 'response.output_text.delta', delta: 'half' }, { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_open', call_id: 'c', name: 'n' } }], { close: [1006, 'gone'] });
 const done = { type: 'function_call', id: 'fc_done', call_id: 'call_done', name: 'read' };
 await row('close-after-finished-call-carries-it', 203, [
   created, { type: 'response.output_item.added', item: done }, { type: 'response.function_call_arguments.done', item_id: 'fc_done', arguments: '{"path":"a.txt"}' },
