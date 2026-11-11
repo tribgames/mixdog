@@ -102,13 +102,12 @@ pub struct MediaStore {
 
 /// `indexSignature` (`store.mjs:61-65`): `mtimeMs:ctimeMs:size` of `index.json`. The ctime is the
 /// inode change time on Unix and `FILE_BASIC_INFO.ChangeTime` on Windows, as libuv reports it.
-/// Node compares the times as float milliseconds, the core as integer nanoseconds: two changes
-/// inside one millisecond are a re-read here where Node keeps its cached catalog (declared in
-/// `fixtures/media-store-cases/MANIFEST.json`).
+/// The times are Node's float milliseconds (`mtimeMs`, `ctimeMs`), so two changes whose times are
+/// one double keep the cached catalog here as they do there.
 #[derive(Clone, PartialEq)]
 enum IndexSignature {
     Missing,
-    File { mtime_ns: i128, ctime_ns: i128, size: u64 },
+    File { mtime_ms: f64, ctime_ms: f64, size: u64 },
 }
 
 /// `indexCacheSignature` / `indexCacheAssets` and the counters of `mediaStoreCacheStats`.
@@ -249,10 +248,12 @@ fn read_state_at(path: &Path, valid: impl Fn(&Value) -> bool, now: i64) -> Resul
 }
 
 /// `withFileLockSync(`${file}.lock`)` of `updateJsonAtomicSync`, in Node's protocol and with its
-/// wait (`MIXDOG_LOCK_TIMEOUT_MS`, else 2 s), held until the returned value is dropped.
+/// wait (`MIXDOG_LOCK_TIMEOUT_MS`, else 2 s, one deadline over the line and the file), held until
+/// the returned value is dropped. Callers run on the durability lane (`MediaStore::run`), never on
+/// an async worker.
 fn file_lock(file: &Path) -> Result<mixdog_statefile::LockHold, MediaError> {
     let (sent, taken) = std::sync::mpsc::channel();
-    let hold = mixdog_statefile::hold_lock(&mixdog_statefile::lock_path(file), &mixdog_statefile::LockOpts::default(), move |outcome| {
+    let hold = mixdog_statefile::hold_lock_one_deadline(&mixdog_statefile::lock_path(file), &mixdog_statefile::LockOpts::default(), move |outcome| {
         let _ = sent.send(outcome);
     });
     match taken.recv() {
@@ -401,7 +402,11 @@ impl MediaStore {
     /// `indexSignature`: only an absent file is missing; any other failure to look propagates.
     fn index_signature(&self) -> Result<IndexSignature, MediaError> {
         match mixdog_workspace::ident::stat_version(&self.index_path()) {
-            Ok(version) => Ok(IndexSignature::File { mtime_ns: version.mtime_ns, ctime_ns: version.ctime_ns, size: version.size }),
+            Ok(version) => Ok(IndexSignature::File {
+                mtime_ms: mixdog_workspace::ident::ms_from_ns(version.mtime_ns),
+                ctime_ms: mixdog_workspace::ident::ms_from_ns(version.ctime_ns),
+                size: version.size,
+            }),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(IndexSignature::Missing),
             Err(error) => Err(error.into()),
         }
