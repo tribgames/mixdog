@@ -31,6 +31,7 @@ export const ABORT_CASES = [
   { name: 'other-device-plain-text', prompt: 'HOLD-EMPTY sent from the first phone', canceller: DEVICES.b, stop: {} },
   { name: 'other-device-with-attachment', prompt: 'HOLD-EMPTY with a paste from the first phone', pasted: PASTED, canceller: DEVICES.b, stop: {} },
   { name: 'running-approval-pending', prompt: 'HOLD-APPROVAL add a file', ready: 'approval', stop: {} },
+  { name: 'running-ask-pending', prompt: 'HOLD-ASK read the asked file then stop', ready: 'ask', stop: {} },
   { name: 'running-runtime-turn', prompt: 'HOLD-EMPTY greet the user', submit: { kickoff: true }, stop: {}, requeued: true },
   { name: 'running-answer-streamed-turn-open', prompt: 'HOLD-FINAL answer', output: FINAL, stop: {} },
   { name: 'idle-after-completed-turn', prompt: 'a plain question', ready: 'completed', stop: {} },

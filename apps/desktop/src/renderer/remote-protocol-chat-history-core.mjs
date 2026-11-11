@@ -360,14 +360,16 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       // The barrier: every entry Node had published before this input is the core's.
       const owed = compared.filter((h) => h.at < input.at).length;
       await until(() => advance().matched >= owed, `the core to publish Node's ${owed} entries before ${input.input}`);
-      // Node's clocks moved here: the core's moves as far.
-      if (input.input === 'clock') {
-        if (input.clock > clockAt) await clock(`advance ${input.clock - clockAt}`);
-        clockAt = Math.max(clockAt, input.clock);
-        continue;
-      }
+      // Node's clocks stood at `input.clock` for this input (its own moves, and the recorder's `afterInputMs` after each input): the
+      // core's moves as far.
+      if (input.clock > clockAt) await clock(`advance ${input.clock - clockAt}`);
+      clockAt = Math.max(clockAt, input.clock);
+      if (input.input === 'clock') continue;
       // The model endpoint's next write, of the kind Node released here, once the core has asked for it.
       if (!isPhone(input)) {
+        // Node's connection warm-up (http-agent.mjs:504-539 `preconnect`): a HEAD whose answer is dumped and whose failure is ignored, so
+        // nothing of it reaches the state; the core keeps no such warm-up and has no request to release.
+        if (kindOf(input.key).startsWith('HEAD / ')) continue;
         await until(() => provider.release(kindOf(input.key)), `the core to ask the model endpoint for ${kindOf(input.key)} (Node's write ${input.step})`);
         continue;
       }

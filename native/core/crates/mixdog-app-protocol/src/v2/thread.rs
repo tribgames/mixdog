@@ -983,9 +983,10 @@ pub struct ThreadRuntime {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRoute {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Always sent, `null` before the conversation has a provider (context-state.mjs `routeState`: `runtime.sessionProvider ?? null`).
+    #[serde(default)]
     pub session_provider: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub session_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast: Option<bool>,

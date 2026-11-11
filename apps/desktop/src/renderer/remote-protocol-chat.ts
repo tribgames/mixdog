@@ -215,7 +215,10 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       const started = record(await service('submitNewTask', [prompt, submit, draft]));
       if (!started.turn) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
       const sessionId = String(record(started.thread).id);
-      return { accepted: true, sessionId, snapshot: await snapshotOf(sessionId) } as unknown as DesktopNewTaskSubmitResult;
+      // Node answers the session's projection (session-host-lifecycle.ts:938 applySessionResult), not the published state the host
+      // decorates with its shell jobs (session-host.ts snapshotWithShellJobs).
+      const { shellJobs: _shellJobs, hostShellJobs: _hostShellJobs, ...snapshot } = (await snapshotOf(sessionId)) as Record<string, unknown>;
+      return { accepted: true, sessionId, snapshot } as unknown as DesktopNewTaskSubmitResult;
     },
     submitToSession: async (sessionId: string, prompt: DesktopPromptContent, submit: DesktopSubmitOptions = {}): Promise<boolean> => {
       await service('submitToSession', [sessionId, prompt, submit]);

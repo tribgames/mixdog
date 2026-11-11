@@ -150,7 +150,8 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
       draft: Parameters<ChatApi['submitNewTask']>[2] = {}
     ): Promise<DesktopNewTaskSubmitResult> => {
       if (!showsText(prompt, submit)) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
-      return decorated(await base.submitNewTask(prompt, submit, draft)) as DesktopNewTaskSubmitResult;
+      const started = await base.submitNewTask(prompt, submit, draft);
+      return (started.snapshot ? { ...started, snapshot: decorated(started.snapshot) } : started) as DesktopNewTaskSubmitResult;
     },
     inheritSession: async (...args: Parameters<ChatApi['inheritSession']>) => {
       const forked = await base.inheritSession(...args);
