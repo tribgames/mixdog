@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-// Node's recall source rendering (src/runtime/memory/lib/recall-source.test.mjs): cases 79, 100, 111 and 120 (member /
-// session expansion, out-of-period root, grouped layouts, body bound and compact projection) from the real
+// Node's recall source rendering (src/runtime/memory/lib/recall-source.test.mjs): all six cases (ID recall bodies 72, member /
+// session expansion 79, RAW opt-in 90, out-of-period root 100, grouped layouts 111, body bound and compact projection 120) from the real
 // `createQueryHandlers(...).handleSearch` (query-handlers.mjs), `renderEntryLines`, `renderSessionGroupedLines`
-// (recall-format.mjs) and `compactHandoffRows` (compact-handoff.mjs). Cases 72 (ID recall bodies) and 90 (RAW opt-in) are
-// covered by the recall goldens `id-member-and-root` and `query-raw-included` (mem/tests/recall.rs) and not recorded
-// again. As in the test file the hybrid search is replaced at its module boundary by the scripted `db.search`, and
+// (recall-format.mjs) and `compactHandoffRows` (compact-handoff.mjs). As in the test file the hybrid search is replaced at its module boundary by the scripted `db.search`, and
 // `db.query` answers by SQL text from the three scripted rows; search options and statements are recorded in order.
 // Virtual clock: Date.now() is fixed; the run is in UTC.
 //
@@ -60,6 +58,12 @@ for (const args of [{ query: 'source evidence', period: 'all', includeMembers: t
   expansion.push(await search(handlers(), args));
 }
 const oldRoot = { ...root, ts: Date.now() - 2 * 60 * 60 * 1000 };
+// Cases 72 and 90 (previously listed as covered by recall goldens of the Rust side: those are not recordings of this tree).
+const idRecall = [await search(handlers(), { id: [1, 2, 3] })];
+const rawOptIn = [];
+const rawHandlers = handlers();
+rawOptIn.push(await search(rawHandlers, { query: 'source evidence', period: 'all' }));
+rawOptIn.push(await search(rawHandlers, { query: 'source evidence', period: 'all', includeRaw: true }));
 const period = [];
 for (const [label, rows, args] of [
   ['in-window member hit, root 2 h old, period 30m (the test)', [oldRoot, member, raw], { query: 'source evidence', period: '30m', includeMembers: true }],
@@ -80,7 +84,7 @@ layouts.push({ rows: [], options: {}, ...(await capture(() => renderSessionGroup
 
 const large = { ...raw, content: `${'x'.repeat(8000)}AFTER_BODY_BOUND` };
 const bound = [];
-const render = async (label, rows, options) => bound.push({ label, rows: rowsOf(rows), options: options ?? null, ...(await capture(() => renderEntryLines(rows, options))) });
+const render = async (label, rows, options) => bound.push({ label, rows: rowsOf(rows), options, ...(await capture(() => renderEntryLines(rows, options))) });
 await render('large raw body, preserveSource (bound applies)', [large], { preserveSource: true });
 await render('compact-body root renders its summary', [{ ...root, _compactBody: true }]);
 await render('compact handoff of a large raw row, no bound', compactHandoffRows([large]), { maxBodyChars: null });
@@ -99,7 +103,9 @@ finish(ctx, {
     clock: { dateNowMs: CLOCK_MS, reason: 'row timestamps derive from Date.now()' },
     rows: { root, member, raw },
     cases: [
+      { name: 'ID recall preserves original root, member and RAW bodies without duplicating named members (test line 72)', searches: idRecall },
       { name: 'explicit member search and session expansion keep code, URLs and tables (test line 79)', searches: expansion },
+      { name: 'RAW opt-in preserves raw text while the ordinary root result stays a summary (test line 90)', searches: rawOptIn },
       { name: 'an in-window member hit cannot reintroduce the original root body from outside the requested period (test line 100)', searches: period },
       { name: 'grouped source rendering carries explicit options through flat, multi-session and span layouts (test line 111)', layouts },
       { name: 'source opt-in keeps the body bound and does not change Compact summary/RAW projection (test line 120)', renders: bound },
@@ -107,8 +113,8 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'createQueryHandlers(...).handleSearch (query-handlers.mjs), renderEntryLines and renderSessionGroupedLines (recall-format.mjs), compactHandoffRows (compact-handoff.mjs)', notRun: 'PostgreSQL and hybrid retrieval: searchRelevantHybrid is replaced by db.search at the module boundary and db.query answers by SQL text (as the test file does)' },
-    replay: 'mixdog-services memory: mem/recall/browse.rs search_by_ids/session expansion, mem/recall/format.rs render_entry_lines/render_session_grouped_lines, mem/recall/compact.rs compact_handoff_rows, over the three rows in `rows`; compares the rendered text exactly, the search options handed to the seam and the ordered statements',
-    exclusions: 'test cases 72 (ID recall bodies) and 90 (RAW opt-in) are covered by the recall goldens id-member-and-root and query-raw-included and are not recorded again',
+    replay: "mixdog-services memory/recall/format.rs: pub fn render_entry_lines (:220); reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay renders each recorded row set with the recorded options and compares the text exactly",
+    exclusions: 'none: all six cases of the file are recorded',
     normalised: { 'row timestamps': 'Date.now() fixed at clock.dateNowMs; rendered text in UTC' },
   },
 });

@@ -4,13 +4,13 @@
     "notRun": "PostgreSQL and hybrid retrieval: searchRelevantHybrid is replaced by db.search at the module boundary and db.query answers by SQL text (as the test file does)",
     "runs": "createQueryHandlers(...).handleSearch (query-handlers.mjs), renderEntryLines and renderSessionGroupedLines (recall-format.mjs), compactHandoffRows (compact-handoff.mjs)"
   },
-  "exclusions": "test cases 72 (ID recall bodies) and 90 (RAW opt-in) are covered by the recall goldens id-member-and-root and query-raw-included and are not recorded again",
+  "exclusions": "none: all six cases of the file are recorded",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 91128,
+      "bytes": 101647,
       "path": "golden.json",
-      "sha256": "ac0ebfdade6a28d7a06c25cd8afa1963ab097ec63fd02016d949b8dd76ec7eed"
+      "sha256": "e19d4a12ec29d38dafbfe2ce9aac9dcb6c7875fbcafc81e4dc759fe38da5dd3b"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-recall-source.mjs",
-  "recorderSha256": "01dd8bc91698d568cae00cda71431de883bbb16e3ea6a799f4cd34286c16f211",
-  "replay": "mixdog-services memory: mem/recall/browse.rs search_by_ids/session expansion, mem/recall/format.rs render_entry_lines/render_session_grouped_lines, mem/recall/compact.rs compact_handoff_rows, over the three rows in `rows`; compares the rendered text exactly, the search options handed to the seam and the ordered statements",
+  "recorderSha256": "c7f7fd5d11faf42b8e4f970757dca82cc25d241cb57adb2a7ee5464b3e5b9309",
+  "replay": "mixdog-services memory/recall/format.rs: pub fn render_entry_lines (:220); reached by the `memory/recall` request (Recall::recall, recall/mod.rs:240). A replay renders each recorded row set with the recorded options and compares the text exactly",
   "set": "memory-recall-source",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 91128,
-  "uuidsNormalised": "none"
+  "totalBytes": 101647,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
