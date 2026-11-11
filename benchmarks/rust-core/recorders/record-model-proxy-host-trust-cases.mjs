@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
+import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'proxy-trust-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
@@ -21,14 +22,9 @@ const { ModelProxyProvider } = await set.load(`${R}agent/orchestrator/providers/
 const { readAttachmentBase64, storeInlineImagePart } = await set.load(`${R}attachments/store.mjs`);
 
 const DEADLINE_MS = 10_000;
-const turns = async (n) => { for (let i = 0; i < n; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
-const failure = (e) => ({ name: e?.name ?? null, code: e?.code ?? null, message: String(e?.message ?? e) });
-const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: failure(e) }; } };
-async function within(label, promise, limitMs = DEADLINE_MS) {
-  let timer;
-  const limit = new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${label}: still pending after ${limitMs}ms`)), limitMs); });
-  try { return await Promise.race([promise, limit]); } finally { clearTimeout(timer); }
-}
+const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
+/** Waits for the event that ends a step, with a deadline on the real clock (the clock the code under test sees is virtual). */
+const within = (label, promise, limitMs = DEADLINE_MS) => realDeadline(label, promise, limitMs);
 const disposers = [];
 function connect(runtime, { channel = new ModelProxyChannel(), ...hostOptions } = {}) {
   const host = createModelProxyHost({
@@ -48,7 +44,12 @@ function connect(runtime, { channel = new ModelProxyChannel(), ...hostOptions } 
 }
 const fakeRuntime = (providers) => ({ provider: async (name) => providers[name], providerConfig: async () => ({ providers: { openai: { enabled: true } }, ready: true }), finalizeTools: (tools) => tools });
 const okProvider = (seen = []) => ({ async send(messages, _model, _tools, options) { seen.push({ messages, options }); return { content: 'ok' }; } });
-async function run(name, fn) { await set.run(name, async () => { try { return await fn(); } finally { while (disposers.length) disposers.pop()(); } }); }
+async function run(name, fn) {
+  await set.run(name, async () => {
+    const virtual = virtualTimers();
+    try { const observed = await fn(virtual); return { ...observed, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); virtual.restore(); }
+  });
+}
 
 await run('a stored-attachment reference from a server never reads this PC’s attachment store', async () => {
   const pcSecret = Buffer.from('this PC only').toString('base64');
@@ -62,25 +63,25 @@ await run('a stored-attachment reference from a server never reads this PC’s a
     options: {},
   };
   await within('the send', channel.request(request));
-  const text = JSON.stringify(seen[0].messages);
-  return { storedDigestExists: Boolean(stored?.attachmentRef), attachmentRef: stored.attachmentRef, storedReadsBackHere: resolvedHere === pcSecret, pcSecretBase64: pcSecret, request, providerSaw: seen[0].messages, textHasAttachmentRef: /attachmentRef/.test(text), textHasSecret: text.includes(pcSecret) };
+  return { stored, readBackHere: resolvedHere, pcSecretBase64: pcSecret, request, providerSaw: seen[0].messages };
 });
 await run('inline attachment data passes untouched, and nesting is bounded', async () => {
   const messages = [{ role: 'user', content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] }];
   let deep = {};
   for (let index = 0; index < 500; index += 1) deep = { content: [deep] };
-  let thrown = null;
-  try { withoutAttachmentReferences([deep]); } catch (e) { thrown = failure(e); }
+  let thrown;
+  try { withoutAttachmentReferences([deep]); } catch (e) { thrown = e; }
   return { inlineMessages: messages, inlineReturnedSameObject: withoutAttachmentReferences(messages) === messages, nestingDepth: 500, deepThrew: thrown };
 });
 await run('1,000 advertised ids never produce more claims than one snapshot may name', async () => {
   const claims = [];
-  const host = createModelProxyHost({ invoke: (operation, args) => { if (operation === 'modelProxyClaim') claims.push(args[0]); return new Promise(() => {}); }, loadRuntime: async () => fakeRuntime({}), maxSnapshotEntries: 4, claimTimeoutMs: 60_000 });
+  const fourClaims = Promise.withResolvers();
+  const host = createModelProxyHost({ invoke: (operation, args) => { if (operation === 'modelProxyClaim') { claims.push(args[0]); if (claims.length === 4) fourClaims.resolve(); } return new Promise(() => {}); }, loadRuntime: async () => fakeRuntime({}), maxSnapshotEntries: 4, claimTimeoutMs: 60_000 });
   disposers.push(() => host.dispose());
   const requests = Array.from({ length: 1_000 }, (_, index) => ({ id: `call-${index}`, method: 'send' }));
   for (let round = 0; round < 3; round += 1) host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, { requests, cancelled: requests.map((row) => row.id) });
-  await turns(5);
-  return { maxSnapshotEntries: 4, advertised: 1_000, rounds: 3, claims, normalized: 'the test waited 10 ms; the recording yields five event-loop turns' };
+  await within('the host to claim the first snapshot entries', fourClaims.promise);
+  return { maxSnapshotEntries: 4, advertised: 1_000, rounds: 3, claims };
 });
 await run('payloads past the aggregate in-flight limit are refused, and so are oversized event replies', async () => {
   const started = Promise.withResolvers();
@@ -106,7 +107,7 @@ await run('payloads past the aggregate in-flight limit are refused, and so are o
   disposers.push(() => host.dispose());
   host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, { requests: [{ id: 'r1', method: 'send' }] });
   const args = await within('the oversized reply to settle the call', resolved.promise);
-  return { maxInflightBytes: 3_000, payloadChars: 2_000, secondCall: second, oversizedReply: { resolveArgs: args, ok: args[1], error: args[3], errorNamesOversizedReply: /oversized reply/.test(args[3]) }, hostOperations: hostOps.filter((o) => o !== 'modelProxyHeartbeat') };
+  return { maxInflightBytes: 3_000, payloadChars: 2_000, secondCall: second, oversizedReply: { resolveArgs: args }, hostOperations: hostOps };
 });
 await run('a burst of sends all run, with no rate or concurrency refusal', async () => {
   const { channel, host } = connect(fakeRuntime({ openai: okProvider() }));
@@ -133,7 +134,7 @@ await run('callbacks reach the server only allowlisted and projected; account id
     onToolExcluded: (info) => { excluded.push(info); },
     onSecretHook: () => { secretHookCalled = true; },
   }));
-  return { result, stages, deltas, excluded, secretHookCalled, allowlistedCallbacks: [...MODEL_PROXY_CALLBACKS.keys()].sort(), normalized: 'the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike' };
+  return { result, stages, deltas, excluded, secretHookCalled, allowlistedCallbacks: [...MODEL_PROXY_CALLBACKS.keys()].sort(), secretShapedInput: 'the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike' };
 });
 
 await set.finish({
@@ -141,7 +142,7 @@ await set.finish({
     runs: 'apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, withoutAttachmentReferences, MODEL_PROXY_CALLBACKS) over the real ModelProxyChannel and ModelProxyProvider and the PC\'s real attachment store (a temp data dir)',
     notRun: 'no real provider (scripted send functions)',
   },
-  replay: { entry: 'mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case\'s fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)', normalised: { heartbeats: 'modelProxyHeartbeat operations are left out of hostOperations', dataDir: 'the temp attachment store path does not appear in the recording' } },
+  replay: { entry: 'mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case\'s fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)', normalised: { heartbeats: 'the heartbeat interval runs on the virtual clock (armed/fired/pending recorded per case under timers); no heartbeat operation fires unless advanced', dataDir: '<data> wherever it occurs (paths listed in normalised.paths)' } },
   replaceInText: [[dataDir, '<data>']],
 });
 rmSync(dataDir, { recursive: true, force: true });

@@ -9,26 +9,46 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7528,
+      "bytes": 82624,
       "path": "golden.json",
-      "sha256": "ca008589b79d9eda8cb272b9aded116a060a211baf30d45ddad5c3f7275e3883"
+      "sha256": "25a7aafc1349470436de1fcf17ae9c609edd8cc457cb0cea811f61eb62a3193b"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "1ad866793937f0ec91631efb98090cfad3508da5453e21c64a51dc9d8e79db00"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,14 +67,28 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-trust-cases.mjs",
-  "recorderSha256": "7903926bc1f650b16028d1f54aba72258fd814474c43c8b3defe3df08e5a9875",
+  "recorderSha256": "a35b9fa050dc98ecea99d69d944b518f898ed3e44e23095cceb3864b4eef91e5",
   "replay": {
-    "entry": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
+    "compare": "mixdog-core run_host/model_proxy_pc.rs: the same requests/ callbacks against the PC host; compare each case's fields whole (what the provider saw, claims named, refusal codes, resolve args, projected callbacks)",
+    "entry": "Drive these public items on o1: mixdog-ai/src/service/model_proxy.rs:76 without_attachment_references.",
+    "missingOnO1": [
+      "the PC host (claims bounded by maxSnapshotEntries, in-flight byte limits, projected callbacks): no counterpart found"
+    ],
     "normalised": {
-      "dataDir": "the temp attachment store path does not appear in the recording",
-      "heartbeats": "modelProxyHeartbeat operations are left out of hostOperations"
-    }
+      "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)",
+      "heartbeats": "the heartbeat interval runs on the virtual clock (armed/fired/pending recorded per case under timers); no heartbeat operation fires unless advanced"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 76,
+        "name": "without_attachment_references",
+        "path": "native/core/crates/mixdog-ai/src/service/model_proxy.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "model-proxy-host-trust-cases",
-  "totalBytes": 7528
+  "totalBytes": 82624,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
