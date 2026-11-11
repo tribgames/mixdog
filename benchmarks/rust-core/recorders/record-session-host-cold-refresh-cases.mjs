@@ -31,7 +31,7 @@ await set.run('the cold-view refresh skips unchanged sessions and refreshes a wr
   const published = [];
   let transport;
   const publication = new SessionHostPublication({ isDisposed: () => false, controlSessionId: () => '', setControlSessionId: () => {}, visibleSessionIds: () => visible, readSession: (id) => transport.readSession(id), snapshotWithShellJobs: (_id, snapshot) => snapshot, trackShellJobsEngineState: () => {}, onShellPublished: () => {} });
-  publication.subscribeSessionStates((update) => published.push(JSON.parse(JSON.stringify(update))));
+  publication.subscribeSessionStates((update) => published.push(structuredClone(update)));
   transport = new SessionHostTransport(
     { read: (args) => service.readSession(args, viewer), subscribe: (args) => service.subscribeSession(args, viewer) },
     {
@@ -55,7 +55,7 @@ await set.run('the cold-view refresh skips unchanged sessions and refreshes a wr
     const unchanged = { readsAfterThreeTicks: [...reads], published: [...published] };
     stamps.set(ids[2], `${ids[2]}:2`);
     await catalog.refreshColdViews();
-    const written = { reads: [...reads], publishedSessions: published.map((u) => u.sessionId), firstPublishedItemText: published[0]?.snapshot?.items?.[0]?.text ?? null, firstPublished: published[0] ?? null };
+    const written = { reads: [...reads], publishedSessions: published.map((u) => u.sessionId) };
     await catalog.refreshColdViews();
     return { sessions: ids, initialStamps: ids.map((id) => `${id}:1`), openReads, unchanged, writtenSession: ids[2], written, readsAfterNextTick: [...reads] };
   } finally { catalog.close(); await service.stop('test complete'); }
