@@ -32,21 +32,19 @@ const build = (spec) => {
     default: throw new Error(`bad spec ${spec.t}`);
   }
 };
-const safe = (fn) => { try { return fn(); } catch (e) { return { threw: String(e?.message ?? e) }; } };
+const safe = (fn) => { try { return fn(); } catch (e) { return { threw: e }; } };
 const errorObjectOf = (spec) => spec.t === 'E' || spec.t === 'T' || spec.t === 'Q';
 /** Everything Node's modules answer for one input. */
 function probe(spec) {
   const value = build(spec);
   const out = { input: spec, describe: safe(() => describeError(value)), present: safe(() => presentErrorText(value)), safeDetails: safe(() => safeErrorDetails(spec.t === 'S' ? spec.text : value)) };
   if (errorObjectOf(spec)) {
-    out.builtError = { name: value.name, code: value.code ?? null, message: value.message, providerQuota: value.providerQuota ?? null };
+    out.builtError = value;
     out.providerErrorKind = safe(() => providerErrorKind(value));
     out.persistedDescribe = safe(() => describeError({ message: value.message, errorKind: providerErrorKind(value) }));
-    out.persistedEqualsLive = JSON.stringify(out.persistedDescribe) === JSON.stringify(out.describe);
   }
   if (out.describe && typeof out.describe === 'object' && typeof out.describe.summary === 'string') {
     out.summaryReDescribe = safe(() => describeError(out.describe.summary));
-    out.summaryReDescribeKind = out.summaryReDescribe?.kind ?? null;
   }
   return out;
 }
@@ -57,7 +55,7 @@ const providerFailure = (index) => E(`Anthropic OAuth API 400: ${JSON.stringify(
 await set.run('prefixed provider JSON becomes a short actionable summary without discarding diagnostics', () => {
   const a = probe(providerFailure(54));
   const b = probe(providerFailure(62));
-  return { first: a, second: b, fingerprintsEqual: a.describe.fingerprint === b.describe.fingerprint };
+  return { first: a, second: b };
 });
 await set.run('typed failures distinguish sign-in, rate, request and connection recovery', () => ({
   ...probes([401, 429, 400, 413, 503].map((status) => E('upstream rejected the request', { status }))),
@@ -124,12 +122,12 @@ await set.run('both summaries and details redact credentials while retaining use
   const raw = `Failed at https://user:${secret}@example.test/path?token=abcdef&safe=1\nAuthorization: Bearer verysecret123\n{"api_key":"sk-DUMMY-123456789012345678901234","password":"${secret}"}\nhttps://example.test/?code=oauthcode`;
   const result = probe(E(raw));
   const texts = [result.describe.summary, result.describe.details, safeErrorDetails(raw), presentErrorText(new Error(raw))];
-  return { raw, result, safeDetailsOfString: safeErrorDetails(raw), presentErrorText: presentErrorText(new Error(raw)), leaks: texts.map((t) => /test-password-123|verysecret123|abcdef|oauthcode|sk-DUMMY-1234567890/.test(t)), normalised: 'the api_key value carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-123… shape); the redactor treats both alike' };
+  return { raw, result, texts, safeDetailsOfString: safeErrorDetails(raw), presentErrorText: presentErrorText(new Error(raw)), normalised: 'the api_key value carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-123… shape); the redactor treats both alike' };
 });
 await set.run('diagnostic payloads and display summaries have bounded size', () => {
   const result = describeError(new Error(`Failure ${'x'.repeat(40_000)}`));
   const safeData = safeErrorDetails(`{"data":"${'a'.repeat(1000)}"}`);
-  return { input: 'Failure + 40000 x', summaryChars: result.summary.length, detailsChars: result.details.length, summary: result.summary, detailsHead: result.details.slice(0, 40), detailsTail: result.details.slice(-40), safeDataOfLongJson: safeData, safeDataHasRunOf256: /a{256}/.test(safeData) };
+  return { input: 'Failure + 40000 x', result, safeDataOfLongJson: safeData };
 });
 await set.run('runtime summaries retain their recovery classification after persistence', () => ({
   entries: [providerFailure(1), E('large request', { status: 413 })].map(probe),

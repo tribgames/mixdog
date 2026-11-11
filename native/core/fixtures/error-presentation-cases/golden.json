@@ -28,10 +28,10 @@
           "present": "An attached image exceeds the provider limit.",
           "safeDetails": "Error: Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.54.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.54.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
-            "providerQuota": null
+            "props": {}
           },
           "providerErrorKind": {
             "kind": "unknown",
@@ -52,7 +52,6 @@
             "details": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.54.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
             "fingerprint": "image-size:400"
           },
-          "persistedEqualsLive": false,
           "summaryReDescribe": {
             "kind": "image-size",
             "summary": "An attached image exceeds the provider limit.",
@@ -64,8 +63,7 @@
             "retryAfterMs": null,
             "details": "An attached image exceeds the provider limit.",
             "fingerprint": "image-size:"
-          },
-          "summaryReDescribeKind": "image-size"
+          }
         },
         "second": {
           "input": {
@@ -88,10 +86,10 @@
           "present": "An attached image exceeds the provider limit.",
           "safeDetails": "Error: Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.62.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.62.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
-            "providerQuota": null
+            "props": {}
           },
           "providerErrorKind": {
             "kind": "unknown",
@@ -112,7 +110,6 @@
             "details": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.62.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
             "fingerprint": "image-size:400"
           },
-          "persistedEqualsLive": false,
           "summaryReDescribe": {
             "kind": "image-size",
             "summary": "An attached image exceeds the provider limit.",
@@ -124,10 +121,8 @@
             "retryAfterMs": null,
             "details": "An attached image exceeds the provider limit.",
             "fingerprint": "image-size:"
-          },
-          "summaryReDescribeKind": "image-size"
-        },
-        "fingerprintsEqual": true
+          }
+        }
       }
     },
     {
@@ -157,10 +152,12 @@
             "present": "Provider authentication failed.",
             "safeDetails": "Error: upstream rejected the request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "upstream rejected the request",
-              "providerQuota": null
+              "props": {
+                "status": 401
+              }
             },
             "providerErrorKind": {
               "kind": "auth",
@@ -181,7 +178,6 @@
               "details": "upstream rejected the request",
               "fingerprint": "authentication:401"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "authentication",
               "summary": "Provider authentication failed",
@@ -193,8 +189,7 @@
               "retryAfterMs": null,
               "details": "Provider authentication failed",
               "fingerprint": "authentication:"
-            },
-            "summaryReDescribeKind": "authentication"
+            }
           },
           {
             "input": {
@@ -219,10 +214,12 @@
             "present": "Provider is rate-limited.",
             "safeDetails": "Error: upstream rejected the request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "upstream rejected the request",
-              "providerQuota": null
+              "props": {
+                "status": 429
+              }
             },
             "providerErrorKind": {
               "kind": "rate_limited",
@@ -243,7 +240,6 @@
               "details": "upstream rejected the request",
               "fingerprint": "rate-limit:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "rate-limit",
               "summary": "The provider is temporarily rate-limiting requests.",
@@ -255,8 +251,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "input": {
@@ -281,10 +276,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: upstream rejected the request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "upstream rejected the request",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -305,7 +302,6 @@
               "details": "upstream rejected the request",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -317,8 +313,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "input": {
@@ -343,10 +338,12 @@
             "present": "The request exceeds the size limit.",
             "safeDetails": "Error: upstream rejected the request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "upstream rejected the request",
-              "providerQuota": null
+              "props": {
+                "status": 413
+              }
             },
             "providerErrorKind": {
               "kind": "request_too_large",
@@ -367,7 +364,6 @@
               "details": "upstream rejected the request",
               "fingerprint": "payload-size:413"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "payload-size",
               "summary": "The request exceeds the size limit.",
@@ -379,8 +375,7 @@
               "retryAfterMs": null,
               "details": "The request exceeds the size limit.",
               "fingerprint": "payload-size:"
-            },
-            "summaryReDescribeKind": "payload-size"
+            }
           },
           {
             "input": {
@@ -405,10 +400,12 @@
             "present": "Provider is temporarily unavailable (503).",
             "safeDetails": "Error: upstream rejected the request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "upstream rejected the request",
-              "providerQuota": null
+              "props": {
+                "status": 503
+              }
             },
             "providerErrorKind": {
               "kind": "transient",
@@ -429,7 +426,6 @@
               "details": "upstream rejected the request",
               "fingerprint": "connection:503"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "Provider is temporarily unavailable (503)",
@@ -441,8 +437,7 @@
               "retryAfterMs": null,
               "details": "Provider is temporarily unavailable (503)",
               "fingerprint": "Provider is temporarily unavailable (503)"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           }
         ],
         "fingerprintsOfOrdinaryFailures": [
@@ -476,10 +471,29 @@
           "present": "The provider rejected this request.",
           "safeDetails": "ProviderRequestRejectedError: Anthropic OAuth API 429 request rejected: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Error\"}}",
           "builtError": {
+            "$exact": "error",
             "name": "ProviderRequestRejectedError",
-            "code": "rate_limit_error",
             "message": "Anthropic OAuth API 429 request rejected: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Error\"}}",
-            "providerQuota": false
+            "code": "rate_limit_error",
+            "props": {
+              "name": "ProviderRequestRejectedError",
+              "headers": {
+                "$exact": "map",
+                "entries": []
+              },
+              "response": {
+                "status": 429,
+                "headers": {
+                  "$exact": "map",
+                  "entries": []
+                }
+              },
+              "retryAfterMs": null,
+              "providerQuota": false,
+              "quotaExceeded": false,
+              "status": 429,
+              "httpStatus": 429
+            }
           },
           "providerErrorKind": {
             "kind": "rate_limited",
@@ -500,7 +514,6 @@
             "details": "Anthropic OAuth API 429 request rejected: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Error\"}}",
             "fingerprint": "request:429"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "request",
             "summary": "The provider rejected this request.",
@@ -512,8 +525,7 @@
             "retryAfterMs": null,
             "details": "The provider rejected this request.",
             "fingerprint": "request:"
-          },
-          "summaryReDescribeKind": "request"
+          }
         },
         "rejectedMessageAsString": {
           "input": {
@@ -545,8 +557,7 @@
             "retryAfterMs": null,
             "details": "The provider rejected this request.",
             "fingerprint": "request:"
-          },
-          "summaryReDescribeKind": "request"
+          }
         },
         "quota": {
           "input": {
@@ -575,10 +586,39 @@
           "present": "Provider usage limit reached.",
           "safeDetails": "ProviderQuotaError: Anthropic OAuth API 429 quota/rate limit: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Error\"}}",
           "builtError": {
+            "$exact": "error",
             "name": "ProviderQuotaError",
-            "code": "rate_limit_error",
             "message": "Anthropic OAuth API 429 quota/rate limit: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Error\"}}",
-            "providerQuota": true
+            "code": "rate_limit_error",
+            "props": {
+              "name": "ProviderQuotaError",
+              "headers": {
+                "$exact": "map",
+                "entries": [
+                  [
+                    "anthropic-ratelimit-unified-representative-claim",
+                    "five_hour"
+                  ]
+                ]
+              },
+              "response": {
+                "status": 429,
+                "headers": {
+                  "$exact": "map",
+                  "entries": [
+                    [
+                      "anthropic-ratelimit-unified-representative-claim",
+                      "five_hour"
+                    ]
+                  ]
+                }
+              },
+              "retryAfterMs": null,
+              "providerQuota": true,
+              "quotaExceeded": true,
+              "status": 429,
+              "httpStatus": 429
+            }
           },
           "providerErrorKind": {
             "kind": "quota_exhausted",
@@ -599,7 +639,6 @@
             "details": "Anthropic OAuth API 429 quota/rate limit: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Error\"}}",
             "fingerprint": "quota:429"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "quota",
             "summary": "The provider usage limit was reached.",
@@ -611,8 +650,7 @@
             "retryAfterMs": null,
             "details": "The provider usage limit was reached.",
             "fingerprint": "quota:"
-          },
-          "summaryReDescribeKind": "quota"
+          }
         }
       }
     },
@@ -653,8 +691,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "input": {
@@ -689,8 +726,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "input": {
@@ -725,8 +761,7 @@
               "retryAfterMs": null,
               "details": "The provider usage limit was reached.",
               "fingerprint": "quota:"
-            },
-            "summaryReDescribeKind": "quota"
+            }
           },
           {
             "input": {
@@ -761,8 +796,7 @@
               "retryAfterMs": null,
               "details": "This model isn't included in your plan.",
               "fingerprint": "entitlement:"
-            },
-            "summaryReDescribeKind": "entitlement"
+            }
           },
           {
             "input": {
@@ -797,8 +831,7 @@
               "retryAfterMs": null,
               "details": "The provider account is out of credits or at its spend limit.",
               "fingerprint": "billing:"
-            },
-            "summaryReDescribeKind": "billing"
+            }
           },
           {
             "input": {
@@ -833,8 +866,7 @@
               "retryAfterMs": null,
               "details": "You don't have access to this resource.",
               "fingerprint": "permission:"
-            },
-            "summaryReDescribeKind": "permission"
+            }
           },
           {
             "input": {
@@ -869,8 +901,7 @@
               "retryAfterMs": null,
               "details": "The conversation is too long for this model.",
               "fingerprint": "context-overflow:"
-            },
-            "summaryReDescribeKind": "context-overflow"
+            }
           },
           {
             "input": {
@@ -905,8 +936,7 @@
               "retryAfterMs": null,
               "details": "The request exceeds the size limit.",
               "fingerprint": "payload-size:"
-            },
-            "summaryReDescribeKind": "payload-size"
+            }
           },
           {
             "input": {
@@ -941,8 +971,7 @@
               "retryAfterMs": null,
               "details": "The provider refused this request under its safety policy.",
               "fingerprint": "policy:"
-            },
-            "summaryReDescribeKind": "policy"
+            }
           }
         ],
         "bareKinds": [
@@ -979,8 +1008,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "input": {
@@ -1015,8 +1043,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "input": {
@@ -1051,8 +1078,7 @@
               "retryAfterMs": null,
               "details": "This model isn't included in your plan.",
               "fingerprint": "entitlement:"
-            },
-            "summaryReDescribeKind": "entitlement"
+            }
           },
           {
             "input": {
@@ -1087,8 +1113,7 @@
               "retryAfterMs": null,
               "details": "The provider account is out of credits or at its spend limit.",
               "fingerprint": "billing:"
-            },
-            "summaryReDescribeKind": "billing"
+            }
           },
           {
             "input": {
@@ -1123,8 +1148,7 @@
               "retryAfterMs": null,
               "details": "You don't have access to this resource.",
               "fingerprint": "permission:"
-            },
-            "summaryReDescribeKind": "permission"
+            }
           },
           {
             "input": {
@@ -1159,8 +1183,7 @@
               "retryAfterMs": null,
               "details": "The provider refused this request under its safety policy.",
               "fingerprint": "policy:"
-            },
-            "summaryReDescribeKind": "policy"
+            }
           }
         ],
         "permissionBare": {
@@ -1196,8 +1219,7 @@
             "retryAfterMs": null,
             "details": "You don't have access to this resource.",
             "fingerprint": "permission:"
-          },
-          "summaryReDescribeKind": "permission"
+          }
         }
       }
     },
@@ -1230,10 +1252,12 @@
             "present": "Provider is busy at capacity.",
             "safeDetails": "Error: Overloaded",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Overloaded",
-              "providerQuota": null
+              "props": {
+                "status": 529
+              }
             },
             "providerErrorKind": {
               "kind": "overloaded",
@@ -1254,7 +1278,6 @@
               "details": "Overloaded",
               "fingerprint": "overloaded:529"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "overloaded",
               "summary": "The provider is busy right now.",
@@ -1266,8 +1289,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "input": {
@@ -1296,10 +1318,14 @@
             "present": "Provider is rate-limited (retry in 90s).",
             "safeDetails": "Error: slow down",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "rate_limit_exceeded",
               "message": "slow down",
-              "providerQuota": null
+              "code": "rate_limit_exceeded",
+              "props": {
+                "status": 429,
+                "retryAfterMs": 90000
+              }
             },
             "providerErrorKind": {
               "kind": "rate_limited",
@@ -1322,7 +1348,6 @@
               "details": "slow down",
               "fingerprint": "rate-limit:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "rate-limit",
               "summary": "The provider is temporarily rate-limiting requests.",
@@ -1334,8 +1359,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "input": {
@@ -1373,8 +1397,7 @@
               "retryAfterMs": null,
               "details": "The provider usage limit was reached.",
               "fingerprint": "quota:"
-            },
-            "summaryReDescribeKind": "quota"
+            }
           },
           {
             "input": {
@@ -1409,8 +1432,7 @@
               "retryAfterMs": null,
               "details": "The provider usage limit was reached.",
               "fingerprint": "quota:"
-            },
-            "summaryReDescribeKind": "quota"
+            }
           },
           {
             "input": {
@@ -1435,10 +1457,12 @@
             "present": "Access denied by the provider.",
             "safeDetails": "Error: forbidden",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "forbidden",
-              "providerQuota": null
+              "props": {
+                "status": 403
+              }
             },
             "providerErrorKind": {
               "kind": "permission",
@@ -1459,7 +1483,6 @@
               "details": "forbidden",
               "fingerprint": "permission:403"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "permission",
               "summary": "You don't have access to this resource.",
@@ -1471,8 +1494,7 @@
               "retryAfterMs": null,
               "details": "You don't have access to this resource.",
               "fingerprint": "permission:"
-            },
-            "summaryReDescribeKind": "permission"
+            }
           },
           {
             "input": {
@@ -1498,10 +1520,13 @@
             "present": "Refused by the provider safety policy.",
             "safeDetails": "Error: nope",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "cyber_policy",
               "message": "nope",
-              "providerQuota": null
+              "code": "cyber_policy",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "policy",
@@ -1522,7 +1547,6 @@
               "details": "nope",
               "fingerprint": "policy:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "policy",
               "summary": "The provider refused this request under its safety policy.",
@@ -1534,8 +1558,7 @@
               "retryAfterMs": null,
               "details": "The provider refused this request under its safety policy.",
               "fingerprint": "policy:"
-            },
-            "summaryReDescribeKind": "policy"
+            }
           },
           {
             "input": {
@@ -1561,10 +1584,13 @@
             "present": "x",
             "safeDetails": "Error: x",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "context_length_exceeded",
               "message": "x",
-              "providerQuota": null
+              "code": "context_length_exceeded",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "context_overflow",
@@ -1585,7 +1611,6 @@
               "details": "x",
               "fingerprint": "context-overflow:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "context-overflow",
               "summary": "The conversation is too long for this model.",
@@ -1597,8 +1622,7 @@
               "retryAfterMs": null,
               "details": "The conversation is too long for this model.",
               "fingerprint": "context-overflow:"
-            },
-            "summaryReDescribeKind": "context-overflow"
+            }
           },
           {
             "input": {
@@ -1633,8 +1657,7 @@
               "retryAfterMs": null,
               "details": "The provider account is out of credits or at its spend limit.",
               "fingerprint": "billing:"
-            },
-            "summaryReDescribeKind": "billing"
+            }
           },
           {
             "input": {
@@ -1669,8 +1692,7 @@
               "retryAfterMs": null,
               "details": "This model isn't included in your plan.",
               "fingerprint": "entitlement:"
-            },
-            "summaryReDescribeKind": "entitlement"
+            }
           },
           {
             "input": {
@@ -1702,8 +1724,7 @@
               "retryAfterMs": null,
               "details": "The provider usage limit was reached.",
               "fingerprint": "quota:"
-            },
-            "summaryReDescribeKind": "quota"
+            }
           },
           {
             "input": {
@@ -1728,10 +1749,10 @@
             "present": "Anthropic quota/rate limit hit; retry after 2d 11h 37m.",
             "safeDetails": "Error: Anthropic OAuth API 429 quota/rate limit retryAfter=214641s",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Anthropic OAuth API 429 quota/rate limit retryAfter=214641s",
-              "providerQuota": null
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "unknown",
@@ -1752,7 +1773,6 @@
               "details": "Anthropic OAuth API 429 quota/rate limit retryAfter=214641s",
               "fingerprint": "Anthropic OAuth API 429 quota/rate limit retryAfter=214641s"
             },
-            "persistedEqualsLive": false,
             "summaryReDescribe": {
               "kind": "rate-limit",
               "summary": "The provider is temporarily rate-limiting requests.",
@@ -1764,8 +1784,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           }
         ]
       }
@@ -1796,10 +1815,12 @@
           "present": "Access denied by the provider.",
           "safeDetails": "Error: forbidden",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "forbidden",
-            "providerQuota": null
+            "props": {
+              "status": 403
+            }
           },
           "providerErrorKind": {
             "kind": "permission",
@@ -1820,7 +1841,6 @@
             "details": "forbidden",
             "fingerprint": "permission:403"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "permission",
             "summary": "You don't have access to this resource.",
@@ -1832,8 +1852,7 @@
             "retryAfterMs": null,
             "details": "You don't have access to this resource.",
             "fingerprint": "permission:"
-          },
-          "summaryReDescribeKind": "permission"
+          }
         },
         "deterministicHasModelProxyPermission": false,
         "deterministicHasModelProxyWait": false,
@@ -1888,8 +1907,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "input": {
@@ -1921,8 +1939,7 @@
               "retryAfterMs": null,
               "details": "Provider authentication failed",
               "fingerprint": "authentication:"
-            },
-            "summaryReDescribeKind": "authentication"
+            }
           }
         ]
       }
@@ -1964,8 +1981,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "input": {
@@ -2001,8 +2017,7 @@
               "retryAfterMs": null,
               "details": "The provider refused this request under its safety policy.",
               "fingerprint": "policy:"
-            },
-            "summaryReDescribeKind": "policy"
+            }
           },
           {
             "input": {
@@ -2038,8 +2053,7 @@
               "retryAfterMs": null,
               "details": "The provider account is out of credits or at its spend limit.",
               "fingerprint": "billing:"
-            },
-            "summaryReDescribeKind": "billing"
+            }
           },
           {
             "input": {
@@ -2075,8 +2089,7 @@
               "retryAfterMs": null,
               "details": "The provider usage limit was reached.",
               "fingerprint": "quota:"
-            },
-            "summaryReDescribeKind": "quota"
+            }
           },
           {
             "input": {
@@ -2112,8 +2125,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "input": {
@@ -2145,13 +2157,15 @@
               "retryAfterMs": null,
               "details": "Sign-in expired.",
               "fingerprint": "reauth:"
-            },
-            "summaryReDescribeKind": "reauth"
+            }
           },
           {
             "input": {
               "t": "D",
-              "message": "refresh failed: invalid_grant"
+              "message": "refresh failed: invalid_grant",
+              "errorKind": {
+                "$exact": "undefined"
+              }
             },
             "describe": {
               "kind": "reauth",
@@ -2178,8 +2192,7 @@
               "retryAfterMs": null,
               "details": "Sign-in expired.",
               "fingerprint": "reauth:"
-            },
-            "summaryReDescribeKind": "reauth"
+            }
           }
         ]
       }
@@ -2212,10 +2225,12 @@
             "present": "Provider is busy at capacity.",
             "safeDetails": "Error: Overloaded",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Overloaded",
-              "providerQuota": null
+              "props": {
+                "status": 529
+              }
             },
             "providerErrorKind": {
               "kind": "overloaded",
@@ -2236,7 +2251,6 @@
               "details": "Overloaded",
               "fingerprint": "overloaded:529"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "overloaded",
               "summary": "The provider is busy right now.",
@@ -2248,8 +2262,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "name": "rate_limited",
@@ -2278,10 +2291,13 @@
             "present": "Provider is rate-limited (retry in 90s).",
             "safeDetails": "Error: slow down",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "slow down",
-              "providerQuota": null
+              "props": {
+                "status": 429,
+                "retryAfterMs": 90000
+              }
             },
             "providerErrorKind": {
               "kind": "rate_limited",
@@ -2304,7 +2320,6 @@
               "details": "slow down",
               "fingerprint": "rate-limit:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "rate-limit",
               "summary": "The provider is temporarily rate-limiting requests.",
@@ -2316,8 +2331,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "name": "rejected_429",
@@ -2342,10 +2356,29 @@
             "present": "The provider rejected this request.",
             "safeDetails": "ProviderRequestRejectedError: Anthropic OAuth API 429 request rejected: nope",
             "builtError": {
+              "$exact": "error",
               "name": "ProviderRequestRejectedError",
-              "code": "rate_limit_error",
               "message": "Anthropic OAuth API 429 request rejected: nope",
-              "providerQuota": false
+              "code": "rate_limit_error",
+              "props": {
+                "name": "ProviderRequestRejectedError",
+                "headers": {
+                  "$exact": "map",
+                  "entries": []
+                },
+                "response": {
+                  "status": 429,
+                  "headers": {
+                    "$exact": "map",
+                    "entries": []
+                  }
+                },
+                "retryAfterMs": null,
+                "providerQuota": false,
+                "quotaExceeded": false,
+                "status": 429,
+                "httpStatus": 429
+              }
             },
             "providerErrorKind": {
               "kind": "rate_limited",
@@ -2366,7 +2399,6 @@
               "details": "Anthropic OAuth API 429 request rejected: nope",
               "fingerprint": "request:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -2378,8 +2410,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "name": "quota_exhausted",
@@ -2408,10 +2439,13 @@
             "present": "Provider usage limit reached.",
             "safeDetails": "Error: out",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "quota_exceeded",
               "message": "out",
-              "providerQuota": null
+              "code": "quota_exceeded",
+              "props": {
+                "resetAt": 1800003600000
+              }
             },
             "providerErrorKind": {
               "kind": "quota_exhausted",
@@ -2434,7 +2468,6 @@
               "details": "out",
               "fingerprint": "quota:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "quota",
               "summary": "The provider usage limit was reached.",
@@ -2446,8 +2479,7 @@
               "retryAfterMs": null,
               "details": "The provider usage limit was reached.",
               "fingerprint": "quota:"
-            },
-            "summaryReDescribeKind": "quota"
+            }
           },
           {
             "name": "entitlement",
@@ -2473,10 +2505,11 @@
             "present": "Not included in your plan.",
             "safeDetails": "Error: no plan",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "usage_not_included",
               "message": "no plan",
-              "providerQuota": null
+              "code": "usage_not_included",
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "entitlement",
@@ -2497,7 +2530,6 @@
               "details": "no plan",
               "fingerprint": "entitlement:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "entitlement",
               "summary": "This model isn't included in your plan.",
@@ -2509,8 +2541,7 @@
               "retryAfterMs": null,
               "details": "This model isn't included in your plan.",
               "fingerprint": "entitlement:"
-            },
-            "summaryReDescribeKind": "entitlement"
+            }
           },
           {
             "name": "billing",
@@ -2536,10 +2567,12 @@
             "present": "Out of credits or at spend limit.",
             "safeDetails": "Error: pay",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "pay",
-              "providerQuota": null
+              "props": {
+                "status": 402
+              }
             },
             "providerErrorKind": {
               "kind": "billing",
@@ -2560,7 +2593,6 @@
               "details": "pay",
               "fingerprint": "billing:402"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "billing",
               "summary": "The provider account is out of credits or at its spend limit.",
@@ -2572,8 +2604,7 @@
               "retryAfterMs": null,
               "details": "The provider account is out of credits or at its spend limit.",
               "fingerprint": "billing:"
-            },
-            "summaryReDescribeKind": "billing"
+            }
           },
           {
             "name": "auth",
@@ -2599,10 +2630,12 @@
             "present": "Provider authentication failed.",
             "safeDetails": "Error: bad key",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "bad key",
-              "providerQuota": null
+              "props": {
+                "status": 401
+              }
             },
             "providerErrorKind": {
               "kind": "auth",
@@ -2623,7 +2656,6 @@
               "details": "bad key",
               "fingerprint": "authentication:401"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "authentication",
               "summary": "Provider authentication failed",
@@ -2635,8 +2667,7 @@
               "retryAfterMs": null,
               "details": "Provider authentication failed",
               "fingerprint": "authentication:"
-            },
-            "summaryReDescribeKind": "authentication"
+            }
           },
           {
             "name": "permission",
@@ -2662,10 +2693,12 @@
             "present": "Access denied by the provider.",
             "safeDetails": "Error: nope",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "nope",
-              "providerQuota": null
+              "props": {
+                "status": 403
+              }
             },
             "providerErrorKind": {
               "kind": "permission",
@@ -2686,7 +2719,6 @@
               "details": "nope",
               "fingerprint": "permission:403"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "permission",
               "summary": "You don't have access to this resource.",
@@ -2698,8 +2730,7 @@
               "retryAfterMs": null,
               "details": "You don't have access to this resource.",
               "fingerprint": "permission:"
-            },
-            "summaryReDescribeKind": "permission"
+            }
           },
           {
             "name": "context_overflow",
@@ -2725,10 +2756,11 @@
             "present": "too long",
             "safeDetails": "Error: too long",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "context_length_exceeded",
               "message": "too long",
-              "providerQuota": null
+              "code": "context_length_exceeded",
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "context_overflow",
@@ -2749,7 +2781,6 @@
               "details": "too long",
               "fingerprint": "context-overflow:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "context-overflow",
               "summary": "The conversation is too long for this model.",
@@ -2761,8 +2792,7 @@
               "retryAfterMs": null,
               "details": "The conversation is too long for this model.",
               "fingerprint": "context-overflow:"
-            },
-            "summaryReDescribeKind": "context-overflow"
+            }
           },
           {
             "name": "request_too_large",
@@ -2788,10 +2818,12 @@
             "present": "The request exceeds the size limit.",
             "safeDetails": "Error: big",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "big",
-              "providerQuota": null
+              "props": {
+                "status": 413
+              }
             },
             "providerErrorKind": {
               "kind": "request_too_large",
@@ -2812,7 +2844,6 @@
               "details": "big",
               "fingerprint": "payload-size:413"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "payload-size",
               "summary": "The request exceeds the size limit.",
@@ -2824,8 +2855,7 @@
               "retryAfterMs": null,
               "details": "The request exceeds the size limit.",
               "fingerprint": "payload-size:"
-            },
-            "summaryReDescribeKind": "payload-size"
+            }
           },
           {
             "name": "policy",
@@ -2851,10 +2881,11 @@
             "present": "Refused by the provider safety policy.",
             "safeDetails": "Error: refused",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "content_policy_violation",
               "message": "refused",
-              "providerQuota": null
+              "code": "content_policy_violation",
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "policy",
@@ -2875,7 +2906,6 @@
               "details": "refused",
               "fingerprint": "policy:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "policy",
               "summary": "The provider refused this request under its safety policy.",
@@ -2887,8 +2917,7 @@
               "retryAfterMs": null,
               "details": "The provider refused this request under its safety policy.",
               "fingerprint": "policy:"
-            },
-            "summaryReDescribeKind": "policy"
+            }
           },
           {
             "name": "invalid_request",
@@ -2914,10 +2943,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: bad\"}}",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: bad\"}}",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -2938,7 +2969,6 @@
               "details": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: bad\"}}",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -2950,8 +2980,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "name": "transient_503",
@@ -2977,10 +3006,12 @@
             "present": "Provider is temporarily unavailable (503).",
             "safeDetails": "Error: Anthropic OAuth API 503: upstream",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Anthropic OAuth API 503: upstream",
-              "providerQuota": null
+              "props": {
+                "status": 503
+              }
             },
             "providerErrorKind": {
               "kind": "transient",
@@ -3001,7 +3032,6 @@
               "details": "Anthropic OAuth API 503: upstream",
               "fingerprint": "connection:503"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "Provider is temporarily unavailable (503)",
@@ -3013,8 +3043,7 @@
               "retryAfterMs": null,
               "details": "Provider is temporarily unavailable (503)",
               "fingerprint": "Provider is temporarily unavailable (503)"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           },
           {
             "name": "transient_errno",
@@ -3040,10 +3069,11 @@
             "present": "Connection to the provider was lost (ECONNRESET).",
             "safeDetails": "Error: read ECONNRESET",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "ECONNRESET",
               "message": "read ECONNRESET",
-              "providerQuota": null
+              "code": "ECONNRESET",
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "transient",
@@ -3064,7 +3094,6 @@
               "details": "read ECONNRESET",
               "fingerprint": "connection:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "Connection to the provider was lost (ECONNRESET)",
@@ -3076,8 +3105,7 @@
               "retryAfterMs": null,
               "details": "Connection to the provider was lost (ECONNRESET)",
               "fingerprint": "Connection to the provider was lost (ECONNRESET)"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           },
           {
             "name": "transient_text",
@@ -3101,10 +3129,10 @@
             "present": "Could not reach the provider.",
             "safeDetails": "TypeError: fetch failed",
             "builtError": {
+              "$exact": "error",
               "name": "TypeError",
-              "code": null,
               "message": "fetch failed",
-              "providerQuota": null
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "transient",
@@ -3125,7 +3153,6 @@
               "details": "fetch failed",
               "fingerprint": "connection:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "Could not reach the provider",
@@ -3137,8 +3164,7 @@
               "retryAfterMs": null,
               "details": "Could not reach the provider",
               "fingerprint": "Could not reach the provider"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           },
           {
             "name": "service_tier_unavailable",
@@ -3165,10 +3191,13 @@
             "present": "flex unavailable",
             "safeDetails": "Error: flex unavailable",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "flex_unavailable",
               "message": "flex unavailable",
-              "providerQuota": null
+              "code": "flex_unavailable",
+              "props": {
+                "status": 429
+              }
             },
             "providerErrorKind": {
               "kind": "service_tier_unavailable",
@@ -3189,7 +3218,6 @@
               "details": "flex unavailable",
               "fingerprint": "service-tier:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "service-tier",
               "summary": "The requested service tier is unavailable right now.",
@@ -3201,8 +3229,7 @@
               "retryAfterMs": null,
               "details": "The requested service tier is unavailable right now.",
               "fingerprint": "service-tier:"
-            },
-            "summaryReDescribeKind": "service-tier"
+            }
           },
           {
             "name": "unknown",
@@ -3226,10 +3253,10 @@
             "present": "boom",
             "safeDetails": "Error: boom",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "boom",
-              "providerQuota": null
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "unknown",
@@ -3250,7 +3277,6 @@
               "details": "boom",
               "fingerprint": "boom"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "boom",
@@ -3262,8 +3288,7 @@
               "retryAfterMs": null,
               "details": "boom",
               "fingerprint": "boom"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           }
         ],
         "serviceTier": {
@@ -3300,8 +3325,7 @@
               "retryAfterMs": null,
               "details": "The requested service tier is unavailable right now.",
               "fingerprint": "service-tier:"
-            },
-            "summaryReDescribeKind": "service-tier"
+            }
           }
         },
         "invalidRequestPersisted": {
@@ -3341,8 +3365,7 @@
             "retryAfterMs": null,
             "details": "The provider rejected this request.",
             "fingerprint": "request:"
-          },
-          "summaryReDescribeKind": "request"
+          }
         },
         "transient503Persisted": {
           "input": {
@@ -3381,8 +3404,7 @@
             "retryAfterMs": null,
             "details": "Provider is temporarily unavailable (503)",
             "fingerprint": "Provider is temporarily unavailable (503)"
-          },
-          "summaryReDescribeKind": "unknown"
+          }
         }
       }
     },
@@ -3422,8 +3444,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           }
         ]
       }
@@ -3455,10 +3476,12 @@
             "present": "Connection to the provider was lost.",
             "safeDetails": "Error: OpenAI OAuth WS closed before response.completed (code=1006)",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
-              "providerQuota": null
+              "props": {
+                "wsCloseCode": 1006
+              }
             },
             "providerErrorKind": {
               "kind": "transient",
@@ -3479,7 +3502,6 @@
               "details": "OpenAI OAuth WS closed before response.completed (code=1006)",
               "fingerprint": "connection:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "Connection to the provider was lost",
@@ -3491,8 +3513,7 @@
               "retryAfterMs": null,
               "details": "Connection to the provider was lost",
               "fingerprint": "Connection to the provider was lost"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           },
           {
             "input": {
@@ -3524,8 +3545,7 @@
               "retryAfterMs": null,
               "details": "Connection to the provider was lost",
               "fingerprint": "Connection to the provider was lost"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           }
         ]
       }
@@ -3555,10 +3575,10 @@
           "present": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1 Authorization: [redacted] [redacted] {\"api_key\":[redacted],\"password\":[redacted]} https://example.test/?code=[redacted]",
           "safeDetails": "Error: Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1\nAuthorization: [redacted] [redacted]\n{\"api_key\":[redacted],\"password\":[redacted]}\nhttps://example.test/?code=[redacted]",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "Failed at https://user:test-password-123@example.test/path?token=abcdef&safe=1\nAuthorization: Bearer verysecret123\n{\"api_key\":\"sk-DUMMY-123456789012345678901234\",\"password\":\"test-password-123\"}\nhttps://example.test/?code=oauthcode",
-            "providerQuota": null
+            "props": {}
           },
           "providerErrorKind": {
             "kind": "unknown",
@@ -3579,7 +3599,6 @@
             "details": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1\nAuthorization: [redacted] [redacted]\n{\"api_key\":[redacted],\"password\":[redacted]}\nhttps://example.test/?code=[redacted]",
             "fingerprint": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1\nAuthorization: [redacted] [redacted]\n{\"api_key\":[redacted],\"password\":[redacted]}\nhttps://example.test/?code=[redacted]"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "unknown",
             "summary": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1",
@@ -3591,17 +3610,16 @@
             "retryAfterMs": null,
             "details": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1",
             "fingerprint": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1"
-          },
-          "summaryReDescribeKind": "unknown"
+          }
         },
+        "texts": [
+          "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1",
+          "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1\nAuthorization: [redacted] [redacted]\n{\"api_key\":[redacted],\"password\":[redacted]}\nhttps://example.test/?code=[redacted]",
+          "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1\nAuthorization: [redacted] [redacted]\n{\"api_key\":[redacted],\"password\":[redacted]}\nhttps://example.test/?code=[redacted]",
+          "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1 Authorization: [redacted] [redacted] {\"api_key\":[redacted],\"password\":[redacted]} https://example.test/?code=[redacted]"
+        ],
         "safeDetailsOfString": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1\nAuthorization: [redacted] [redacted]\n{\"api_key\":[redacted],\"password\":[redacted]}\nhttps://example.test/?code=[redacted]",
         "presentErrorText": "Failed at https://[redacted]@example.test/path?token=[redacted]&safe=1 Authorization: [redacted] [redacted] {\"api_key\":[redacted],\"password\":[redacted]} https://example.test/?code=[redacted]",
-        "leaks": [
-          false,
-          false,
-          false,
-          false
-        ],
         "normalised": "the api_key value carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-123… shape); the redactor treats both alike"
       }
     },
@@ -3609,13 +3627,19 @@
       "case": "diagnostic payloads and display summaries have bounded size",
       "observed": {
         "input": "Failure + 40000 x",
-        "summaryChars": 180,
-        "detailsChars": 12002,
-        "summary": "Failure xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
-        "detailsHead": "Failure xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "detailsTail": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n…",
-        "safeDataOfLongJson": "{\"data\":\"[image data]\"}",
-        "safeDataHasRunOf256": false
+        "result": {
+          "kind": "unknown",
+          "summary": "Failure xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "recovery": "",
+          "recoveryTemplate": "",
+          "params": null,
+          "providerKind": "unknown",
+          "resetAt": null,
+          "retryAfterMs": null,
+          "details": "Failure xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n…",
+          "fingerprint": "Failure xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n…"
+        },
+        "safeDataOfLongJson": "{\"data\":\"[image data]\"}"
       }
     },
     {
@@ -3643,10 +3667,10 @@
             "present": "An attached image exceeds the provider limit.",
             "safeDetails": "Error: Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.1.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.1.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
-              "providerQuota": null
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "unknown",
@@ -3667,7 +3691,6 @@
               "details": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.11.content.1.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests\"}}",
               "fingerprint": "image-size:400"
             },
-            "persistedEqualsLive": false,
             "summaryReDescribe": {
               "kind": "image-size",
               "summary": "An attached image exceeds the provider limit.",
@@ -3679,8 +3702,7 @@
               "retryAfterMs": null,
               "details": "An attached image exceeds the provider limit.",
               "fingerprint": "image-size:"
-            },
-            "summaryReDescribeKind": "image-size"
+            }
           },
           {
             "input": {
@@ -3705,10 +3727,12 @@
             "present": "The request exceeds the size limit.",
             "safeDetails": "Error: large request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "large request",
-              "providerQuota": null
+              "props": {
+                "status": 413
+              }
             },
             "providerErrorKind": {
               "kind": "request_too_large",
@@ -3729,7 +3753,6 @@
               "details": "large request",
               "fingerprint": "payload-size:413"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "payload-size",
               "summary": "The request exceeds the size limit.",
@@ -3741,8 +3764,7 @@
               "retryAfterMs": null,
               "details": "The request exceeds the size limit.",
               "fingerprint": "payload-size:"
-            },
-            "summaryReDescribeKind": "payload-size"
+            }
           }
         ]
       }
@@ -3772,10 +3794,10 @@
             "present": "token refresh 400: {\"error\": \"invalid_grant\", \"error_description\": \"Refresh token expired\"}",
             "safeDetails": "Error: token refresh 400: {\"error\": \"invalid_grant\", \"error_description\": \"Refresh token expired\"}",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "token refresh 400: {\"error\": \"invalid_grant\", \"error_description\": \"Refresh token expired\"}",
-              "providerQuota": null
+              "props": {}
             },
             "providerErrorKind": {
               "kind": "unknown",
@@ -3796,7 +3818,6 @@
               "details": "token refresh 400: {\"error\": \"invalid_grant\", \"error_description\": \"Refresh token expired\"}",
               "fingerprint": "reauth:"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "reauth",
               "summary": "Sign-in expired.",
@@ -3808,8 +3829,7 @@
               "retryAfterMs": null,
               "details": "Sign-in expired.",
               "fingerprint": "reauth:"
-            },
-            "summaryReDescribeKind": "reauth"
+            }
           },
           {
             "input": {
@@ -3841,8 +3861,7 @@
               "retryAfterMs": null,
               "details": "Sign-in expired.",
               "fingerprint": "reauth:"
-            },
-            "summaryReDescribeKind": "reauth"
+            }
           },
           {
             "input": {
@@ -3867,10 +3886,12 @@
             "present": "whatever",
             "safeDetails": "Error: whatever",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "whatever",
-              "providerQuota": null
+              "props": {
+                "reauthRequired": true
+              }
             },
             "providerErrorKind": {
               "kind": "auth",
@@ -3891,7 +3912,6 @@
               "details": "whatever",
               "fingerprint": "authentication:"
             },
-            "persistedEqualsLive": false,
             "summaryReDescribe": {
               "kind": "reauth",
               "summary": "Sign-in expired.",
@@ -3903,8 +3923,7 @@
               "retryAfterMs": null,
               "details": "Sign-in expired.",
               "fingerprint": "reauth:"
-            },
-            "summaryReDescribeKind": "reauth"
+            }
           },
           {
             "input": {
@@ -3936,8 +3955,7 @@
               "retryAfterMs": null,
               "details": "Sign-in expired.",
               "fingerprint": "reauth:"
-            },
-            "summaryReDescribeKind": "reauth"
+            }
           }
         ],
         "notReauth": [
@@ -3964,10 +3982,12 @@
             "present": "Access denied by the provider.",
             "safeDetails": "Error: forbidden",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "forbidden",
-              "providerQuota": null
+              "props": {
+                "status": 403
+              }
             },
             "providerErrorKind": {
               "kind": "permission",
@@ -3988,7 +4008,6 @@
               "details": "forbidden",
               "fingerprint": "permission:403"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "permission",
               "summary": "You don't have access to this resource.",
@@ -4000,8 +4019,7 @@
               "retryAfterMs": null,
               "details": "You don't have access to this resource.",
               "fingerprint": "permission:"
-            },
-            "summaryReDescribeKind": "permission"
+            }
           },
           {
             "input": {
@@ -4026,10 +4044,12 @@
             "present": "Provider is rate-limited.",
             "safeDetails": "Error: too many requests",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "too many requests",
-              "providerQuota": null
+              "props": {
+                "status": 429
+              }
             },
             "providerErrorKind": {
               "kind": "rate_limited",
@@ -4050,7 +4070,6 @@
               "details": "too many requests",
               "fingerprint": "rate-limit:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "rate-limit",
               "summary": "The provider is temporarily rate-limiting requests.",
@@ -4062,8 +4081,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "input": {
@@ -4088,10 +4106,12 @@
             "present": "fetch failed ECONNRESET",
             "safeDetails": "Error: fetch failed ECONNRESET",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "fetch failed ECONNRESET",
-              "providerQuota": null
+              "props": {
+                "status": 0
+              }
             },
             "providerErrorKind": {
               "kind": "unknown",
@@ -4112,7 +4132,6 @@
               "details": "fetch failed ECONNRESET",
               "fingerprint": "fetch failed ECONNRESET"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "fetch failed ECONNRESET",
@@ -4124,8 +4143,7 @@
               "retryAfterMs": null,
               "details": "fetch failed ECONNRESET",
               "fingerprint": "fetch failed ECONNRESET"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           }
         ]
       }
@@ -4158,10 +4176,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: Anthropic API 404: {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-x\"}}",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "not_found_error",
               "message": "Anthropic API 404: {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-x\"}}",
-              "providerQuota": null
+              "code": "not_found_error",
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4182,7 +4203,6 @@
               "details": "Anthropic API 404: {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-x\"}}",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4194,8 +4214,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4221,10 +4240,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: The model `gpt-x` does not exist or you do not have access to it.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "model_not_found",
               "message": "The model `gpt-x` does not exist or you do not have access to it.",
-              "providerQuota": null
+              "code": "model_not_found",
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4245,7 +4267,6 @@
               "details": "The model `gpt-x` does not exist or you do not have access to it.",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4257,8 +4278,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4284,10 +4304,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: models/gemini-9.5-pro is not found for API version v1beta",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "not_found",
               "message": "models/gemini-9.5-pro is not found for API version v1beta",
-              "providerQuota": null
+              "code": "not_found",
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4308,7 +4331,6 @@
               "details": "models/gemini-9.5-pro is not found for API version v1beta",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4320,8 +4342,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4347,10 +4368,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: The requested model is not supported.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "model_not_supported",
               "message": "The requested model is not supported.",
-              "providerQuota": null
+              "code": "model_not_supported",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4371,7 +4395,6 @@
               "details": "The requested model is not supported.",
               "fingerprint": "model-unavailable:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4383,8 +4406,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4409,10 +4431,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: acme/foo is not a valid model ID",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "acme/foo is not a valid model ID",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4433,7 +4457,6 @@
               "details": "acme/foo is not a valid model ID",
               "fingerprint": "model-unavailable:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4445,8 +4468,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4471,10 +4493,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: The model claude-2 has been deprecated",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "The model claude-2 has been deprecated",
-              "providerQuota": null
+              "props": {
+                "status": 410
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4495,7 +4519,6 @@
               "details": "The model claude-2 has been deprecated",
               "fingerprint": "model-unavailable:410"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4507,8 +4530,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4533,10 +4555,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: model \"llama9\" not found, try pulling it first",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "model \"llama9\" not found, try pulling it first",
-              "providerQuota": null
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4557,7 +4581,6 @@
               "details": "model \"llama9\" not found, try pulling it first",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4569,8 +4592,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4595,10 +4617,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: This model is not available in your region",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "This model is not available in your region",
-              "providerQuota": null
+              "props": {
+                "status": 403
+              }
             },
             "providerErrorKind": {
               "kind": "permission",
@@ -4619,7 +4643,6 @@
               "details": "This model is not available in your region",
               "fingerprint": "model-unavailable:403"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -4631,8 +4654,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -4664,8 +4686,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           }
         ],
         "notUnavailable": [
@@ -4692,10 +4713,12 @@
             "present": "Provider is busy at capacity.",
             "safeDetails": "Error: model overloaded, not available right now",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "model overloaded, not available right now",
-              "providerQuota": null
+              "props": {
+                "status": 529
+              }
             },
             "providerErrorKind": {
               "kind": "overloaded",
@@ -4716,7 +4739,6 @@
               "details": "model overloaded, not available right now",
               "fingerprint": "overloaded:529"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "overloaded",
               "summary": "The provider is busy right now.",
@@ -4728,8 +4750,7 @@
               "retryAfterMs": null,
               "details": "The provider is busy right now.",
               "fingerprint": "overloaded:"
-            },
-            "summaryReDescribeKind": "overloaded"
+            }
           },
           {
             "input": {
@@ -4754,10 +4775,12 @@
             "present": "Provider is rate-limited.",
             "safeDetails": "Error: model gpt-x: rate limit, not available for 20s",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "model gpt-x: rate limit, not available for 20s",
-              "providerQuota": null
+              "props": {
+                "status": 429
+              }
             },
             "providerErrorKind": {
               "kind": "rate_limited",
@@ -4778,7 +4801,6 @@
               "details": "model gpt-x: rate limit, not available for 20s",
               "fingerprint": "rate-limit:429"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "rate-limit",
               "summary": "The provider is temporarily rate-limiting requests.",
@@ -4790,8 +4812,7 @@
               "retryAfterMs": null,
               "details": "The provider is temporarily rate-limiting requests.",
               "fingerprint": "rate-limit:"
-            },
-            "summaryReDescribeKind": "rate-limit"
+            }
           },
           {
             "input": {
@@ -4816,10 +4837,12 @@
             "present": "Provider authentication failed.",
             "safeDetails": "Error: Invalid API key for model gpt-x is not supported",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Invalid API key for model gpt-x is not supported",
-              "providerQuota": null
+              "props": {
+                "status": 401
+              }
             },
             "providerErrorKind": {
               "kind": "auth",
@@ -4840,7 +4863,6 @@
               "details": "Invalid API key for model gpt-x is not supported",
               "fingerprint": "authentication:401"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "authentication",
               "summary": "Provider authentication failed",
@@ -4852,8 +4874,7 @@
               "retryAfterMs": null,
               "details": "Provider authentication failed",
               "fingerprint": "authentication:"
-            },
-            "summaryReDescribeKind": "authentication"
+            }
           }
         ]
       }
@@ -4885,10 +4906,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: For model gpt-4, tool lookup: route not found",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "For model gpt-4, tool lookup: route not found",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4909,7 +4932,6 @@
               "details": "For model gpt-4, tool lookup: route not found",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -4921,8 +4943,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "input": {
@@ -4947,10 +4968,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: Tool 'model_search' not found",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Tool 'model_search' not found",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -4971,7 +4994,6 @@
               "details": "Tool 'model_search' not found",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -4983,8 +5005,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "input": {
@@ -5009,10 +5030,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: File models/config.json not found while preparing the request",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "File models/config.json not found while preparing the request",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5033,7 +5056,6 @@
               "details": "File models/config.json not found while preparing the request",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -5045,8 +5067,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "input": {
@@ -5071,10 +5092,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: Using model gpt-4: the requested route was not found",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Using model gpt-4: the requested route was not found",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5095,7 +5118,6 @@
               "details": "Using model gpt-4: the requested route was not found",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -5107,8 +5129,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           },
           {
             "input": {
@@ -5133,10 +5154,12 @@
             "present": "The provider rejected this request.",
             "safeDetails": "Error: The model selector tool is not available in this workspace; file not found",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "The model selector tool is not available in this workspace; file not found",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5157,7 +5180,6 @@
               "details": "The model selector tool is not available in this workspace; file not found",
               "fingerprint": "request:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "request",
               "summary": "The provider rejected this request.",
@@ -5169,8 +5191,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected this request.",
               "fingerprint": "request:"
-            },
-            "summaryReDescribeKind": "request"
+            }
           }
         ],
         "notFound": [
@@ -5197,10 +5218,12 @@
             "present": "For model gpt-4, tool lookup: route not found",
             "safeDetails": "Error: For model gpt-4, tool lookup: route not found",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "For model gpt-4, tool lookup: route not found",
-              "providerQuota": null
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5221,7 +5244,6 @@
               "details": "For model gpt-4, tool lookup: route not found",
               "fingerprint": "not-found:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "For model gpt-4, tool lookup: route not found",
@@ -5233,8 +5255,7 @@
               "retryAfterMs": null,
               "details": "For model gpt-4, tool lookup: route not found",
               "fingerprint": "For model gpt-4, tool lookup: route not found"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           },
           {
             "input": {
@@ -5259,10 +5280,12 @@
             "present": "Not Found: /v1/chat/completionz",
             "safeDetails": "Error: Not Found: /v1/chat/completionz",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Not Found: /v1/chat/completionz",
-              "providerQuota": null
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5283,7 +5306,6 @@
               "details": "Not Found: /v1/chat/completionz",
               "fingerprint": "not-found:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "unknown",
               "summary": "Not Found: /v1/chat/completionz",
@@ -5295,8 +5317,7 @@
               "retryAfterMs": null,
               "details": "Not Found: /v1/chat/completionz",
               "fingerprint": "Not Found: /v1/chat/completionz"
-            },
-            "summaryReDescribeKind": "unknown"
+            }
           }
         ],
         "aboutModel": [
@@ -5324,10 +5345,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: route not found",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "model_not_found",
               "message": "route not found",
-              "providerQuota": null
+              "code": "model_not_found",
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5348,7 +5372,6 @@
               "details": "route not found",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5360,8 +5383,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5386,10 +5408,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: Unknown model: gpt-x",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Unknown model: gpt-x",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5410,7 +5434,6 @@
               "details": "Unknown model: gpt-x",
               "fingerprint": "model-unavailable:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5422,8 +5445,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5448,10 +5470,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: Error: model gpt-x is not available for your account",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Error: model gpt-x is not available for your account",
-              "providerQuota": null
+              "props": {
+                "status": 403
+              }
             },
             "providerErrorKind": {
               "kind": "permission",
@@ -5472,7 +5496,6 @@
               "details": "Error: model gpt-x is not available for your account",
               "fingerprint": "model-unavailable:403"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5484,8 +5507,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5511,10 +5533,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: OpenAI OAuth HTTP fallback 400: The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "invalid_request_error",
               "message": "OpenAI OAuth HTTP fallback 400: The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.",
-              "providerQuota": null
+              "code": "invalid_request_error",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5535,7 +5560,6 @@
               "details": "OpenAI OAuth HTTP fallback 400: The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.",
               "fingerprint": "model-unavailable:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5547,8 +5571,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5574,10 +5597,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: Publisher Model `projects/p/locations/us-central1/publishers/google/models/gemini-9-pro` was not found or your project does not have access to it.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "not_found",
               "message": "Publisher Model `projects/p/locations/us-central1/publishers/google/models/gemini-9-pro` was not found or your project does not have access to it.",
-              "providerQuota": null
+              "code": "not_found",
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5598,7 +5624,6 @@
               "details": "Publisher Model `projects/p/locations/us-central1/publishers/google/models/gemini-9-pro` was not found or your project does not have access to it.",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5610,8 +5635,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5636,10 +5660,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: Publisher Model `gemini-9-pro` was not found or your project does not have access to it.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "Publisher Model `gemini-9-pro` was not found or your project does not have access to it.",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5660,7 +5686,6 @@
               "details": "Publisher Model `gemini-9-pro` was not found or your project does not have access to it.",
               "fingerprint": "model-unavailable:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5672,8 +5697,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5698,10 +5722,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: No endpoints found for anthropic/claude-x.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "No endpoints found for anthropic/claude-x.",
-              "providerQuota": null
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5722,7 +5748,6 @@
               "details": "No endpoints found for anthropic/claude-x.",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5734,8 +5759,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5760,10 +5784,12 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: The model gpt-x is currently unavailable.",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": null,
               "message": "The model gpt-x is currently unavailable.",
-              "providerQuota": null
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5784,7 +5810,6 @@
               "details": "The model gpt-x is currently unavailable.",
               "fingerprint": "model-unavailable:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5796,8 +5821,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           },
           {
             "input": {
@@ -5823,10 +5847,13 @@
             "present": "This model isn't available for this account.",
             "safeDetails": "Error: Anthropic API 404: {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-x\"}}",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "not_found_error",
               "message": "Anthropic API 404: {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-x\"}}",
-              "providerQuota": null
+              "code": "not_found_error",
+              "props": {
+                "status": 404
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -5847,7 +5874,6 @@
               "details": "Anthropic API 404: {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-x\"}}",
               "fingerprint": "model-unavailable:404"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "model-unavailable",
               "summary": "This model isn't available for this account.",
@@ -5859,8 +5885,7 @@
               "retryAfterMs": null,
               "details": "This model isn't available for this account.",
               "fingerprint": "model-unavailable:"
-            },
-            "summaryReDescribeKind": "model-unavailable"
+            }
           }
         ]
       }
@@ -5891,10 +5916,12 @@
           "present": "No endpoints found matching your data policy",
           "safeDetails": "Error: No endpoints found matching your data policy",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "No endpoints found matching your data policy",
-            "providerQuota": null
+            "props": {
+              "status": 404
+            }
           },
           "providerErrorKind": {
             "kind": "invalid_request",
@@ -5915,7 +5942,6 @@
             "details": "No endpoints found matching your data policy",
             "fingerprint": "not-found:404"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "unknown",
             "summary": "No endpoints found matching your data policy",
@@ -5927,8 +5953,7 @@
             "retryAfterMs": null,
             "details": "No endpoints found matching your data policy",
             "fingerprint": "No endpoints found matching your data policy"
-          },
-          "summaryReDescribeKind": "unknown"
+          }
         },
         "bare": {
           "input": {
@@ -5953,10 +5978,12 @@
           "present": "<html><body>404</body></html>",
           "safeDetails": "Error: <html><body>404</body></html>",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "<html><body>404</body></html>",
-            "providerQuota": null
+            "props": {
+              "status": 404
+            }
           },
           "providerErrorKind": {
             "kind": "invalid_request",
@@ -5977,7 +6004,6 @@
             "details": "<html><body>404</body></html>",
             "fingerprint": "not-found:404"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "not-found",
             "summary": "The provider couldn't find the requested model or endpoint.",
@@ -5989,8 +6015,7 @@
             "retryAfterMs": null,
             "details": "The provider couldn't find the requested model or endpoint.",
             "fingerprint": "not-found:"
-          },
-          "summaryReDescribeKind": "not-found"
+          }
         }
       }
     },
@@ -6022,10 +6047,13 @@
             "present": "The provider rejected a tool definition.",
             "safeDetails": "Error: Invalid schema for function 'mcp__x__search': In context=(), 'additionalProperties' is required",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "invalid_request_error",
               "message": "Invalid schema for function 'mcp__x__search': In context=(), 'additionalProperties' is required",
-              "providerQuota": null
+              "code": "invalid_request_error",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -6046,7 +6074,6 @@
               "details": "Invalid schema for function 'mcp__x__search': In context=(), 'additionalProperties' is required",
               "fingerprint": "tool-schema:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "tool-schema",
               "summary": "The provider rejected a tool definition.",
@@ -6058,8 +6085,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected a tool definition.",
               "fingerprint": "tool-schema:"
-            },
-            "summaryReDescribeKind": "tool-schema"
+            }
           },
           {
             "input": {
@@ -6085,10 +6111,13 @@
             "present": "The provider rejected a tool definition.",
             "safeDetails": "Error: tools.3.custom.input_schema: JSON schema is invalid. It must match JSON Schema draft 2020-12",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "invalid_request_error",
               "message": "tools.3.custom.input_schema: JSON schema is invalid. It must match JSON Schema draft 2020-12",
-              "providerQuota": null
+              "code": "invalid_request_error",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -6109,7 +6138,6 @@
               "details": "tools.3.custom.input_schema: JSON schema is invalid. It must match JSON Schema draft 2020-12",
               "fingerprint": "tool-schema:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "tool-schema",
               "summary": "The provider rejected a tool definition.",
@@ -6121,8 +6149,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected a tool definition.",
               "fingerprint": "tool-schema:"
-            },
-            "summaryReDescribeKind": "tool-schema"
+            }
           },
           {
             "input": {
@@ -6148,10 +6175,13 @@
             "present": "The provider rejected a tool definition.",
             "safeDetails": "Error: Invalid JSON payload received. Unknown name \"exclusiveMinimum\" at 'tools[0].function_declarations[3].parameters.properties[1]'",
             "builtError": {
+              "$exact": "error",
               "name": "Error",
-              "code": "invalid_request_error",
               "message": "Invalid JSON payload received. Unknown name \"exclusiveMinimum\" at 'tools[0].function_declarations[3].parameters.properties[1]'",
-              "providerQuota": null
+              "code": "invalid_request_error",
+              "props": {
+                "status": 400
+              }
             },
             "providerErrorKind": {
               "kind": "invalid_request",
@@ -6172,7 +6202,6 @@
               "details": "Invalid JSON payload received. Unknown name \"exclusiveMinimum\" at 'tools[0].function_declarations[3].parameters.properties[1]'",
               "fingerprint": "tool-schema:400"
             },
-            "persistedEqualsLive": true,
             "summaryReDescribe": {
               "kind": "tool-schema",
               "summary": "The provider rejected a tool definition.",
@@ -6184,8 +6213,7 @@
               "retryAfterMs": null,
               "details": "The provider rejected a tool definition.",
               "fingerprint": "tool-schema:"
-            },
-            "summaryReDescribeKind": "tool-schema"
+            }
           }
         ],
         "ordinary400": {
@@ -6211,10 +6239,12 @@
           "present": "The provider rejected this request.",
           "safeDetails": "Error: messages: bad",
           "builtError": {
+            "$exact": "error",
             "name": "Error",
-            "code": null,
             "message": "messages: bad",
-            "providerQuota": null
+            "props": {
+              "status": 400
+            }
           },
           "providerErrorKind": {
             "kind": "invalid_request",
@@ -6235,7 +6265,6 @@
             "details": "messages: bad",
             "fingerprint": "request:400"
           },
-          "persistedEqualsLive": true,
           "summaryReDescribe": {
             "kind": "request",
             "summary": "The provider rejected this request.",
@@ -6247,8 +6276,7 @@
             "retryAfterMs": null,
             "details": "The provider rejected this request.",
             "fingerprint": "request:"
-          },
-          "summaryReDescribeKind": "request"
+          }
         }
       }
     }
