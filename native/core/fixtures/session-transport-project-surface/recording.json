@@ -1,0 +1,339 @@
+{
+  "domain": "session-transport-project-surface",
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-project-surface.mjs",
+  "testFile": "scripts/session-transport/project-surface.test.mjs",
+  "cases": [
+    {
+      "name": "project-registry-and-filesystem-operations-have-one-daemon-api",
+      "testLine": 12,
+      "input": {
+        "store": "scripted (see recorder)",
+        "calls": [
+          {
+            "name": "project.list",
+            "args": null
+          },
+          {
+            "name": "project.inspect",
+            "args": {
+              "path": "existing-directory"
+            }
+          },
+          {
+            "name": "project.add",
+            "args": {
+              "path": "C:\\project"
+            }
+          },
+          {
+            "name": "project.touch",
+            "args": {
+              "path": "C:\\project"
+            }
+          },
+          {
+            "name": "project.rename",
+            "args": {
+              "path": "C:\\project",
+              "name": "Renamed"
+            }
+          },
+          {
+            "name": "project.ensureDirectory",
+            "args": {
+              "path": "C:\\new"
+            }
+          },
+          {
+            "name": "project.remove",
+            "args": {
+              "path": "C:\\project"
+            }
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "name": "project.list",
+            "args": null,
+            "ok": {
+              "projects": []
+            },
+            "storeCalls": [
+              [
+                "listProjects"
+              ]
+            ]
+          },
+          {
+            "name": "project.inspect",
+            "args": {
+              "path": "existing-directory"
+            },
+            "ok": {
+              "path": "resolved:existing-directory",
+              "exists": true,
+              "directory": true
+            },
+            "storeCalls": [
+              [
+                "resolveProjectPath",
+                "existing-directory"
+              ],
+              [
+                "pathExists",
+                "resolved:existing-directory"
+              ],
+              [
+                "isDirectory",
+                "resolved:existing-directory"
+              ]
+            ]
+          },
+          {
+            "name": "project.add",
+            "args": {
+              "path": "C:\\project"
+            },
+            "ok": {
+              "project": {
+                "name": "Added",
+                "path": "C:\\project"
+              }
+            },
+            "storeCalls": [
+              [
+                "addProject",
+                "C:\\project"
+              ]
+            ]
+          },
+          {
+            "name": "project.touch",
+            "args": {
+              "path": "C:\\project"
+            },
+            "ok": {
+              "project": {
+                "name": "Added",
+                "path": "C:\\project"
+              }
+            },
+            "storeCalls": [
+              [
+                "touchProjectSelected",
+                "C:\\project"
+              ]
+            ]
+          },
+          {
+            "name": "project.rename",
+            "args": {
+              "path": "C:\\project",
+              "name": "Renamed"
+            },
+            "ok": {
+              "project": {
+                "name": "Renamed",
+                "path": "C:\\project"
+              }
+            },
+            "storeCalls": [
+              [
+                "renameProject",
+                "C:\\project",
+                "Renamed"
+              ]
+            ]
+          },
+          {
+            "name": "project.ensureDirectory",
+            "args": {
+              "path": "C:\\new"
+            },
+            "ok": {
+              "path": "created:C:\\new"
+            },
+            "storeCalls": [
+              [
+                "ensureDir",
+                "C:\\new"
+              ]
+            ]
+          },
+          {
+            "name": "project.remove",
+            "args": {
+              "path": "C:\\project"
+            },
+            "ok": {
+              "removed": true
+            },
+            "storeCalls": [
+              [
+                "removeProject",
+                "C:\\project"
+              ]
+            ]
+          }
+        ],
+        "rowsAfter": []
+      }
+    },
+    {
+      "name": "remote-tui-project-surface-uses-only-daemon-project-and-cwd-routes",
+      "testLine": 144,
+      "input": {
+        "rows": [
+          {
+            "name": "Shared",
+            "path": "C:\\shared"
+          }
+        ],
+        "createSession": {
+          "cwd": "C:\\initial"
+        },
+        "steps": [
+          "listProjects",
+          "addProject('C:\\added')",
+          "setCwd('C:\\shared')"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "label": "runtime.listProjects()",
+            "ok": [
+              {
+                "name": "Shared",
+                "path": "C:\\shared"
+              }
+            ],
+            "serviceCalls": [
+              {
+                "name": "project.list",
+                "args": {},
+                "context": {
+                  "clientToken": "<client 1>",
+                  "leadPid": "<pid>",
+                  "cwd": "C:\\initial",
+                  "revision": 6
+                },
+                "result": {
+                  "projects": [
+                    {
+                      "name": "Shared",
+                      "path": "C:\\shared"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "label": "runtime.addProject('C:\\\\added')",
+            "ok": {
+              "name": "Added",
+              "path": "C:\\added"
+            },
+            "serviceCalls": [
+              {
+                "name": "project.add",
+                "args": {
+                  "path": "C:\\added"
+                },
+                "context": {
+                  "clientToken": "<client 1>",
+                  "leadPid": "<pid>",
+                  "cwd": "C:\\initial",
+                  "revision": 6
+                },
+                "result": {
+                  "project": {
+                    "name": "Added",
+                    "path": "C:\\added"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "label": "runtime.setCwd('C:\\\\shared')",
+            "ok": "C:\\shared",
+            "serviceCalls": [
+              {
+                "name": "session.configure",
+                "args": {
+                  "sessionId": "<daemon session 1>",
+                  "action": "setCwd",
+                  "args": [
+                    "C:\\shared"
+                  ],
+                  "open": {
+                    "cwd": "C:\\initial",
+                    "toolMode": "full",
+                    "remote": false,
+                    "desktopSession": null
+                  },
+                  "baseRevision": "<epoch revision>+0"
+                },
+                "context": {
+                  "clientToken": "<client 1>",
+                  "leadPid": "<pid>",
+                  "cwd": "C:\\initial",
+                  "revision": 6
+                },
+                "result": {
+                  "value": "C:\\shared",
+                  "sessionId": "<daemon session 1>",
+                  "revision": "<epoch revision>+1",
+                  "baseRevision": "<epoch revision>+0",
+                  "patch": {
+                    "set": {
+                      "cwd": "C:\\shared"
+                    },
+                    "remove": [],
+                    "itemsAppend": null
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "label": "runtime.getState().cwd",
+            "ok": "C:\\shared",
+            "type": "string"
+          }
+        ],
+        "touched": [
+          "C:\\shared"
+        ],
+        "rowsAfter": [
+          {
+            "name": "Shared",
+            "path": "C:\\shared"
+          },
+          {
+            "name": "Added",
+            "path": "C:\\added"
+          }
+        ],
+        "allCalls": [
+          "session.create",
+          "project.list",
+          "project.add",
+          "session.configure",
+          "session.unsubscribe"
+        ]
+      }
+    }
+  ],
+  "notRecorded": [
+    {
+      "testLine": 85,
+      "name": "the TUI project picker awaits service switches and contains service failures",
+      "reason": "drives createProjectPicker/createPanelSurface of the Node TUI with scripted callbacks: client UI code, no Rust counterpart"
+    }
+  ]
+}
