@@ -430,6 +430,10 @@ async fn completed(
         _ => None,
     };
     let mut payload = foreground_payload(job, compaction.as_ref());
+    // The result points at the logs: say when one of them lacks part of the output.
+    if let Some(note) = job.log_note() {
+        payload.push_str(&format!("\n\n{note}"));
+    }
     // The tee file is always consumed (deleted); its tail is attached only when the run failed
     // with an empty visible capture — the `(no output)` shape that cost extra diagnostic turns.
     if let Some(tee) = tee_path {

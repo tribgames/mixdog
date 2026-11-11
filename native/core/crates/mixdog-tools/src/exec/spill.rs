@@ -49,15 +49,36 @@ fn create_logs(logs: &[PathBuf; 2]) {
 /// `feed.rs` `MERGE_LIMIT`, 64 KiB). The job's capture itself stays within `jobs.rs` `MEMORY_CAP`.
 pub const LOG_PENDING_CAP: usize = 256 * 1024;
 
+/// How long a job's writer may make no progress (no batch written) before the job gives its logs
+/// up: the io lanes' lease (`mixdog-rt exec.rs` `lane_lease`, 30 s for io-durability and
+/// io-spawn), past which a lane counts a thread stuck in one filesystem call as wedged. It bounds
+/// both the collector's wait for room and [`LogWriter::close`].
+pub const LOG_STALL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How [`LogWriter::close`] ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogsClosed {
+    /// Every byte given to the writer is in its log.
+    Complete,
+    /// A log lacks output from a byte on ([`LogWriter::gaps`]): a write failed, or the writer
+    /// was given up after [`LOG_STALL`] without progress or at the close's deadline.
+    Incomplete,
+}
+
 /// The writer of one job's two logs (stdout 0, stderr 1). The first drain creates the logs
-/// ([`LogWriter::open`], right after the job subscribed to its output, so the output is taken
-/// meanwhile); chunks are queued in arrival order and written in batches by a drain on an io-pty
-/// thread (one thread per drain, no shared pool, so one job's slow disk never stalls another's);
-/// one drain runs at a time per job, so each log keeps its order. A drain waits for an io-pty
-/// thread rather than dropping output when the lane is at its live cap. A log whose write fails is
-/// not written again, as a failed append stopped it before this writer (the stream's
-/// `spilling` flag, with nothing said in the result). Every exit of a drain (done, panicked, never
-/// run) leaves the writer idle, so [`LogWriter::close`] always returns.
+/// ([`LogWriter::open`]); chunks are queued in arrival order and written in batches by a drain on
+/// an io-pty thread (one thread per drain, no shared pool, so one job's slow disk never stalls
+/// another's); one drain runs at a time per job, so each log keeps its order. A drain waits for an
+/// io-pty thread rather than dropping output when the lane is at its live cap.
+///
+/// Every wait is bounded and tied to the job's own token (`stop`): a writer that makes no
+/// progress for [`LOG_STALL`] while the collector waits for room, or that is not done by the
+/// close's deadline, is given up ([`LogWriter::abandon`]): `stop` is cancelled, which takes a
+/// drain still waiting for a thread out of the lane's queue, nothing more is written, and each
+/// log that lacks output records from which byte ([`LogWriter::gaps`]); the job's results say so
+/// (`Job::log_note`). A log whose write fails is not written again and records its gap the same
+/// way. Every exit of a drain (done, panicked, never run) leaves the writer idle.
+#[derive(Clone)]
 pub struct LogWriter {
     lane: PtyIo,
     shared: Arc<Shared>,
@@ -68,8 +89,8 @@ struct Shared {
     state: Mutex<WriterState>,
     /// Notified when a batch was written or the drain ended.
     progress: Notify,
-    /// The drains' token: a job's logs are written to the end whatever happens to its call.
-    never: CancellationToken,
+    /// The job's log token: cancelled when the writer is given up.
+    stop: CancellationToken,
 }
 
 #[derive(Default)]
@@ -81,6 +102,25 @@ struct WriterState {
     /// The logs were created (by the first drain).
     created: bool,
     stopped: [bool; 2],
+    /// Bytes given to each log, and of those the bytes written to it.
+    offered: [u64; 2],
+    written: [u64; 2],
+    /// Where each log's output stops being complete.
+    gaps: [Option<u64>; 2],
+    /// Given up: nothing more is written.
+    abandoned: bool,
+}
+
+impl WriterState {
+    /// Nothing more will be written: each log that lacks output given to it records its gap at
+    /// the bytes it holds.
+    fn note_gaps(&mut self) {
+        for stream in 0..2 {
+            if self.offered[stream] > self.written[stream] {
+                self.gaps[stream].get_or_insert(self.written[stream]);
+            }
+        }
+    }
 }
 
 /// Held by a drain from its submission to its end. Dropped any other way than [`DrainExit::done`]
@@ -107,6 +147,7 @@ impl Drop for DrainExit {
             state.stopped = [true, true];
             state.queued.clear();
             state.bytes = 0;
+            state.note_gaps();
         }
         shared.progress.notify_waiters();
     }
@@ -118,13 +159,15 @@ impl LogWriter {
             logs: [stdout.to_owned(), stderr.to_owned()],
             state: Mutex::new(WriterState::default()),
             progress: Notify::new(),
-            never: CancellationToken::new(),
+            stop: CancellationToken::new(),
         };
         Self { lane, shared: Arc::new(shared) }
     }
 
     /// Queues `bytes` for log `stream`, first waiting while the job holds [`LOG_PENDING_CAP`]
-    /// unwritten bytes. Cancel-safe: dropped while it waits, it has queued nothing.
+    /// unwritten bytes; after [`LOG_STALL`] without a batch written the writer is given up and
+    /// the bytes are recorded as missing. Cancel-safe: dropped while it waits, it has queued
+    /// nothing.
     pub async fn push(&self, stream: usize, bytes: Vec<u8>) {
         loop {
             let written = self.shared.progress.notified();
@@ -133,10 +176,14 @@ impl LogWriter {
             {
                 let mut state = lock(&self.shared.state);
                 if state.stopped[stream] {
+                    state.offered[stream] += bytes.len() as u64;
+                    let at = state.written[stream];
+                    state.gaps[stream].get_or_insert(at);
                     return;
                 }
                 if state.bytes == 0 || state.bytes + bytes.len() <= LOG_PENDING_CAP {
                     state.bytes += bytes.len();
+                    state.offered[stream] += bytes.len() as u64;
                     state.queued.push((stream, bytes));
                     if std::mem::replace(&mut state.draining, true) {
                         return;
@@ -144,9 +191,33 @@ impl LogWriter {
                     break;
                 }
             }
-            written.await;
+            if mixdog_rt::time::timeout(LOG_STALL, written).await.is_err() {
+                self.abandon();
+            }
         }
         self.start_drain().await;
+    }
+
+    /// Gives the writer up: nothing more is written, a drain waiting for a thread leaves the
+    /// lane's queue, and each log that lacks output records from which byte. A drain already in
+    /// a filesystem call finishes that call on its own thread.
+    fn abandon(&self) {
+        {
+            let mut state = lock(&self.shared.state);
+            state.abandoned = true;
+            state.stopped = [true, true];
+            let dropped: usize = state.queued.drain(..).map(|(_, bytes)| bytes.len()).sum();
+            state.bytes -= dropped;
+            state.note_gaps();
+        }
+        self.shared.stop.cancel();
+        self.shared.progress.notify_waiters();
+    }
+
+    /// Where each log (stdout, stderr) stops being complete: the bytes it holds of the output
+    /// given to it, when that is less than all of it.
+    pub fn gaps(&self) -> [Option<u64>; 2] {
+        lock(&self.shared.state).gaps
     }
 
     /// Creates the logs, on the first drain. The job calls it once it is subscribed to the
@@ -159,24 +230,35 @@ impl LogWriter {
     }
 
     /// Starts a drain (`draining` is already set), waiting for an io-pty thread when the lane is
-    /// at its live cap. A drain that cannot be started ends through its [`DrainExit`].
+    /// at its live cap; the job's token ends that wait when the writer is given up. A drain that
+    /// cannot be started ends through its [`DrainExit`].
     async fn start_drain(&self) {
         let exit = DrainExit { shared: Some(self.shared.clone()) };
         let shared = self.shared.clone();
-        let _ = self.lane.submit_wait(&self.shared.never, move |_| drain(&shared, exit)).await;
+        let _ = self.lane.submit_wait(&self.shared.stop, move |_| drain(&shared, exit)).await;
     }
 
-    /// Waits until everything queued is written (or its log stopped): the logs are complete.
-    pub async fn close(&self) {
-        loop {
-            let written = self.shared.progress.notified();
-            tokio::pin!(written);
-            written.as_mut().enable();
-            if !lock(&self.shared.state).draining {
-                return;
+    /// Waits until everything queued is written (or its log stopped), for at most `deadline`;
+    /// a writer not done by then is given up. The outcome names whether the logs are whole.
+    pub async fn close(&self, deadline: std::time::Duration) -> LogsClosed {
+        let done = async {
+            loop {
+                let written = self.shared.progress.notified();
+                tokio::pin!(written);
+                written.as_mut().enable();
+                {
+                    let state = lock(&self.shared.state);
+                    if !state.draining || state.abandoned {
+                        return;
+                    }
+                }
+                written.await;
             }
-            written.await;
+        };
+        if mixdog_rt::time::timeout(deadline, done).await.is_err() {
+            self.abandon();
         }
+        if lock(&self.shared.state).gaps.iter().any(Option::is_some) { LogsClosed::Incomplete } else { LogsClosed::Complete }
     }
 
     /// Bytes queued or being written.
@@ -216,17 +298,26 @@ fn drain(shared: &Shared, exit: DrainExit) {
                 runs[stream].extend_from_slice(&bytes);
             }
         }
-        let mut failed = [false; 2];
+        let mut appended = [None; 2];
         for (stream, run) in runs.iter().enumerate() {
             if !run.is_empty() && !stopped[stream] {
-                failed[stream] = append(&shared.logs[stream], run).is_err();
+                appended[stream] = Some(append(&shared.logs[stream], run).is_ok().then_some(run.len() as u64));
             }
         }
         {
             let mut state = lock(&shared.state);
             state.bytes -= written;
-            state.stopped[0] |= failed[0];
-            state.stopped[1] |= failed[1];
+            for (stream, appended) in appended.into_iter().enumerate() {
+                match appended {
+                    Some(Some(len)) => state.written[stream] += len,
+                    Some(None) => {
+                        state.stopped[stream] = true;
+                        let at = state.written[stream];
+                        state.gaps[stream].get_or_insert(at);
+                    }
+                    None => {}
+                }
+            }
         }
         shared.progress.notify_waiters();
     }
@@ -278,18 +369,20 @@ pub(crate) mod write_gate {
             let mut state = gate.state.lock().unwrap();
             state.1 += 1;
             gate.changed.notify_all();
-            while !state.0 {
-                state = gate.changed.wait(state).unwrap();
-            }
+            let (_state, waited) = gate.changed.wait_timeout_while(state, GATE_WAIT, |state| !state.0).unwrap();
+            assert!(!waited.timed_out(), "the test opens the log write gate within {GATE_WAIT:?}");
         }
     }
+
+    /// The deadline of every wait at the gate.
+    pub(crate) const GATE_WAIT: Duration = Duration::from_secs(60);
 
     impl Gate {
         /// Waits until drains have reached the gate `count` times.
         pub(crate) fn wait_reached(&self, count: usize) {
             let (state, waited) = self
                 .changed
-                .wait_timeout_while(self.state.lock().unwrap(), Duration::from_secs(60), |state| state.1 < count)
+                .wait_timeout_while(self.state.lock().unwrap(), GATE_WAIT, |state| state.1 < count)
                 .unwrap();
             assert!(!waited.timed_out(), "a log drain reaches the gate {count} time(s); it reached it {}", state.1);
         }
