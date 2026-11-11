@@ -7,6 +7,7 @@
 //! registered for the later ones (the first one of an `$id` wins). Validation is `jsonschema`'s
 //! draft-07 with Ajv's own `format` and `uniqueItems` ([`crate::ajv_formats`]).
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -112,6 +113,41 @@ impl Slot {
             build(&for_engine(&self.schema)?, &self.registered)
                 .map_err(|error| compile_error_text(&self.schema, &error))
         })
+    }
+}
+
+/// The validation walk's answers for single keywords ([`crate::ajv_stack::Keywords`]): each keyword alone, built as the
+/// result's validator is (`for_engine`, Ajv's formats, `uniqueItems` and `multipleOf`), once per schema and keyword.
+struct KeywordChecks<'r> {
+    registered: &'r Arc<HashMap<String, Value>>,
+    built: RefCell<HashMap<(usize, String), Option<jsonschema::Validator>>>,
+    patterns: RefCell<HashMap<String, Option<jsonschema::Validator>>>,
+}
+
+impl KeywordChecks<'_> {
+    fn alone(&self, schema: Value) -> Option<jsonschema::Validator> {
+        build(&for_engine(&schema).ok()?, self.registered).ok()
+    }
+}
+
+impl crate::ajv_stack::Keywords for KeywordChecks<'_> {
+    fn holds(&self, schema: &Value, keyword: &str, value: &Value) -> bool {
+        let mut built = self.built.borrow_mut();
+        let validator = built.entry((std::ptr::from_ref(schema) as usize, keyword.to_owned())).or_insert_with(|| {
+            let mut rule = schema.get(keyword)?.clone();
+            // The walk applies the schemas of `dependencies` itself.
+            if let (true, Value::Object(dependencies)) = (keyword == "dependencies", &mut rule) {
+                dependencies.retain(|_, dependency| dependency.is_array());
+            }
+            self.alone(serde_json::json!({ keyword: rule }))
+        });
+        validator.as_ref().is_none_or(|validator| validator.is_valid(value))
+    }
+
+    fn matches(&self, pattern: &str, name: &str) -> bool {
+        let mut patterns = self.patterns.borrow_mut();
+        let validator = patterns.entry(pattern.to_owned()).or_insert_with(|| self.alone(serde_json::json!({ "pattern": pattern })));
+        validator.as_ref().is_some_and(|validator| validator.is_valid(&Value::String(name.to_owned())))
     }
 }
 
@@ -343,8 +379,23 @@ impl OutputValidators {
                 format!("Failed to validate structured content: {error}"),
             )
         })?;
-        // Where Ajv's validation recurses without end, or past V8's stack, Node's call fails; the walk is bounded.
-        if crate::ajv_stack::validation_overflows(&crate::ajv_stack::Documents::new(&slot.schema, &slot.registered), structured) {
+        // Where Ajv's validation recurses without end, or past V8's stack, Node's call fails; the walk is bounded. Without a
+        // reference nothing recurses.
+        let overflows = crate::ajv_stack::references(&slot.schema)
+            && std::thread::scope(|scope| {
+                std::thread::Builder::new()
+                    .name("mcp-ajv-walk".to_owned())
+                    .stack_size(crate::ajv_stack::WALK_STACK)
+                    .spawn_scoped(scope, || {
+                        let keywords = KeywordChecks { registered: &slot.registered, built: RefCell::default(), patterns: RefCell::default() };
+                        let docs = crate::ajv_stack::Documents::new(&slot.schema, &slot.registered);
+                        crate::ajv_stack::validation_overflows(&docs, structured, &keywords)
+                    })
+                    .expect("a thread for the validation walk")
+                    .join()
+                    .expect("the validation walk ends")
+            });
+        if overflows {
             return Err(refused(
                 -32602,
                 format!("Failed to validate structured content: {}", crate::ajv_stack::STACK_OVERFLOW),
