@@ -49,7 +49,7 @@ pub struct ScheduleStatusRow {
 #[derive(Default)]
 struct State {
     /// Test support: where `start`, `stop` and `reload_config` are written, under Node's scheduler call names.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     calls: Option<Arc<Mutex<Vec<serde_json::Value>>>>,
     schedules: Vec<Schedule>,
     running: HashSet<String>,
@@ -75,10 +75,10 @@ pub struct Scheduler {
     inner: Arc<Inner>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Scheduler {
-    /// Writes each later `start`, `stop` and `reload_config` into `log`, in call order.
-    pub(crate) fn record_calls(&self, log: Arc<Mutex<Vec<serde_json::Value>>>) {
+    /// Test support: writes each later `start`, `stop` and `reload_config` into `log`, in call order.
+    pub fn record_calls(&self, log: Arc<Mutex<Vec<serde_json::Value>>>) {
         self.inner.state.lock().unwrap().calls = Some(log);
     }
 
@@ -127,13 +127,13 @@ impl Scheduler {
 
     /// Arms every loaded schedule. A no-op when already started or when none is loaded.
     pub fn start(&self) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.record(serde_json::json!(["scheduler.start"]));
         self.inner.start();
     }
 
     pub fn stop(&self) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.record(serde_json::json!(["scheduler.stop"]));
         self.inner.stop();
     }
@@ -152,7 +152,7 @@ impl Scheduler {
     /// Replaces the loaded schedules (enabled ones only) and re-arms them unless
     /// `restart` is false, in which case the stale jobs are only dropped.
     pub fn reload_config(&self, schedules: Vec<Schedule>, restart: bool) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.record(serde_json::json!(["scheduler.reload", schedules, {"restart": restart}]));
         {
             let mut st = self.inner.state.lock().unwrap();

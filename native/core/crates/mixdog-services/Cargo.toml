@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# For other crates' replays: the scheduler's call recorder (`Scheduler::record_calls`).
+test-support = []
+
 [lints]
 workspace = true
 
@@ -86,3 +90,6 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-protocol = { workspace = true, features = ["codegen"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-services = { path = ".", features = ["test-support"] }

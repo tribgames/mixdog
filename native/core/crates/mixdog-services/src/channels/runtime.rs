@@ -73,9 +73,12 @@ pub struct ChannelRuntime {
     state: Mutex<State>,
     /// One start at a time: a second caller joins the first.
     start_gate: Gate,
-    /// Reloads apply in the order they were asked, each reading the stores afresh, so the last
-    /// one applied is the newest.
+    /// One reload applies at a time (the newest started; see [`Self::reload_runtime`]).
     reload_gate: Gate,
+    /// Reloads started so far: the ticket of the newest.
+    reloads_started: std::sync::atomic::AtomicU64,
+    /// The newest reload that ended, and how.
+    reloads_settled: tokio::sync::watch::Sender<(u64, Result<(), String>)>,
     /// Node's `closeRequested` for the channel start: once cancelled (by `shutdown_scheduled_start`)
     /// no deferred start runs or is scheduled.
     shutdown: CancellationToken,
@@ -83,6 +86,34 @@ pub struct ChannelRuntime {
     busy: std::sync::OnceLock<BusyProbe>,
     /// `wakeDeferredWarmups()`: wakes the deferred start that parked on a busy runtime.
     start_wake: tokio::sync::Notify,
+}
+
+/// Publishes how reload `ticket` ended, for the older reloads that answer with it: its result, or
+/// a moot `Ok` when it was cut short. A superseded reload (ticket 0) publishes nothing.
+struct Settle<'a> {
+    settled: &'a tokio::sync::watch::Sender<(u64, Result<(), String>)>,
+    ticket: u64,
+    result: Option<Result<(), String>>,
+}
+
+impl Settle<'_> {
+    fn with(&mut self, result: Result<(), String>) -> Result<(), String> {
+        self.result = Some(result.clone());
+        result
+    }
+}
+
+impl Drop for Settle<'_> {
+    fn drop(&mut self) {
+        let (ticket, result) = (self.ticket, self.result.take().unwrap_or(Ok(())));
+        self.settled.send_if_modified(|current| {
+            let newer = ticket > current.0;
+            if newer {
+                *current = (ticket, result);
+            }
+            newer
+        });
+    }
 }
 
 /// What the app shows as the worker's state.
@@ -113,6 +144,8 @@ impl ChannelRuntime {
             state: Mutex::new(State::default()),
             start_gate: Gate::new(),
             reload_gate: Gate::new(),
+            reloads_started: Default::default(),
+            reloads_settled: tokio::sync::watch::Sender::new((0, Ok(()))),
             shutdown: CancellationToken::new(),
             busy: std::sync::OnceLock::new(),
             start_wake: tokio::sync::Notify::new(),
@@ -319,13 +352,46 @@ impl ChannelRuntime {
 
     /// Re-reads the stores and re-arms the scheduler (and the receiver) when the runtime is
     /// supposed to be running; otherwise tears the receiver down.
+    ///
+    /// Reloads overlap, as Node's (`config-reload.mjs`): only the newest started one applies, so a
+    /// slower read of older stores never lands over a newer one; an older caller answers with the
+    /// newest reload's outcome.
     pub async fn reload_runtime(&self) -> Result<(), String> {
+        let epoch = self.epoch();
+        let ticket = self.reloads_started.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let mut settle = Settle { settled: &self.reloads_settled, ticket, result: None };
         // A reload a stop cut short is moot: the stop tore the receiver down.
-        self.reload_gate.run(&self.epoch(), self.reload_turn()).await.unwrap_or(Ok(()))
+        let Some(loaded) = epoch.run_until_cancelled(self.armed_schedules()).await else { return Ok(()) };
+        let rows = match loaded {
+            Ok(rows) => rows,
+            Err(error) => return settle.with(Err(error.to_string())),
+        };
+        let newest = || self.reloads_started.load(std::sync::atomic::Ordering::SeqCst);
+        let applied = self
+            .reload_gate
+            .run(&epoch, async {
+                if newest() != ticket {
+                    return None;
+                }
+                Some(self.apply_reload(rows).await)
+            })
+            .await;
+        match applied {
+            Err(_) => Ok(()),
+            Ok(Some(result)) => settle.with(result),
+            Ok(None) => {
+                settle.ticket = 0;
+                let target = newest();
+                let mut settled = self.reloads_settled.subscribe();
+                match epoch.run_until_cancelled(settled.wait_for(|(done, _)| *done >= target)).await {
+                    Some(Ok(done)) => done.1.clone(),
+                    _ => Ok(()),
+                }
+            }
+        }
     }
 
-    async fn reload_turn(&self) -> Result<(), String> {
-        let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
+    async fn apply_reload(&self, rows: Vec<Schedule>) -> Result<(), String> {
         let live = {
             let st = self.state.lock().unwrap();
             st.automation_running || st.bridge_connected
