@@ -115,6 +115,8 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
+#[cfg(test)]
+mod k1_grants_replay;
 pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
@@ -304,6 +306,8 @@ pub struct SessionDeps {
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.
     pub attachments: user_facts::AttachmentStore,
+    /// The process's "Allow for this session" grants (`processSessionGrants`): one bound over every session.
+    pub session_grants: Arc<mixdog_tools::policy::SessionGrantRegistry>,
     /// The originals a composer staged ahead of a message: a turn submission claims the ones it
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,

@@ -1737,6 +1737,7 @@ impl Rig {
             sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
+            session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
             feeds: self.feeds.clone(),
             turn_admission: self.admissions.clone(),

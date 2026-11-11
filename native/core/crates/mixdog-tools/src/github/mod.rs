@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
@@ -98,6 +99,15 @@ impl GithubTool {
 impl Tool for GithubTool {
     fn spec(&self) -> &ToolSpec {
         &self.spec
+    }
+
+    /// `GITHUB_OUTBOUND` (`human-gate/outbound-policy.mjs`): a comment or a review posts outside Mixdog.
+    fn outbound_kind(&self, args: &JsonValue) -> Option<ActionKind> {
+        match args.get("action").and_then(JsonValue::as_str)? {
+            "issue.comment" | "pr.comment" => Some(ActionKind::Comment),
+            "pr.review" => Some(ActionKind::Review),
+            _ => None,
+        }
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
