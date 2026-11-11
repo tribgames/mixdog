@@ -1,0 +1,209 @@
+{
+  "note": "Node's session tool at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-session-tool-project-cases.mjs",
+  "test": "src/session-runtime/internal-tool-executor.test.mjs",
+  "cases": [
+    {
+      "case": "session reports, lists, and switches the Project through the caller or the runtime",
+      "recorded": {
+        "calls": [
+          {
+            "label": "status",
+            "tool": "session",
+            "args": {},
+            "context": {
+              "callerSessionId": "sess-1"
+            },
+            "outcome": {
+              "ok": "{\n  \"sessionId\": \"sess-1\",\n  \"title\": null,\n  \"titleSource\": null,\n  \"cwd\": \"C:/work\",\n  \"project\": \"C:/work\",\n  \"provider\": null,\n  \"model\": null,\n  \"effort\": null,\n  \"autoEffort\": true,\n  \"fast\": false\n}"
+            }
+          },
+          {
+            "label": "worker",
+            "tool": "session",
+            "args": {},
+            "context": {
+              "callerSessionId": "worker-1"
+            },
+            "outcome": {
+              "error": "session: status belongs to the Lead session"
+            }
+          },
+          {
+            "label": "worker",
+            "tool": "session",
+            "args": {
+              "action": "list-projects"
+            },
+            "context": {
+              "callerSessionId": "worker-1"
+            },
+            "outcome": {
+              "error": "session: list-projects belongs to the Lead session"
+            }
+          },
+          {
+            "label": "worker",
+            "tool": "session",
+            "args": {
+              "action": "set-project",
+              "path": "<dir>"
+            },
+            "context": {
+              "callerSessionId": "worker-1"
+            },
+            "outcome": {
+              "error": "session: set-project belongs to the Lead session"
+            }
+          },
+          {
+            "label": "worker",
+            "tool": "session",
+            "args": {
+              "path": "<dir>"
+            },
+            "context": {
+              "callerSessionId": "worker-1"
+            },
+            "outcome": {
+              "error": "session: set-project belongs to the Lead session"
+            }
+          },
+          {
+            "label": "list-projects",
+            "tool": "session",
+            "args": {
+              "action": "list-projects"
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"cwd\": \"C:/work\",\n  \"projects\": []\n}"
+            }
+          },
+          {
+            "label": "set-project",
+            "tool": "session",
+            "args": {
+              "action": "set-project",
+              "path": "<dir>"
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"cwd\": \"switchProject:ok\",\n  \"sessionId\": \"sess-1\"\n}"
+            }
+          },
+          {
+            "label": "set-project without a path",
+            "tool": "session",
+            "args": {
+              "action": "set-project"
+            },
+            "context": {},
+            "outcome": {
+              "error": "session: path is required for action=set-project"
+            }
+          },
+          {
+            "label": "set-project to a missing directory",
+            "tool": "session",
+            "args": {
+              "action": "set-project",
+              "path": "<dir>\\missing"
+            },
+            "context": {},
+            "outcome": {
+              "error": "ENOENT: no such file or directory, stat '<dir>\\missing'"
+            }
+          },
+          {
+            "label": "unknown action",
+            "tool": "session",
+            "args": {
+              "action": "dance"
+            },
+            "context": {},
+            "outcome": {
+              "error": "session: unknown action \"dance\""
+            }
+          },
+          {
+            "label": "the retired cwd tool",
+            "tool": "cwd",
+            "args": {},
+            "context": {},
+            "outcome": {
+              "error": "unknown standalone internal tool: cwd"
+            }
+          }
+        ],
+        "switches": [
+          [
+            "<dir>",
+            {
+              "ownTurn": true
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "case": "worktree operations on existing sessions belong to the git tool, not the session tool",
+      "recorded": {
+        "calls": [
+          {
+            "label": "merge-worktree",
+            "tool": "session",
+            "args": {
+              "action": "merge-worktree"
+            },
+            "context": {
+              "callerSessionId": "sess-1"
+            },
+            "outcome": {
+              "error": "session: unknown action \"merge-worktree\""
+            }
+          },
+          {
+            "label": "remove-worktree",
+            "tool": "session",
+            "args": {
+              "action": "remove-worktree"
+            },
+            "context": {
+              "callerSessionId": "sess-1"
+            },
+            "outcome": {
+              "error": "session: unknown action \"remove-worktree\""
+            }
+          },
+          {
+            "label": "list-worktrees",
+            "tool": "session",
+            "args": {
+              "action": "list-worktrees"
+            },
+            "context": {
+              "callerSessionId": "sess-1"
+            },
+            "outcome": {
+              "error": "session: unknown action \"list-worktrees\""
+            }
+          },
+          {
+            "label": "prune-worktrees",
+            "tool": "session",
+            "args": {
+              "action": "prune-worktrees"
+            },
+            "context": {
+              "callerSessionId": "sess-1"
+            },
+            "outcome": {
+              "error": "session: unknown action \"prune-worktrees\""
+            }
+          }
+        ],
+        "touched": []
+      }
+    }
+  ]
+}
