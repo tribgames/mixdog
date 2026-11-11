@@ -362,16 +362,18 @@ impl LiveRooms {
             record.last_speaker = Some("user".into());
             record.last_at = Some(at);
         }
-        // Taken up as soon as the row is in the log, before any save: a member's older answer cannot land meanwhile.
+        // Recorded once the row is in the log, before the route and the save (`agent-room-messages.ts:103`): the id is held
+        // in the live records even when its save fails, so a retry posts nothing.
+        let held = if message.submission_id.is_empty() { Ok(()) } else { rooms.accept_submission(&room_id, &message.submission_id).await };
+        // Taken up as soon as the row is in the log, before the save yields: a member's older answer cannot land meanwhile.
         if !intake.stopped() {
             let everyone = parsed.to.is_empty();
             calls.route(&room_id, Request { to: parsed.to, waiting: true, everyone, only: false, calls: Vec::new() });
         }
         drop(intake);
-        if !message.submission_id.is_empty() {
-            rooms.accept_submission(&room_id, &message.submission_id).await?;
-        }
-        view.persist().await.map_err(RoomError::Port)?;
+        let saved = view.persist().await.map_err(RoomError::Port);
+        held?;
+        saved?;
         Ok(true)
     }
 
