@@ -43,7 +43,18 @@ const REPLACED = {
     ['    if (timer !== null) {\n      cancelFrame(timer);\n      timer = null;\n    }', '    if (timer !== null) {\n      cancelFrame(timer);\n      timer = null;\n      frameDone?.();\n    }'],
     ['    else if (timer !== null) cancelFrame(timer);', '    else if (timer !== null) {\n      cancelFrame(timer);\n      frameDone?.();\n    }'],
   ],
-  '/src/standalone/session-service/entries/disposal.mjs': [['      clearTimeout(entry.timer);', '      entry.timer.recFired?.();\n      clearTimeout(entry.timer);']],
+  // `syncContextStats` reads the runtime's status through the preload (`contextRead`), and a route move's own sync runs inside
+  // `moveRead`: the preload keeps what a route move read and fails the read a recorder injects the fault into.
+  '/src/tui/session/session-api/routes-write.mjs': [
+    ['        if (stillOwned && sync) syncContextStats({ allowEstimated: true });', `        if (stillOwned && sync) ${CLOCK}.moveRead(() => syncContextStats({ allowEstimated: true }));`],
+  ],
+  '/src/tui/session/context-state.mjs': [
+    [
+      '    const ctx = runtime.contextStatus?.() || null;\n    if (!ctx) return null;\n    syncContextDisplayFields(ctx);',
+      `    const ctx = ${CLOCK}.contextRead(() => runtime.contextStatus?.() || null);\n    if (!ctx) return null;\n    syncContextDisplayFields(ctx);`,
+    ],
+  ],
+  '/src/standalone/session-service/entries/disposal.mjs':[['      clearTimeout(entry.timer);', '      entry.timer.recFired?.();\n      clearTimeout(entry.timer);']],
   // A session's config save is debounced on a real timer (createDebouncedWriter): an order first lands the saves accepted before it.
   '/src/session-runtime/config-lifecycle/config-writers.mjs': [
     ['export async function drainSessionConfigWrites() {', `${CLOCK}.drainWrites = () => drainSessionConfigWrites();\nexport async function drainSessionConfigWrites() {`],

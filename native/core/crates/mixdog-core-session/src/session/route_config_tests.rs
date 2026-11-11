@@ -14,6 +14,7 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
+use super::testing::awaiting;
 use super::testing::lock;
 use crate::eventually_on;
 use super::tests::idle;
@@ -141,95 +142,135 @@ async fn a_cancelled_turn_leaves_the_context_display_fields_and_a_completed_one_
     );
 }
 
-/// A context gauge whose status is slow (one second on the injected clock) and follows the model of the header it is read for: the
-/// route window of `wide` is 200000 with a trigger of 190000, any other model's 100000 with 90000. The load's pass reads nothing.
-struct SlowStatus;
+/// The fields a route move writes as the phone's snapshot shows them (`desktopSessionState`): the route and the window figures
+/// `setRoute` publishes (routes-write.mjs:133-142, context-state.mjs:100-142).
+const MOVED: [&str; 8] = ["provider", "model", "contextWindow", "rawContextWindow", "effectiveContextWindowPercent", "displayContextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
+/// The route fields of [`MOVED`]: what the move's header patch writes (the route Node resolved, `updateSessionRoute`).
+const ROUTE_FIELDS: [&str; 5] = ["provider", "model", "contextWindow", "rawContextWindow", "effectiveContextWindowPercent"];
 
-const STATUS_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
-
-fn figures_of(model: &str) -> (i64, i64) {
-    if model == "wide" { (200_000, 190_000) } else { (100_000, 90_000) }
+/// A route move Node recorded (`apps/mobile/fixtures/phone-worktree/golden.json`, a session entry with `switchRoute`): the [`MOVED`]
+/// fields the session showed before it, right after it and once a status pass ran, and the status its sync read (`None`: the
+/// injected failure).
+struct RecordedMove {
+    model: String,
+    read: Option<Value>,
+    before: Value,
+    after: Value,
+    settled: Value,
 }
 
-#[async_trait::async_trait]
-impl super::thread_context::ContextStatusHost for SlowStatus {
-    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
-        tokio::time::sleep(STATUS_DELAY).await;
-        Ok(Value::Null)
-    }
-
-    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, header: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
-        tokio::time::sleep(STATUS_DELAY).await;
-        let (window, trigger) = figures_of(header.get("model").and_then(Value::as_str).unwrap_or_default());
-        Ok(json!({ "contextWindow": window, "compaction": { "boundaryTokens": window, "triggerTokens": trigger } }))
-    }
+fn phone_worktree(name: &str) -> Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/mobile/fixtures/phone-worktree").join(name);
+    serde_json::from_str(&mixdog_testkit::read_string(path)).expect("the recording parses")
 }
 
-/// The model and the compaction trigger a state shows.
-fn model_and_trigger(state: &Value) -> (Value, Value) {
-    (state["route"]["model"].clone(), state["context"]["autoCompactTokenLimit"].clone())
+/// The [`MOVED`] fields of a recorded read's snapshot.
+fn moved_of(read: &Value) -> Value {
+    let snapshot = &read["value"]["snapshot"];
+    Value::Object(MOVED.iter().map(|field| ((*field).to_owned(), snapshot[*field].clone())).collect())
 }
 
-/// A model switch (`updateSessionRoute` writing the new route into the header) shows the new route's figures with the new model:
-/// Node's `setRoute` runs `syncContextStats` before `publishRoute` (routes-write.mjs:133-142). With the status read slow, every frame
-/// and every read that shows the new model shows its trigger, and the switch answers only once that state is out.
-#[tokio::test(start_paused = true)]
-async fn a_model_switch_shows_the_new_routes_figures_with_the_new_model() {
-    let rig = Rig::new();
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.context_status = Arc::new(SlowStatus);
-    let directory = SessionDirectory::new(Arc::new(deps));
-    let handle = super::tests::start_routed_thread(&directory).await;
-    let state = || serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
-    assert_eq!(model_and_trigger(&state()), (json!(super::tests::ROUTE_MODEL), json!(figures_of(super::tests::ROUTE_MODEL).1)));
-    let params = json!({ "threadId": handle.id, "set": { "model": "wide", "contextWindow": 200_000 }, "unset": ["autoCompactTokenLimit"] });
-    let switch = mixdog_core_api::ThreadHandle::request(&*handle, mixdog_core_api::CoreRequest {
+fn recorded_moves() -> Vec<RecordedMove> {
+    let golden = phone_worktree("golden.json");
+    let moves: Vec<RecordedMove> = golden["cases"]
+        .as_array()
+        .expect("the cases")
+        .iter()
+        .filter(|entry| entry.get("switchRoute").is_some())
+        .map(|entry| {
+            let reads = entry["statusReads"].as_array().expect("the move's status reads");
+            assert_eq!(reads.len(), 1, "Node's setRoute syncs once (routes-write.mjs:142)");
+            let failed = entry["failStatus"] == true;
+            assert_eq!(reads[0].is_null(), failed, "only the injected failure finds no status");
+            RecordedMove {
+                model: entry["switchRoute"]["model"].as_str().expect("model").to_owned(),
+                read: (!failed).then(|| reads[0].clone()),
+                before: moved_of(&entry["before"]),
+                after: moved_of(&entry["frame"]),
+                settled: moved_of(&entry["settled"]),
+            }
+        })
+        .collect();
+    assert!(moves.iter().any(|m| m.read.is_none()) && moves.iter().filter(|m| m.read.is_some()).count() >= 2, "a failed read and two read ones");
+    moves
+}
+
+/// The thread's [`MOVED`] fields.
+fn shown(handle: &super::SessionHandle) -> Value {
+    let state = serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    Value::Object(
+        MOVED
+            .iter()
+            .map(|field| {
+                let section = if ["provider", "model"].contains(field) { "route" } else { "context" };
+                ((*field).to_owned(), state[section][*field].clone())
+            })
+            .collect(),
+    )
+}
+
+/// `shown` is what Node answered right after `recorded`, field by field, or in a field of the manifest's `fasterInCore` what Node
+/// settled on (the same content, only faster).
+fn assert_answers_as_node(shown: &Value, recorded: &RecordedMove, what: &str) {
+    let manifest = phone_worktree("MANIFEST.json");
+    let faster: Vec<&str> = manifest["fasterInCore"]["fields"].as_array().expect("the fasterInCore fields").iter().filter_map(Value::as_str).collect();
+    let differing: Vec<String> = MOVED
+        .iter()
+        .filter(|field| shown[**field] != recorded.after[**field] && !(faster.contains(field) && shown[**field] == recorded.settled[**field]))
+        .map(|field| format!("{field}: core {} node {} (settled {})", shown[*field], recorded.after[*field], recorded.settled[*field]))
+        .collect();
+    assert!(differing.is_empty(), "{what}: {differing:#?}");
+}
+
+/// The status whose display fields are `state`'s (what `syncContextDisplayFields` takes): the read of the move that seats a new
+/// thread on a recorded state.
+fn status_showing(state: &Value) -> Value {
+    json!({ "contextWindow": state["displayContextWindow"], "compaction": { "boundaryTokens": state["compactBoundaryTokens"], "triggerTokens": state["autoCompactTokenLimit"] } })
+}
+
+/// `thread/header/patch` of a move to the route `state` shows (`updateSessionRoute`).
+fn move_to<'a>(handle: &'a super::SessionHandle, state: &Value) -> impl std::future::Future<Output = Result<mixdog_core_api::Reply, mixdog_core_api::error::CoreError>> + 'a {
+    let set: serde_json::Map<String, Value> = ROUTE_FIELDS.iter().map(|field| ((*field).to_owned(), state[*field].clone())).collect();
+    let params = json!({ "threadId": handle.id, "set": set, "unset": [] });
+    mixdog_core_api::ThreadHandle::request(handle, mixdog_core_api::CoreRequest {
         method: mixdog_core_api::ids::Method("thread/header/patch"),
         params,
         op: None,
         ctx: mixdog_core_api::call::CallContext::internal("test"),
-    });
-    tokio::pin!(switch);
-    // While the new route's status is read, reads show the old route whole.
-    assert!(tokio::time::timeout(STATUS_DELAY / 2, switch.as_mut()).await.is_err(), "the switch answers after its figures");
-    assert_eq!(model_and_trigger(&state()), (json!(super::tests::ROUTE_MODEL), json!(figures_of(super::tests::ROUTE_MODEL).1)));
-    switch.await.expect("switched");
-    assert_eq!(model_and_trigger(&state()), (json!("wide"), json!(figures_of("wide").1)), "the answer follows the new state");
-    // The frames folded in order, as a client holds them: the new model never shows without its trigger.
-    let (mut model, mut trigger) = (Value::Null, Value::Null);
-    let mut shown = false;
-    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
-        match method.as_str() {
-            "thread/route/updated" => model = params["value"]["model"].clone(),
-            "thread/context/updated" => trigger = params["value"]["autoCompactTokenLimit"].clone(),
-            _ => continue,
-        }
-        if model == json!("wide") {
-            shown = true;
-            assert_eq!(trigger, json!(figures_of("wide").1), "a frame shows the new model with the old trigger");
-        }
-    }
-    assert!(shown, "the switch was published");
+    })
 }
 
-/// A context gauge whose route-move reads wait until the test lets them through ([`GatedStatus::open`]) and then answer the figures
-/// of the header's model, or fail when `fail` is set; `passes` counts the status passes (`context_status`), which read nothing.
+/// A context gauge whose route-move reads wait until the test lets each through ([`GatedStatus::let_through`]) with its answer;
+/// `passes` counts the status passes (`context_status`), which read nothing.
 struct GatedStatus {
     gate: tokio::sync::Semaphore,
-    fail: std::sync::atomic::AtomicBool,
+    answers: std::sync::Mutex<std::collections::VecDeque<Option<Value>>>,
     held: std::sync::atomic::AtomicUsize,
+    most_held: std::sync::atomic::AtomicUsize,
     passes: std::sync::atomic::AtomicUsize,
     /// Told when a read comes to the gate: the read runs off the actor, so no step of the thread announces it.
     arrived: tokio::sync::Notify,
+    /// Told on each status pass.
+    passed: tokio::sync::Notify,
 }
 
 impl GatedStatus {
     fn new() -> Arc<Self> {
-        Arc::new(Self { gate: tokio::sync::Semaphore::new(0), fail: Default::default(), held: Default::default(), passes: Default::default(), arrived: Default::default() })
+        Arc::new(Self {
+            gate: tokio::sync::Semaphore::new(0),
+            answers: Default::default(),
+            held: Default::default(),
+            most_held: Default::default(),
+            passes: Default::default(),
+            arrived: Default::default(),
+            passed: Default::default(),
+        })
     }
 
-    fn open(&self, reads: usize) {
-        self.gate.add_permits(reads);
+    /// Lets the next read through with `answer` (`None`: the read fails).
+    fn let_through(&self, answer: Option<Value>) {
+        self.answers.lock().unwrap().push_back(answer);
+        self.gate.add_permits(1);
     }
 
     fn held(&self) -> usize {
@@ -241,56 +282,71 @@ impl GatedStatus {
 impl super::thread_context::ContextStatusHost for GatedStatus {
     async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
         self.passes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.passed.notify_waiters();
         Ok(Value::Null)
     }
 
-    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, header: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
-        self.held.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, _: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        let held = self.held.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.most_held.fetch_max(held, std::sync::atomic::Ordering::SeqCst);
         self.arrived.notify_waiters();
-        self.gate.acquire().await.expect("the gate stays open").forget();
+        awaiting(|| "the test to let the route move's status read through".to_owned(), self.gate.acquire()).await.expect("the gate stays open").forget();
         self.held.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(mixdog_core_api::error::CoreError::Internal { incident_id: "test-status-failed".into() });
-        }
-        let (window, trigger) = figures_of(header.get("model").and_then(Value::as_str).unwrap_or_default());
-        Ok(json!({ "contextWindow": window, "compaction": { "boundaryTokens": window, "triggerTokens": trigger } }))
+        let answer = self.answers.lock().unwrap().pop_front().expect("an answer for each read let through");
+        answer.ok_or_else(|| mixdog_core_api::error::CoreError::Internal { incident_id: "test-status-failed".into() })
     }
 }
 
-/// A rig whose thread runs on [`GatedStatus`], started on its route (the start's own move let through).
-async fn gated_thread(rig: &Rig, status: &Arc<GatedStatus>) -> (Arc<SessionDirectory>, Arc<super::SessionHandle>) {
+/// A rig whose thread runs on [`GatedStatus`], seated on the recorded `state` by a move whose read shows its figures, with the
+/// load's status pass done.
+async fn gated_thread(rig: &Rig, status: &Arc<GatedStatus>, state: &Value) -> (Arc<SessionDirectory>, Arc<super::SessionHandle>) {
     let mut deps = rig.deps_parts(rig.store.clone());
     deps.context_status = status.clone();
     let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
-    // The start's move reads only when it is one; a permit given ahead would be left for the test's own move when it is not.
-    let mut start = tokio::spawn({
-        let directory = directory.clone();
-        async move { super::tests::start_routed_thread(&directory).await }
-    });
-    loop {
-        let arrived = status.arrived.notified();
-        tokio::pin!(arrived);
-        arrived.as_mut().enable();
-        if status.held() == 1 {
-            status.open(1);
-        }
-        tokio::select! {
-            biased;
-            handle = &mut start => return (directory, handle.expect("started")),
-            () = arrived => {}
-        }
-    }
+    let handle = awaiting(|| "the thread to start".to_owned(), start_thread(&directory)).await;
+    status.let_through(Some(status_showing(state)));
+    awaiting(|| "the seating move to answer".to_owned(), move_to(&handle, state)).await.expect("seated");
+    assert!(status.answers.lock().unwrap().is_empty(), "the seating move read its status");
+    eventually_on!(&[&status.passed], || (status.passes.load(std::sync::atomic::Ordering::SeqCst) >= 1).then_some(())).await;
+    assert_eq!(shown(&handle), *state, "the thread is seated on the recorded state");
+    (directory, handle)
 }
 
-/// `thread/header/patch` of the thread's route (`updateSessionRoute`).
-fn move_route<'a>(handle: &'a super::SessionHandle, model: &'a str) -> impl std::future::Future<Output = Result<mixdog_core_api::Reply, mixdog_core_api::error::CoreError>> + 'a {
-    let params = json!({ "threadId": handle.id, "set": { "model": model }, "unset": ["autoCompactTokenLimit"] });
-    mixdog_core_api::ThreadHandle::request(handle, mixdog_core_api::CoreRequest {
-        method: mixdog_core_api::ids::Method("thread/header/patch"),
-        params,
-        op: None,
-        ctx: mixdog_core_api::call::CallContext::internal("test"),
-    })
+/// A model switch (`updateSessionRoute` writing the new route into the header) shows the new route's figures with the new model:
+/// Node's `setRoute` runs `syncContextStats` before `publishRoute` (routes-write.mjs:133-142). With the recorded move's read held,
+/// reads show the old route whole and the switch is not answered; let through, it answers as Node did, and no frame shows the new
+/// model without its trigger.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_model_switch_shows_the_new_routes_figures_with_the_new_model() {
+    let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");
+    let rig = Rig::new();
+    let status = GatedStatus::new();
+    let (_directory, handle) = gated_thread(&rig, &status, &recorded.before).await;
+    let switch = move_to(&handle, &recorded.after);
+    tokio::pin!(switch);
+    assert!(futures::poll!(switch.as_mut()).is_pending());
+    held(&handle, &status, 1).await;
+    assert!(futures::poll!(switch.as_mut()).is_pending(), "the switch answers after its figures");
+    assert_eq!(shown(&handle), recorded.before, "while the new route's status is read, reads show the old route whole");
+    status.let_through(recorded.read.clone());
+    awaiting(|| "the switch to answer".to_owned(), switch).await.expect("switched");
+    let now = shown(&handle);
+    assert_answers_as_node(&now, &recorded, "the switch");
+    // The frames folded in order, as a client holds them: the new model never shows without its trigger.
+    let (mut model, mut trigger) = (Value::Null, Value::Null);
+    let mut seen = false;
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        match method.as_str() {
+            "thread/route/updated" => model = params["value"]["model"].clone(),
+            "thread/context/updated" => trigger = params["value"]["autoCompactTokenLimit"].clone(),
+            _ => continue,
+        }
+        if model.as_str() == Some(recorded.model.as_str()) {
+            seen = true;
+            assert_eq!(trigger, now["autoCompactTokenLimit"], "a frame shows the new model with another trigger");
+        }
+    }
+    assert!(seen, "the switch was published");
 }
 
 /// Waits until `count` route-move reads are held at the gate.
@@ -310,12 +366,12 @@ async fn a_pending_route_move_leaves_the_thread_serving() {
             RunOutcome::Interrupted
         })
     }));
+    let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");
     let status = GatedStatus::new();
-    let (_directory, handle) = gated_thread(&rig, &status).await;
-    let state = || serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    let (_directory, handle) = gated_thread(&rig, &status, &recorded.before).await;
     let switch = tokio::spawn({
-        let handle = handle.clone();
-        async move { move_route(&handle, "wide").await }
+        let (handle, after) = (handle.clone(), recorded.after.clone());
+        async move { move_to(&handle, &after).await }
     });
     held(&handle, &status, 1).await;
 
@@ -325,116 +381,89 @@ async fn a_pending_route_move_leaves_the_thread_serving() {
         op: None,
         ctx: mixdog_core_api::call::CallContext::internal("test"),
     };
-    let answered = tokio::time::timeout(std::time::Duration::from_secs(5), mixdog_core_api::ThreadHandle::request(&*handle, read)).await;
-    assert!(matches!(answered, Ok(Ok(_))), "thread/read is answered while the move is pending");
-    let started = turn(&handle, "go", "op-1").await;
+    let answered = awaiting(|| "thread/read while the move is pending".to_owned(), mixdog_core_api::ThreadHandle::request(&*handle, read)).await;
+    assert!(answered.is_ok(), "thread/read is answered while the move is pending");
+    let started = awaiting(|| "the turn to start while the move is pending".to_owned(), turn(&handle, "go", "op-1")).await;
     eventually_on!(&[&handle.cell.stepped], || handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst).then_some(())).await;
-    assert_eq!(model_and_trigger(&state()).0, json!(super::tests::ROUTE_MODEL), "the turn starts on the route the thread holds");
+    assert_eq!(shown(&handle), recorded.before, "the turn starts on the route the thread holds");
     handle.interrupt(&TurnId::from(started["turnId"].as_str().expect("turn id")), None).expect("interrupt");
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(status.held(), 1, "the cancel was served while the read was held");
     assert!(!switch.is_finished(), "the move answers after its figures");
 
-    status.open(1);
-    switch.await.expect("joined").expect("switched");
-    assert_eq!(model_and_trigger(&state()), (json!("wide"), json!(figures_of("wide").1)));
+    status.let_through(recorded.read.clone());
+    awaiting(|| "the move to answer".to_owned(), switch).await.expect("joined").expect("switched");
+    assert_answers_as_node(&shown(&handle), &recorded, "the move");
 }
 
-/// Two route moves in a row are written in order, each with its figures, and the thread ends on the second.
+/// Two route moves in a row (Node's recorded moves to the wider model and back) are written in order, one read at a time, and the
+/// thread ends on the second as Node answered it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_route_moves_in_a_row_end_on_the_second_with_its_figures() {
+    let moves: Vec<RecordedMove> = recorded_moves().into_iter().filter(|m| m.read.is_some()).collect();
+    let (first_move, second_move) = (&moves[0], &moves[1]);
+    assert_ne!(first_move.model, second_move.model, "two moves to two models");
     let rig = Rig::new();
     let status = GatedStatus::new();
-    let (_directory, handle) = gated_thread(&rig, &status).await;
+    let (_directory, handle) = gated_thread(&rig, &status, &first_move.before).await;
     let first = tokio::spawn({
-        let handle = handle.clone();
-        async move { move_route(&handle, "wide").await }
+        let (handle, after) = (handle.clone(), first_move.after.clone());
+        async move { move_to(&handle, &after).await }
     });
     held(&handle, &status, 1).await;
     let second = tokio::spawn({
-        let handle = handle.clone();
-        async move { move_route(&handle, "narrow").await }
+        let (handle, after) = (handle.clone(), second_move.after.clone());
+        async move { move_to(&handle, &after).await }
     });
-    // The second waits behind the first: its read starts only once the first is written.
-    tokio::task::yield_now().await;
-    assert_eq!(status.held(), 1);
-    status.open(2);
-    first.await.expect("joined").expect("first");
-    second.await.expect("joined").expect("second");
-    let state = serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
-    assert_eq!(model_and_trigger(&state), (json!("narrow"), json!(figures_of("narrow").1)));
-    let (mut model, mut trigger, mut models) = (Value::Null, Value::Null, Vec::new());
-    // A step publishes the move's figures ahead of its route: each route frame shows the figures of its own model.
-    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
-        match method.as_str() {
-            "thread/route/updated" => model = params["value"]["model"].clone(),
-            "thread/context/updated" => {
-                trigger = params["value"]["autoCompactTokenLimit"].clone();
-                continue;
-            }
-            _ => continue,
-        }
-        if let Some(name) = model.as_str() {
-            assert_eq!(trigger, json!(figures_of(name).1), "a frame shows {name} with another route's trigger");
-            if models.last() != Some(&model) {
-                models.push(model.clone());
-            }
-        }
-    }
-    assert_eq!(models, vec![json!(super::tests::ROUTE_MODEL), json!("wide"), json!("narrow")]);
+    status.let_through(first_move.read.clone());
+    awaiting(|| "the first move to answer".to_owned(), first).await.expect("joined").expect("first");
+    // The second's read comes once the first is written: the thread shows the first's move while it is held.
+    held(&handle, &status, 1).await;
+    assert_answers_as_node(&shown(&handle), first_move, "the first move");
+    status.let_through(second_move.read.clone());
+    awaiting(|| "the second move to answer".to_owned(), second).await.expect("joined").expect("second");
+    assert_eq!(status.most_held.load(std::sync::atomic::Ordering::SeqCst), 1, "one read at a time");
+    assert_answers_as_node(&shown(&handle), second_move, "the second move");
 }
 
 /// A route move through the route write (`write_route`: `update_header_awaiting`, the route's hops and a session's own pick) is the
-/// same pending step: written once its figures are read, with them.
+/// same pending step: written once its figures are read, with them, as Node answered the recorded move.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_route_write_moves_with_its_figures() {
+    let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");
     let rig = Rig::new();
     let status = GatedStatus::new();
-    let (directory, handle) = gated_thread(&rig, &status).await;
-    let update: super::actor::AwaitingHeaderUpdate = Box::new(|_| {
-        Box::pin(async move {
-            mixdog_store::schema::record::HeaderChange { set: [("model".to_owned(), json!("wide"))].into_iter().collect(), unset: vec!["autoCompactTokenLimit".to_owned()] }
-        })
-    });
+    let (directory, handle) = gated_thread(&rig, &status, &recorded.before).await;
+    let set: serde_json::Map<String, Value> = ROUTE_FIELDS.iter().map(|field| ((*field).to_owned(), recorded.after[*field].clone())).collect();
+    let update: super::actor::AwaitingHeaderUpdate = Box::new(move |_| Box::pin(async move { mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() } }));
     let write = tokio::spawn({
         let (directory, id) = (directory.clone(), handle.id.clone());
         async move { directory.update_header_awaiting(&id, update).await }
     });
     held(&handle, &status, 1).await;
-    let state = || serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
-    assert_eq!(model_and_trigger(&state()).0, json!(super::tests::ROUTE_MODEL), "not written before its figures");
-    status.open(1);
-    write.await.expect("joined").expect("written");
-    let frames: Vec<_> = rig.feeds.frames(handle.id.as_str()).into_iter().map(|(_, method, params)| (method, params)).collect();
-    assert_eq!(model_and_trigger(&state()), (json!("wide"), json!(figures_of("wide").1)), "frames: {frames:?}");
+    assert_eq!(shown(&handle), recorded.before, "not written before its figures");
+    status.let_through(recorded.read.clone());
+    awaiting(|| "the route write to answer".to_owned(), write).await.expect("joined").expect("written");
+    assert_answers_as_node(&shown(&handle), &recorded, "the route write");
 }
 
-/// A route move whose status read fails is written as Node publishes a route its runtime has no status for (`syncContextStats` patches
-/// nothing, `routeState` shows 0 for a moved window, context-state.mjs:100-113,137-142), and nothing is read again for it.
-#[tokio::test(start_paused = true)]
-async fn a_route_move_whose_status_read_fails_shows_route_states_figures_and_reads_nothing_more() {
+/// Each route move Node recorded, replayed in order on one thread (`thread/header/patch` with the route Node resolved, the status read
+/// answered as Node's was, failing where the recording injected the failure): the thread holds what Node held before each and shows
+/// what Node answered right after it, each move reading its status once.
+#[tokio::test]
+async fn each_recorded_route_move_answers_as_node_did() {
+    let moves = recorded_moves();
     let rig = Rig::new();
     let status = GatedStatus::new();
-    let (_directory, handle) = gated_thread(&rig, &status).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE * 2).await;
-    eventually_on!(&[&handle.cell.stepped], || (status.passes.load(std::sync::atomic::Ordering::SeqCst) == 1).then_some(())).await;
-    status.fail.store(true, std::sync::atomic::Ordering::SeqCst);
-    status.open(1);
-    let params = json!({ "threadId": handle.id, "set": { "model": "wide", "contextWindow": 200_000 }, "unset": ["autoCompactTokenLimit"] });
-    mixdog_core_api::ThreadHandle::request(&*handle, mixdog_core_api::CoreRequest {
-        method: mixdog_core_api::ids::Method("thread/header/patch"),
-        params,
-        op: None,
-        ctx: mixdog_core_api::call::CallContext::internal("test"),
-    })
-    .await
-    .expect("the move is written");
-    let state = serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
-    assert_eq!(model_and_trigger(&state), (json!("wide"), json!(0)));
-    assert_eq!((&state["context"]["displayContextWindow"], &state["context"]["compactBoundaryTokens"]), (&json!(0), &json!(0)));
-    tokio::time::advance(super::actor::STATUS_SETTLE * 4).await;
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    assert_eq!(status.passes.load(std::sync::atomic::Ordering::SeqCst), 1, "no status pass follows the failed read");
+    let (_directory, handle) = gated_thread(&rig, &status, &moves[0].before).await;
+    for (n, recorded) in moves.iter().enumerate() {
+        let what = format!("move {n} to {}{}", recorded.model, if recorded.read.is_none() { " (failed read)" } else { "" });
+        assert_eq!(shown(&handle), recorded.before, "{what}: the thread holds what Node held before it");
+        status.let_through(recorded.read.clone());
+        awaiting(|| format!("{what} to answer"), move_to(&handle, &recorded.after)).await.expect("the move is written");
+        assert!(status.answers.lock().unwrap().is_empty(), "{what}: the move read its status");
+        assert_answers_as_node(&shown(&handle), recorded, &what);
+    }
 }
 
 /// Each announced settings change moves `setupChanged` (`{ action: 'settings_changed', seq, at }`, `seq` counting the thread's changes), and

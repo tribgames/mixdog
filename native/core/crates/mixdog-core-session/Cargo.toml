@@ -59,7 +59,8 @@ crash-gates = []
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-testkit = { workspace = true }
+mixdog-js ={ workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-ledger = { workspace = true }

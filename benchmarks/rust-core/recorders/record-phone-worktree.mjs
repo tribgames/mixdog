@@ -85,8 +85,7 @@ const SEED_CONFIG = {
 /** The session's route: the fixture's model. */
 const ROUTE = { provider: 'custom-fixture', model: 'fixture-model' };
 /** The model a session switches to mid-group: its configured window differs from the fixture model's. */
-const WIDE_ROUTE = { provider: 'custom-fixture', model: 'fixture-wide' };
-/** The profile both products run in: a parent variable that could reach a real profile, service or key is dropped. */
+const WIDE_ROUTE = { provider: 'custom-fixture', model: 'fixture-wide' };/** The profile both products run in: a parent variable that could reach a real profile, service or key is dropped. */
 function isolatedEnv() {
   const env = {};
   for (const [name, value] of Object.entries(process.env)) {
@@ -337,6 +336,10 @@ const GROUPS = {
     { switchRoute: WIDE_ROUTE },
     cap('getBranchMenu', [], S),
     cap('listWorktrees', []),
+    // A move back, and one whose read of the new route's status fails (the injected fault). Last in the group: the core's replay
+    // cannot fail that read.
+    { switchRoute: ROUTE },
+    { switchRoute: WIDE_ROUTE, failStatus: true },
   ],
   settings: [
     cap('getWorktreeSettings', []),
@@ -566,7 +569,8 @@ const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWi
  *  `fasterInCore`): the status fields above and `setupChanged`, which Node moves on its config watch. */
 const FASTER_FIELDS = [...SETTLED_FIELDS, 'setupChanged'];
 
-async function settleStatus(pid) {
+/** One status-clock order (by default STATUS_SETTLE's steps), answered once each host stream read its marker. */
+async function settleStatus(pid, request = { steps: STATUS_SETTLE.steps }) {
   statusClock.sent += 1;
   const n = statusClock.sent;
   const done = join(statusClock.dir, `done-${n}.json`);
@@ -583,7 +587,7 @@ async function settleStatus(pid) {
     };
   });
   const order = join(statusClock.dir, `advance-${n}.json.tmp`);
-  writeFileSync(order, JSON.stringify({ pid, steps: STATUS_SETTLE.steps }));
+  writeFileSync(order, JSON.stringify({ pid, ...request }));
   renameSync(order, join(statusClock.dir, `advance-${n}.json`));
   const reply = await answered;
   // The publications reach the host on its streams, not with the answer: it holds the settled state once each stream read the marker.
@@ -685,9 +689,24 @@ async function recordGroup(group) {
     let frameId = 0;
     for (const request of GROUPS[group]) {
       if (request.switchRoute) {
-        // The desktop's model switch of the session (configureDraft's setRoute on the current session), an ordered input.
+        // The desktop's model switch of the session (configureDraft's setRoute on the current session), an ordered input. The
+        // session as the host holds it before, right after (no status pass between: the clock is held, and the order that ends the
+        // move waits for its publications and each stream's marker) and once the after-move order settled it; the status reads the
+        // move made (status-clock-preload.mjs `contextRead`), the first failed when the entry injects it.
+        const read = async () => {
+          const { id: _read, ...answer } = clone(await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params: [settledRead({ sessionId: ctx.session })] })));
+          if (!answer.ok) throw new RecorderError(`${group}: the read around the route move failed: ${answer.error}`);
+          return kept(answer, ctx);
+        };
+        const before = await read();
+        await settleStatus(daemonPid, { steps: [], statusReads: { start: true, fail: request.failStatus ? 1 : 0 } });
         await routeShown(attachments[0], ctx.session, request.switchRoute);
-        cases.push({ group, switchRoute: request.switchRoute });
+        const { statusReads, unfailed } = await settleStatus(daemonPid, { steps: [{ ms: 0 }], statusReads: { take: true } });
+        if (unfailed) throw new RecorderError(`${group}: the route move to ${request.switchRoute.model} made no status read to fail`);
+        const frame = await read();
+        await settleStatus(daemonPid);
+        const settled = await read();
+        cases.push({ group, switchRoute: request.switchRoute, ...(request.failStatus ? { failStatus: true } : {}), before, statusReads, frame, settled });
         continue;
       }
       // Read, settle, read: the first read opens the host's control session's runtime should none be open yet (the first case of a
@@ -816,6 +835,12 @@ writeSetManifest(stage, {
         "deterministic: the daemon's timers run on the recorder's virtual clock (status-clock-preload.mjs), so no debounce, watch listener or status pass runs between the call and its answer; each answer is kept as Node gave it. After a call whose answer carries a snapshot the after-call order lands the saves accepted before it (drainSessionConfigWrites), waits for the watch event that saw the files on disk, moves the clock past the debounces and the status passes, and waits for the store's frame and each host stream's marker; the read after it (getWorktreeSettings of the session the case named) is the case's `settled`, kept whole",
       replay:
         "the core's answer is compared whole with Node's; in a field listed here it may instead hold the value Node's `settled` read holds (the core applies the change before it answers: the same content, only faster, rule U-SV1). The same read after the case is compared whole with `settled`",
+    },
+    routeMoves: {
+      entries: "a session group entry with switchRoute: the desktop's setRoute of the session ({...switchRoute, applyToCurrentSession: true, keepMainModel: false}), with `before` (the session's read before it), `statusReads` (the status read of the move's own sync, routes-write.mjs:142, as the fields syncContextDisplayFields takes: context-state.mjs:116-142; a settings change's later sync is not the move's), `frame` (the read right after the move: no status pass ran, routes-write.mjs:133-142 published) and `settled` (the read after the next status-clock order)",
+      fault: "failStatus: the move's own sync (routes-write.mjs:142) finds no status (null, as the runtime answers without one), injected by status-clock-hooks.mjs on context-state.mjs:140 and status-clock-preload.mjs `contextRead`; the recording fails if the move made no read to fail. A move of an idle session never moves its window (the session's window follows at its next turn: routes-write.mjs:168-175 deferUntilNextTurn), so the recorded moves keep it",
+      compared:
+        "by mixdog-core-session route_config_tests (the move's thread/header/patch with the route Node resolved, the status read answered as recorded, the failed one failing): the moved route and context fields equal `frame`, a fasterInCore field `settled` instead; the replay sends each move as input (route/set) and compares the cases after it",
     },
     notRecorded: {
       notProducible: "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself",
