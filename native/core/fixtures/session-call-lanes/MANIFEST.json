@@ -1,5 +1,5 @@
 {
-  "cases": 10,
+  "cases": 11,
   "command": "node benchmarks/rust-core/recorders/record-session-call-lanes.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the HTTP route and the client registry: call-route.mjs ownerKeyFor (session:<id>, pid:<leadPid>, client:<token>) only names the owners the cases use; its callId cache and 200 {error} envelope are not part of the lanes",
@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 454030,
+      "bytes": 456001,
       "path": "golden.json",
-      "sha256": "3baec341c829cf73d58805966f80544f694e92dfa2d674b52a89a1a588d0695c"
+      "sha256": "5eb97ed33397119663dd316aeed04df2aff74388edb2d21f39c0afacee0f7ac3"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-call-lanes.mjs",
-  "recorderSha256": "84d98cc7c15b852aae4f155d489fcfe5455b265b8fbfdc07eb7041fdde52aedb",
+  "recorderSha256": "f0e7c5d793f277abaed3e40f115d7635f56817d308b99225e7294f6a6f0da38f",
   "replay": {
     "compare": "mixdog-app-server call lanes (lanes.rs): the same enqueues, the starts in order, the refusals (message, status) and the counters; Node status codes are not on the wire (the route answers {error: message}), so the replay compares them on the scheduler and the message on the wire",
     "entry": "Drive these public items on o1: every method but initialize is admitted through the call lanes (mixdog-app-server/src/server.rs:117 `lane_of`: turn/interrupt, thread/approval/answer and the other control calls never queue; thread/start, thread/read, thread/resume, turn/start, project and terminal calls are interactive).",
@@ -83,6 +83,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-call-lanes",
-  "totalBytes": 454030,
+  "totalBytes": 456001,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

@@ -110,6 +110,12 @@ fn an_abort_and_an_approval_start_ahead_of_the_reads_queued_before_them() {
     replays("an abort and an approval start at once ahead of the reads queued before them");
 }
 
+/// An attach waits behind the interactive calls its owner made before it, as Node's `session.subscribe` and `desktop.init` do.
+#[test]
+fn an_attach_queues_in_the_interactive_lane_behind_earlier_calls() {
+    replays("an attach queues in the interactive lane behind the calls made before it");
+}
+
 #[test]
 fn the_critical_lane_queues_nothing() {
     replays("the critical lane queues nothing, even past 256 calls");
@@ -148,8 +154,8 @@ fn closing_the_lanes_refuses_what_waits_and_what_comes_later() {
 }
 
 /// Node's lane of each routed call name is the lane the core gives the method the name became: the control calls never queue, the
-/// calls a person waits on are interactive. The attach calls (Node's interactive `session.subscribe`) are the exception `lane_of`
-/// documents: they run where they arrive.
+/// calls a person waits on, a thread attach (`session.subscribe`) included, are interactive. A phone's feed opens are not calls in
+/// Node (the relay's `setRemoteLanes`), so `feed/subscribe` and `app/subscribe` take no lane of a call's.
 #[test]
 fn the_methods_the_node_calls_became_take_their_lanes() {
     let lane = |method: &str| crate::server::lane_of(crate::server::method_index().get(method).unwrap_or_else(|| panic!("no method {method}")));
@@ -162,6 +168,7 @@ fn the_methods_the_node_calls_became_take_their_lanes() {
         ("feed/unsubscribe", "session.unsubscribe", json!({})),
         ("thread/start", "session.create", json!({})),
         ("thread/read", "session.read", json!({})),
+        ("thread/resume", "session.subscribe", json!({})),
         ("turn/start", "session.submit", json!({})),
         ("project/list", "project.list", json!({})),
         ("project/ensureDirectory", "project.ensureDirectory", json!({})),
