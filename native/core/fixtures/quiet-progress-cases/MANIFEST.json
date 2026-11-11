@@ -9,15 +9,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5321,
+      "bytes": 5439,
       "path": "golden.json",
-      "sha256": "f9fb54470280c9e6b5f5f2bc69da4ea30dc82501288d653a45272bdf180582bb"
+      "sha256": "b6117f3493e10b6aa7a320af9b844ec2d0ffd2d1439b6079c52853883253e768"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "d8062d5aa8f1fe613387a9d951f970224cf4572e2e0ba391745e4e2108e35686"
+      "sha256": "ce9c896ef37bd5ad6f3706b6dd74afd6eea3b1fea0b3b59f74f754a3c8f8c1fc"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -53,5 +53,5 @@
     "note": "also compares packages/protocol-client/src/rows/quiet-progress.mjs, the JS copy, on the same inputs"
   },
   "set": "quiet-progress-cases",
-  "totalBytes": 5321
+  "totalBytes": 5439
 }
