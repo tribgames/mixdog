@@ -130,6 +130,12 @@ impl Outbox {
         self.entries.is_empty()
     }
 
+    /// The accepted records not yet acknowledged.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn unacked(&self) -> usize {
+        self.normal.records + self.reserve.records
+    }
+
     pub fn producer_room(&self) -> bool {
         self.entries.len() < self.limits.outbox_entries && self.has_room(Class::Normal)
     }
@@ -211,8 +217,9 @@ impl Outbox {
         self.usage(class).bytes += bytes;
     }
 
-    /// The next encoded records in accept order, stopping at the first still encoding.
-    pub fn handoff(&mut self) -> Vec<(u64, CommitRecord, usize)> {
+    /// The next encoded records in accept order, at most `room` of them, stopping at the first still encoding. A plan of more
+    /// records than the durability lane holds (a whole inherited conversation) is handed on as acks free the lane.
+    pub fn handoff(&mut self, room: usize) -> Vec<(u64, CommitRecord, usize)> {
         let mut out = Vec::new();
         for entry in &mut self.entries {
             let Some(durable) = entry.durable.as_mut() else {
@@ -220,6 +227,7 @@ impl Outbox {
             };
             match &durable.stage {
                 Stage::Encoding => break,
+                Stage::Encoded(_) if out.len() == room => break,
                 Stage::Encoded(_) => {
                     let Stage::Encoded(encoded) =
                         std::mem::replace(&mut durable.stage, Stage::Handed)

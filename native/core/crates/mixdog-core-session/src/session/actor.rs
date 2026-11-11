@@ -1059,6 +1059,7 @@ impl SessionActor {
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.unacked.store(self.outbox.unacked(), SeqCst);
                 self.cell.stepped.notify_waiters();
             }
             // An unloaded thread stops once its accepted records are handed off; a deleted one
@@ -1831,14 +1832,14 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        for (id, record, bytes) in self.outbox.handoff() {
+        for (id, record, bytes) in self.outbox.handoff(self.ch.dur_tx.capacity()) {
             let msg = ToDurability::Append {
                 id,
                 generation: self.generation,
                 record,
                 bytes,
             };
-            // The window bounds unacked records below the channel's capacity.
+            // Never more than the channel holds is handed off, so a refusal is a durability task that is gone.
             if self.ch.dur_tx.try_send(msg).is_err() {
                 self.fail_all(CoreError::StorageIndeterminate {
                     scope: "thread".into(),
