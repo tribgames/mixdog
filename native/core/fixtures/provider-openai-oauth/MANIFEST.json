@@ -11,7 +11,7 @@
   "entry": "openai-oauth.mjs buildRequestBody / _convertMessagesToResponsesInputForTest, openai-oauth-http-sse.mjs sendViaHttpSse({ auth, body, useModel, opts, cacheKey, onToolCall }), custom-tool-wire.mjs customToolCallFromResponseItem, tools/patch-tool-defs.mjs PATCH_TOOL_DEFS and tools/builtin BUILTIN_TOOLS as tool inputs. Not run: a live endpoint.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
@@ -41,11 +41,59 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "9ea2970d4d50044ee08cd2fa91c7d0d6981a8450af0eae081b42981830208edc"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "native-provider-tag-switch-keeps-tool-search-paired",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "http-sse-max-output-cutoff-with-call-in-flight",
+      "level": "wire"
+    },
+    {
+      "id": "http-sse-completed-call-then-cutoff-is-clean-length",
+      "level": "wire"
+    },
+    {
+      "id": "request-mixed-custom-patch-function-shell-batch",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "reasoning-replay-default-on-and-kill-switch",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "always-standard-responses-payload",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "http-sse-stateless-omits-anchor-headers",
+      "level": "wire"
+    },
+    {
+      "id": "http-sse-mixed-custom-function-call-order",
+      "level": "wire"
+    },
+    {
+      "id": "load-tool-native-tool-search-history",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "custom-tool-call-item-to-canonical-call",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -70,7 +118,7 @@
   "recorderSha256": "b8951d311c6c5d2e0e1495e289ee38fa4196a09dd4659ce1de44453377203b3c",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "replayExclusions": {
-    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-oauth",
   "totalBytes": 55013,
