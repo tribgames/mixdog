@@ -1,8 +1,9 @@
 export const DEFAULT_EMBED_CACHE_MAX_ROWS = 10_000;
 
 export function resolveEmbeddingCacheMaxRows(value = process.env.MIXDOG_EMBED_CACHE_MAX_ROWS) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_EMBED_CACHE_MAX_ROWS;
+  const rows = Math.floor(Number(value));
+  // A fraction below one rounds to zero rows, which would wipe the cache: it is as invalid as 0.
+  return Number.isFinite(rows) && rows > 0 ? rows : DEFAULT_EMBED_CACHE_MAX_ROWS;
 }
 
 export async function pruneEmbeddingCache(db, { maxRows = resolveEmbeddingCacheMaxRows(), batchSize = 5000 } = {}) {

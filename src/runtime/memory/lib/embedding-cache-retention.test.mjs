@@ -10,6 +10,11 @@ test('embedding cache defaults to ten thousand rows with a positive override', (
   assert.equal(resolveEmbeddingCacheMaxRows('invalid'), 10_000);
 });
 
+test('a positive fraction below one is invalid, not a zero-row cache', () => {
+  assert.equal(resolveEmbeddingCacheMaxRows('0.5'), 10_000);
+  assert.equal(resolveEmbeddingCacheMaxRows('12.9'), 12);
+});
+
 test('a legacy oversized embedding cache is truncated to reclaim disk pages', async () => {
   const calls = [];
   const db = {
