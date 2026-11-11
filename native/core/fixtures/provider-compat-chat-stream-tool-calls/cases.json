@@ -122,7 +122,66 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "{\"a\":\"",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": "{\"a\":\""
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": "\"}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "tool_calls"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -263,7 +322,66 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": "{\"x\""
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "function": {
+                              "arguments": ":1}"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "tool_calls"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -388,7 +506,34 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "{\"x\":1}",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "length"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -567,7 +712,34 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "tool_calls": [
+                          {
+                            "index": 0,
+                            "id": "c1",
+                            "function": {
+                              "arguments": "{\"x\":1}",
+                              "name": "f"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "content_filter"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -714,7 +886,25 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -805,7 +995,25 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "length"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -896,7 +1104,25 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "content_filter"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
@@ -1008,7 +1234,25 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
           "args": [
             {
-              "unrecordable": "exact: a  at $ has no exact form (give classes.)"
+              "$stream": [
+                {
+                  "choices": [
+                    {
+                      "delta": {
+                        "content": "<invoke name=\"f\"><parameter name=\"x\">1</parameter></invoke>"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "choices": [
+                    {
+                      "delta": {},
+                      "finish_reason": "network_error"
+                    }
+                  ]
+                }
+              ]
             },
             {
               "label": "gateway",
