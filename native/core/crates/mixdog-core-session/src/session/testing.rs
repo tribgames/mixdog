@@ -615,11 +615,54 @@ impl ThreadStore for MemStore {
 pub struct CallCounted {
     inner: Arc<dyn ThreadStore>,
     calls: Mutex<Vec<&'static str>>,
+    held: Mutex<Option<(&'static str, tokio::sync::mpsc::UnboundedSender<()>, std::sync::mpsc::Receiver<()>)>>,
+}
+
+/// The one call of a [`CallCounted`] being held: it has been entered (`entered`) and does not reach the store until `release`.
+pub struct HeldCall {
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    release: std::sync::mpsc::Sender<()>,
+}
+
+/// How long a held call waits to be released, and a test waits for a call to be held, before the test fails.
+const HOLD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl HeldCall {
+    /// Resolves once the held call has been made and is waiting.
+    pub async fn entered(&mut self, name: &str) {
+        let entered = tokio::time::timeout(HOLD_DEADLINE, self.entered.recv()).await;
+        assert!(matches!(entered, Ok(Some(()))), "waiting for the store call {name} to be made");
+    }
+
+    /// Lets the held call through to the store.
+    pub fn release(self) {
+        self.release.send(()).expect("the held store call is waiting");
+    }
 }
 
 impl CallCounted {
     pub fn new(inner: Arc<dyn ThreadStore>) -> Arc<Self> {
-        Arc::new(Self { inner, calls: Mutex::default() })
+        Arc::new(Self { inner, calls: Mutex::default(), held: Mutex::default() })
+    }
+
+    /// Holds the next call named `name` (a `ThreadStore` method) before it reaches the store: what the store holds at the moment it
+    /// is released is what that call reads.
+    pub fn hold(&self, name: &'static str) -> HeldCall {
+        let (entered, entered_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release) = std::sync::mpsc::channel();
+        *lock(&self.held) = Some((name, entered, release));
+        HeldCall { entered: entered_rx, release: release_tx }
+    }
+
+    fn gate(&self, name: &'static str) {
+        let mut held = lock(&self.held);
+        if held.as_ref().is_none_or(|(held, ..)| *held != name) {
+            return;
+        }
+        let (_, entered, release) = held.take().expect("checked above");
+        drop(held);
+        entered.send(()).expect("the test waits for the held call");
+        release.recv_timeout(HOLD_DEADLINE).unwrap_or_else(|_| panic!("the held store call {name} was never released"));
     }
 
     /// The name of each call so far, in order.
@@ -633,6 +676,7 @@ macro_rules! forwarded {
         $(
             fn $name(&self $(, $arg: $ty)*) -> $ret {
                 lock(&self.calls).push(stringify!($name));
+                self.gate(stringify!($name));
                 self.inner.$name($($arg),*)
             }
         )*
