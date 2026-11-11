@@ -8,6 +8,7 @@ mod light_ko_morph;
 mod model_config;
 mod pg;
 mod project_id;
+mod query_handlers;
 mod query_ranking;
 mod recall_fusion;
 mod recall_source;
