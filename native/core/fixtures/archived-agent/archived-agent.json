@@ -304,6 +304,143 @@
       }
     }
   },
+  "sessionTool": {
+    "list": {
+      "value": {
+        "sessions": [
+          {
+            "id": "sess_parent_b",
+            "title": "parent sess_parent_b",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          },
+          {
+            "id": "sess_parent_a",
+            "title": "parent sess_parent_a",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "listAgents": {
+      "value": {
+        "sessions": [
+          {
+            "id": "sess_parent_b",
+            "title": "parent sess_parent_b",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          },
+          {
+            "id": "sess_alive_child",
+            "status": "closed"
+          },
+          {
+            "id": "sess_parent_a",
+            "title": "parent sess_parent_a",
+            "status": "idle",
+            "cwd": "C:/work/project"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    "sess_child_link": {
+      "read": {
+        "value": {
+          "sessionId": "sess_child_link",
+          "offset": 0,
+          "items": [
+            {
+              "kind": "assistant",
+              "offset": 0,
+              "id": "archived-agent-result:sess_child_link",
+              "status": "completed",
+              "text": "# Archived agent result\n\nlinked body\nsecond line"
+            }
+          ],
+          "nextOffset": null
+        }
+      },
+      "status": {
+        "value": {
+          "sessionId": "sess_child_link",
+          "title": null,
+          "cwd": "C:/work/project",
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "autoEffort": null,
+          "fast": true,
+          "busy": false,
+          "agentsWorking": false,
+          "quotaResume": null
+        }
+      },
+      "send": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_link is not available",
+          "props": {}
+        }
+      }
+    },
+    "sess_child_orphan": {
+      "read": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_orphan is not available",
+          "props": {}
+        }
+      },
+      "status": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_orphan is not available",
+          "props": {}
+        }
+      },
+      "send": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_child_orphan is not available",
+          "props": {}
+        }
+      }
+    },
+    "sess_never_existed": {
+      "read": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_never_existed is not available",
+          "props": {}
+        }
+      },
+      "status": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_never_existed is not available",
+          "props": {}
+        }
+      },
+      "send": {
+        "threw": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "session sess_never_existed is not available",
+          "props": {}
+        }
+      }
+    }
+  },
   "sessionsLeft": [
     "sess_alive_child.json",
     "sess_parent_a.json",

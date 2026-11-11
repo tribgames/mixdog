@@ -104,14 +104,58 @@ async fn every_reaped_agent_child_answers_read_resume_fork_and_delete_as_node() 
         .run()
         .expect("the migration of the recorded data completes");
 
+    let threads = threads_over(&roots.data).await;
+    // The model's `session` tool list: Node lists the two parents, newest first, and a reaped child never (with
+    // agents, also the child still stored). The core's thread/list over the same migrated data lists what Node's list
+    // with agents lists (the session tool's own list action, which hides agents by default, is not in the core).
+    let list = super::thread_list::ThreadListService::new(
+        Arc::new(threads.index().clone()),
+        Arc::new(super::recorded_145_tests::Idle),
+        Arc::new(super::recorded_145_tests::NoRooms),
+        Arc::new(super::testing::FixedTaskWorkspace("/tasks")),
+    );
+    let listed = mixdog_core_base::support::testing::value(&list, mixdog_core_base::support::testing::request(super::thread_list::LIST, json!({ "limit": 50 }), None))
+        .await
+        .expect("thread/list");
+    let ids = |rows: &Value| -> Vec<Value> { rows.as_array().expect("rows").iter().map(|row| row["id"].clone()).collect() };
+    let tool = &recorded["sessionTool"];
+    assert_eq!(ids(&listed["data"]), ids(&tool["listAgents"]["value"]["sessions"]), "{listed}");
+    for child in recorded["children"].as_array().expect("children") {
+        assert!(!ids(&tool["listAgents"]["value"]["sessions"]).contains(child), "Node lists no reaped child: {child}");
+    }
+
     let rig = Rig::new();
-    let mut parts = rig.deps_parts(threads_over(&roots.data).await);
+    let mut parts = rig.deps_parts(threads);
     parts.transcript = Arc::new(RecordTranscript::new());
     let directory = SessionDirectory::new(Arc::new(parts));
 
     let answers = recorded["answers"].as_object().expect("answers");
     for (id, node) in answers {
         assert_read(id, read(&directory, id).await, &node["transcript"]);
+    }
+    // The session tool over each child: its read is the archived view the transcript read gives (the orphan, whose one
+    // parent is gone, and an id never stored: "not available"), and a send starts nothing ("not available").
+    for id in ["sess_child_link", "sess_child_orphan", "sess_never_existed"] {
+        let node = &tool[id];
+        let gone = json!({ "$exact": "error", "name": "Error", "message": format!("session {id} is not available"), "props": {} });
+        match node["read"]["value"]["items"].as_array() {
+            Some(items) => {
+                let viewed = &answers[id]["transcript"]["value"]["items"];
+                for (item, row) in items.iter().zip(viewed.as_array().expect("items")) {
+                    assert_eq!((&item["id"], &item["kind"], &item["status"], &item["text"]), (&row["id"], &row["kind"], &row["status"], &row["text"]), "{id}");
+                }
+                let got = read(&directory, id).await.expect("the archived view");
+                assert_eq!(got["items"].as_array().map(Vec::len), Some(items.len()), "{id}");
+            }
+            None => {
+                assert_eq!(node["read"]["threw"], gone, "{id}");
+                assert!(matches!(read(&directory, id).await, Err(CoreError::ThreadNotFound { .. })), "{id}");
+            }
+        }
+        assert_eq!(node["send"]["threw"], gone, "{id}");
+        // A turn starts only on a thread the directory opens; none opens for these ids.
+        let opened = directory.open(&ThreadId::from(id), &CallContext::internal("test")).await.map(|_| ());
+        assert!(matches!(opened, Err(CoreError::ThreadNotFound { .. })), "{id}: a send to it starts nothing: {opened:?}");
     }
     let mut entries = 0;
     for (id, node) in answers.iter().filter(|(_, node)| node.get("resume").is_some()) {

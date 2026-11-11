@@ -6,6 +6,8 @@
 //   resume      the session manager's `resumeSession`
 //   fork        `createInheritance(...).inheritToNewSession` (the session tool's fork) over the real manager
 //   delete      the runtime's `deleteSession` (session-switch/session-delete.mjs, the desktop's delete)
+// and the model's `session` tool (`sessionTool`): list (with and without agents), and read, status and send of the
+// linked child, the orphan (its one parent gone) and an id never stored.
 // The data directory's files are recorded as written, so the replay migrates the same bytes.
 //
 //   node benchmarks/rust-core/recorders/record-archived-agent.mjs --tree <exact export of b6f10295a>
@@ -164,6 +166,37 @@ const deletion = createSessionDelete(
 
 const answers = {};
 for (const id of CHILDREN) answers[id] = { transcript: await settle(() => reader.readStoredSessionTranscript(id)) };
+
+// The model's `session` tool (daemon-session-control.mjs) over the daemon's real session service and stored-session
+// views (daemon.mjs wiring: createDesktopRuntime -> createStoredSessionViews -> createSessionService); no runtime is
+// ever created (a cold session is read from disk). The caller is the parent of the linked child.
+const { createDesktopRuntime } = await load('src/standalone/daemon-desktop-runtime.mjs');
+const { createStoredSessionViews } = await load('src/standalone/daemon-stored-session-views.mjs');
+const { createSessionService } = await load('src/standalone/session-service.mjs');
+const { createSessionControl } = await load('src/standalone/daemon-session-control.mjs');
+const desktopRuntime = createDesktopRuntime({ getLocalSessionBridge: () => null });
+const service = createSessionService({
+  createSessionRuntime: async ({ sessionId }) => {
+    throw new Error(`recorder: a runtime was asked for ${sessionId}`);
+  },
+  ...createStoredSessionViews({ desktopRuntime, dataDir }),
+  desktopRuntime,
+  idleEvictMs: null,
+  softRssMb: null,
+});
+const control = createSessionControl({ getSessionService: () => service, listBots: async () => [] });
+const caller = { callerSessionId: 'sess_parent_a' };
+const sessionTool = {
+  list: await settle(() => control({ action: 'list' }, caller)),
+  listAgents: await settle(() => control({ action: 'list', include_agents: true }, caller)),
+};
+for (const id of ['sess_child_link', 'sess_child_orphan', 'sess_never_existed']) {
+  sessionTool[id] = {
+    read: await settle(() => control({ action: 'read', session_id: id }, caller)),
+    status: await settle(() => control({ action: 'status', session_id: id }, caller)),
+    send: await settle(() => control({ action: 'send', session_id: id, prompt: 'are you there?' }, caller)),
+  };
+}
 // The other entries, each over the same child: one reaped with a link (archived view above) and one never stored.
 for (const id of ['sess_child_link', 'sess_never_existed']) {
   answers[id].resume = await settle(() => manager.resumeSession(id));
@@ -175,7 +208,7 @@ const left = readdirSync(join(dataDir, 'sessions')).sort();
 
 const finalDir = join(FIXTURES_ROOT, 'archived-agent');
 const outDir = stageSet(finalDir, null);
-writeJson(join(outDir, 'archived-agent.json'), { scenario: 'archived-agent', files: texts, children: CHILDREN, answers, sessionsLeft: left });
+writeJson(join(outDir, 'archived-agent.json'), { scenario: 'archived-agent', files: texts, children: CHILDREN, answers, sessionTool, sessionsLeft: left });
 writeSetManifest(outDir, {
   set: 'archived-agent',
   recorder: RECORDER,
