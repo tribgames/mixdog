@@ -665,6 +665,43 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
 }
 
+/// The registry's clock on tokio's (paused) time: the deadline timer sleeps on the clock the rows are judged by.
+struct TokioClock(tokio::time::Instant);
+impl Clock for TokioClock {
+    fn now_ms(&self) -> i64 {
+        NOW + self.0.elapsed().as_millis() as i64
+    }
+}
+
+/// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs): a running row whose session is gone leaves
+/// the index as a tombstone when its reap deadline comes, with no agent call, status read or other event after the one
+/// that showed the timer the rows (a refresh arms it again).
+#[tokio::test(start_paused = true)]
+async fn a_rows_reap_deadline_tombstones_it_with_no_event() {
+    let rig = Rig::new();
+    let stamped = |due_in: i64| at(NOW - HOUR + due_in);
+    let running = |id: &str, tag: &str, due_in: i64| worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }));
+    rig.store.write("s-late", Some(running("s-late", "late", 60_000)));
+    rig.store.write("s-early", Some(running("s-early", "early", 10_000)));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), Arc::new(TokioClock(tokio::time::Instant::now()))));
+    // The timer starts before the index is loaded: it knows no row yet.
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    let reaped = |id: &str| rig.store.map(id).is_some_and(|map| map.contains_key("tombstone"));
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    registry.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+    assert!(!reaped("s-early") && !reaped("s-late"), "nothing is due yet");
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert!(reaped("s-early"), "the early row is a tombstone at its deadline");
+    assert!(!reaped("s-late"), "the late row is not due yet");
+    tokio::time::sleep(std::time::Duration::from_secs(50)).await;
+    assert!(reaped("s-late"), "the late row is a tombstone at its deadline");
+    drop(registry);
+    tokio::time::sleep(std::time::Duration::from_secs(3_601)).await;
+    assert!(timer.is_finished(), "the timer ends with its registry");
+}
+
 /// A settled row past its retention and its continuation window becomes a tombstone when the
 /// registry refreshes (`transitionStaleNonterminalRows`); the tombstone keeps the row's keys
 /// for the index, and a reuse of the tag consumes it.

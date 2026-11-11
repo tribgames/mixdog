@@ -2359,6 +2359,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .await
             .map_err(ComposeError::AgentRecover)?;
     }
+    // The maintenance pass's deadline timer: a worker row leaves the index when its reap deadline comes, not at the next agent event.
+    drop(mixdog_rt::spawn(
+        "agent-row-deadlines",
+        mixdog_rt::TaskClass::Work,
+        mixdog_core_session::session::agent_registry::AgentRegistry::keep_deadlines(Arc::downgrade(&agent_registry)),
+    ));
     // The directory's `ThreadState` + `ThreadMessages` (`thread/header/read|patch`, messages): the memory recall source, the rooms' `DirectorySessions`, the prompt reroot and the workspace host share it.
     let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
     // flip-ce-13 + run-host-41: the pool's production inputs. `liveness` is the map the runs write; `ShellJobs` answers `waitedJobSilence` and the awaited
