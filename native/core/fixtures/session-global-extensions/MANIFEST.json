@@ -1,0 +1,52 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-global-extensions.mjs --tree <tree>",
+  "entry": "Ran global-extensions.mjs (publish/subscribe) and resource-extension-sync.mjs (createExtensionSync) with scripted connectConfiguredMcp / cancelMcpLogin / invalidatePreSessionToolSurface. Did not run the real MCP manager (connectConfiguredMcp is the scripted endpoint) nor reloadFullConfig/invalidateSkills (not given in the test).",
+  "exclusions": [
+    "subscriber ids come from a process counter; recorded as `writer`/`peer` labels"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6511,
+      "path": "recording.json",
+      "sha256": "94719be60f39f34223811a4bd7e7633c4177f26efcc896867506e0adda2b1dc6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-global-extensions.mjs",
+  "recorderSha256": "a26858590745340e0ff4b7d6f2b019ca77536a568c0ea85dd6473714b25f523d",
+  "replay": "mixdog-mcp mcp_glue.rs scoped apply / toggle (crate mixdog-mcp) and the thread-extension fan-out: drive the same calls (reconnect with {only,enabled,drop}, none, scheduleMcpToggle true/false, publish kind with an origin, unsubscribe) against the scripted connector and compare the ordered `events` of every case.",
+  "set": "session-global-extensions",
+  "testFile": "src/session-runtime/global-extensions.test.mjs",
+  "totalBytes": 6511
+}
