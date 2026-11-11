@@ -237,7 +237,7 @@
     },
     {
       "id": "geminiRestError-lowercases-status",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:70",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:71",
       "input": {},
       "result": {
         "clockStartMs": 1794225600000,
@@ -365,7 +365,7 @@
     },
     {
       "id": "antigravity-capacity:errorinfo-reason",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:118",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:114",
       "input": {
         "code": 429,
         "status": "RESOURCE_EXHAUSTED",
@@ -443,7 +443,7 @@
     },
     {
       "id": "antigravity-capacity:server-busy-message",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:118",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:114",
       "input": {
         "code": 503,
         "status": "UNAVAILABLE",
@@ -497,7 +497,7 @@
     },
     {
       "id": "antigravity-capacity:no-capacity-message",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:118",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:114",
       "input": {
         "code": 429,
         "status": "RESOURCE_EXHAUSTED",
@@ -841,7 +841,7 @@
     },
     {
       "id": "long-advice-never-quota",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:167",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:153",
       "input": {},
       "result": {
         "clockStartMs": 1794225600000,
@@ -1224,7 +1224,7 @@
     },
     {
       "id": "limit-zero-in-message-not-evidence",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:233",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:213",
       "input": {},
       "result": {
         "clockStartMs": 1794225600000,
@@ -1516,7 +1516,7 @@
     },
     {
       "id": "delay-read-from-message",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:262",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:240",
       "input": {},
       "result": {
         "clockStartMs": 1794225600000,
@@ -1584,7 +1584,7 @@
     },
     {
       "id": "compound-go-durations",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:269",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:247",
       "input": {},
       "result": {
         "clockStartMs": 1794225600000,
@@ -1757,7 +1757,7 @@
     },
     {
       "id": "antigravityError:503-capacity-by-status",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:304",
       "input": {
         "status": 503,
         "body": {
@@ -1814,7 +1814,7 @@
     },
     {
       "id": "antigravityError:529-capacity-by-status",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:304",
       "input": {
         "status": 529,
         "body": {
@@ -1867,7 +1867,7 @@
     },
     {
       "id": "antigravityError:429-overloaded-wording",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:304",
       "input": {
         "status": 429,
         "body": {
@@ -1920,7 +1920,7 @@
     },
     {
       "id": "antigravityError:429-per-minute-wording",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:304",
       "input": {
         "status": 429,
         "body": {
@@ -1973,7 +1973,7 @@
     },
     {
       "id": "antigravityError:429-quota-wording-alone",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:304",
       "input": {
         "status": 429,
         "body": {
@@ -2025,7 +2025,7 @@
     },
     {
       "id": "antigravity-typed-reason-outranks-wording",
-      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:330",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:311",
       "input": {},
       "result": {
         "clockStartMs": 1794225600000,

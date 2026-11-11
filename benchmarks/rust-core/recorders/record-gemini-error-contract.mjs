@@ -45,7 +45,7 @@ await row('geminiRestError-details-mapping', 49, {}, () => {
   const err = geminiRestError(res, JSON.stringify({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'quota', errorDetails: [errorInfo('QUOTA_EXHAUSTED'), quotaFailure('GenerateRequestsPerDayPerProjectPerModel'), retryInfo('3600s')] } }), 'Gemini');
   return { error: err, headersIsTheResponsesOwn: err.headers === res.headers };
 });
-await row('geminiRestError-lowercases-status', 70, {}, () => ({ error: rest(503, { code: 503, status: 'UNAVAILABLE', message: 'busy' }) }));
+await row('geminiRestError-lowercases-status', 71, {}, () => ({ error: rest(503, { code: 503, status: 'UNAVAILABLE', message: 'busy' }) }));
 await row('antigravityError-errorinfo-reset', 80, {}, () => ({
   error: agy(429, { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'exhausted', details: [errorInfo('QUOTA_EXHAUSTED', { quotaResetDelay: '373.803813ms', quotaResetTimeStamp: '2099-01-01T00:00:00Z', quotaId: 'RequestsPerDay' })] }),
   stampMs: Date.parse('2099-01-01T00:00:00Z'),
@@ -54,7 +54,7 @@ for (const [name, body] of [
   ['errorinfo-reason', { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'x', details: [errorInfo('MODEL_CAPACITY_EXHAUSTED')] }],
   ['server-busy-message', { code: 503, status: 'UNAVAILABLE', message: 'The server is busy, try later' }],
   ['no-capacity-message', { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'No capacity available for model x' }],
-]) await row(`antigravity-capacity:${name}`, 118, body, () => ({ error: agy(body.code, body) }));
+]) await row(`antigravity-capacity:${name}`, 114, body, () => ({ error: agy(body.code, body) }));
 await row('safety-recitation-finish-codes', 129, {}, () => {
   const parsed = (finishReason) => ({ candidate: { finishReason }, content: '', toolCalls: undefined });
   return {
@@ -68,7 +68,7 @@ await row('per-minute-without-retryinfo-60s', 148, {}, () => ({
   byMetadata: fields(C({ details: [errorInfo('RATE_LIMIT_EXCEEDED', { quota_limit: 'RequestsPerMinutePerProject' })] })),
   withRetryInfo: fields(C({ details: [quotaFailure('X'), retryInfo('5s')] })),
 }));
-await row('long-advice-never-quota', 167, {}, () => ({
+await row('long-advice-never-quota', 153, {}, () => ({
   long: fields(C({ details: [retryInfo('601s')] })),
   threeHundred: fields(C({ details: [retryInfo('300s')] })),
   byMessage: fields(C({ message: 'Please retry in 400s' })),
@@ -95,7 +95,7 @@ await row('spent-quotas-no-window', 199, {}, () => {
     limitHalf: fields(C({ details: [qf([{ description: 'limit: 0.5 something' }])] })),
   };
 });
-await row('limit-zero-in-message-not-evidence', 233, {}, () => ({
+await row('limit-zero-in-message-not-evidence', 213, {}, () => ({
   zero: fields(C({ message: 'Quota exceeded, limit: 0, model: x' })),
   half: fields(C({ message: 'limit: 0.5 something' })),
 }));
@@ -108,13 +108,13 @@ await row('typed-reason-on-503-529-not-capacity', 238, {}, () => {
   out.plain503 = agy(503, { code: 503, status: 'UNAVAILABLE', message: 'busy' });
   return out;
 });
-await row('delay-read-from-message', 262, {}, () => ({
+await row('delay-read-from-message', 240, {}, () => ({
   decimal: fields(C({ message: 'Quota hit. Please retry in 2.5s.' })),
   millis: fields(C({ message: 'Please retry in 900ms' })),
   resetAfter: fields(C({ message: 'Your quota will reset after 2h1m1s' })),
   retryInfoWins: fields(C({ details: [retryInfo('4s')], message: 'Please retry in 9s' })),
 }));
-await row('compound-go-durations', 269, {}, () => {
+await row('compound-go-durations', 247, {}, () => {
   const meta = (quotaResetDelay) => fields(C({ details: [errorInfo('RATE_LIMIT_EXCEEDED', { quotaResetDelay })] }));
   return { compound: meta('1h16m0.667s'), bare: meta('30'), millis: meta('200ms') };
 });
@@ -130,8 +130,8 @@ for (const [name, status, body] of [
   ['429-overloaded-wording', 429, { code: 429, message: 'The model is overloaded' }],
   ['429-per-minute-wording', 429, { code: 429, message: 'Too many requests per minute' }],
   ['429-quota-wording-alone', 429, { code: 429, message: 'You exceeded your current quota' }],
-]) await row(`antigravityError:${name}`, 297, { status, body }, () => ({ error: agy(status, body) }));
-await row('antigravity-typed-reason-outranks-wording', 330, {}, () => ({ error: agy(429, { code: 429, message: 'capacity exhausted', details: [errorInfo('RATE_LIMIT_EXCEEDED')] }) }));
+]) await row(`antigravityError:${name}`, 304, { status, body }, () => ({ error: agy(status, body) }));
+await row('antigravity-typed-reason-outranks-wording', 311, {}, () => ({ error: agy(429, { code: 429, message: 'capacity exhausted', details: [errorInfo('RATE_LIMIT_EXCEEDED')] }) }));
 await row('rejected-api-key-is-auth', 336, {}, () => {
   const out = {};
   for (const reason of ['API_KEY_INVALID', 'API_KEY_EXPIRED']) {
