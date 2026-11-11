@@ -12,7 +12,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mock } from 'node:test';
-import { begin, capture, finish, freezeClock, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = Date.parse('2025-06-01T00:00:00Z');
@@ -33,11 +33,11 @@ function handlers(rows = [root, member, raw]) {
   const log = { searches: [], statements: [] };
   const db = {
     async search(query, options) {
-      log.searches.push({ query, options: plain(options) });
+      log.searches.push({ query, options: exact(options) });
       return [{ ...rootRow, ...(options.includeMembers ? { members: [{ ...memberRow }] } : {}) }, { ...rawRow }];
     },
     async query(sql, params = []) {
-      log.statements.push({ sql, params: plain(params) });
+      log.statements.push({ sql, params: exact(params) });
       if (sql.includes('FROM entries WHERE id = ANY')) return { rows: rows.filter((row) => params[0].includes(row.id)).map((row) => ({ ...row })) };
       if (sql.includes('WHERE chunk_root = ANY')) {
         const selected = sql.includes('is_root = 0') ? [memberRow] : [rootRow, memberRow];

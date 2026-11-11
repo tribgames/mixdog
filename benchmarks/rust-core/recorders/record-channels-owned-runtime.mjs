@@ -16,37 +16,47 @@ const url = (rel) => pathToFileURL(join(ctx.tree, 'src/runtime/channels/lib', re
 
 const calls = [];
 const stderr = [];
-const record = (...entry) => calls.push(entry);
+// Every argument of every call is recorded. A function or a class instance (a server, a queue) cannot be written as data: it is
+// written as {$callable: name} / {$instance: ClassName}, declared in the manifest.
+const describe = (value) => {
+  if (typeof value === 'function') return { $callable: value.name || 'anonymous' };
+  if (Array.isArray(value)) return value.map(describe);
+  if (value instanceof Error || value instanceof Date || !value || typeof value !== 'object') return value;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return { $instance: value.constructor?.name ?? 'unknown' };
+  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, describe(v)]));
+};
+const record = (name, ...args) => calls.push([name, ...args.map(describe)]);
 const fixtures = { loadedConfig: null, initProviders: async () => {} };
 let onWebhookStart = null;
 
 class FakeWebhookServer {
-  constructor(cfg) { this.cfg = cfg; record('webhook.new'); }
-  start() { record('webhook.start'); onWebhookStart?.(); }
-  async stop() { record('webhook.stop'); }
-  async reloadConfig(cfg, opts) { this.cfg = cfg; record('webhook.reload', opts?.autoStart); }
+  constructor(...args) { this.cfg = args[0]; record('webhook.new', ...args); }
+  start(...args) { record('webhook.start', ...args); onWebhookStart?.(); }
+  async stop(...args) { record('webhook.stop', ...args); }
+  async reloadConfig(...args) { this.cfg = args[0]; record('webhook.reload', ...args); }
 }
 class FakeEventPipeline {
-  constructor() { this.queue = {}; record('pipeline.new'); }
+  constructor(...args) { this.queue = {}; record('pipeline.new', ...args); }
   getQueue() { return this.queue; }
-  start() { record('pipeline.start'); }
-  stop() { record('pipeline.stop'); }
-  reloadConfig() { record('pipeline.reload'); }
+  start(...args) { record('pipeline.start', ...args); }
+  stop(...args) { record('pipeline.stop', ...args); }
+  reloadConfig(...args) { record('pipeline.reload', ...args); }
 }
 
-mock.module(url('./config.mjs'), { namedExports: { loadConfig: async () => { record('loadConfig'); return fixtures.loadedConfig; } } });
+mock.module(url('./config.mjs'), { namedExports: { loadConfig: async (...args) => { record('loadConfig', ...args); return fixtures.loadedConfig; } } });
 mock.module(url('./webhook.mjs'), { namedExports: { WebhookServer: FakeWebhookServer } });
 mock.module(url('./event-pipeline.mjs'), { namedExports: { EventPipeline: FakeEventPipeline } });
-mock.module(url('./status-snapshot.mjs'), { namedExports: { startSnapshotWriter: () => record('snapshot.start'), stopSnapshotWriter: () => record('snapshot.stop') } });
+mock.module(url('./status-snapshot.mjs'), { namedExports: { startSnapshotWriter: (...args) => record('snapshot.start', ...args), stopSnapshotWriter: (...args) => record('snapshot.stop', ...args) } });
 mock.module(url('../../agent/orchestrator/providers/registry.mjs'), {
-  namedExports: { initProviders: async (providers) => { record('initProviders'); await fixtures.initProviders(providers); } },
+  namedExports: { initProviders: async (providers) => { record('initProviders', providers); await fixtures.initProviders(providers); } },
 });
-mock.module(url('../../agent/orchestrator/config.mjs'), { namedExports: { loadConfig: () => ({ providers: {} }) } });
+mock.module(url('../../agent/orchestrator/config.mjs'), { namedExports: { loadConfig: (...args) => { record('agent.loadConfig', ...args); return { providers: {} }; } } });
 mock.module(url('./runtime-paths.mjs'), {
   namedExports: {
-    refreshActiveInstance: () => record('advert'),
-    releaseOwnedChannelLocks: () => record('locks.release'),
-    clearActiveInstance: () => record('advert.clear'),
+    refreshActiveInstance: (...args) => record('advert', ...args),
+    releaseOwnedChannelLocks: (...args) => record('locks.release', ...args),
+    clearActiveInstance: (...args) => record('advert.clear', ...args),
   },
 });
 
@@ -72,16 +82,16 @@ function harness() {
     getChannelBridgeActive: () => state.active,
     instanceId: 'inst-1',
     TERMINAL_LEAD_PID: 42,
-    sendNotifyToParent: (method, params) => record('notify', method, params?.state),
+    sendNotifyToParent: (...args) => record('notify', ...args),
     scheduler: {
-      start: () => record('scheduler.start'),
-      stop: () => record('scheduler.stop'),
-      reloadConfig: (schedules, opts) => record('scheduler.reload', opts?.restart),
+      start: (...args) => record('scheduler.start', ...args),
+      stop: (...args) => record('scheduler.stop', ...args),
+      reloadConfig: (...args) => record('scheduler.reload', ...args),
     },
-    logOwnership: (line) => record('ownership', line),
-    currentOwnerState: () => ({}),
-    wireWebhookHandlers: () => record('wire.webhook'),
-    wireEventQueueHandlers: () => record('wire.events'),
+    logOwnership: (...args) => record('ownership', ...args),
+    currentOwnerState: (...args) => { record('currentOwnerState', ...args); return {}; },
+    wireWebhookHandlers: (...args) => record('wire.webhook', ...args),
+    wireEventQueueHandlers: (...args) => record('wire.events', ...args),
   });
   return { state, runtime };
 }
@@ -94,79 +104,80 @@ const snap = (state) => ({
 });
 const take = () => { const out = calls.map(norm); calls.length = 0; return out; };
 const gate = () => { let release; const wait = new Promise((resolve) => { release = resolve; }); return { wait, release }; };
+const w = (label, promise) => within(label, promise, 30_000);
 const webhookStarted = () => within('the webhook server start after a reload', new Promise((resolve) => { onWebhookStart = resolve; }), 30_000);
 
 const cases = [];
 try {
   {
     const { state, runtime } = harness();
-    const first = (await runtime.startOwnedRuntime(), take());
+    const first = (await w('first startOwnedRuntime', runtime.startOwnedRuntime()), take());
     const stateAfter = snap(state);
-    const second = (await runtime.startOwnedRuntime(), take());
+    const second = (await w('second startOwnedRuntime', runtime.startOwnedRuntime()), take());
     cases.push({ name: 'start advertises, arms automation once and notifies acquired', steps: ['startOwnedRuntime', 'startOwnedRuntime'], calls: [first, second], state: stateAfter, stderr: [...stderr] });
   }
   {
     const { state, runtime } = harness();
     state.active = false;
-    await runtime.startOwnedRuntime();
+    await w('startOwnedRuntime while inactive', runtime.startOwnedRuntime());
     cases.push({ name: 'start does nothing while the bridge is inactive', steps: ['channelBridgeActive=false', 'startOwnedRuntime'], calls: [take()], state: snap(state), stderr: [...stderr] });
   }
   {
     const { state, runtime } = harness();
-    await runtime.startOwnedRuntime();
-    take();
-    await runtime.stopOwnedRuntime('bridge inactive');
+    await w('startOwnedRuntime', runtime.startOwnedRuntime());
+    const startup = take();
+    await w("stopOwnedRuntime('bridge inactive')", runtime.stopOwnedRuntime('bridge inactive'));
     const first = take();
     const stateAfter = snap(state);
-    await runtime.stopOwnedRuntime('again');
-    cases.push({ name: 'stop tears automation down and is idempotent', steps: ['startOwnedRuntime', "stopOwnedRuntime('bridge inactive')", "stopOwnedRuntime('again')"], calls: [first, take()], state: stateAfter, stderr: [...stderr] });
+    await w("stopOwnedRuntime('again')", runtime.stopOwnedRuntime('again'));
+    cases.push({ name: 'stop tears automation down and is idempotent', steps: ['startOwnedRuntime', "stopOwnedRuntime('bridge inactive')", "stopOwnedRuntime('again')"], calls: [startup, first, take()], state: stateAfter, stderr: [...stderr] });
   }
   {
     const init = gate();
     fixtures.initProviders = () => init.wait;
     const { state, runtime } = harness();
     const start = runtime.startOwnedRuntime();
-    await runtime.stopOwnedRuntime('shutdown');
+    await w("stopOwnedRuntime('shutdown') mid-start", runtime.stopOwnedRuntime('shutdown'));
     const duringStart = take();
     const connected = state.connected;
     init.release();
-    await start;
+    await w('the in-flight start to settle', start);
     fixtures.initProviders = async () => {};
     cases.push({ name: 'a stop landing mid-start makes the in-flight start bail without arming automation', steps: ['startOwnedRuntime (initProviders held)', "stopOwnedRuntime('shutdown')", 'initProviders released, start settles'], calls: [duringStart, take()], connectedAfterStop: connected, state: snap(state), stderr: [...stderr] });
   }
   {
     const { state, runtime } = harness();
-    await runtime.startOwnedRuntime();
+    await w('startOwnedRuntime', runtime.startOwnedRuntime());
     fixtures.loadedConfig = makeConfig();
-    take();
+    const startup = take();
     const started = webhookStarted();
-    await runtime.reloadRuntimeConfig();
+    await w('reloadRuntimeConfig', runtime.reloadRuntimeConfig());
     await started;
-    cases.push({ name: 'reload re-arms the scheduler and hot-reloads automation services', steps: ['startOwnedRuntime', 'reloadRuntimeConfig (loaded config: webhook enabled, no schedules)'], calls: [take()], state: snap(state), stderr: [...stderr] });
+    cases.push({ name: 'reload re-arms the scheduler and hot-reloads automation services', steps: ['startOwnedRuntime', 'reloadRuntimeConfig (loaded config: webhook enabled, no schedules)'], calls: [startup, take()], state: snap(state), stderr: [...stderr] });
     onWebhookStart = null;
   }
   {
     const { state, runtime } = harness();
     fixtures.loadedConfig = makeConfig();
-    await runtime.reloadRuntimeConfig();
+    await w('reloadRuntimeConfig on a stopped runtime', runtime.reloadRuntimeConfig());
     cases.push({ name: 'reload on a stopped runtime tears the webhook and event runtime down', steps: ['reloadRuntimeConfig on a runtime never started'], calls: [take()], state: snap(state), stderr: [...stderr] });
   }
   {
     const { state, runtime } = harness();
-    await runtime.startAutomationRuntime();
+    await w('first startAutomationRuntime', runtime.startAutomationRuntime());
     const first = take();
-    await runtime.startAutomationRuntime();
+    await w('second startAutomationRuntime', runtime.startAutomationRuntime());
     const second = take();
-    await runtime.stopOwnedRuntime('done');
-    take();
+    await w("stopOwnedRuntime('done')", runtime.stopOwnedRuntime('done'));
+    const stopped = take();
     const init = gate();
     fixtures.initProviders = () => init.wait;
     const starting = runtime.startAutomationRuntime();
     const stopping = runtime.stopOwnedRuntime('shutdown');
     init.release();
-    await Promise.all([starting, stopping]);
+    await w('the start and the stop issued in the same tick to settle', Promise.all([starting, stopping]));
     fixtures.initProviders = async () => {};
-    cases.push({ name: 'startAutomationRuntime is idempotent and a stop during its init aborts arming', steps: ['startAutomationRuntime', 'startAutomationRuntime', "stopOwnedRuntime('done')", 'startAutomationRuntime (initProviders held) with stopOwnedRuntime issued in the same tick, then released'], calls: [first, second, take()], state: snap(state), stderr: [...stderr] });
+    cases.push({ name: 'startAutomationRuntime is idempotent and a stop during its init aborts arming', steps: ['startAutomationRuntime', 'startAutomationRuntime', "stopOwnedRuntime('done')", 'startAutomationRuntime (initProviders held) with stopOwnedRuntime issued in the same tick, then released'], calls: [first, second, stopped, take()], state: snap(state), stderr: [...stderr] });
   }
 } finally {
   process.stderr.write = realWrite;
@@ -184,7 +195,7 @@ finish(ctx, {
     },
     replay: 'mixdog-services channels: ch/runtime.rs start_bridge_turn, stop_owned_runtime, reload_runtime/reload_turn and the automation start, driven with a recording scheduler/webhook/pipeline; compares per case the ordered call list (names and arguments, notify method+state, scheduler.reload restart flag, webhook.reload autoStart), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries are the Node-only calls (advert, advert.clear, locks.release, snapshot.*) a replay maps or drops by name',
     exclusions: 'none: every logged call of every step is in the golden',
-    normalised: { 'ownership line pid': 'the process id after "pid=" is replaced by <pid> (differs per run)' },
+    normalised: { 'ownership line pid': 'the process id after "pid=" is replaced by <pid> (differs per run)', 'call arguments': 'a function argument is written {$callable: name}, a class instance {$instance: ClassName}; every other argument whole' },
   },
 });
 process.exit(0);

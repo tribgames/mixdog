@@ -10,7 +10,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { begin, finish, importFrom, plain, within } from './lib/mc-record.mjs';
+import { begin, finish, importFrom, exact, within } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const directory = mkdtempSync(join(tmpdir(), 'mixdog-exact-leg-'));
@@ -44,7 +44,7 @@ try {
     const exactTerms = buildExactTerms(query);
     const { sql, params } = buildHybridQuery(recallPlan(query));
     const { rows: out } = await db.query(sql, params);
-    queries.push({ query, literal, exactTermsIncludeLiteral: exactTerms.includes(literal), exactTerms: plain(exactTerms), sql, params: plain(params), exactIds: out.filter((row) => row.exact_rank != null).map((row) => Number(row.id)).sort((a, b) => a - b), allReturnedIds: out.map((row) => Number(row.id)).sort((a, b) => a - b) });
+    queries.push({ query, literal, exactTermsIncludeLiteral: exactTerms.includes(literal), exactTerms: exact(exactTerms), sql, params: exact(params), exactIds: out.filter((row) => row.exact_rank != null).map((row) => Number(row.id)).sort((a, b) => a - b), allReturnedIds: out.map((row) => Number(row.id)).sort((a, b) => a - b) });
   };
   const koContent = await insert('ko content', '어제 CLAUDE코드 설정을 바꿨다');
   const koElement = await insert('ko element', '무관한 본문', 'Claude코드 정리');

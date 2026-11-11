@@ -10,7 +10,7 @@
 // protocol.md:863). Waits are explicit promises (a drain of microtask turns where the test used setImmediate); no timers.
 //
 //   node benchmarks/rust-core/recorders/record-memory-service-lifecycle.mjs --tree <dir>
-import { begin, capture, finish, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const { createMemoryServiceLifecycle } = await importFrom(ctx.tree, 'src/runtime/memory/lib/memory-service-lifecycle.mjs');
@@ -20,7 +20,7 @@ const drain = async () => { for (let i = 0; i < 50; i += 1) await Promise.resolv
 const errorOf = (error) => (error instanceof AggregateError
   ? { name: error.name, message: error.message, errors: error.errors.map((e) => ({ name: e.name, message: e.message })) }
   : { name: error?.name ?? null, message: String(error?.message ?? error) });
-const settle = (promise) => promise.then((value) => ({ result: plain(value) }), (error) => ({ error: errorOf(error) }));
+const settle = (promise) => promise.then((value) => ({ result: exact(value) }), (error) => ({ error: errorOf(error) }));
 
 function fixture(overrides = {}) {
   const calls = [];

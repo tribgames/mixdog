@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mock } from 'node:test';
-import { begin, capture, finish, freezeClock, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, freezeClock, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const CLOCK_MS = Date.parse('2025-06-01T00:00:00Z');
@@ -31,11 +31,11 @@ function fixture(count = 600) {
   const db = {
     rows,
     async search(_query, options) {
-      log.searches.push({ query: _query, options: plain(options) });
+      log.searches.push({ query: _query, options: exact(options) });
       return this.rows.slice(0, options.limit).map((row) => ({ ...row }));
     },
     async query(sql, args = []) {
-      log.statements.push({ sql, params: plain(args) });
+      log.statements.push({ sql, params: exact(args) });
       if (sql.includes('WITH eligible AS')) {
         const ids = new Set(this.rows.map((row) => row.id));
         return { rows: this.rows.filter((row) => row.duplicate_of == null || !ids.has(row.duplicate_of)).slice(Number(args.at(-1)), Number(args.at(-1)) + Number(args.at(-2))).map((row) => ({ ...row })) };
@@ -74,14 +74,14 @@ const aliasCase = await (async () => {
   const ts = Date.parse('2024-01-15T00:00:00Z');
   Object.assign(f.db.rows[0], { ts, summary: 'LEGACY_ALIAS needle', content: 'LEGACY_ALIAS needle', duplicate_of: 2 });
   Object.assign(f.db.rows[1], { ts: ts + 1, summary: 'CANONICAL_RECORD needle', content: 'CANONICAL_RECORD needle' });
-  f.db.search = async (_query, options) => { f.log.searches.push({ query: _query, options: plain(options) }); return [{ ...f.db.rows[options.rootOnly ? 1 : 0] }]; };
+  f.db.search = async (_query, options) => { f.log.searches.push({ query: _query, options: exact(options) }); return [{ ...f.db.rows[options.rootOnly ? 1 : 0] }]; };
   return { rows: structuredClone(f.db.rows), step: await search(f, window) };
 })();
 const timeCase = await (async () => {
   const f = fixture(2);
   Object.assign(f.db.rows[0], { ts: Date.parse('2024-01-15T00:00:00Z'), summary: 'IN_WINDOW needle', content: 'IN_WINDOW needle', duplicate_of: 2 });
   Object.assign(f.db.rows[1], { ts: Date.parse('2025-01-15T00:00:00Z'), summary: 'OUT_OF_WINDOW needle', content: 'OUT_OF_WINDOW needle' });
-  f.db.search = async (_query, options) => { f.log.searches.push({ query: _query, options: plain(options) }); return [{ ...f.db.rows[options.rootOnly ? 1 : 0] }]; };
+  f.db.search = async (_query, options) => { f.log.searches.push({ query: _query, options: exact(options) }); return [{ ...f.db.rows[options.rootOnly ? 1 : 0] }]; };
   return { rows: structuredClone(f.db.rows), step: await search(f, window) };
 })();
 

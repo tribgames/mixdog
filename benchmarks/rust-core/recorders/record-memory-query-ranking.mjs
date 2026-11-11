@@ -5,14 +5,14 @@
 // no terms).
 //
 //   node benchmarks/rust-core/recorders/record-memory-query-ranking.mjs --tree <dir>
-import { begin, capture, finish, importFrom, plain } from './lib/mc-record.mjs';
+import { begin, capture, finish, importFrom, exact } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const q = await importFrom(ctx.tree, 'src/runtime/memory/lib/query-ranking.mjs');
 const { interleaveRawRows } = await importFrom(ctx.tree, 'src/runtime/memory/lib/recall-format.mjs');
 const { boundRecallRowsToTemporal, mergeHistoricalRecallRows, rankLatestRecallRows, topicTermCoverage, uniqueRowsById } = q;
 
-const call = async (label, input, fn) => ({ label, input: plain(input), ...(await capture(fn)) });
+const call = async (label, input, fn) => ({ label, input: exact(input), ...(await capture(fn)) });
 
 const query = 'latest BrowserPane memory result';
 const latestRows = [
