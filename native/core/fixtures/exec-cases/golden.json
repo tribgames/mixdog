@@ -225,10 +225,10 @@
       "runtime": {
         "platform": "win32",
         "interpreter": "C:\\Program Files\\nodejs\\node.exe",
-        "entry": "D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs",
+        "entry": "C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs",
         "electron": false
       },
-      "dir": "<WORK>\\data\\skill-launchers\\b87fe136f710817d",
+      "dir": "<WORK>\\data\\skill-launchers\\9ea96de2d51a22f4",
       "cases": [
         {
           "base": {
@@ -244,7 +244,7 @@
           "env": {
             "MIXDOG_DATA_DIR": "<WORK>\\data",
             "MIXDOG_SESSION_CWD": "<WORK>\\Project\\mixdog",
-            "PATH": "<WORK>\\data\\skill-launchers\\b87fe136f710817d;C:\\P1;C:\\P2",
+            "PATH": "<WORK>\\data\\skill-launchers\\9ea96de2d51a22f4;C:\\P1;C:\\P2",
             "SystemRoot": "C:\\WINDOWS",
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
@@ -267,7 +267,7 @@
           ],
           "env": {
             "MIXDOG_DATA_DIR": "<WORK>\\data",
-            "PATH": "<WORK>\\data\\skill-launchers\\b87fe136f710817d;A;B",
+            "PATH": "<WORK>\\data\\skill-launchers\\9ea96de2d51a22f4;A;B",
             "SystemRoot": "C:\\WINDOWS",
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
@@ -284,11 +284,11 @@
       "files": [
         {
           "name": "mixdog-skill-node",
-          "content": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nexec 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' \"$@\"\n"
+          "content": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nexec 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' \"$@\"\n"
         },
         {
           "name": "mixdog-skill-node.cmd",
-          "content": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n\"C:\\Program Files\\nodejs\\node.exe\" \"D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n"
+          "content": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n\"C:\\Program Files\\nodejs\\node.exe\" \"C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n"
         }
       ]
     },
@@ -313,7 +313,7 @@
         {
           "spec": "powershell",
           "command": "node -e 'const slash = \"\\\\\"; /*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\nnode -e 'const slash = \"\\\\\"; /*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\nnode -e 'const slash = \"\\\\\"; /*xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
           "file": null,
           "result": "[exit code: 0]\n\n(no output)"
         }
@@ -334,36 +334,36 @@
     },
     "filter-plan": {
       "test": "scripts/shellhardening/script-transport.slow.test.mjs",
-      "tmp": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.23c7f60572175bd6\\exec-rec-678bef1e\\filter-plan-cwe98t",
+      "tmp": "C:\\mixdog-build\\tmp\\w27\\exec-work\\filter-plan-tGLD8o",
       "cases": [
         {
           "command": "$t = Get-Content a.cs -Raw; ([regex]::Matches($t,'(\\w+)\\s*(?:\\(|=)') | % { $_.Groups[1].Value }) -join ','",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$t = Get-Content a.cs -Raw; ([regex]::Matches($t,'(\\w+)\\s*(?:\\(|=)') | % { $_.Groups[1].Value }) -join ','",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$t = Get-Content a.cs -Raw; ([regex]::Matches($t,'(\\w+)\\s*(?:\\(|=)') | % { $_.Groups[1].Value }) -join ','",
           "result": "[exit code: 0]\n\n(no output)"
         },
         {
           "command": "try { git status | Select-String main } catch { $_ }",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\ntry { git status | Select-String main } catch { $_ }",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\ntry { git status | Select-String main } catch { $_ }",
           "result": "[exit code: 0]\n\n(no output)"
         },
         {
           "command": "foreach ($f in $files) { $n = 1; Get-Content $f | Select-String x }",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\nforeach ($f in $files) { $n = 1; Get-Content $f | Select-String x }",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\nforeach ($f in $files) { $n = 1; Get-Content $f | Select-String x }",
           "result": "[exit code: 0]\n\n(no output)"
         },
         {
           "command": "@(Get-ChildItem | Select-Object -First 3).Count",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n@(Get-ChildItem | Select-Object -First 3).Count",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n@(Get-ChildItem | Select-Object -First 3).Count",
           "result": "[exit code: 0]\n\n(no output)"
         },
         {
           "command": "$x = 1; git log --oneline | Select-Object -First 3",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$x = 1; $__mixdogProducerExit1812ab36 = [ref]0; & { $global:LASTEXITCODE = 0; git log --oneline; $__mixdogProducerExit1812ab36.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.23c7f60572175bd6\\exec-rec-678bef1e\\filter-plan-cwe98t\\mixdog-tee-1812ab36.log' | Select-Object -First 3; exit $__mixdogProducerExit1812ab36.Value",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$x = 1; $__mixdogProducerExit267696ce = [ref]0; & { $global:LASTEXITCODE = 0; git log --oneline; $__mixdogProducerExit267696ce.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'C:\\mixdog-build\\tmp\\w27\\exec-work\\filter-plan-tGLD8o\\mixdog-tee-267696ce.log' | Select-Object -First 3; exit $__mixdogProducerExit267696ce.Value",
           "result": "[exit code: 0]\n\n(no output)"
         },
         {
           "command": "node -e \"process.exit(7)\" 2>&1 | Select-String impossible",
-          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$__mixdogProducerExit2d37b9f3 = [ref]0; & { $global:LASTEXITCODE = 0; node \"C:/Users/tempe/.mixdog/data/scratch/s.23c7f60572175bd6/exec-rec-678bef1e/filter-plan-cwe98t/mixdog-inline-18440-a7c13127-1a13-4c3e-8b82-6e051a3a0dd3.cjs\" 2>&1; $__mixdogProducerExit2d37b9f3.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.23c7f60572175bd6\\exec-rec-678bef1e\\filter-plan-cwe98t\\mixdog-tee-2d37b9f3.log' | Select-String impossible; exit $__mixdogProducerExit2d37b9f3.Value",
+          "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$__mixdogProducerExit689e29fd = [ref]0; & { $global:LASTEXITCODE = 0; node \"C:/mixdog-build/tmp/w27/exec-work/filter-plan-tGLD8o/mixdog-inline-6540-29188cb8-c28e-4484-95f1-eaa7d9e06d00.cjs\" 2>&1; $__mixdogProducerExit689e29fd.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'C:\\mixdog-build\\tmp\\w27\\exec-work\\filter-plan-tGLD8o\\mixdog-tee-689e29fd.log' | Select-String impossible; exit $__mixdogProducerExit689e29fd.Value",
           "result": "[exit code: 0]\n\n(no output)"
         }
       ]
@@ -523,8 +523,8 @@
     "display-command": {
       "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/display-command.test.mjs",
       "command": "npm test 2>&1 | Select-String fail",
-      "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$__mixdogProducerExitb01187fd = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExitb01187fd.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.23c7f60572175bd6\\exec-rec-678bef1e\\display-command-2Wx4Eo\\mixdog-tee-b01187fd.log' | Select-String fail; exit $__mixdogProducerExitb01187fd.Value",
-      "tmp": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.23c7f60572175bd6\\exec-rec-678bef1e\\display-command-2Wx4Eo",
+      "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$__mixdogProducerExit322435f4 = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExit322435f4.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'C:\\mixdog-build\\tmp\\w27\\exec-work\\display-command-Vrku5N\\mixdog-tee-322435f4.log' | Select-String fail; exit $__mixdogProducerExit322435f4.Value",
+      "tmp": "C:\\mixdog-build\\tmp\\w27\\exec-work\\display-command-Vrku5N",
       "displayCommand": "npm test 2>&1 | Select-String fail"
     },
     "wmic-note": {
@@ -762,13 +762,13 @@
       "test": "scripts/shellhardening/guardians-background.slow.test.mjs",
       "command": "Write-Output started; Start-Sleep -Seconds 20",
       "holdMs": 5000,
-      "result": "background task\ntask_id: <ID>\nlabel: Write-Output started; Start-Sleep -Seconds 20\nstatus: running\nstarted: 2026-11-11T00:28:22.502Z\nlogs: C:/Users/tempe/.mixdog/data/scratch/s.23c7f60572175bd6/exec-rec-678bef1e/auto-background-live-WHkLKz/mixdog-shell-fixture-6jMO6Y/MIXDOG_DATA_DIR/shell-output/shell_bdb0440c.{stdout,stderr}\nmoved to background after the 5s hold; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"started\" — still running, not an error\n\n[stdout]\nstarted\n"
+      "result": "background task\ntask_id: <ID>\nlabel: Write-Output started; Start-Sleep -Seconds 20\nstatus: running\nstarted: 2026-11-11T23:26:29.387Z\nlogs: C:/mixdog-build/tmp/w27/exec-work/auto-background-live-zsd6dt/mixdog-shell-fixture-l8jfqe/MIXDOG_DATA_DIR/shell-output/shell_d9ed1a75.{stdout,stderr}\nmoved to background after the 5s hold; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"started\" — still running, not an error\n\n[stdout]\nstarted\n"
     },
     "descendants-live": {
       "test": "scripts/shellhardening/guardians-background.slow.test.mjs",
       "detaching": "Start-Process -NoNewWindow ping -ArgumentList \"-n\",\"30\",\"127.0.0.1\"",
       "finishing": "Start-Sleep -Milliseconds 200",
-      "left": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <ID>\nlabel: Start-Process -NoNewWindow ping -ArgumentList \"-n\",\"30\",\"127.0.0.1\"\nstatus: running\nstarted: 2026-11-11T00:28:31.101Z\n\n\nPinging 127.0.0.1 with 32 bytes of data:\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\n",
+      "left": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <ID>\nlabel: Start-Process -NoNewWindow ping -ArgumentList \"-n\",\"30\",\"127.0.0.1\"\nstatus: running\nstarted: 2026-11-11T23:26:35.850Z\n\n\nPinging 127.0.0.1 with 32 bytes of data:\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\nReply from 127.0.0.1: bytes=32 time<1ms TTL=128\n",
       "cancelled": "status: completed\ntask_id: <ID>\ncancelled: shell/shell",
       "plain": "[exit code: 0]\n\n(no output)"
     },

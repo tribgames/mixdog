@@ -79,9 +79,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 287986,
+      "bytes": 287697,
       "path": "golden.json",
-      "sha256": "7f7cfe97c97a187905e5cf4c63879c2fb5fce09eeaf75c35e486454ebb5fac69"
+      "sha256": "02cbcb6e661400f002e5b4bbdb221f3328853a49f27e3bc0e020175c49f3ae5a"
     }
   ],
   "inputs": [
@@ -91,7 +91,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
-      "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+      "sha256": "c21b47dd1896f6245063ad1765a84b4f5faf4c8f5d472881b3c1d094ae1051a6"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -209,5 +209,5 @@
     }
   ],
   "set": "exec-cases",
-  "totalBytes": 287986
+  "totalBytes": 287697
 }
