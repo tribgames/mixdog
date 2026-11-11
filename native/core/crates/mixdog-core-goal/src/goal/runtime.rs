@@ -691,6 +691,19 @@ impl GoalRuntime {
         Ok(goal)
     }
 
+    /// `readStoredGoalSnapshot({ dataDir, sessionId })`: the Goal a reader without the runtime sees in its file, the
+    /// open segment counted only up to `liveAt`; an archived one reads as none.
+    pub async fn read_stored_snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
+        let (root, at, ttl, id) = (self.inner.root.clone(), self.inner.now(), normalized_completed_goal_ttl_ms(self.inner.completed_retention_ms), session_id.to_owned());
+        self.inner
+            .env
+            .lane
+            .submit(&CancellationToken::new(), move |lane| super::storage::stored_goal_snapshot_under(lane, &root, &id, at, ttl))
+            .map_err(|_| GoalError::new("goal storage is busy"))?
+            .await
+            .map_err(|_| GoalError::new("goal storage stopped"))
+    }
+
     /// `storedSnapshot`: the Goal including an archived one.
     pub async fn stored_snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(session_id)?;

@@ -12,4 +12,7 @@ pub trait SessionNotices: Send + Sync {
     fn turn_failed(&self, provider: &str, kind: Option<&str>);
     /// A save of a session's records failed (`_recordSaveFailure`), whichever session it was.
     fn save_failed(&self);
+    /// No tool-result sidecar is pruned while `session` cannot be read (whether it names them is not known): the disk
+    /// keeps growing until it can (`offloadCopies`).
+    fn offload_prune_blocked(&self, session: &str);
 }

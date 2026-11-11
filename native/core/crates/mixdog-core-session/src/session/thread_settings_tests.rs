@@ -336,7 +336,7 @@ async fn favorites_and_archives_replay_the_desktops_metadata() {
             if step["value"] == true {
                 world.app.drain_text_until(|texts| texts.iter().any(|text| text.contains(&frame))).await;
             } else {
-                tokio::time::sleep(Duration::from_millis(20)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(20)).await;
                 assert!(!world.published().iter().any(|text| text.contains(method)), "step {at}: nothing changed");
             }
         }

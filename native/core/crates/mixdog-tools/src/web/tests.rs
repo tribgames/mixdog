@@ -493,7 +493,7 @@ mod tools {
                     self.cancelled.fetch_add(1, Ordering::SeqCst);
                     Err("cancelled".into())
                 }
-                () = tokio::time::sleep(Duration::from_millis(delay)) => Ok(NativeSearchResult {
+                () = mixdog_rt::time::sleep(Duration::from_millis(delay)) => Ok(NativeSearchResult {
                     provider: "fake".into(),
                     answer: format!("answer for {}", request.query),
                     citations: vec![
@@ -537,10 +537,10 @@ mod tools {
             let token = token.clone();
             async move { tool.call(&ctx("web_search", token), json!({"query": "slow"})).await }
         });
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         token.cancel();
         assert!(running.await.unwrap().is_err());
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(fake.cancelled.load(Ordering::SeqCst), 1);
     }
 

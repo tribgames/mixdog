@@ -70,15 +70,22 @@
   "recorder": "benchmarks/rust-core/recorders/record-desktop-visibility-restart-cases.mjs",
   "recorderSha256": "8144cc3dd2d4fd091dba3dbcfa8ae67e41416c8935eb3a7879c9eb71ca738c1f",
   "replay": {
-    "compare": "mixdog-app-server connection.rs (desktop registration): replay each trace step: the same init/invoke/release/unsubscribe calls and published rows; compare registrations after each step and the frames (kind, sessionId, wire) whole",
-    "entry": "Drive these public items on o1: thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125).",
+    "compare": "per recorded step: the conversations the desktops follow now (Node: the newest registration of the shared host) and each conversation row delivered since the step's frames were cleared, as [conversation, text] in order (Node: one session-state frame per published row; K1: the row's item/completed on the connections that follow the thread); case 1 the acceptance of the restarted desktop's version 1, case 2 the refusal of the late registration. The agent pool frame of case 1 reaches every connection over the app feed and is not a conversation row",
+    "entry": "In K1 each desktop process is its own connection: its service route (apps/desktop/src/main/protocol/service-route.ts createServiceLane, method 'setVisibleSessions') turns setVisibleSessions(ids, version) into thread/resume and thread/unsubscribe on that connection, fencing a version older than or equal to the newest the process sent (implemented on this branch: Node's desktop-service-state-sync.ts setDeliveryFilter fence); a process that ends closes its connection, which detaches its subscriptions (mixdog-core-session SessionHandle::detach; mixdog-app-server server.rs connection drop). Replay: benchmarks/rust-core/recorders/replay-desktop-visibility-restart.mjs, run by mixdog-core-session src/session/client_chain_replay_tests.rs, which answers it from a SessionDirectory with the product's RecordTranscript (one chain: the route's calls reach the core, the rows the core delivers are read back from each connection).",
+    "cases": {
+      "a restarted desktop can register version one on the retained service and receive live conversation rows": "replayed: the ended process's connection closes; the new process's route starts its own counter, so version 1 applies and its conversation's rows reach it",
+      "late registrations from a previous desktop cannot replace the current conversation filter": "replayed: the ended process has no connection, so its late call is refused and changes no conversation another desktop follows",
+      "out-of-order and equal registrations stay fenced within one desktop connection": "replayed: service-route.ts ignores a version older than or equal to the newest it sent (the fence this branch adds)",
+      "unversioned legacy registrations remain supported": "replayed: an unversioned call applies and leaves the counter",
+      "concurrent desktops keep independent counters and the survivor stays live after the newer one disconnects": "replayed: one route and connection per desktop process",
+      "unsubscribing one desktop retains shared conversations until their last observer leaves": "replayed: a thread's rows reach every connection that still follows it, none once the last has closed"
+    },
     "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "the desktop service registry (init / versioned setVisibleSessions / releaseClient / unsubscribe and its frames): no Rust counterpart found"
-    ],
+    "missingOnO1": [],
     "normalised": {},
     "protocolMethods": [
-      "thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125)"
+      "thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125)",
+      "thread/unsubscribe"
     ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"

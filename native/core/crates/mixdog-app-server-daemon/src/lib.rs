@@ -27,6 +27,8 @@ pub mod connection_close;
 pub mod fencing_ownership;
 pub mod code_graph_trust;
 pub mod compose_flip;
+#[cfg(feature = "replay-controls")]
+mod replay_stores_settled;
 pub mod feature_probes;
 pub mod held_home_draft;
 pub mod host_runtime_draft;

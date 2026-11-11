@@ -68,7 +68,8 @@ impl AccessSettings {
 
     fn load(&self) -> Stored {
         let Ok(bytes) = std::fs::read(self.dir.join(SETTINGS_FILE)) else { return Stored::default() };
-        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return Stored::default() };
+        // Node cuts the name and the aliases by UTF-16 units, so its file can hold half an emoji (U+FFFD here).
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&mixdog_js::json_well_formed(&bytes)) else { return Stored::default() };
         Stored {
             enabled: value.get("enabled").and_then(serde_json::Value::as_bool),
             name: value.get("name").and_then(serde_json::Value::as_str).map(str::to_owned),
@@ -167,5 +168,36 @@ impl AccessSettings {
         }
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
         publish_file_with(&path, format!("{{\"activatedAt\":{at}}}").as_bytes(), Access::OwnerOnly)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    /// `native/core/fixtures/lone-surrogate-files`: Node's settings file with a name cut at 64 units and an alias cut at
+    /// 80, each inside an emoji (record-lone-surrogate-files.mjs).
+    fn recorded(name: &str) -> (Value, PathBuf) {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap().clone();
+        (case, set.join(name))
+    }
+
+    #[test]
+    fn a_settings_file_node_cut_inside_an_emoji_keeps_every_field_and_survives_the_next_write() {
+        let (case, files) = recorded("remote-access-settings");
+        let dir = tempfile::tempdir().unwrap();
+        let file = case["file"].as_str().unwrap();
+        std::fs::copy(files.join("before").join(file), dir.path().join(file)).unwrap();
+        let settings = AccessSettings::new(dir.path(), Arc::new(|| "HOST".to_owned()));
+        assert_eq!(serde_json::to_value(settings.read()).unwrap(), case["nodeRead"]["settings"]);
+        assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), case["nodeRead"]["deviceAliases"]);
+        let op = &case["op"]["setDeviceAlias"];
+        settings.set_device_alias(op[0].as_str().unwrap(), op[1].as_str().unwrap()).unwrap();
+        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(file)).unwrap()).unwrap();
+        // As text: key order counts too.
+        assert_eq!(written.to_string(), case["after"][file].to_string());
     }
 }

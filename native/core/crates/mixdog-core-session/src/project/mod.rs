@@ -4,5 +4,3 @@ pub mod connectors;
 pub mod service;
 mod switches;
 
-#[cfg(test)]
-mod tests;

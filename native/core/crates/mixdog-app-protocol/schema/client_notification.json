@@ -652,13 +652,13 @@
         {
           "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
           "properties": {
-            "account_id": {
+            "accountId": {
               "type": "string"
             },
             "provider": {
               "type": "string"
             },
-            "session_account_id": {
+            "sessionAccountId": {
               "type": [
                 "string",
                 "null"
@@ -672,7 +672,7 @@
             }
           },
           "required": [
-            "account_id",
+            "accountId",
             "provider",
             "type"
           ],
@@ -700,7 +700,7 @@
         {
           "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
           "properties": {
-            "account_id": {
+            "accountId": {
               "type": "string"
             },
             "at": {
@@ -718,7 +718,7 @@
             }
           },
           "required": [
-            "account_id",
+            "accountId",
             "at",
             "provider",
             "type"
@@ -760,13 +760,13 @@
         {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
-            "pricing_model": {
+            "pricingModel": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "request_ms": {
+            "requestMs": {
               "format": "uint64",
               "minimum": 0.0,
               "type": [

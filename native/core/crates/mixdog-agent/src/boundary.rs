@@ -346,6 +346,8 @@ impl Run {
                 trigger: trigger_kind.clone(),
                 require_reduction,
                 reference_latest_attachments: false,
+                active_turn: true,
+                latest_user_prefix: "",
             };
             should = compactor.reduces(&request).await;
         }
@@ -396,6 +398,8 @@ impl Run {
             trigger: trigger_kind.clone(),
             require_reduction,
             reference_latest_attachments: reactive,
+            active_turn: true,
+            latest_user_prefix: "",
         };
         let outcome = or_cancelled(&self.cancel, compactor.compact(request))
             .await
@@ -404,7 +408,9 @@ impl Run {
             Ok(output) => output,
             Err(CompactError::Aborted) => return Err(AgentError::Aborted),
             Err(error) => {
-                let (CompactError::Overflow(message) | CompactError::Failed(message)) = &error else { return Err(AgentError::Aborted) };
+                let (CompactError::Overflow(message) | CompactError::Failed(message) | CompactError::RouteFailed(message, _)) = &error else {
+                    return Err(AgentError::Aborted);
+                };
                 self.emit(pass(PassStage::Failed { message: message.clone(), duration_ms: duration(&*self.env.clock) }));
                 self.emit(RunEvent::Compact(event(CompactStatus::Failed, before, pressure, duration(&*self.env.clock), 0, None)));
                 // Agent mode retries a failed compaction quietly once per
@@ -412,7 +418,7 @@ impl Run {
                 // the next send's pass compacts again.
                 if self.config.agent_mode
                     && !self.quiet_compact_retry_used
-                    && matches!(error, CompactError::Failed(_))
+                    && matches!(error, CompactError::Failed(_) | CompactError::RouteFailed(..))
                 {
                     self.quiet_compact_retry_used = true;
                     return Ok(false);
@@ -491,6 +497,13 @@ impl Run {
                 stage: "pre_send",
                 provider,
                 model: self.model.clone(),
+                cause,
+            })),
+            // `agentCompactFailedError`: the route that failed, not necessarily the conversation's.
+            CompactError::RouteFailed(cause, route) => AgentError::CompactFailed(Box::new(CompactFailure {
+                stage: "pre_send",
+                provider: route.provider,
+                model: route.model,
                 cause,
             })),
         }

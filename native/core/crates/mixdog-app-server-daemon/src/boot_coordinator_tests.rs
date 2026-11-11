@@ -214,7 +214,7 @@ impl Wire {
 
 async fn pause() {
     tokio::task::yield_now().await;
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(1)).await;
 }
 
 /// Lets the spawned request tasks and the lane run to their end.

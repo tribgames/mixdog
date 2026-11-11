@@ -388,6 +388,25 @@ impl PortSink {
             }
             transcript.entry("completion").or_insert(completion);
         }
+        // Node's key order: the tool-call message opens with `role, createdAt` (`buildToolCallAssistantMessage`), the
+        // terminal reply puts its `meta` right after `content` (`appendAssistantTurnMessage`).
+        let lead: &[&str] = if !message.tool_calls().is_empty() {
+            &["role", "createdAt"]
+        } else if terminal.is_some() {
+            &["role", "content", "meta"]
+        } else {
+            &[]
+        };
+        if !lead.is_empty() {
+            let mut ordered = serde_json::Map::new();
+            for key in lead {
+                if let Some(value) = object.shift_remove(*key) {
+                    ordered.insert((*key).into(), value);
+                }
+            }
+            ordered.append(object);
+            *object = ordered;
+        }
     }
 
     /// The input row and the context before it: known ids, and the turn's first live message.
@@ -563,6 +582,8 @@ struct PortObserver {
     /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
     /// abort's own step, so a call that settles after the abort is closed as cancelled).
     cancel: tokio_util::sync::CancellationToken,
+    /// The thread's model context, whose sensitive marks a tool batch's execution calls set.
+    context: mixdog_core_session::session::run::ModelContext,
 }
 
 impl PortObserver {
@@ -714,6 +735,11 @@ impl RunObserver for PortObserver {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
             }
+            // On the loop's own task, before the assistant turn carrying the calls is committed (its encode reads the marks).
+            RunEvent::ExecutionCalls(calls) => {
+                let calls: Vec<Value> = calls.iter().map(|call| json!({ "id": call.id, "name": call.name, "arguments": call.arguments })).collect();
+                self.context.remember_sensitive(&calls);
+            }
             RunEvent::ToolCalls { calls, .. } => {
                 {
                     let mut observed = lock(&self.observed);
@@ -749,6 +775,29 @@ impl RunObserver for PortObserver {
 
     fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
         Retracted::Refused
+    }
+}
+
+/// The run's failure log with each failed call's arguments through the thread's sensitive projection and its result text
+/// with the thread's values replaced: the log is a file (`history/tool-failures.jsonl`), so a failed sensitive fill's
+/// value goes there as its marker, also where the tool's error repeats it. Node summarizes the arguments as they are
+/// (`agent-trace-format.mjs:526`, `summarizeToolArgs`) and takes the error line from the result text as it is, and so
+/// writes the value to disk: fixed on both sides (`redactSensitiveToolCall(sessionId, { arguments: toolArgs })`,
+/// `redactSensitiveText(sessionId, resultText)`, `node-fix-sensitive-side-writes.patch`).
+struct SensitiveFailures {
+    inner: Arc<dyn mixdog_agent::env::ToolFailureLog>,
+    context: mixdog_core_session::session::run::ModelContext,
+}
+
+impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
+    fn failed(&self, mut call: mixdog_agent::env::FailedCall) {
+        call.tool_args = self.context.redact_arguments(&call.tool_args);
+        call.result_text = self.context.redact_text(&call.result_text);
+        self.inner.failed(call);
+    }
+
+    fn stall_abort(&self, ctx: serde_json::Map<String, Value>) {
+        self.inner.stall_abort(ctx);
     }
 }
 
@@ -965,6 +1014,7 @@ async fn drive(
     let Assembled {
         provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
+    let failures = failures.map(|inner| Arc::new(SensitiveFailures { inner, context: context.clone() }) as Arc<dyn mixdog_agent::env::ToolFailureLog>);
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
     // before the first save.
@@ -1141,7 +1191,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), context: context.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1161,7 +1211,7 @@ async fn drive(
         sink: sink.clone(),
         gate,
         guards,
-        compactor,
+        compactor: compactor.map(|inner| Arc::new(super::goal_reminder_compactor::GoalReminderCompactor::new(inner, port.clone())) as Arc<dyn Compactor>),
         route,
         skills,
         hooks,
@@ -1574,7 +1624,7 @@ mod tests {
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         // Woken by each step of the thread's actor; the frame is searched for before waiting.
-        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+        let shown = mixdog_rt::time::timeout(std::time::Duration::from_secs(30), async { loop {
             let stepped = handle.stepped().notified();
             tokio::pin!(stepped);
             stepped.as_mut().enable();
@@ -2148,7 +2198,7 @@ mod tests {
         fn route_config(&self, _: &mixdog_store::schema::record::Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
             Default::default()
         }
-        fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        fn settings_changes(&self, _: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
             None
         }
         fn run_settings(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {
@@ -2268,10 +2318,27 @@ mod tests {
         }
     }
 
-    struct NoHopSessions;
-    impl mixdog_core_run::run_host::hop_host::HopSessions for NoHopSessions {
+    /// Every thread is open for a hop; a hop never runs here (the scripted provider never fails), so the session's writes refuse.
+    struct OpenHopSessions;
+    impl mixdog_core_run::run_host::hop_host::HopSessions for OpenHopSessions {
         fn open(&self, _: &ThreadId) -> Option<Arc<dyn mixdog_core_run::run_host::hop_host::HopSession>> {
+            Some(Arc::new(NoHopWrites))
+        }
+    }
+    struct NoHopWrites;
+    #[async_trait]
+    impl mixdog_core_run::run_host::hop_host::HopSession for NoHopWrites {
+        fn header(&self) -> Option<Arc<mixdog_store::schema::record::Header>> {
             None
+        }
+        async fn write_hop(&self, _: mixdog_core_ports::ports::domain_sessions::Obj, _: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
+        }
+        async fn write_wire_pin(&self, _: Value) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
+        }
+        async fn rebuild_tool_surface(&self, _: &str) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
         }
     }
 
@@ -2397,8 +2464,8 @@ mod tests {
         let data = workspace.path().join("data");
         let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
             mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll"))),
-            tokens.cpu_bulk,
-            mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
+            mixdog_services::effort_judge::JudgeLanes::of(&tokens),
+            mixdog_services::effort_judge::judge::JudgeOptions::default(),
         )
         .unwrap();
         let compaction = super::super::compaction_world::tests::services(workspace.path(), json!({}), Arc::default()).await;
@@ -2478,13 +2545,14 @@ mod tests {
                             errors: Arc::new(|e| e.message.clone()),
                             wiring: Arc::new(NoWiring),
                         },
-                        Arc::new(NoHopSessions),
+                        Arc::new(OpenHopSessions),
                     )
                 }
             }),
         };
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
-        path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
+        // No provider is registered ahead: as after a restart, the turn's first request readies the thread's provider.
+        assert!(path.registry.get("scripted").await.is_none());
         let directory = path.directory.clone();
         // The settings host the composition binds: here one whose live settings are one key, `responseLanguage`, that a
         // turn start writes into the header when it moved (`settings`, empty: nothing moved).
@@ -2700,7 +2768,7 @@ mod tests {
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), op)).await.expect("turn/start");
         let Reply::Value(started) = started else { panic!("turn/start answers a value") };
         assert_eq!(started["kind"], "started", "{op}");
-        let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+        let sent = mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv())
             .await
             .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request turn {op} hands the provider"))
             .expect("the provider is alive");
@@ -2733,7 +2801,7 @@ mod tests {
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
         settled_turns(&world, &id, &handle, 1, covered_before).await;
         let before = stored_state(&world, &id, &handle);
         let first = snapshot_call(&tools_status(&world), &id, "go").await;
@@ -2767,6 +2835,9 @@ mod tests {
     #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
     mod tests_manifest;
 
+    #[path = "../../offload_prune_turn_tests.rs"]
+    mod offload_prune_turn_tests;
+
     /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
     /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
     /// conversation, otherwise the stored transcript as it is (its iteration 1), and it writes, lists and probes nothing.
@@ -2787,7 +2858,7 @@ mod tests {
         let covered_before = talked_handle.header_snapshot().get("turnCoverage").cloned();
         let started = talked_handle.request(request("turn/start", json!({ "threadId": talked, "opId": "op-1", "input": { "prompt": "hi" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
         settled_turns(&world, &talked, &talked_handle, 1, covered_before).await;
         let (directory, parts) = world.next.bound().expect("bound");
         let directory = directory.upgrade().expect("directory");
