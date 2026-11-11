@@ -93,8 +93,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-xai-grok.mjs",
-  "recorderSha256": "24aad9b2f0f1c35ad50f84df0ba23c0bcb8437acd7c12fea13791d48e4c68fa0",
-  "replay": "WIRE: mixdog_ai::providers::grok::adapter() (grok/mod.rs:224) with codec() (grok/mod.rs:212) and GrokRewriter (grok/mod.rs:153, which carries the tool flattening: the private grok/tool_schema.rs flatten_tools is reachable only through it), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint.",
+  "recorderSha256": "482fb5674bef2c337df446b82112f991de34429b210101a1d06d7ab5013f372c",
+  "replay": "WIRE: mixdog_ai::providers::grok::adapter() (grok/mod.rs:220) with codec() (grok/mod.rs:208) and GrokRewriter (grok/mod.rs:153, which carries the tool flattening: the private grok/tool_schema.rs flatten_tools is reachable only through it), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) against a loopback endpoint.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
