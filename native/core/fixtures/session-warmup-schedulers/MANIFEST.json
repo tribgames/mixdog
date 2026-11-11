@@ -2,6 +2,7 @@
   "command": "node benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs --tree <tree>",
   "entry": "Ran src/session-runtime/warmup-schedulers.mjs createWarmupSchedulers (with warmup/timer-arm.mjs, provider-warmups.mjs, catalog-warmup.mjs, statusline-usage-warmup.mjs) with the test file's scripted dependencies on node:test's mock clock (setTimeout) that the recorder advances only by recorded tick steps. Did not run the real provider registry, keychain, model catalog or statusline usage fetch.",
   "exclusions": [
+    "a yield step is one macrotask turn (the point where the previous step's promise chain has drained, as the test's await setImmediate()), awaited with a 10 s real-timer deadline; the test's own waits are the same single turns",
     "event meta ms (a measured elapsed time of the provider init, e.g. providers:init:ready) -> <elapsed ms>",
     "the closing-while-keychain-pending cases (85, 97) and the idle-loop cases are recorded as steps; no value is normalised",
     "the dependency call `warmProviderModelCache` is recorded as `warms` (its options), `warmCatalogsInBackground` as `catalogRuns`; bootProfile events as `events`"
@@ -20,12 +21,20 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
+      "sha256": "f8ccecfeb8305dbe89a9c172bb1b5df1cf16e1d982e7a37b3791b107856bccd3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -46,7 +55,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs",
-  "recorderSha256": "9ee244fd34555b049d71f8e6bd39b6ab6af1b2ebdddf89c133367381c62e2ce5",
+  "recorderSha256": "1178917e570fd784296c81f16e49a1a8767e5ba623b11c3edfe6335ef9669c34",
   "replay": "mixdog-core-domains ai_admin model_warmup.rs / statusline_warmup.rs (model_warmup_tests.rs, statusline_warmup_tests.rs): replay each case's steps on a virtual clock with the same scripted readiness gates and compare, after every step, calls, events, warms, catalog runs, timer slots and timers armed (delay) in order.",
   "set": "session-warmup-schedulers",
   "testFile": "src/session-runtime/warmup-schedulers.test.mjs",

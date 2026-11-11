@@ -13,6 +13,8 @@
 //   node benchmarks/rust-core/recorders/record-session-warmup-schedulers.mjs --tree <dir>
 import { mock } from 'node:test';
 import { setImmediate as turn } from 'node:timers/promises';
+import { exact } from './lib/exact.mjs';
+import { DEADLINE_MS, realClearTimeout, realSetTimeout } from './lib/session-wire-harness.mjs';
 import { runSessionRecorder } from './lib/session-rec.mjs';
 
 await runSessionRecorder(import.meta.url, {
@@ -21,6 +23,7 @@ await runSessionRecorder(import.meta.url, {
   entry: 'Ran src/session-runtime/warmup-schedulers.mjs createWarmupSchedulers (with warmup/timer-arm.mjs, provider-warmups.mjs, catalog-warmup.mjs, statusline-usage-warmup.mjs) with the test file\'s scripted dependencies on node:test\'s mock clock (setTimeout) that the recorder advances only by recorded tick steps. Did not run the real provider registry, keychain, model catalog or statusline usage fetch.',
   replay: 'mixdog-core-domains ai_admin model_warmup.rs / statusline_warmup.rs (model_warmup_tests.rs, statusline_warmup_tests.rs): replay each case\'s steps on a virtual clock with the same scripted readiness gates and compare, after every step, calls, events, warms, catalog runs, timer slots and timers armed (delay) in order.',
   exclusions: [
+    'a yield step is one macrotask turn (the point where the previous step\'s promise chain has drained, as the test\'s await setImmediate()), awaited with a 10 s real-timer deadline; the test\'s own waits are the same single turns',
     'event meta ms (a measured elapsed time of the provider init, e.g. providers:init:ready) -> <elapsed ms>',
     'the closing-while-keychain-pending cases (85, 97) and the idle-loop cases are recorded as steps; no value is normalised',
     'the dependency call `warmProviderModelCache` is recorded as `warms` (its options), `warmCatalogsInBackground` as `catalogRuns`; bootProfile events as `events`',
@@ -29,12 +32,18 @@ await runSessionRecorder(import.meta.url, {
   const { createWarmupSchedulers } = await imp('src/session-runtime/warmup-schedulers.mjs');
   const HOURS6 = 6 * 60 * 60 * 1000;
 
+  // The one wait of this recorder: the macrotask boundary at which the previous step's microtask chain has drained (what the test's `await setImmediate()` is). It has a real-timer deadline (the mock clock does not run it).
+  const withDeadline = (promise, label) => new Promise((resolve, reject) => {
+    const timer = realSetTimeout(() => reject(new Error(`timed out waiting for: ${label}`)), DEADLINE_MS);
+    promise.then((value) => { realClearTimeout(timer); resolve(value); }, (error) => { realClearTimeout(timer); reject(error); });
+  });
+
   async function runCase(spec) {
     mock.timers.reset();
     mock.timers.enable({ apis: ['setTimeout'] });
     const mockSetTimeout = globalThis.setTimeout;
     let armedNow = [];
-    globalThis.setTimeout = function (fn, delay, ...rest) { armedNow.push(delay ?? 1); return mockSetTimeout.call(this, fn, delay, ...rest); };
+    globalThis.setTimeout = function (fn, delay, ...rest) { armedNow.push(exact(delay)); return mockSetTimeout.call(this, fn, delay, ...rest); };
     const gates = { keychain: Promise.withResolvers(), provider: Promise.withResolvers() };
     const world = { closed: false, route: { provider: 'openai-oauth', model: 'first' }, active: spec.active ?? 0, catalogPending: spec.catalogPending ?? false, outcome: spec.catalogOutcome ?? undefined };
     const calls = [];
@@ -78,9 +87,9 @@ await runSessionRecorder(import.meta.url, {
     const snapshot = (step) => {
       const out = {
         step,
-        calls: structuredClone(calls),
-        events: events.map((e) => (Array.isArray(e) && e[1] && 'ms' in e[1] ? [e[0], { ...e[1], ms: '<elapsed ms>' }] : structuredClone(e))),
-        warms: structuredClone(warms),
+        calls: exact(calls),
+        events: events.map((e) => (Array.isArray(e) && e[1] && 'ms' in e[1] ? [e[0], exact({ ...e[1], ms: '<elapsed ms>' })] : exact(e))),
+        warms: exact(warms),
         catalogRuns: catalogRuns.slice(),
         timers: Object.fromEntries(Object.entries(timers).map(([k, v]) => [k, v ? 'armed' : v === null ? null : 'unset'])),
         timersArmedThisStep: armedNow,
@@ -94,7 +103,7 @@ await runSessionRecorder(import.meta.url, {
         switch (step.op) {
           case 'call': schedulers[step.method](...(step.args ?? [])); break;
           case 'tick': mock.timers.tick(step.ms); break;
-          case 'yield': await turn(); break;
+          case 'yield': await withDeadline(turn(), `the event-loop turn after step ${rows.length}`); break;
           case 'closeRuntime': world.closed = true; break;
           case 'resolveGate': gates[step.gate].resolve(); break;
           case 'rejectGate': gates[step.gate].reject(new Error(step.message)); break;
