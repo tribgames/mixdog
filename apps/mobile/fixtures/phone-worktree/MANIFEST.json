@@ -1,5 +1,5 @@
 {
-  "cases": 278,
+  "cases": 274,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached",
@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 497500,
+      "bytes": 501640,
       "path": "golden.json",
-      "sha256": "4dab91ac2249ca363087b6423d6ceb04167c70c5072deef9f267cb9af9ae384c"
+      "sha256": "5783ab1c16582e8fcaa49a0af96c602c4d9f676dedb551b3804f0576df0f6ae4"
     }
   ],
   "inputs": [
@@ -27,20 +27,23 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/status-clock-hooks.mjs",
-      "sha256": "a15106679d4b3c6ed8d8922ce89db2d2a352d2cf191816a6e17c30444c6abeee"
+      "sha256": "41c83cefc78f08fa5598c8549fc599b3007aaf270a1bb35082d68667d700060a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/status-clock-preload.mjs",
-      "sha256": "d98cf87c45ea113ec9cc29d55ffa2e9d7d9685a44e590e9413f7e82f7ad282a2"
+      "sha256": "0c4815cf93d97f5b207dc305933162b754d76181682f98612beb3b24ae91122e"
     }
   ],
   "nodeVersion": "v22.20.0",
   "normalized": {
     "control": "the host's control session's id (the snapshot a call naming no session carries) is <control> (each product makes its own)",
-    "pid": "clientHostPid is <pid> (the id of the process hosting the session runtime)",
+    "pid": "a clientHostPid that is the id of the process running the session runtimes (Node's daemon, mixdogd) is <runtime pid>, the desktop's own process (this recorder's, which hosts SessionHost or the replay's window client) <desktop pid>; any other number is kept and compared as it is",
     "session": "the session's own id is <session> in every answer (each product makes its own)",
-    "setupChanged": "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
     "time": "a field named *At or at is <time> (the run time)",
     "tx": "a workspace transition's txId is <tx> (a random id each run makes)"
   },
@@ -65,8 +68,16 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
-  "recorderSha256": "ba3d1917cc3970b5f17ed2a92a8e69d1eacaf94fa32ccde76c21b19ec38505a4",
+  "recorderSha256": "af87c0b09fb8d030a75c8aeb14ffdd4a45acbc5ede36d846bd999664e09aef49",
   "set": "phone-worktree",
+  "settledSetup": {
+    "core": "announces the write it applies before it answers: the same count, only faster (rule U-SV1)",
+    "fields": [
+      "setupChanged"
+    ],
+    "node": "a settings write reaches setupChanged after the call's answer: the runtime's config save is debounced (config-writers.mjs createDebouncedWriter), the daemon's config watch sees the file (config.mjs watchConfigDir) and runs its listeners after a 100 ms debounce (config.mjs notifyConfigChanged), the change effects announce settings_changed (config-change-effects.mjs), the router counts it (notification-router.mjs:33-36) and the store publishes on its 16 ms frame (frame-batched-store.mjs) and the projection's publish timer (projection/frames.mjs schedulePublish)",
+    "recording": "the after-call order (status-clock-preload.mjs) lands the saves accepted before it (drainSessionConfigWrites), waits for the watch event that saw the files on disk, moves the clock past the debounce and waits for the store's frame and the projection's publication before its marker; the case's answer holds setupChanged as it then is, the value the answer carried under `unsettled`"
+  },
   "settledStatus": {
     "afterCall": "a field among these the call itself moved (a workspace transition's cwd) Node republishes on the pass after the call: the case's answer holds it as the pass leaves it (the recorder settles and reads once more), the value Node's answer carried is kept under the case's `unsettled`",
     "core": "has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case",
@@ -82,10 +93,10 @@
       "workspace"
     ],
     "node": "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
-    "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)"
+    "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s, the order ending with a marker frame each host stream delivers after the passes' publications), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)"
   },
   "syntheticInput": {
     "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
   },
-  "totalBytes": 497500
+  "totalBytes": 501640
 }

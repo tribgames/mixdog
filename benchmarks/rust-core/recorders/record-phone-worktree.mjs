@@ -26,6 +26,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { startRelay } from './lib/phone-relay-core.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
+import { RecorderError } from './lib/recorder-error.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-worktree');
@@ -495,8 +496,8 @@ function filled(value, ctx) {
 
 /** The answer as the recording keeps it, whole (a carried session snapshot included): only what cannot be equal between two runs is
  *  normalised, each listed in the manifest's `normalized`: the session's own id as `<session>`, the host's control session's id as
- *  `<control>`, a time of the run as `<time>`, the hosting process's id as `<pid>`, a transition's random id as `<tx>`; the snapshot's
- *  `setupChanged` is left out of a call's answer and compared once settled (`settledSetup`). */
+ *  `<control>`, a time of the run as `<time>`, a transition's random id as `<tx>`. A `clientHostPid` is compared as the process it
+ *  names (`ctx.pids`: the process running the session runtimes, the desktop's process); any other number stays as it is and differs. */
 function kept(frame, ctx) {
   // A call naming no session carries the host's control session's snapshot (Node: invokeControlResult; the core: the lane's
   // control thread); each product makes that id itself.
@@ -506,15 +507,11 @@ function kept(frame, ctx) {
     [ctx.session, '<session>'],
     [ctx.control, '<control>'],
   ].filter(([id]) => id);
-  if (frame?.ok && frame.value?.snapshot && typeof frame.value.snapshot === 'object') {
-    frame = clone(frame);
-    delete frame.value.snapshot.setupChanged;
-  }
   const walk = (value, key) => {
     if (key === 'txId' && typeof value === 'string') return '<tx>';
     if (typeof value === 'string') return ids.reduce((text, [id, name]) => (text.includes(id) ? text.replaceAll(id, name) : text), value);
     if (/(^at|At)$/.test(key ?? '') && (typeof value === 'number' || typeof value === 'string')) return '<time>';
-    if (key === 'clientHostPid' && typeof value === 'number') return '<pid>';
+    if (key === 'clientHostPid' && typeof value === 'number' && ctx.pids?.[value]) return ctx.pids[value];
     if (Array.isArray(value)) return value.map((entry) => walk(entry));
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, walk(entry, name)]));
     return value;
@@ -522,25 +519,6 @@ function kept(frame, ctx) {
   return walk(clone(frame));
 }
 
-/** The snapshots' `setupChanged` once the settings-change notices have landed: Node hands a `settings_changed` notice to the
- *  session asynchronously (notification-router.mjs:33-36), so which answer first carries it is a race of the run itself; after a
- *  group's last call the control session's (and the project session's) snapshot is read until `setupChanged` holds still over
- *  two reads a second apart. `read(sessionId)` answers a snapshot or throws. */
-async function settledSetup(read, ctx) {
-  const once = async () => {
-    const out = { control: (await read(undefined))?.setupChanged ?? null };
-    if (ctx.session) out.session = (await read(ctx.session))?.setupChanged ?? null;
-    return kept({ ok: true, value: { value: out } }, ctx).value.value;
-  };
-  let last = await once();
-  for (let tries = 0; tries < 30; tries += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const next = await once();
-    if (isDeepStrictEqual(next, last)) return next;
-    last = next;
-  }
-  throw new Error(`setupChanged did not settle in 30 s: ${JSON.stringify(last)}`);
-}
 
 /** The last workspace revision an answer showed (the branch menu's, a transition's). */
 function noteRevision(frame, ctx) {
@@ -565,8 +543,11 @@ const { SessionHost } = await importFrom(tree, 'apps/desktop/src/main/session-ho
 const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, 'apps/desktop/src/main/remote-methods.ts');
 
 /** Before every case Node's session status is brought to the state it settles in (STATUS_SETTLE): its daemon's status scheduler runs
- *  on the virtual clock of status-clock-preload.mjs, which the recorder moves; this is the order's folder and its count. */
-const statusClock = { dir: join(WORK, 'status-clock'), sent: 0 };
+ *  on the virtual clock of status-clock-preload.mjs, which the recorder moves; this is the order's folder and its count, the last
+ *  order marker each host attachment's stream delivered, and who waits for the next. */
+const statusClock = { dir: join(WORK, 'status-clock'), sent: 0, markers: [], waiters: new Set() };
+/** The frame type that ends an order on every stream (status-clock-preload.mjs `MARKER`). */
+const STATUS_MARKER = 'rec-status-clock';
 /** The ordered input before each case: three times every session's pass marked (a daemon-wide change) and the clock moved 1 s - past
  *  the scheduler's settle beat and minimum interval (session-status-scheduler.mjs:14-18). Two passes settle the context windows: the
  *  first publishes the route's window with the display fields 0 (`routeState` keeps them only for an unchanged window,
@@ -576,7 +557,9 @@ const statusClock = { dir: join(WORK, 'status-clock'), sent: 0 };
 const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
 
 /** The snapshot fields Node fills on its status pass (manifest `settledStatus`). */
-const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd', 'workspace'];
+/** The snapshot fields Node moves after a call's answer on its config watch (manifest `settledSetup`). */
+const AFTER_CALL_FIELDS = ['setupChanged'];
+const SETTLED_FIELDS = ['contextWindow','rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd', 'workspace'];
 
 async function settleStatus(pid) {
   statusClock.sent += 1;
@@ -584,18 +567,40 @@ async function settleStatus(pid) {
   const done = join(statusClock.dir, `done-${n}.json`);
   const answered = new Promise((resolve, reject) => {
     const watcher = watch(statusClock.dir, () => existsSync(done) && finish());
-    const deadline = setTimeout(() => finish(new Error(`Node's daemon did not run status-clock order ${n} in 30 s`)), 30_000);
+    const deadline = setTimeout(() => finish(new RecorderError(`Node's daemon did not answer status-clock order ${n} in 150 s`)), 150_000);
     const finish = (error) => {
       watcher.close();
       clearTimeout(deadline);
-      if (error) reject(error);
-      else resolve(JSON.parse(readFileSync(done, 'utf8')));
+      if (error) return reject(error);
+      const reply = JSON.parse(readFileSync(done, 'utf8'));
+      if (reply.error) reject(new RecorderError(`status-clock order ${n}: ${reply.error}`));
+      else resolve(reply);
     };
   });
   const order = join(statusClock.dir, `advance-${n}.json.tmp`);
   writeFileSync(order, JSON.stringify({ pid, steps: STATUS_SETTLE.steps }));
   renameSync(order, join(statusClock.dir, `advance-${n}.json`));
-  return answered;
+  const reply = await answered;
+  // The publications reach the host on its streams, not with the answer: it holds the settled state once each stream read the marker.
+  await new Promise((resolve, reject) => {
+    const check = () => {
+      if (statusClock.markers.some((seen) => seen < n)) return;
+      finish();
+    };
+    const deadline = setTimeout(
+      () => finish(new RecorderError(`the host's streams did not deliver status-clock order ${n}'s marker in 30 s (they read ${JSON.stringify(statusClock.markers)})`)),
+      30_000
+    );
+    const finish = (error) => {
+      statusClock.waiters.delete(check);
+      clearTimeout(deadline);
+      if (error) reject(error);
+      else resolve();
+    };
+    statusClock.waiters.add(check);
+    check();
+  });
+  return reply;
 }
 
 async function recordGroup(group) {
@@ -615,7 +620,14 @@ async function recordGroup(group) {
           console.error(`[recorder] ${group}: the host's daemon attachment ended: ${reason}`);
           onFatal(reason);
         };
-        const attached = await sessionClient.attachSession({ discovery, cwd: PATHS.project, clientKind: 'desktop', onFrame, onFatal: fatal });
+        // The status clock's marker frames end each order on this stream (settleStatus); the host never sees them.
+        const index = statusClock.markers.push(0) - 1;
+        const frames = (frame) => {
+          if (frame?.type !== STATUS_MARKER) return onFrame(frame);
+          statusClock.markers[index] = frame.order;
+          for (const waiter of [...statusClock.waiters]) waiter();
+        };
+        const attached = await sessionClient.attachSession({ discovery, cwd: PATHS.project, clientKind: 'desktop', onFrame: frames, onFatal: fatal });
         attachments.push(attached);
         return createSessionProtocolClient({ call: (name, params, options) => attached.call(name, params, options), close: () => attached.close() });
       },
@@ -628,7 +640,7 @@ async function recordGroup(group) {
     };
     host = await SessionHost.create({ userDataPath: PATHS.userData, resourcesPath: PATHS.userData, appPath: join(tree, 'apps', 'desktop'), packaged: false }, runtime);
     await host.addProject(PATHS.project);
-    const ctx = { session: '', revision: 0 };
+    const ctx = { session: '', revision: 0, pids: { [daemonPid]: '<runtime pid>', [process.pid]: '<desktop pid>' } };
     if (group !== 'settings') {
       // The project's session, as the desktop's new task creates it (session-host-lifecycle.ts createNewTask), idle.
       const created = await attachments[0].call('session.create', { cwd: PATHS.project, desktopSession: { classification: 'project', projectPath: PATHS.project } });
@@ -668,7 +680,7 @@ async function recordGroup(group) {
         const params = [{ capability: STATUS_SETTLE.read, args: [], ...(sent.sessionId ? { sessionId: sent.sessionId } : {}) }];
         const after = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params }));
         if (!after.ok) throw new Error(`${group}: the settled read failed: ${after.error}`);
-        for (const field of SETTLED_FIELDS) {
+        for (const field of [...SETTLED_FIELDS, ...AFTER_CALL_FIELDS]) {
           if (isDeepStrictEqual(frame.value.snapshot[field], after.value.snapshot[field])) continue;
           unsettled ??= {};
           unsettled[field] = frame.value.snapshot[field] ?? null;
@@ -680,13 +692,6 @@ async function recordGroup(group) {
       // client's pool drop idle sockets the daemon's keep-alive ended, or the next call goes out on one and reads ECONNRESET.
       await new Promise((resolve) => setImmediate(resolve));
     }
-    const settled = await settledSetup(async (sessionId) => {
-      const params = [{ capability: 'getWorktreeSettings', args: [], ...(sessionId ? { sessionId } : {}) }];
-      const frame = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params }));
-      if (!frame.ok) throw new Error(`${group}: the settled read failed: ${frame.error}`);
-      return frame.value?.snapshot;
-    }, ctx);
-    cases.push({ group, settled });
     return cases;
   } finally {
     await host?.dispose?.();
@@ -694,7 +699,23 @@ async function recordGroup(group) {
     await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }).catch(() => undefined);
     // Whatever outlived the stop (the supervisor, a git child) ends with the daemon's tree.
     spawnSync('taskkill', ['/T', '/F', '/PID', String(daemonPid)], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
+    endPostgres();
   }
+}
+
+/** Node's memory store starts postgres detached (`pg_ctl start`), outside the daemon's tree; a postgres still running after the stop
+ *  holds the world's pgdata, so it is ended by the pid its postmaster.pid names (only if that process is a postgres) and its exit
+ *  awaited, within 30 s, before the next group makes its world. */
+function endPostgres() {
+  const pidFile = join(PATHS.data, 'pgdata', 'postmaster.pid');
+  if (!existsSync(pidFile)) return;
+  const pid = Number.parseInt(readFileSync(pidFile, 'utf8').split('\n')[0], 10);
+  if (!(pid > 0)) return;
+  const script =
+    `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -eq 'postgres') ` +
+    `{ taskkill /T /F /PID ${pid} | Out-Null; if (-not $p.WaitForExit(30000)) { exit 1 } }`;
+  const run = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true, timeout: 60_000 });
+  if (run.status !== 0) throw new RecorderError(`the Node daemon's postgres (pid ${pid}) did not end in 30 s (${run.status ?? run.error})`);
 }
 
 /** One group recorded by a process of its own (`--only`): the tree's modules keep state about the daemon they talked to, and a
@@ -748,17 +769,21 @@ writeSetManifest(stage, {
       session: "the session's own id is <session> in every answer (each product makes its own)",
       control: "the host's control session's id (the snapshot a call naming no session carries) is <control> (each product makes its own)",
       time: 'a field named *At or at is <time> (the run time)',
-      pid: 'clientHostPid is <pid> (the id of the process hosting the session runtime)',
+      pid: "a clientHostPid that is the id of the process running the session runtimes (Node's daemon, mixdogd) is <runtime pid>, the desktop's own process (this recorder's, which hosts SessionHost or the replay's window client) <desktop pid>; any other number is kept and compared as it is",
       tx: "a workspace transition's txId is <tx> (a random id each run makes)",
-      setupChanged:
-        "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
     },
     settledStatus: {
       fields: SETTLED_FIELDS,
       afterCall: "a field among these the call itself moved (a workspace transition's cwd) Node republishes on the pass after the call: the case's answer holds it as the pass leaves it (the recorder settles and reads once more), the value Node's answer carried is kept under the case's `unsettled`",
       node: "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
-      recording: "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)",
+      recording: "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s, the order ending with a marker frame each host stream delivers after the passes' publications), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)",
       core: 'has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case',
+    },
+    settledSetup: {
+      fields: AFTER_CALL_FIELDS,
+      node: "a settings write reaches setupChanged after the call's answer: the runtime's config save is debounced (config-writers.mjs createDebouncedWriter), the daemon's config watch sees the file (config.mjs watchConfigDir) and runs its listeners after a 100 ms debounce (config.mjs notifyConfigChanged), the change effects announce settings_changed (config-change-effects.mjs), the router counts it (notification-router.mjs:33-36) and the store publishes on its 16 ms frame (frame-batched-store.mjs) and the projection's publish timer (projection/frames.mjs schedulePublish)",
+      recording: "the after-call order (status-clock-preload.mjs) lands the saves accepted before it (drainSessionConfigWrites), waits for the watch event that saw the files on disk, moves the clock past the debounce and waits for the store's frame and the projection's publication before its marker; the case's answer holds setupChanged as it then is, the value the answer carried under `unsettled`",
+      core: 'announces the write it applies before it answers: the same count, only faster (rule U-SV1)',
     },
     notRecorded: {
       notProducible: "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself",
@@ -828,7 +853,7 @@ async function replay(exe) {
       const window = await connect({ ...base, clientInfo: { ...base.clientInfo, name: 'mixdog-replay-window', kind: 'desktop' } });
       clients.push(window);
       await window.call('project/create', { path: PATHS.project });
-      const ctx = { session: '', revision: 0 };
+      const ctx = { session: '', revision: 0, pids: { [child.pid]: '<runtime pid>', [process.pid]: '<desktop pid>' } };
       if (group !== 'settings') {
         const started = await window.call('thread/start', { kind: 'task', projectPath: PATHS.project, draft: { projectPath: PATHS.project, route: ROUTE } });
         ctx.session = String(started.thread.id);
@@ -886,13 +911,6 @@ async function replay(exe) {
           if (!isDeepStrictEqual(expected[field], got[field])) differences.push({ label, field, node: expected[field], core: got[field] });
         }
       }
-      const settled = await settledSetup(async (sessionId) => {
-        const value = await router.call('invokeCapability', [{ capability: 'getWorktreeSettings', args: [], ...(sessionId ? { sessionId } : {}) }]);
-        return value?.snapshot;
-      }, ctx);
-      const want = golden.cases.find((entry) => entry.group === group && entry.settled !== undefined)?.settled;
-      compared += 1;
-      if (!isDeepStrictEqual(want, settled)) differences.push({ label: `${group} settled setupChanged`, field: 'settled', node: want, core: settled });
     } finally {
       for (const client of clients) client.close?.();
       spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
