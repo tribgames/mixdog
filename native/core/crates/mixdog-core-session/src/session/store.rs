@@ -310,7 +310,7 @@ impl Rewrites {
                 done.await;
             }
         };
-        if tokio::time::timeout(bound, wait).await.is_err() {
+        if mixdog_rt::time::timeout(bound, wait).await.is_err() {
             tracing::warn!(bound_ms = bound.as_millis() as u64, "a read waited out its bound for a sensitive rewrite; it goes on and waits on the lane");
         }
     }
