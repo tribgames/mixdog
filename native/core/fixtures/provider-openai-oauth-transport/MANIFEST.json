@@ -1,14 +1,14 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-oauth-transport.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compare": "mixdog-agent send.rs:573-640 (retractable replay on suppressed reasoning), mixdog-ai providers::openai adapter.rs:476-523,700-703, openai_ws_pool.rs:271,341 and retry decider: feed each row's scripted steps (`input`) and compare `result`/`error` fields, `fresh` (forceFresh per acquire), `progress`/`text` callbacks, acquire/WS/HTTP call counts, `delaysMs` and classification. NOTE: Node surfaces the HTTP failure as the current error (same object, previousTransportError kept) and sticks to HTTP for the session after fallback; K1 gaps-providers rows 5/44 describe where Rust differs.",
+  "compare": "mixdog-agent send.rs:573-640 (retractable replay on suppressed reasoning), mixdog-ai providers::openai adapter.rs:476-523,700-703, openai_ws_pool.rs:271,341 and retry decider: serve each case's `input` (WebSocket plans, upgrade refusals, HTTP answers) and compare the ordered `events` (dial, upgrade request, frames, closes, HTTP requests/answers, sleeps, callbacks), `result`/`error` whole and `delaysMs`. NOTE: Node surfaces the HTTP failure as the current error (same object, previousTransportError kept) and sticks to HTTP for the session after fallback; K1 gaps-providers rows 5/44 describe where Rust differs.",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
     "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "scripts/provider-toolcall/_shared.mjs re-exports: openai-oauth-ws.mjs sendViaWebSocket, openai-oauth.mjs OpenAIOAuthProvider.send (with ensureAuth stubbed to a fixture token and the _sendViaWebSocketFn/_sendViaHttpSseFn seams), openai-ws-stream.mjs _streamResponse (real), retry-classifier.mjs classifyError, MIXDOG_OAI_TRANSPORT=auto and the HTTP-fallback switches set as the test sets them. Not run: a real socket or HTTP request.",
+  "entry": "scripts/provider-toolcall/_shared.mjs re-exports: openai-oauth-ws.mjs sendViaWebSocket, openai-oauth.mjs OpenAIOAuthProvider.send (ensureAuth stubbed to a fixture token; the _sendViaWebSocketFn/_sendViaHttpSseFn wrappers only inject the recording sleeper into the real senders), openai-oauth-http-sse.mjs sendViaHttpSse, retry-classifier.mjs classifyError, MIXDOG_OAI_TRANSPORT=auto and the HTTP-fallback switches set as the test sets them. Not run: the real ChatGPT hosts; the cancelled cases (:163) use the seams.",
   "exclusions": [
     "calls[*].args[*].state.sendStartedAt and every number under calls[*].args[*].state.sendSpan: performance.now() readings of the real clock, written as a marker (the keys stay)",
     "result.transportTiming.*Ms: performance.now() durations of the real clock, written <ms, real clock> (the keys and the counts stay)",
@@ -69,7 +69,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-oauth-transport.mjs",
-  "recorderSha256": "acaca61d50d6615f3820c28a6b5e0ab062da2e7b55ad8aeef0f4b6e18c302168",
+  "recorderSha256": "2ed4a93d3448c0d0673621ff9256538baf6295db077c5484b6bfe994c777c954",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
   "replayExclusions": {
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
