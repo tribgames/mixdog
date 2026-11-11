@@ -765,6 +765,10 @@ class Engine implements ProtocolClient<Json> {
   }
   private attached(feedId: string, r: Json): void {
     const s = (r as unknown as ThreadResumeResponse).subscription;
+    // A reply that arrives after its feed already ran past the position it names is a stale read: it resets nothing, so the
+    // events already folded stay in order and no gap is seen (the transcript is the feed's, not the reply's).
+    const ahead = this.recv.get(feedId);
+    if (ahead && ahead.epoch === s.epoch && ahead.seq >= s.startSeq) return;
     this.recv.set(feedId, { epoch: s.epoch, seq: s.startSeq - 1 });
     if (feedId === WIRE.appFeedId) this.store.liveSeq = s.liveSeq ?? s.startSeq;
     this.subToken.set(feedId, ++this.tokenSeq);
