@@ -85,77 +85,33 @@
           "usage": {
             "$exact": "undefined"
           }
-        },
-        "requests": [
-          {
-            "body": {
-              "model": "gpt-5.5",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "hi"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true
-            },
-            "headers": null
-          }
-        ]
+        }
       },
       "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "opencode-go",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "opencode-go",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [
-                      {
-                        "type": "response.refusal.delta",
-                        "item_id": "m1",
-                        "content_index": 0,
-                        "delta": "I can"
-                      },
-                      {
-                        "type": "response.refusal.delta",
-                        "item_id": "m1",
-                        "content_index": 0,
-                        "delta": "'t"
-                      }
-                    ],
-                    "output": [
-                      {
-                        "type": "message",
-                        "id": "m1",
-                        "role": "assistant",
-                        "content": [
-                          {
-                            "type": "refusal",
-                            "refusal": "I can't"
-                          }
-                        ]
-                      }
-                    ]
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "opencode-go",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
@@ -167,6 +123,99 @@
             [],
             {}
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.refusal.delta\ndata: {\"type\":\"response.refusal.delta\",\"item_id\":\"m1\",\"content_index\":0,\"delta\":\"I can\"}\n\n",
+              "event: response.refusal.delta\ndata: {\"type\":\"response.refusal.delta\",\"item_id\":\"m1\",\"content_index\":0,\"delta\":\"'t\"}\n\n",
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"I can't\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -239,64 +288,33 @@
           "usage": {
             "$exact": "undefined"
           }
-        },
-        "requests": [
-          {
-            "body": {
-              "model": "muse-spark",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "hi"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true
-            },
-            "headers": null
-          }
-        ]
+        }
       },
       "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "muse-code",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "muse-code",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [],
-                    "output": [
-                      {
-                        "type": "message",
-                        "id": "m1",
-                        "role": "assistant",
-                        "content": [
-                          {
-                            "type": "refusal",
-                            "refusal": "no"
-                          }
-                        ]
-                      }
-                    ]
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "muse-code",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
@@ -308,6 +326,97 @@
             [],
             {}
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "muse-spark"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "164"
+            ]
+          ],
+          "body": "{\"model\":\"muse-spark\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\",\"model\":\"muse-spark\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"refusal\",\"refusal\":\"no\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -378,61 +487,33 @@
           "usage": {
             "$exact": "undefined"
           }
-        },
-        "requests": [
-          {
-            "body": {
-              "model": "gpt-5.5",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "hi"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true
-            },
-            "headers": null
-          }
-        ]
+        }
       },
       "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "opencode-go",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
         {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "opencode-go",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [],
-                    "output": [
-                      {
-                        "type": "function_call",
-                        "id": "f1",
-                        "call_id": "c1",
-                        "name": "run",
-                        "namespace": "ns",
-                        "arguments": "{}"
-                      }
-                    ]
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "opencode-go",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
@@ -444,6 +525,97 @@
             [],
             {}
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "161"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"id\":\"f1\",\"call_id\":\"c1\",\"name\":\"run\",\"namespace\":\"ns\",\"arguments\":\"{}\"}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -463,97 +635,6 @@
               "wire": "responses",
               "nativeDeferredTools": true
             }
-          },
-          "request": {
-            "body": {
-              "model": "gpt-5.5",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "go"
-                    }
-                  ]
-                },
-                {
-                  "type": "tool_search_call",
-                  "call_id": "ts1",
-                  "execution": "client",
-                  "arguments": {
-                    "names": [
-                      "x"
-                    ]
-                  }
-                },
-                {
-                  "type": "custom_tool_call",
-                  "call_id": "cu1",
-                  "name": "apply_patch",
-                  "input": "P"
-                },
-                {
-                  "type": "function_call",
-                  "call_id": "fn1",
-                  "name": "Read",
-                  "arguments": "{\"path\":\"a\"}"
-                },
-                {
-                  "type": "tool_search_output",
-                  "call_id": "ts1",
-                  "status": "completed",
-                  "execution": "client",
-                  "tools": [
-                    {
-                      "type": "function",
-                      "name": "x",
-                      "defer_loading": true,
-                      "parameters": {
-                        "type": "object"
-                      },
-                      "strict": false
-                    }
-                  ]
-                },
-                {
-                  "type": "custom_tool_call_output",
-                  "call_id": "cu1",
-                  "output": "patched"
-                },
-                {
-                  "type": "function_call_output",
-                  "call_id": "fn1",
-                  "output": "file"
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "next"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "tools": [
-                {
-                  "type": "tool_search",
-                  "execution": "client",
-                  "description": "d",
-                  "parameters": {
-                    "type": "object"
-                  }
-                }
-              ],
-              "parallel_tool_calls": true
-            },
-            "headers": null
           }
         },
         "off": {
@@ -563,116 +644,34 @@
               "model": "gpt-5.5",
               "wire": "responses"
             }
-          },
-          "request": {
-            "body": {
-              "model": "gpt-5.5",
-              "input": [
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "go"
-                    }
-                  ]
-                },
-                {
-                  "type": "function_call",
-                  "call_id": "ts1",
-                  "name": "load_tool",
-                  "arguments": "{\"names\":[\"x\"]}"
-                },
-                {
-                  "type": "function_call",
-                  "call_id": "cu1",
-                  "name": "apply_patch",
-                  "arguments": "{\"patch\":\"P\"}"
-                },
-                {
-                  "type": "function_call",
-                  "call_id": "fn1",
-                  "name": "Read",
-                  "arguments": "{\"path\":\"a\"}"
-                },
-                {
-                  "type": "function_call_output",
-                  "call_id": "ts1",
-                  "output": "loaded"
-                },
-                {
-                  "type": "function_call_output",
-                  "call_id": "cu1",
-                  "output": "patched"
-                },
-                {
-                  "type": "function_call_output",
-                  "call_id": "fn1",
-                  "output": "file"
-                },
-                {
-                  "role": "user",
-                  "content": [
-                    {
-                      "type": "input_text",
-                      "text": "next"
-                    }
-                  ]
-                }
-              ],
-              "store": false,
-              "include": [
-                "reasoning.encrypted_content"
-              ],
-              "stream": true,
-              "tools": [
-                {
-                  "type": "function",
-                  "name": "load_tool",
-                  "description": "d",
-                  "parameters": {
-                    "type": "object"
-                  },
-                  "strict": false
-                }
-              ],
-              "parallel_tool_calls": true
-            },
-            "headers": null
           }
         }
       },
       "calls": [
         {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "opencode-go",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "opencode-go",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [],
-                    "output": [
-                      {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                          {
-                            "type": "output_text",
-                            "text": "ok"
-                          }
-                        ]
-                      }
-                    ]
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "opencode-go",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
@@ -766,35 +765,35 @@
           ]
         },
         {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "opencode-go",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "opencode-go",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [],
-                    "output": [
-                      {
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                          {
-                            "type": "output_text",
-                            "text": "ok"
-                          }
-                        ]
-                      }
-                    ]
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "opencode-go",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
@@ -885,6 +884,180 @@
               }
             }
           ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider#getCachedModelInfo",
+          "args": [
+            "gpt-5.5"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "941"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"go\"}]},{\"type\":\"tool_search_call\",\"call_id\":\"ts1\",\"execution\":\"client\",\"arguments\":{\"names\":[\"x\"]}},{\"type\":\"custom_tool_call\",\"call_id\":\"cu1\",\"name\":\"apply_patch\",\"input\":\"P\"},{\"type\":\"function_call\",\"call_id\":\"fn1\",\"name\":\"Read\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"},{\"type\":\"tool_search_output\",\"call_id\":\"ts1\",\"status\":\"completed\",\"execution\":\"client\",\"tools\":[{\"type\":\"function\",\"name\":\"x\",\"defer_loading\":true,\"parameters\":{\"type\":\"object\"},\"strict\":false}]},{\"type\":\"custom_tool_call_output\",\"call_id\":\"cu1\",\"output\":\"patched\"},{\"type\":\"function_call_output\",\"call_id\":\"fn1\",\"output\":\"file\"},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"next\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"tool_search\",\"execution\":\"client\",\"description\":\"d\",\"parameters\":{\"type\":\"object\"}}],\"parallel_tool_calls\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://gateway.example",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "gateway.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "836"
+            ]
+          ],
+          "body": "{\"model\":\"gpt-5.5\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"go\"}]},{\"type\":\"function_call\",\"call_id\":\"ts1\",\"name\":\"load_tool\",\"arguments\":\"{\\\"names\\\":[\\\"x\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"cu1\",\"name\":\"apply_patch\",\"arguments\":\"{\\\"patch\\\":\\\"P\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"fn1\",\"name\":\"Read\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"ts1\",\"output\":\"loaded\"},{\"type\":\"function_call_output\",\"call_id\":\"cu1\",\"output\":\"patched\"},{\"type\":\"function_call_output\",\"call_id\":\"fn1\",\"output\":\"file\"},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"next\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"stream\":true,\"tools\":[{\"type\":\"function\",\"name\":\"load_tool\",\"description\":\"d\",\"parameters\":{\"type\":\"object\"},\"strict\":false}],\"parallel_tool_calls\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -937,24 +1110,29 @@
       },
       "calls": [
         {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "openrouter",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "openrouter",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [],
-                    "output": []
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "openrouter",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
@@ -974,24 +1152,29 @@
           ]
         },
         {
+          "entry": "new src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+          "args": [
+            "openrouter",
+            {
+              "apiKey": "fixture-key",
+              "baseURL": "https://gateway.example/v1",
+              "preconnect": false
+            }
+          ]
+        },
+        {
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
-              "name": "openrouter",
-              "config": {
-                "preconnect": false
-              },
-              "nativePdf": true,
-              "client": {
-                "responses": {
-                  "create": {
-                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
-                    "events": [],
-                    "output": []
-                  }
+              "$instance": "src/runtime/agent/orchestrator/providers/openai-compat.mjs.OpenAICompatProvider",
+              "constructedWith": [
+                "openrouter",
+                {
+                  "apiKey": "fixture-key",
+                  "baseURL": "https://gateway.example/v1",
+                  "preconnect": false
                 }
-              }
+              ]
             },
             [
               {
