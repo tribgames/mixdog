@@ -9,7 +9,8 @@ const rec = await startRecording({
   set: 'provider-compat-chat-stream-tool-calls',
   net: false,
   entry: 'openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, providerName, parseToolCalls, knownToolNames, onToolCall }) and openai-compat-response-normalization.mjs normalizeCompatChatResponse({ providerName, useModel, opts, assembled }). The test\'s own parseToolCalls (JSON.parse of the arguments) is the callback the collector receives.',
-  replay: 'mixdog-ai providers::compat chat decode (decode.rs:295 fragment join, finish handling, leak guard): feed `input.chunks` and compare `result` (assembled response/toolCalls), `dispatched` (calls handed out, in order) and `normalized` (the typed incomplete error: providerIncomplete, finishReason, partialToolCalls).',
+  compare: 'mixdog-ai providers::compat chat decode (decode.rs:295 fragment join, finish handling, leak guard): feed `input.chunks` and compare `result` (assembled response/toolCalls), `dispatched` (calls handed out, in order) and `normalized` (the typed incomplete error: providerIncomplete, finishReason, partialToolCalls).',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { consumeCompatChatCompletionStream } = await rec.P(`${P}openai-compat-stream.mjs`);
