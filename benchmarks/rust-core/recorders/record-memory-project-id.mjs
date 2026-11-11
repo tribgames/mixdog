@@ -57,7 +57,7 @@ finish(ctx, {
   golden: { domain: 'memory-project-id', source: 'src/runtime/memory/lib/project-id-resolver.test.mjs', cases },
   extra: {
     entry: { runs: 'resolveProjectId (project-id-resolver.mjs) on real directories with a .mixdog/project.id of the given bytes', notRun: 'resolveProjectScope (explicit session cwd): no case of the test file' },
-    replay: 'mixdog-services memory: mem/project.rs holds_no_data + the marker read (project id from a directory); writes each case\'s markerBytesHex into a temp directory, resolves from the stated sub path, compares the id or null',
+    replay: "mixdog-services memory/project.rs: pub async fn resolve_project_id (:33), which reads .mixdog/project.id (:37) through the ancestors (:21). A replay writes each case's marker bytes into a temp directory and compares the resolved id",
     exclusions: 'the last case ("no marker in any ancestor") depends on the temp base having no .mixdog/project.id above it: true on the recording PC; a replay must run in a base with none',
     normalised: { paths: 'directories are temp; the recording holds marker bytes (hex) and the sub path, not absolute paths' },
   },

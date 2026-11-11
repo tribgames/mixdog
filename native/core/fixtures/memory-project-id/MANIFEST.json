@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-project-id.mjs",
-  "recorderSha256": "637f3ce9fa5aed1ab00c7cc50a90d84239c12c44ef8e54bef2bbe45db0551974",
-  "replay": "mixdog-services memory: mem/project.rs holds_no_data + the marker read (project id from a directory); writes each case's markerBytesHex into a temp directory, resolves from the stated sub path, compares the id or null",
+  "recorderSha256": "377adc065d5b68b730387c2054978b5f7f1e1559af017e1d5daa4b1f367da85f",
+  "replay": "mixdog-services memory/project.rs: pub async fn resolve_project_id (:33), which reads .mixdog/project.id (:37) through the ancestors (:21). A replay writes each case's marker bytes into a temp directory and compares the resolved id",
   "set": "memory-project-id",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 1893,
-  "uuidsNormalised": "none"
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
