@@ -183,17 +183,21 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ProviderState(_) => "ProviderState",
         E::Notice { .. } => "Notice",
         E::ServedModel(_) => "ServedModel",
+        E::ProviderMetadata(_) => "ProviderMetadata",
+        E::ResponseId(_) => "ResponseId",
         E::AccountRouting(_) => "AccountRouting",
         E::AccountStage(_) => "AccountStage",
         E::WireRerouted(_) => "WireRerouted",
+        E::OutputStarted => "OutputStarted",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 24] = [
+const STREAM_EVENT_VARIANTS: [&str; 27] = [
     "AccountRouting",
     "AccountStage",
     "WireRerouted",
+    "OutputStarted",
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -214,6 +218,8 @@ const STREAM_EVENT_VARIANTS: [&str; 24] = [
     "ProviderState",
     "Notice",
     "ServedModel",
+    "ProviderMetadata",
+    "ResponseId",
     "Completed",
 ];
 
@@ -250,10 +256,13 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ProviderState(state),
         p::StreamEvent::Notice { message: "m".into(), warn: true },
         p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
+        p::StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": [{ "trigger": "refusal" }] })),
+        p::StreamEvent::ResponseId("resp_1".into()),
         p::StreamEvent::AccountRouting(p::AccountRouting { provider: "custom-x".into(), account_id: "k2".into(), session_account_id: Some("k2".into()) }),
         p::StreamEvent::AccountStage(p::AccountStage::Switching { message: "Quota exhausted — switching to the next account".into() }),
         p::StreamEvent::AccountStage(p::AccountStage::Changed { provider: "custom-x".into(), account_id: "k2".into(), at: 1 }),
         p::StreamEvent::WireRerouted(json!({ "provider": "openrouter", "model": "m", "wire": "chat", "source": "reroute", "loweredAssistantCount": 0 })),
+        p::StreamEvent::OutputStarted,
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();

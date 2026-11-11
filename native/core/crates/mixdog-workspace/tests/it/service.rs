@@ -1695,6 +1695,21 @@ impl mixdog_workspace::service::ManagedProjects for Worktrees {
         self.0.project(owner).await.ok().flatten()?;
         Some((owner.clone(), real))
     }
+
+    // The start calls never ask for a recovery folder: the registry's refusal stands, and a recovery call runs as it is.
+    async fn recovery_root(&self, _path: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    async fn recovery_store(
+        &self,
+        _root: &std::path::Path,
+        _directory: &std::path::Path,
+        _action: mixdog_workspace::service::RecoveryUse,
+        run: std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_workspace::error::WsResult<serde_json::Value>> + Send>>,
+    ) -> mixdog_workspace::error::WsResult<serde_json::Value> {
+        run.await
+    }
 }
 
 fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
