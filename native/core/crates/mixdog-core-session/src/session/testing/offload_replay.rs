@@ -35,13 +35,15 @@ pub async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("no answer within 10s: {what}"))
 }
 
-pub fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/offload-prune-order/golden.json")).expect("golden.json parses")
+/// The recording (`fixtures/offload-prune-order/golden.json`), whose text the calling test reads at run time
+/// (`mixdog_testkit::fixture!`).
+pub fn golden(text: &str) -> Value {
+    serde_json::from_str(text).expect("golden.json parses")
 }
 
-/// Node's case `name`.
-pub fn node_case(name: &str) -> Value {
-    golden()["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).cloned().unwrap_or_else(|| panic!("no Node case {name}"))
+/// Node's case `name` of the recording `golden`.
+pub fn node_case(golden: &Value, name: &str) -> Value {
+    golden["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).cloned().unwrap_or_else(|| panic!("no Node case {name}"))
 }
 
 /// The recorded session, stored in the core: its transcript, its sidecars aged as Node's, the rig's scripted turns
@@ -53,6 +55,8 @@ pub struct World {
     pub release: Arc<Notify>,
     pub data: tempfile::TempDir,
     pub case: Value,
+    /// The recording's clock (`clockMs`).
+    pub clock_ms: i64,
     /// Each sidecar's role and path.
     pub sidecars: Vec<(String, String)>,
 }
@@ -104,10 +108,10 @@ fn mask_attempts(value: &mut Value) {
 }
 
 /// The compaction Node adopted, committed as the host commits its compactor's output.
-pub fn compaction_of(data: &Path, case: &Value) -> Compaction {
+pub fn compaction_of(data: &Path, case: &Value, clock_ms: i64) -> Compaction {
     let compacted = unmask(data, &case["compacted"]);
     let replacement = compacted.as_array().expect("compacted").iter().enumerate().map(|(index, row)| (ItemId::from(format!("compacted{index}")), row.clone())).collect();
-    Compaction { replacement, at: golden()["clockMs"].as_i64().expect("clock"), dropped_count: 0, dropped: None }
+    Compaction { replacement, at: clock_ms, dropped_count: 0, dropped: None }
 }
 
 pub fn header() -> CompactionHeader {
@@ -117,11 +121,12 @@ pub fn header() -> CompactionHeader {
 }
 
 impl World {
-    /// Node's case `name` stored over `rig`, its session opened by a directory over `deps()` (the rig's, or the
-    /// rig's with the host's run factory). The opens (the creator's and the session's) list nothing: the sidecars
-    /// are written once both listed.
-    pub async fn new(name: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>) -> World {
-        let (golden, case) = (golden(), node_case(name));
+    /// Node's case `name` of the recording `golden` (its text) stored over `rig`, its session opened by a directory
+    /// over `deps()` (the rig's, or the rig's with the host's run factory). The opens (the creator's and the
+    /// session's) list nothing: the sidecars are written once both listed.
+    pub async fn new(name: &str, golden: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>) -> World {
+        let golden = self::golden(golden);
+        let case = node_case(&golden, name);
         let release: Arc<Notify> = Arc::default();
         let gate = release.clone();
         rig.set_script(Arc::new(move |run| {
@@ -152,7 +157,7 @@ impl World {
             age(&path, sidecar["mtimeMs"].as_u64().unwrap_or_else(|| golden["sidecarMtimeMs"].as_u64().expect("mtime")));
             sidecars.push((sidecar["role"].as_str().expect("role").to_owned(), path));
         }
-        World { rig, directory, handle, release, data, case, sidecars }
+        World { rig, directory, handle, release, data, case, clock_ms: clock as i64, sidecars }
     }
 
     pub fn path(&self, role: &str) -> &str {
@@ -162,7 +167,7 @@ impl World {
     /// The compaction Node adopted, committed on the context it was planned on.
     pub async fn commit(&self) -> Result<CompactionCommit, CoreError> {
         let snapshot = within("the context is read", self.directory.model_context(&self.handle.id).read()).await.expect("context").into_iter().map(|(iid, _)| iid).collect();
-        within("the commit answers", self.directory.commit_compaction(&self.handle.id, snapshot, compaction_of(self.data.path(), &self.case), Some(header()))).await
+        within("the commit answers", self.directory.commit_compaction(&self.handle.id, snapshot, compaction_of(self.data.path(), &self.case, self.clock_ms), Some(header()))).await
     }
 
     /// The running turn has ended.

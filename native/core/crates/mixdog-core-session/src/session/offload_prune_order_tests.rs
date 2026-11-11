@@ -23,9 +23,15 @@
 //! names `stray` again is the core's store taking that row (`MemStore::seed`, as another writer commits it).
 //!
 //! Node's save outcomes and the core's: Node's save resolves dropped (a delete's fence) where the core's store refuses
-//! the batch (nothing stored, the commit fails); Node's save is refused because another writer recorded after this copy
-//! where the core's commit finds the session in a turn (nothing written); Node's fsync fails after the records were
-//! written where the core's barrier fails after its write. Either way nothing is pruned.
+//! the batch (nothing stored, the commit fails); another writer appends a record after the session's last one before
+//! the save on both sides, and Node's save is refused where the core's barrier fails its ownership check (nothing of
+//! the batch applied); Node's fsync fails after the records were written where the core's barrier fails after its
+//! write. Either way nothing is pruned. The ask markers drive the cases where Node's recorder itself only marks the
+//! session busy (`turn-before-save`, `closed-before-turn-end`, `process-stopped`, `re-referenced`).
+//!
+//! `clear-fork`, `heir-fork` and `owner-let-go` are sessions Node's recorder does not compact: the copies of a
+//! conversation in other sessions keep the sidecars they name, and a session let go while its reconcile runs is left
+//! to its next owner.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -61,7 +67,7 @@ use super::turn_ops::CompactionCommit;
 use crate::eventually_on;
 
 async fn world(name: &str) -> World {
-    World::new(name, Rig::new(), Rig::deps).await
+    World::new(name, mixdog_testkit::fixture!("../../fixtures/offload-prune-order/golden.json"), Rig::new(), Rig::deps).await
 }
 
 /// A completion the thread queues and is not woken by (`live: false`), naming `path`.
@@ -327,9 +333,9 @@ async fn a_sidecar_the_stored_transcript_names_again_before_the_prune_runs_is_ke
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_automatic_compaction_prunes_once_its_result_is_durable() {
     let world = world("auto-clear").await;
-    let (directory, data, case) = (Arc::downgrade(&world.directory), world.data.path().to_path_buf(), world.case.clone());
+    let (directory, data, case, clock) = (Arc::downgrade(&world.directory), world.data.path().to_path_buf(), world.case.clone(), world.clock_ms);
     *lock(&world.rig.compaction.commits) = Some(Arc::new(move |thread| {
-        let (directory, compaction) = (directory.clone(), compaction_of(&data, &case));
+        let (directory, compaction) = (directory.clone(), compaction_of(&data, &case, clock));
         Box::pin(async move {
             let directory = directory.upgrade().expect("the directory");
             let snapshot = directory.model_context(&thread).read().await?.into_iter().map(|(iid, _)| iid).collect();
@@ -369,6 +375,46 @@ async fn a_compaction_refused_for_a_turn_prunes_nothing() {
     within("the actor takes the turn's end", world.handle.inbox.send(Inbox::AskEnded)).await.expect("the actor runs");
     assert!(lock(&world.rig.compaction.pruned).is_empty());
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![point]), world.case);
+}
+
+/// Node's `clear-fork`: an agent home's fresh start (`clearSessionMessages` with `archiveAs`; the host's `thread/fork`
+/// into the archive id, then `thread/clear`, `agent_home_deps.rs`). The fork holds the conversation, which names
+/// `named`; the cleared session is closed and opened again: its reconcile keeps what the fork names.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_clear_fork_keeps_the_sidecars_it_names_when_the_cleared_session_is_opened() {
+    let world = world("clear-fork").await;
+    let (id, fork) = (world.handle.id.as_str().to_owned(), world.case["seed"]["forkId"].as_str().expect("the fork id").to_owned());
+    let forked = json!({ "threadId": id, "opId": "op-fork", "intoThreadId": fork });
+    within("the fork answers", world.handle.request(request("thread/fork", forked, "op-fork"))).await.expect("thread/fork");
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+}
+
+/// Node's `heir-fork`: a new session inherits the conversation (`thread/fork`, the desktop's `inheritSession`); the heir
+/// is cleared with a fork (`thread/fork` into the fork's id, then `thread/clear`) and the source without one. The
+/// source's reconcile reads its heir and the heir's fork, which names `named`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_heirs_fork_keeps_the_sources_sidecars_it_names() {
+    let world = world("heir-fork").await;
+    let id = world.handle.id.as_str().to_owned();
+    let Reply::Value(inherited) = within("the fork answers", world.handle.request(request("thread/fork", json!({ "threadId": id, "opId": "op-heir" }), "op-heir"))).await.expect("thread/fork") else {
+        panic!("thread/fork answers a value");
+    };
+    let heir_id = mixdog_core_api::ids::ThreadId::from(inherited["thread"]["id"].as_str().expect("the heir id").to_owned());
+    let heir = within("the heir opens", world.directory.open_handle(&heir_id, &CallContext::internal("test"))).await.expect("the heir");
+    let forked = json!({ "threadId": heir_id, "opId": "op-heir-fork", "intoThreadId": format!("{}_fork", heir_id.as_str()) });
+    within("the heir's fork answers", heir.request(request("thread/fork", forked, "op-heir-fork"))).await.expect("thread/fork");
+    within("the heir's clear answers", heir.request(request("thread/clear", json!({ "threadId": heir_id, "opId": "op-heir-clear" }), "op-heir-clear"))).await.expect("thread/clear");
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
 /// Node's `thrown` (the save's fsync failed after its records were written): the barrier fails after its write.
