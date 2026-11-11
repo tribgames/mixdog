@@ -288,7 +288,8 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                 }
                 // A macro's definition or call: a `mod` among its tokens is written by the macro, wherever the expansion
                 // puts it, so the file it names cannot be found here. Its other tokens are walked as usual.
-                [Word(name), Mark('!'), rest @ ..] if !NOT_A_MACRO.contains(&name.as_str()) => {
+                // (A macro named by a raw identifier, `r#wrap!`, is the same macro.)
+                [head @ (Word(name) | Raw(name)), Mark('!'), rest @ ..] if matches!(head, Raw(_)) || !NOT_A_MACRO.contains(&name.as_str()) => {
                     // `macro_rules! name { … }` has the macro's name before its body.
                     let body = match rest {
                         [Word(_) | Raw(_), tail @ ..] if name == "macro_rules" => tail,
@@ -383,7 +384,7 @@ fn the_module_walk_follows_nested_inline_and_attributed_modules() {
     };
     write(
         "build.rs",
-        "// mod commented;\nmod plain;\nmod r#type;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nfn r#mod() -> bool { return !(false); }\nfn main() { let _ = \"mod in_a_string;\"; println!(\"{}\", r#mod()); }\n",
+        "// mod commented;\nmod plain;\nmod r#type;\nmod outer { pub mod inner; mod deeper { mod leaf; } }\n#[cfg_attr(windows, path = \"elsewhere/attributed.rs\")]\nmod attributed;\nconst RULES: &str = include_str!(\"rules.yml\");\nconst MORE: &str = r#include_str!(\"more.yml\");\nfn r#mod() -> bool { return !(false); }\nfn main() { let _ = \"mod in_a_string;\"; println!(\"{}\", r#mod()); }\n",
     );
     write("plain.rs", "mod child;\n");
     write("plain/child.rs", "");
@@ -392,10 +393,11 @@ fn the_module_walk_follows_nested_inline_and_attributed_modules() {
     write("elsewhere/attributed.rs", "");
     write("type.rs", "");
     write("rules.yml", "mod not_rust;\n");
+    write("more.yml", "");
     let mut found: Vec<String> = script_files(&dir.join("build.rs")).iter().map(|f| f.strip_prefix(canonical(&dir)).unwrap().to_string_lossy().replace('\\', "/")).collect();
     found.sort();
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(found, ["build.rs", "elsewhere/attributed.rs", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml", "type.rs"]);
+    assert_eq!(found, ["build.rs", "elsewhere/attributed.rs", "more.yml", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml", "type.rs"]);
 }
 
 #[test]
@@ -418,6 +420,18 @@ fn the_module_walk_refuses_a_literal_module_in_a_macro_definition() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("hidden.rs"), "").unwrap();
     std::fs::write(dir.join("build.rs"), "macro_rules! m { () => { mod hidden; } }\nm!();\nfn main() {}\n").unwrap();
+    script_files(&dir.join("build.rs"));
+}
+
+/// The call written with the macro's raw name (`r#wrap! { mod hidden; }`).
+#[test]
+#[should_panic(expected = "inside the macro `wrap!`")]
+fn the_module_walk_refuses_a_module_in_a_raw_named_macro_call() {
+    let dir = std::env::temp_dir().join(format!("native-mirrors-macro-raw-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("hidden.rs"), "").unwrap();
+    std::fs::write(dir.join("build.rs"), "macro_rules! wrap { ($($t:tt)*) => { $($t)* } }\nr#wrap! { mod hidden; }\nfn main() {}\n").unwrap();
     script_files(&dir.join("build.rs"));
 }
 
