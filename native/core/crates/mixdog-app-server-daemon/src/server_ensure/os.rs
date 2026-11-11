@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -24,6 +25,7 @@ use super::host::EnsureHost;
 use super::host::Launch;
 use super::host::ProcessImage;
 use super::host::ServerCore;
+use super::idle::IdleWatch;
 use super::layout::RemotePaths;
 use super::report::result_line;
 use crate::discovery;
@@ -139,20 +141,32 @@ impl EnsureHost for OsHost {
 pub struct OsAccess {
     paths: RemotePaths,
     launched: RefCell<Option<Child>>,
+    /// The attachment probe's inactivity limit.
+    idle: Arc<IdleWatch>,
+}
+
+fn failed(what: &str, e: &dyn std::fmt::Display) -> EnsureError {
+    EnsureError::Core(format!("{what}: {e}"))
 }
 
 impl OsAccess {
     pub fn new(host: &dyn EnsureHost) -> Self {
-        Self { paths: RemotePaths::new(&host.home()), launched: RefCell::new(None) }
+        Self::with_idle(host, IdleWatch::monotonic())
+    }
+
+    pub(super) fn with_idle(host: &dyn EnsureHost, idle: Arc<IdleWatch>) -> Self {
+        Self { paths: RemotePaths::new(&host.home()), launched: RefCell::new(None), idle }
     }
 
     fn call(core: &ServerCore, path: &str, body: &impl serde::Serialize) -> Result<StatusReply, EnsureError> {
-        let body = serde_json::to_vec(body).map_err(|e| EnsureError::Core(format!("encoding the request: {e}")))?;
-        Self::request(core, "POST", path, &body)
+        let body = serde_json::to_vec(body).map_err(|e| failed("encoding the request", &e))?;
+        let mut stream = Self::send(core, "POST", path, &body)?;
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).map_err(|e| failed("reading the reply", &e))?;
+        Self::reply(&raw)
     }
 
-    fn request(core: &ServerCore, method: &str, path: &str, body: &[u8]) -> Result<StatusReply, EnsureError> {
-        let failed = |what: &str, e: &dyn std::fmt::Display| EnsureError::Core(format!("{what}: {e}"));
+    fn send(core: &ServerCore, method: &str, path: &str, body: &[u8]) -> Result<TcpStream, EnsureError> {
         let mut stream = TcpStream::connect(("127.0.0.1", core.control_port))
             .map_err(|e| failed("connecting to the core's control listener", &e))?;
         let head = format!(
@@ -164,9 +178,11 @@ impl OsAccess {
             .write_all(head.as_bytes())
             .and_then(|()| stream.write_all(body))
             .map_err(|e| failed("sending the request", &e))?;
-        let mut raw = Vec::new();
-        stream.read_to_end(&mut raw).map_err(|e| failed("reading the reply", &e))?;
-        let text = String::from_utf8_lossy(&raw);
+        Ok(stream)
+    }
+
+    fn reply(raw: &[u8]) -> Result<StatusReply, EnsureError> {
+        let text = String::from_utf8_lossy(raw);
         let (head, reply) = text.split_once("\r\n\r\n").ok_or_else(|| failed("the reply", &"is not HTTP"))?;
         let status: u16 = head
             .split(' ')
@@ -237,7 +253,10 @@ impl CoreAccess for OsAccess {
     }
 
     fn answers(&self, core: &ServerCore) -> bool {
-        Self::request(core, "GET", STATUS_PATH, &[]).is_ok_and(|reply| reply.status.instance_id == core.instance_id)
+        let exchange = self.idle.begin();
+        let Ok(stream) = Self::send(core, "GET", STATUS_PATH, &[]) else { return false };
+        let Some(Ok(raw)) = self.idle.read_to_end(exchange, stream) else { return false };
+        Self::reply(&raw).is_ok_and(|reply| reply.status.instance_id == core.instance_id)
     }
 
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError> {
