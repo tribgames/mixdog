@@ -1,0 +1,1515 @@
+{
+  "set": "provider-leak-guards",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "gemini-known-tool-recovered",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:19",
+      "input": {
+        "route": "gemini",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Sure.\n<function_calls>\n<invoke name=\"read\">\n<parameter name=\"path\">a.txt</parameter>\n</invoke>\n</function_calls>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Sure.\n"
+        ],
+        "captured": [
+          {
+            "id": "gemini_leaked_111b40ceedc270a4",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "folded": {
+          "scrubbed": "Sure.\n",
+          "leakedToolCalls": [
+            {
+              "id": "gemini_leaked_111b40ceedc270a4",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gemini-unknown-tool-text-flushed",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:49",
+      "input": {
+        "route": "gemini",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+        ],
+        "captured": [],
+        "folded": {
+          "scrubbed": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>",
+          "leakedToolCalls": []
+        }
+      }
+    },
+    {
+      "id": "anthropic-known-tool-recovered",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:67",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Sure.\n<function_calls>\n<invoke name=\"shell\">\n<parameter name=\"command\">ls -la</parameter>\n</invoke>\n</function_calls>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Sure.\n"
+        ],
+        "captured": [
+          {
+            "id": "toolu_leaked_ff49be67d5edff28",
+            "name": "shell",
+            "arguments": {
+              "command": "ls -la"
+            }
+          }
+        ],
+        "folded": {
+          "content": "Sure.\n",
+          "model": "claude",
+          "toolCalls": [
+            {
+              "id": "toolu_leaked_ff49be67d5edff28",
+              "name": "shell",
+              "arguments": {
+                "command": "ls -la"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-tags-split-across-chunks",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:95",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<invoke name=\"sh",
+          "ell\">\n<parameter name=\"command\">pwd</parameter>\n</invoke>"
+        ]
+      },
+      "result": {
+        "texts": [],
+        "captured": [
+          {
+            "id": "toolu_leaked_ba86038c6963776a",
+            "name": "shell",
+            "arguments": {
+              "command": "pwd"
+            }
+          }
+        ],
+        "folded": {
+          "content": "",
+          "model": "claude",
+          "toolCalls": [
+            {
+              "id": "toolu_leaked_ba86038c6963776a",
+              "name": "shell",
+              "arguments": {
+                "command": "pwd"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-unknown-tool-text-flushed",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:120",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+        ],
+        "captured": [],
+        "folded": {
+          "content": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>",
+          "model": "claude",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+              }
+            ]
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-benign-function-prose",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:148",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Use the <function> keyword in JavaScript to declare a function."
+        ]
+      },
+      "result": {
+        "texts": [
+          "Use the <function> keyword in JavaScript to declare a function."
+        ],
+        "captured": [],
+        "folded": {
+          "content": "Use the <function> keyword in JavaScript to declare a function.",
+          "model": "claude",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "Use the <function> keyword in JavaScript to declare a function."
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "Use the <function> keyword in JavaScript to declare a function."
+              }
+            ]
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-known-tool-recovered",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:173",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Sure.\n<function_calls>\n<invoke name=\"shell\">\n<parameter name=\"command\">ls -la</parameter>\n</invoke>\n</function_calls>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Sure.\n"
+        ],
+        "captured": [
+          {
+            "id": "call_leaked_5bf044fcbc0dd7bc",
+            "name": "shell",
+            "arguments": {
+              "command": "ls -la"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "Sure.\n"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "Sure.\n",
+          "toolCalls": [
+            {
+              "id": "call_leaked_5bf044fcbc0dd7bc",
+              "name": "shell",
+              "arguments": {
+                "command": "ls -la"
+              }
+            }
+          ],
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-harmony-recovered",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:202",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "ok ",
+          "<|channel|>commentary to=functions.read <|constrain|>json<|message|>{\"path\":\"a.txt\"}<|call|>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "ok "
+        ],
+        "captured": [
+          {
+            "id": "call_leaked_2a211ccb1522379d",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "ok "
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "ok ",
+          "toolCalls": [
+            {
+              "id": "call_leaked_2a211ccb1522379d",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            }
+          ],
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-tags-split-across-deltas",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:226",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<invoke name=\"sh",
+          "ell\">\n<parameter name=\"command\">pwd</parameter>\n</invoke>"
+        ]
+      },
+      "result": {
+        "texts": [],
+        "captured": [
+          {
+            "id": "call_leaked_2f56c18b466a2326",
+            "name": "shell",
+            "arguments": {
+              "command": "pwd"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_leaked_2f56c18b466a2326",
+              "name": "shell",
+              "arguments": {
+                "command": "pwd"
+              }
+            }
+          ],
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-unknown-tool-text-preserved",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:248",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+        ],
+        "captured": [],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "<function_calls>\n<invoke name=\"nonexistent_tool\">\n<parameter name=\"x\">1</parameter>\n</invoke>\n</function_calls>",
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-benign-prose-preserved",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:272",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Use the <function> keyword in JavaScript."
+        ]
+      },
+      "result": {
+        "texts": [
+          "Use the <function> keyword in JavaScript."
+        ],
+        "captured": [],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "Use the <function> keyword in JavaScript."
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "Use the <function> keyword in JavaScript.",
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-native-tool-calls-with-guard",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:293",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [],
+        "events": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "call_1",
+                      "type": "function",
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"x\"}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          }
+        ]
+      },
+      "result": {
+        "texts": [],
+        "captured": [
+          {
+            "id": "call_1",
+            "name": "read",
+            "arguments": {
+              "path": "x"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_1",
+                      "type": "function",
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"x\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "x"
+              }
+            }
+          ],
+          "stopReason": "tool_calls",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "responses-leaked-invoke-recovered",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:322",
+      "input": {
+        "route": "responses",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Working.\n<invoke name=\"shell\">\n<parameter name=\"command\">whoami</parameter>\n</invoke>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Working.\n"
+        ],
+        "captured": [
+          {
+            "id": "call_leaked_facb07e12a293177",
+            "name": "shell",
+            "arguments": {
+              "command": "whoami"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": "r1",
+            "model": "gpt",
+            "status": "completed",
+            "output": []
+          },
+          "content": "Working.\n",
+          "toolCalls": [
+            {
+              "id": "call_leaked_facb07e12a293177",
+              "name": "shell",
+              "arguments": {
+                "command": "whoami"
+              }
+            }
+          ],
+          "model": "gpt",
+          "responseId": "r1",
+          "stopReason": null,
+          "reasoningEmitted": false
+        }
+      }
+    },
+    {
+      "id": "responses-harmony-split-across-deltas",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:345",
+      "input": {
+        "route": "responses",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<|channel|>commentary to=functions.read <|message|>{\"path\":",
+          "\"b.txt\"}<|call|>"
+        ]
+      },
+      "result": {
+        "texts": [],
+        "captured": [
+          {
+            "id": "call_leaked_c6f02ad8d750ae34",
+            "name": "read",
+            "arguments": {
+              "path": "b.txt"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": "r1",
+            "model": "gpt",
+            "status": "completed",
+            "output": []
+          },
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_leaked_c6f02ad8d750ae34",
+              "name": "read",
+              "arguments": {
+                "path": "b.txt"
+              }
+            }
+          ],
+          "model": "gpt",
+          "responseId": "r1",
+          "stopReason": null,
+          "reasoningEmitted": false
+        }
+      }
+    },
+    {
+      "id": "responses-benign-prose",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:364",
+      "input": {
+        "route": "responses",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Just some prose about functions and channels."
+        ]
+      },
+      "result": {
+        "texts": [
+          "Just some prose about functions and channels."
+        ],
+        "captured": [],
+        "folded": {
+          "response": {
+            "id": "r1",
+            "model": "gpt",
+            "status": "completed",
+            "output": []
+          },
+          "content": "Just some prose about functions and channels.",
+          "model": "gpt",
+          "responseId": "r1",
+          "stopReason": null,
+          "reasoningEmitted": false
+        }
+      }
+    },
+    {
+      "id": "anthropic-fence-invoke-in-code-block",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:389",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Example:\n```\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\ndone"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Example:\n```\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\ndone"
+        ],
+        "captured": [],
+        "folded": {
+          "content": "Example:\n```\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\ndone",
+          "model": "claude",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "Example:\n```\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\ndone"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "Example:\n```\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\ndone"
+              }
+            ]
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-fence-opens-and-closes-across-deltas",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:413",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Here is an example:\n```json\n",
+          "<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n",
+          "```\nEnd."
+        ]
+      },
+      "result": {
+        "texts": [
+          "Here is an example:\n```json\n",
+          "<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n",
+          "```\nEnd."
+        ],
+        "captured": [],
+        "folded": {
+          "content": "Here is an example:\n```json\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\nEnd.",
+          "model": "claude",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "Here is an example:\n```json\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\nEnd."
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "Here is an example:\n```json\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>\n```\nEnd."
+              }
+            ]
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-inline-code-span",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:438",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Call it like `<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>` in the docs."
+        ]
+      },
+      "result": {
+        "texts": [
+          "Call it like `<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>` in the docs."
+        ],
+        "captured": [],
+        "folded": {
+          "content": "Call it like `<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>` in the docs.",
+          "model": "claude",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "Call it like `<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>` in the docs."
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "Call it like `<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>` in the docs."
+              }
+            ]
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-fence-control-outside-fence",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:462",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Sure.\n<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Sure.\n"
+        ],
+        "captured": [
+          {
+            "id": "toolu_leaked_fd21d4d7f57ef72b",
+            "name": "read",
+            "arguments": {
+              "path": "a"
+            }
+          }
+        ],
+        "folded": {
+          "content": "Sure.\n",
+          "model": "claude",
+          "toolCalls": [
+            {
+              "id": "toolu_leaked_fd21d4d7f57ef72b",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-harmony-inside-fence",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:485",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "Doc:\n```\n<|channel|>commentary to=functions.read <|message|>{\"path\":\"a\"}<|call|>\n```\n"
+        ]
+      },
+      "result": {
+        "texts": [
+          "Doc:\n```\n<|channel|>commentary to=functions.read <|message|>{\"path\":\"a\"}<|call|>\n```\n"
+        ],
+        "captured": [],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "Doc:\n```\n<|channel|>commentary to=functions.read <|message|>{\"path\":\"a\"}<|call|>\n```\n"
+                },
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "Doc:\n```\n<|channel|>commentary to=functions.read <|message|>{\"path\":\"a\"}<|call|>\n```\n",
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-dedupe-leaked-plus-native",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:515",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [],
+        "events": [
+          {
+            "type": "message_start",
+            "message": {
+              "model": "claude",
+              "usage": {
+                "input_tokens": 1
+              }
+            }
+          },
+          {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+              "type": "text"
+            }
+          },
+          {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+              "type": "text_delta",
+              "text": "<invoke name=\"shell\"><parameter name=\"command\">ls</parameter></invoke>"
+            }
+          },
+          {
+            "type": "content_block_stop",
+            "index": 0
+          },
+          {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+              "type": "tool_use",
+              "id": "toolu_1",
+              "name": "shell"
+            }
+          },
+          {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+              "type": "input_json_delta",
+              "partial_json": "{\"command\":\"ls\"}"
+            }
+          },
+          {
+            "type": "content_block_stop",
+            "index": 1
+          },
+          {
+            "type": "message_delta",
+            "delta": {
+              "stop_reason": "tool_use"
+            },
+            "usage": {
+              "output_tokens": 1
+            }
+          },
+          {
+            "type": "message_stop"
+          }
+        ]
+      },
+      "result": {
+        "texts": [],
+        "captured": [
+          {
+            "id": "toolu_leaked_771914d27acc3992",
+            "name": "shell",
+            "arguments": {
+              "command": "ls"
+            }
+          }
+        ],
+        "folded": {
+          "content": "",
+          "model": "claude",
+          "toolCalls": [
+            {
+              "id": "toolu_leaked_771914d27acc3992",
+              "name": "shell",
+              "arguments": {
+                "command": "ls"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "tool_use",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta",
+            "input_json_delta"
+          ],
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "chat-dedupe-leaked-plus-native",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:536",
+      "input": {
+        "route": "chat",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [],
+        "events": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "<invoke name=\"read\"><parameter name=\"path\">a</parameter></invoke>"
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "id": "call_1",
+                      "type": "function",
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a\"}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          }
+        ]
+      },
+      "result": {
+        "texts": [],
+        "captured": [
+          {
+            "id": "call_leaked_1a5368f8fdda6482",
+            "name": "read",
+            "arguments": {
+              "path": "a"
+            }
+          }
+        ],
+        "folded": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_1",
+                      "type": "function",
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "total_tokens": 1
+            }
+          },
+          "model": "",
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_1",
+              "name": "read",
+              "arguments": {
+                "path": "a"
+              }
+            }
+          ],
+          "stopReason": "tool_calls",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": {
+            "total_tokens": 1
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-bare-antml-prose-streamed",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:559",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "The tag antml:invoke is used internally; here we just mention it in a sentence."
+        ]
+      },
+      "result": {
+        "texts": [
+          "The tag antml:invoke is used internally; here we just mention it in a sentence."
+        ],
+        "captured": [],
+        "folded": {
+          "content": "The tag antml:invoke is used internally; here we just mention it in a sentence.",
+          "model": "claude",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "The tag antml:invoke is used internally; here we just mention it in a sentence."
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "The tag antml:invoke is used internally; here we just mention it in a sentence."
+              }
+            ]
+          },
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-bare-antml-control-bracket-form",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:579",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "ok\n<invoke name=\"read\"><parameter name=\"path\">z</parameter></invoke>"
+        ]
+      },
+      "result": {
+        "texts": [
+          "ok\n"
+        ],
+        "captured": [
+          {
+            "id": "toolu_leaked_41c00a24664082f7",
+            "name": "read",
+            "arguments": {
+              "path": "z"
+            }
+          }
+        ],
+        "folded": {
+          "content": "ok\n",
+          "model": "claude",
+          "toolCalls": [
+            {
+              "id": "toolu_leaked_41c00a24664082f7",
+              "name": "read",
+              "arguments": {
+                "path": "z"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "generationMs": 0
+        }
+      }
+    },
+    {
+      "id": "anthropic-unmatched-backtick-in-suppressed-args",
+      "source": "scripts/provider-toolcall/leak-guards.test.mjs:604",
+      "input": {
+        "route": "anthropic",
+        "knownToolNames": [
+          "shell",
+          "read"
+        ],
+        "deltas": [
+          "<invoke name=\"read\"><parameter name=\"path\">a`b</parameter></invoke> some visible prose <invoke name=\"shell\"><parameter name=\"command\">ls</parameter></invoke>"
+        ]
+      },
+      "result": {
+        "texts": [
+          " some visible prose "
+        ],
+        "captured": [
+          {
+            "id": "toolu_leaked_fff0029b20d69ded",
+            "name": "read",
+            "arguments": {
+              "path": "a`b"
+            }
+          },
+          {
+            "id": "toolu_leaked_d418fcc0c850ca11",
+            "name": "shell",
+            "arguments": {
+              "command": "ls"
+            }
+          }
+        ],
+        "folded": {
+          "content": " some visible prose ",
+          "model": "claude",
+          "toolCalls": [
+            {
+              "id": "toolu_leaked_fff0029b20d69ded",
+              "name": "read",
+              "arguments": {
+                "path": "a`b"
+              }
+            },
+            {
+              "id": "toolu_leaked_d418fcc0c850ca11",
+              "name": "shell",
+              "arguments": {
+                "command": "ls"
+              }
+            }
+          ],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "text_delta"
+          ],
+          "generationMs": 0
+        }
+      }
+    }
+  ]
+}
