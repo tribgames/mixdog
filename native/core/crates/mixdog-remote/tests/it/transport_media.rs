@@ -25,7 +25,7 @@ use sha2::Sha256;
 use tokio::sync::Notify;
 use tokio::sync::oneshot;
 
-const RECORDED: &str = include_str!("../../../../fixtures/remote-transport-media/scenarios.json");
+const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-media/scenarios.json");
 const KEY: [u8; 32] = [7; 32];
 const DEVICE: &str = "dev-1";
 
@@ -221,7 +221,7 @@ fn describe(actual: &Value, recorded: &Value, requests: &HashMap<String, Value>)
 
 #[tokio::test(flavor = "current_thread")]
 async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(RECORDED).expect("the recording is JSON");
+    let recorded: Value = serde_json::from_str(&RECORDED).expect("the recording is JSON");
     let scenarios = recorded["scenarios"].as_array().expect("scenarios");
     assert!(scenarios.len() >= 12);
     let mut checked = 0;

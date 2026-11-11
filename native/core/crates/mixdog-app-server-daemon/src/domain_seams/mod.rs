@@ -22,7 +22,7 @@ pub mod thread_progress_hints;
 /// The recorded Node goldens of the seams (`record-domain-seams.mjs`).
 #[cfg(test)]
 pub(crate) fn golden() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../../../fixtures/domain-seams/golden.json")).expect("the golden is JSON")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/domain-seams/golden.json")).expect("the golden is JSON")
 }
 
 /// `value` with the scenario folder `root` written `<root>` and backslashes `/` (the recorder's

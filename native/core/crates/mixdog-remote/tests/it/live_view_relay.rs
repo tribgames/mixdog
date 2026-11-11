@@ -21,7 +21,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
 
-const RELAY: &str = include_str!("../../../../fixtures/live-view/relay.json");
+const RELAY: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view/relay.json");
 
 type Settlement = Result<Value, String>;
 
@@ -244,7 +244,7 @@ fn run_scenario(scenario: &Value) {
 
 #[test]
 fn the_relay_behaves_as_nodes_did_in_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(RELAY).unwrap();
+    let recorded: Value = serde_json::from_str(&RELAY).unwrap();
     let scenarios = recorded["scenarios"].as_array().unwrap();
     assert_eq!(scenarios.len(), 17);
     for scenario in scenarios {

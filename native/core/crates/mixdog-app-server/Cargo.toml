@@ -21,6 +21,7 @@ tracing = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }

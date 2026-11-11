@@ -387,7 +387,7 @@ mod tests {
     /// by file, a user override of the shared format, unusable and partial style files.
     #[test]
     fn the_lead_parts_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/rules_lead.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/rules_lead.json")).expect("fixture");
         let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("lead-golden-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         write_tree(&root.join("plugin"), &golden["plugin"]);
