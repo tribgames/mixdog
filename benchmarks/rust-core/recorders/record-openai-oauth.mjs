@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 // openai-oauth.test.mjs (11 tests): the real OpenAI OAuth Responses request builder (`buildRequestBody`), history lowering
 // (`_convertMessagesToResponsesInputForTest`), custom-tool-wire parser and the HTTP/SSE decoder (`sendViaHttpSse`) over scripted SSE
-// frames. The HTTP endpoint is the product's `fetchFn` injection point: a scripted function that records the request (url, header names
-// in order, body) and answers with the scripted frames framed as the test frames them.
+// frames. The HTTP/SSE cases send through the product's own fetch to the loopback endpoint, which serves each scripted frame as one socket write; the request is what arrived at the socket.
 //   node benchmarks/rust-core/recorders/record-openai-oauth.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openai-oauth',
-  net: false,
-  entry: 'openai-oauth.mjs buildRequestBody / _convertMessagesToResponsesInputForTest, openai-oauth-http-sse.mjs sendViaHttpSse({ auth, body, useModel, opts, cacheKey, fetchFn, onToolCall }), custom-tool-wire.mjs customToolCallFromResponseItem, tools/patch-tool-defs.mjs PATCH_TOOL_DEFS and tools/builtin BUILTIN_TOOLS as tool inputs. Not run: a live endpoint.',
+    entry: 'openai-oauth.mjs buildRequestBody / _convertMessagesToResponsesInputForTest, openai-oauth-http-sse.mjs sendViaHttpSse({ auth, body, useModel, opts, cacheKey, onToolCall }), custom-tool-wire.mjs customToolCallFromResponseItem, tools/patch-tool-defs.mjs PATCH_TOOL_DEFS and tools/builtin BUILTIN_TOOLS as tool inputs. Not run: a live endpoint.',
   compare: 'mixdog-ai providers::openai input.rs:270-346,440-470,534-582, decoder.rs:789,1144-1179 and codec.rs:89-98: feed `input` (history/tools/opts, or `frames` for the HTTP/SSE cases) and compare `result`/`error` and the request body / headers recorded in `request` whole. K1 notes: the env kill switches MIXDOG_OAI_DISABLE_REASONING_REPLAY and MIXDOG_OAI_STATELESS_HTTP are Node-only (gaps G11).',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:497), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
 });
@@ -22,12 +20,8 @@ const { PATCH_TOOL_DEFS } = await rec.P('agent/orchestrator/tools/patch-tool-def
 const { BUILTIN_TOOLS } = await rec.P('agent/orchestrator/tools/builtin/builtin-tools.mjs');
 const SRC = 'scripts/provider-toolcall/openai-oauth.test.mjs';
 
-// The HTTP/SSE answer: each event framed `event: <type>\ndata: <json>\n\n`, delivered whole.
-const httpSseResponse = (events) => {
-  const chunks = events.map((e) => new TextEncoder().encode(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`));
-  let i = 0;
-  return { status: 200, ok: true, headers: new Map(), body: { getReader: () => ({ read: () => Promise.resolve(i < chunks.length ? { done: false, value: chunks[i++] } : { done: true, value: undefined }), cancel: () => Promise.resolve(), releaseLock() {} }) } };
-};
+// The HTTP/SSE answer: each event framed `event: <type>\ndata: <json>\n\n`, written to the loopback endpoint as its own socket write.
+const frames = (events) => events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
 const attempt = async (promise) => {
   try {
     return { result: await promise };
@@ -35,11 +29,12 @@ const attempt = async (promise) => {
     return { error };
   }
 };
-const sse = (args, events, onToolCall) => {
-  const request = [];
-  const out = attempt(sendViaHttpSse({ ...args, onToolCall, fetchFn: async (url, init) => (request.push({ url, headers: Object.entries(init.headers ?? {}), body: init.body ?? null }), httpSseResponse(events)) }));
-  return out.then((o) => ({ ...o, request }));
+// The product's own fetch (redirected to the loopback endpoint by the recorder); the request that arrived is recorded in `requests` of the case.
+const sse = async (args, events, onToolCall) => {
+  rec.net.reply = () => ({ status: 200, contentType: 'text/event-stream', chunks: frames(events) });
+  return attempt(sendViaHttpSse({ ...args, onToolCall }));
 };
+
 
 const nativePairHistory = [
   { role: 'assistant', content: '', toolCalls: [{ id: 'native-pair', name: 'load_tool', arguments: {}, nativeType: 'tool_search_call' }] },
