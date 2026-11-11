@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // What each paired phone reading (or not reading) the terminal lane receives at the Node baseline (b6f10295a): the desktop service's real
 // relay leg, client table, relay push lanes (remote-relay-push-lanes.ts, its 16 ms TerminalDataBufferer) and terminal manager, a scripted
-// relay and three real E2EE phones. Each tab's shell is the scripted shell (lib/scripted-pty.mjs in place of node-pty, the program the
-// core's replay mode runs over pipes): it writes back each typed line in one write, so a phone's messages hold exactly what was typed.
+// relay and three real E2EE phones. Each tab's shell is the framed scripted shell (lib/scripted-pty.mjs in place of node-pty, the program
+// the core's replay mode runs over pipes): it writes back each typed line as one chunk, or the chunks an `@chunks` line gives, and the
+// terminal manager gets one data event per chunk, so a phone's messages hold exactly what was typed, cut where the script cut it.
 // Per world, in order:
 //   - p1 and p2 read the terminal lane, p3 reads no lane;
 //   - a tab the desktop opens, typed into: its first output;
@@ -10,14 +11,17 @@
 //   - p2 leaves the lane, the desktop tab writes, p2 comes back, the desktop tab writes again;
 //   - p3 joins the lane while the desktop tab is mid-output (it has written three lines), and the tab writes;
 //   - a tab whose shell ends by itself (`@exit 3`) while all three read, then its dispose;
+//   - a fresh tab runs a command: its start marker, two lines of output in one chunk, its end marker, each a chunk; then its shell ends;
+//   - a fresh tab whose first line spans two chunks; then its shell ends;
+//   - p2 claims the desktop tab's size (`termResize` as its owner), then gives it up;
 //   - the tab p2 opened writes, and p2 disposes it while its shell runs: the last output and the exit line that follows;
 //   - an unpair of p1's device (`remoteAccessRevokeClient`) that the relay refuses, or confirms with the phone's socket still open, and
 //     output after it.
-// Recorded per phone: every terminal-lane push it received (termData, termActivity, termSizeOwner), each in its own order, whole, through
-// `exact`; for each termData the relay envelope's `droppable` (what Node let the relay drop for a phone that cannot take it); whether the
-// desktop closed the phone. Every step waits for what it sent to reach each phone reading the lane, and a phone that does not read is
-// asked a call whose answer comes after anything the step sent it, before the next step: one typed line is one chunk and one frame
-// (see the manifest's `framing`), so the split into messages is Node's and the same on every run.
+// Recorded per phone: every terminal-lane push it received (termData, termActivity, termSizeOwner) in the one order it received them,
+// whole, through `exact`; for each termData the relay envelope's `droppable` (what Node let the relay drop for a phone that cannot take
+// it); whether the desktop closed the phone. Every step waits for what it sent to reach each phone reading the lane, and a phone that
+// does not read is asked a call whose answer comes after anything the step sent it, before the next step (see the manifest's `framing`
+// and `order` for why the messages and their order are then the same on every run).
 //
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs
 //     benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs --tree <git archive of b6f10295a with node_modules> [--only <world>]
@@ -32,7 +36,19 @@ import { exact } from './lib/exact.mjs';
 import { withJob } from './lib/process-job.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 import { assertNoPowerShellProfile, isolatedProfile } from './lib/shell-isolation.mjs';
-import { LANE_EVENTS, LANE_REACH_CREDENTIALS, LANE_REACH_TABS, KILLED_EXIT_NORMALISED, echoed, normaliseKilledExit, typed } from './lib/terminal-lane-reach.mjs';
+import {
+  LANE_EVENTS,
+  LANE_REACH_CREDENTIALS,
+  LANE_REACH_TABS,
+  KILLED_EXIT_NORMALISED,
+  MARK_DONE,
+  MARK_START,
+  chunks,
+  echoed,
+  normaliseKilledExit,
+  pushesOf,
+  typed,
+} from './lib/terminal-lane-reach.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs';
@@ -79,7 +95,7 @@ if (!args.has('child')) {
   const finalDir = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'terminal-lane-reach');
   const stage = stageSet(finalDir);
   writeJson(join(stage, 'golden.json'), {
-    note: "Node (b6f10295a): per world, every terminal-lane push each paired phone received, per kind in order and whole (exact), each termData with its relay envelope's `droppable`, and whether the desktop closed the phone. See the recorder's header for the steps.",
+    note: "Node (b6f10295a): per world, every terminal-lane push each paired phone received, in the one order it received them and whole (exact), each termData with its relay envelope's `droppable`, and whether the desktop closed the phone. See the recorder's header for the steps.",
     credentials: LANE_REACH_CREDENTIALS,
     tabs: LANE_REACH_TABS,
     worlds,
@@ -95,11 +111,13 @@ if (!args.has('child')) {
       entry:
         "Ran: Node's desktop service (createDesktopService) with its relay leg dialling a scripted relay (relay-capabilities, roster, revoke-client answers), three phones through the relay with the app's own E2EE handshake, `setRemoteLanes`, `termEnsure`, `termWrite`, `termDispose`, `termProfiles` as the phones' calls, and the desktop's own `termEnsure`, `termWrite`, `termDispose`, `remoteAccessRevokeClient`. The PTY is the scripted shell (lib/scripted-pty.mjs through lib/scripted-pty-hooks.mjs): node-pty's ConPTY is not run, and the terminal manager's own code runs on what the shell writes. Not run: a direct (WebRTC) transport; binary relay frames (the relay offers text frames).",
       replay:
-        "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::profile over pipes), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page) are compared whole with Node's, each in its own order; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
+        "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::framed_profile over pipes, read one chunk per read through scripted::Frames), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page), in the one order the page got them, are compared whole with Node's; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
       compared:
-        "Each world's values whole, per phone and per kind of push in order: every termData (tab id and text, exactly) with its envelope `droppable`, every termActivity and termSizeOwner, and whether the desktop closed the phone. Not compared: the interleaving of the kinds with each other (termData goes through the relay lane's 16 ms buffer, the others at once: remote-relay-push-lanes.ts:80-89 against :139-150), and the `droppable` of termActivity and termSizeOwner (Node sends both never droppable, :139-150; the core's come from its sections, which do not carry a phone frame of their own).",
+        "Each world's values whole, per phone: every push in the one order the phone received it (termData with tab id and text exactly and its envelope `droppable`, termActivity, termSizeOwner), and whether the desktop closed the phone. Not compared: the `droppable` of termActivity and termSizeOwner (Node sends both never droppable, remote-relay-push-lanes.ts:132-150; the core's come from its sections, which do not carry a phone frame of their own).",
       framing:
-        "Not on a virtual clock, and not needed: every step waits until what it sent reached every phone reading the lane before the next output is written, so the relay buffer holds one chunk at a time; a chunk with nothing waiting is sent at once or after its 16 ms as one frame of its own (terminal-data-buffer.ts:41-58 and :62-87: `flush` sends the joined pending chunks, and the push lane acknowledges each frame as it sends it, remote-relay-push-lanes.ts:83-88, so no high watermark holds any back), and the scripted shell writes each line back in one write over a pipe, one chunk. So one typed line is one termData message on every run, whatever the timing. How the buffer joins chunks that arrive within 16 ms is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
+        "How output is cut into termData messages is fixed by the script, not by timing, on both sides. The cut into data events is the script's: the scripted shell ends each chunk with RS and flushes it on its own, and the stand-in hands the terminal manager exactly one data event per chunk whatever the pipe joined or split (lib/scripted-pty.mjs `takeChunks`; the core's reader gets one chunk per read, mixdog-spawn scripted::Frames). The cut into messages is then Node's relay buffer (terminal-data-buffer.ts, `{ delayMs: 16, leadingEdge: true }`, every frame acknowledged as sent, remote-relay-push-lanes.ts:80-89), on the real clock, and these inputs leave it no choice: a data event on a tab with nothing pending is sent at once when 16 ms have passed since that tab's last frame or the tab has had none (:53-60), and otherwise held until 16 ms after the last frame, joined only with data of the same tab arriving meanwhile (:44-50, :63-87). Every step waits until its output reached every phone reading before the next is written, so at most one step's output is ever pending; a step writing one chunk is one message whether sent at once or held (the chunk of two lines on term_lane_cmd is one message); the two chunks on term_lane_split are that tab's first output, so the first is sent at once on arrival and the second, coming after that frame, is a message of its own whether it arrives within 16 ms (held, alone) or later (sent at once). Not recorded here, and timing in Node: two chunks after a tab's first frame arriving within one 16 ms window (joined) or across it (two messages); that rule is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
+      order:
+        "One order per phone across all kinds: Node raises every one of these pushes on the desktop service's one thread, synchronously from the terminal manager's events (terminal-manager.ts:360-372 `pty.onData`: a chunk's text into the data listeners, then its markers into the activity tracker; :380-383 an exit: `activity.exit()`, then the exit line; desktop-operations.ts:525-530 size owner and activity re-emitted as desktop events; remote-relay-push-lanes.ts:97-101, :132-150), and the only deferral among them is the relay buffer's 16 ms timer for termData. For these inputs that timer cannot reorder: on term_lane_cmd the start marker's chunk has no text (its termActivity goes at once), the output chunk is the tab's first data and is sent at once on arrival (terminal-data-buffer.ts:53-60), and the end marker's chunk comes after it; the exit's termActivity (null) is broadcast before its exit line enters the buffer; the size owner changes come with no output pending. Where Node does leave data against activity to timing (output within 16 ms of the tab's last frame is held while a later marker's change goes at once) is not among these inputs.",
       slowPhone:
         "Node's desktop sends every termData to the relay marked `droppable` (remote-relay-push-lanes.ts:85, remote-relay-delivery.ts:131-140) and keeps nothing per phone: a phone that cannot take it is the relay's to skip, with a resync hint, never closed (apps/relay/lib/relay-legs.mjs:304-319 deliverToPhone, relay-transport.mjs:717-733 sendToPhone and admitFrame :308-313; a frame not droppable over a leg's budget cuts the leg). The desktop's memory for it is the relay socket's send buffer, shared by every phone, which one slow phone does not fill: the relay never pauses the desktop's socket for one consumer (relay-legs.mjs:512-516). Recorded: each termData's `droppable`.",
       normalised: [
@@ -205,14 +223,14 @@ async function world(relayConfirms) {
         }
         const message = await phone.channel.decryptJson(envelope.data);
         phone.messages.push(message);
-        if (message.event === 'termData') phone.got.termData.push({ payload: message.payload, droppable: envelope.droppable });
-        else if (LANE_EVENTS.includes(message.event)) phone.got[message.event].push({ payload: message.payload });
+        if (message.event === 'termData') phone.pushes.push({ event: message.event, payload: message.payload, droppable: envelope.droppable });
+        else if (LANE_EVENTS.includes(message.event)) phone.pushes.push({ event: message.event, payload: message.payload });
         changes.emit('change');
       });
     });
     let next = 100;
     const openPhone = async (id, credential) => {
-      const phone = { id, messages: [], got: Object.fromEntries(LANE_EVENTS.map((event) => [event, []])), channel: null, queue: Promise.resolve(), closedByDesktop: null };
+      const phone = { id, messages: [], pushes: [], channel: null, queue: Promise.resolve(), closedByDesktop: null };
       phones.set(id, phone);
       leg.send(JSON.stringify({ type: 'client-open', clientId: id, browserClientId: credential }));
       await until(() => phone.messages.length > 0, `the phone ${id} is established`);
@@ -227,8 +245,7 @@ async function world(relayConfirms) {
         // Keystrokes: a frame without an id, which Node answers with nothing.
         fire: (method, params) => send({ method, params }),
         text: (tab) =>
-          phone.got.termData
-            .filter((entry) => entry.payload?.id === tab)
+          pushesOf(phone.pushes, 'termData', tab)
             .map((entry) => entry.payload.data)
             .join(''),
         phone,
@@ -244,11 +261,15 @@ async function world(relayConfirms) {
       if (read) reading.add(name);
       else reading.delete(name);
     };
-    /** `text` reached every phone reading the lane on `tab`; each other phone has had a call answered after it was sent. */
-    const reached = async (tab, text) => {
-      await until(() => [...reading].every((name) => all[name].text(tab).includes(text)), `${[...reading].join(', ')} to get ${JSON.stringify(text)} on ${tab}`);
+    /** `holds` for every phone reading the lane; each other phone has had a call answered after anything sent to it. */
+    const reachedWhen = async (holds, what) => {
+      await until(() => [...reading].every((name) => holds(all[name])), `${[...reading].join(', ')} to get ${what}`);
       for (const name of Object.keys(all)) if (!reading.has(name)) await all[name].call('termProfiles', []);
     };
+    /** `text` reached every phone reading the lane on `tab`. */
+    const reached = (tab, text) => reachedWhen((phone) => phone.text(tab).includes(text), `${JSON.stringify(text)} on ${tab}`);
+    /** A `kind` push on `tab` matching `wanted` reached every phone reading the lane. */
+    const pushed = (kind, tab, wanted, what) => reachedWhen((phone) => pushesOf(phone.phone.pushes, kind, tab).some((push) => wanted(push.payload)), what);
     const desktopTypes = async (tab, line) => {
       await invoke('termWrite', tab, typed(line));
       await reached(tab, echoed(line));
@@ -285,6 +306,32 @@ async function world(relayConfirms) {
     await invoke('termDispose', LANE_REACH_TABS.ends);
     for (const phone of Object.values(all)) await phone.call('termProfiles', []);
 
+    // A command on a fresh tab: its start marker, its output (two lines in one chunk) and its end marker, each a chunk of its own; then
+    // the shell's end.
+    await invoke('termEnsure', LANE_REACH_TABS.command, cwd, null);
+    await invoke('termWrite', LANE_REACH_TABS.command, chunks(MARK_START, 'lane-cmd-1\\nlane-cmd-2\\n', MARK_DONE));
+    await reached(LANE_REACH_TABS.command, 'lane-cmd-1\r\nlane-cmd-2\r\n');
+    await pushed('termActivity', LANE_REACH_TABS.command, (payload) => payload.state === 'finished', 'the command tab finished');
+    await invoke('termWrite', LANE_REACH_TABS.command, typed('@exit 0'));
+    await reached(LANE_REACH_TABS.command, EXITED);
+    await invoke('termDispose', LANE_REACH_TABS.command);
+    for (const phone of Object.values(all)) await phone.call('termProfiles', []);
+
+    // A fresh tab whose first line spans two chunks; then the shell's end.
+    await invoke('termEnsure', LANE_REACH_TABS.split, cwd, null);
+    await invoke('termWrite', LANE_REACH_TABS.split, chunks('lane-sp', 'lit\\n'));
+    await reached(LANE_REACH_TABS.split, 'lane-split\r\n');
+    await invoke('termWrite', LANE_REACH_TABS.split, typed('@exit 0'));
+    await reached(LANE_REACH_TABS.split, EXITED);
+    await invoke('termDispose', LANE_REACH_TABS.split);
+    for (const phone of Object.values(all)) await phone.call('termProfiles', []);
+
+    // p2 claims the desktop tab's size, then gives it up.
+    await p2.fire('termResize', [LANE_REACH_TABS.desktop, 100, 30, true]);
+    await pushed('termSizeOwner', LANE_REACH_TABS.desktop, (payload) => payload.cols === 100, "p2's size claim");
+    await p2.fire('termResize', [LANE_REACH_TABS.desktop, 0, 0, true]);
+    await pushed('termSizeOwner', LANE_REACH_TABS.desktop, (payload) => payload.cols === 0, "p2's release of the size");
+
     // The tab p2 opened writes, and p2 disposes it while its shell runs.
     await p2.fire('termWrite', [LANE_REACH_TABS.phone, typed('lane-ph-2')]);
     await reached(LANE_REACH_TABS.phone, echoed('lane-ph-2'));
@@ -298,7 +345,7 @@ async function world(relayConfirms) {
     await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-5');
 
     const phonesGot = normaliseKilledExit(
-      Object.fromEntries(Object.entries(all).map(([name, { phone }]) => [name, { ...exact(phone.got), closedByDesktop: exact(phone.closedByDesktop) }])),
+      Object.fromEntries(Object.entries(all).map(([name, { phone }]) => [name, { pushes: exact(phone.pushes), closedByDesktop: exact(phone.closedByDesktop) }])),
       LANE_REACH_TABS.phone
     );
     await invoke('termDispose', LANE_REACH_TABS.desktop);

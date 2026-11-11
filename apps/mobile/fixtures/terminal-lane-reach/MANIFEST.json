@@ -1,16 +1,16 @@
 {
   "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
-  "compared": "Each world's values whole, per phone and per kind of push in order: every termData (tab id and text, exactly) with its envelope `droppable`, every termActivity and termSizeOwner, and whether the desktop closed the phone. Not compared: the interleaving of the kinds with each other (termData goes through the relay lane's 16 ms buffer, the others at once: remote-relay-push-lanes.ts:80-89 against :139-150), and the `droppable` of termActivity and termSizeOwner (Node sends both never droppable, :139-150; the core's come from its sections, which do not carry a phone frame of their own).",
+  "compared": "Each world's values whole, per phone: every push in the one order the phone received it (termData with tab id and text exactly and its envelope `droppable`, termActivity, termSizeOwner), and whether the desktop closed the phone. Not compared: the `droppable` of termActivity and termSizeOwner (Node sends both never droppable, remote-relay-push-lanes.ts:132-150; the core's come from its sections, which do not carry a phone frame of their own).",
   "entry": "Ran: Node's desktop service (createDesktopService) with its relay leg dialling a scripted relay (relay-capabilities, roster, revoke-client answers), three phones through the relay with the app's own E2EE handshake, `setRemoteLanes`, `termEnsure`, `termWrite`, `termDispose`, `termProfiles` as the phones' calls, and the desktop's own `termEnsure`, `termWrite`, `termDispose`, `remoteAccessRevokeClient`. The PTY is the scripted shell (lib/scripted-pty.mjs through lib/scripted-pty-hooks.mjs): node-pty's ConPTY is not run, and the terminal manager's own code runs on what the shell writes. Not run: a direct (WebRTC) transport; binary relay frames (the relay offers text frames).",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11342,
+      "bytes": 25836,
       "path": "golden.json",
-      "sha256": "944209d156f5dceeecc55e4275b052408a13d6a474928f8354da6a7b0704da7c"
+      "sha256": "03ebfa8cb4509c3b2ec82497ccb1ccbf682f945fcfbc4c6fc06a601961c4c154"
     }
   ],
-  "framing": "Not on a virtual clock, and not needed: every step waits until what it sent reached every phone reading the lane before the next output is written, so the relay buffer holds one chunk at a time; a chunk with nothing waiting is sent at once or after its 16 ms as one frame of its own (terminal-data-buffer.ts:41-58 and :62-87: `flush` sends the joined pending chunks, and the push lane acknowledges each frame as it sends it, remote-relay-push-lanes.ts:83-88, so no high watermark holds any back), and the scripted shell writes each line back in one write over a pipe, one chunk. So one typed line is one termData message on every run, whatever the timing. How the buffer joins chunks that arrive within 16 ms is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
+  "framing": "How output is cut into termData messages is fixed by the script, not by timing, on both sides. The cut into data events is the script's: the scripted shell ends each chunk with RS and flushes it on its own, and the stand-in hands the terminal manager exactly one data event per chunk whatever the pipe joined or split (lib/scripted-pty.mjs `takeChunks`; the core's reader gets one chunk per read, mixdog-spawn scripted::Frames). The cut into messages is then Node's relay buffer (terminal-data-buffer.ts, `{ delayMs: 16, leadingEdge: true }`, every frame acknowledged as sent, remote-relay-push-lanes.ts:80-89), on the real clock, and these inputs leave it no choice: a data event on a tab with nothing pending is sent at once when 16 ms have passed since that tab's last frame or the tab has had none (:53-60), and otherwise held until 16 ms after the last frame, joined only with data of the same tab arriving meanwhile (:44-50, :63-87). Every step waits until its output reached every phone reading before the next is written, so at most one step's output is ever pending; a step writing one chunk is one message whether sent at once or held (the chunk of two lines on term_lane_cmd is one message); the two chunks on term_lane_split are that tab's first output, so the first is sent at once on arrival and the second, coming after that frame, is a message of its own whether it arrives within 16 ms (held, alone) or later (sent at once). Not recorded here, and timing in Node: two chunks after a tab's first frame arriving within one 16 ms window (joined) or across it (two messages); that rule is recorded on a virtual clock in apps/mobile/fixtures/relay-framing and replayed by mixdog-spawn service::relay_buffer.",
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -34,7 +34,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/scripted-pty.mjs",
-      "sha256": "00d44c09c8ac4570d2364c1bc0ccc66b282d278ef4ebcb5c8fabbfa3544e6c9d"
+      "sha256": "7aade88efe23dac86ea9382c339302938d4164809b9a4df4d9ea8adb1ae268d7"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/shell-isolation.mjs",
@@ -42,7 +42,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/terminal-lane-reach.mjs",
-      "sha256": "852c125d7d211a60eb3ccfa99b0c948b59b844be1d35a77ffd4b6f08905b5b43"
+      "sha256": "490b1ca8d95212b0d47365aa65623320895f7b544dccd1f9bc8eee84e83727c0"
     }
   ],
   "leftProcesses": "0 process(es) of the recording were still running when it ended; any are ended with its job.",
@@ -54,6 +54,7 @@
       "value": "[process exited with code <ended by the dispose>]"
     }
   ],
+  "order": "One order per phone across all kinds: Node raises every one of these pushes on the desktop service's one thread, synchronously from the terminal manager's events (terminal-manager.ts:360-372 `pty.onData`: a chunk's text into the data listeners, then its markers into the activity tracker; :380-383 an exit: `activity.exit()`, then the exit line; desktop-operations.ts:525-530 size owner and activity re-emitted as desktop events; remote-relay-push-lanes.ts:97-101, :132-150), and the only deferral among them is the relay buffer's 16 ms timer for termData. For these inputs that timer cannot reorder: on term_lane_cmd the start marker's chunk has no text (its termActivity goes at once), the output chunk is the tab's first data and is sent at once on arrival (terminal-data-buffer.ts:53-60), and the end marker's chunk comes after it; the exit's termActivity (null) is broadcast before its exit line enters the buffer; the size owner changes come with no output pending. Where Node does leave data against activity to timing (output within 16 ms of the tab's last frame is held while a later marker's change goes at once) is not among these inputs.",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -72,10 +73,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs",
-  "recorderSha256": "4f5020da6086ebf926ea0be74792617e75a9fd34973bfa7f77b7045dcdae9801",
-  "replay": "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::profile over pipes), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page) are compared whole with Node's, each in its own order; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
+  "recorderSha256": "79d298e507f676440695738326bb34d71f65b6b18e0874b3519305860cb43637",
+  "replay": "apps/desktop/src/renderer/remote-protocol-terminal-lanes.slow.test.mjs (benchmarks/rust-core/recorders/lib/terminal-lane-reach-replay.mjs): mixdogd built with `--features \"terminal-lease-clock replay-controls\"` and started with MIXDOG_TERMINAL_SCRIPTED_SHELL=1 (mixdog-spawn `scripted-shell`: every tab runs crate::scripted::framed_profile over pipes, read one chunk per read through scripted::Frames), dialling a scripted relay; the desktop over `terminal/ensure`, `terminal/input`, `terminal/dispose`, `remoteAccess/revokeClient`; each phone the page's own terminal adapter (remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over the protocol client through the relay. Each phone's termData, termActivity and termSizeOwner events (what the adapter hands the page), in the one order the page got them, are compared whole with Node's; each termData's envelope `droppable` is that of the relay frame that carried its `process/outputDelta` on the terminal lane feed.",
   "set": "terminal-lane-reach",
   "slowPhone": "Node's desktop sends every termData to the relay marked `droppable` (remote-relay-push-lanes.ts:85, remote-relay-delivery.ts:131-140) and keeps nothing per phone: a phone that cannot take it is the relay's to skip, with a resync hint, never closed (apps/relay/lib/relay-legs.mjs:304-319 deliverToPhone, relay-transport.mjs:717-733 sendToPhone and admitFrame :308-313; a frame not droppable over a leg's budget cuts the leg). The desktop's memory for it is the relay socket's send buffer, shared by every phone, which one slow phone does not fill: the relay never pauses the desktop's socket for one consumer (relay-legs.mjs:512-516). Recorded: each termData's `droppable`.",
-  "totalBytes": 11342,
+  "totalBytes": 25836,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

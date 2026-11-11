@@ -1,9 +1,9 @@
 // The replay of record-terminal-lane-reach.mjs against a built mixdogd (`--features "terminal-lease-clock replay-controls"`): per recorded
-// world a freshly started core whose tabs run the scripted shell (MIXDOG_TERMINAL_SCRIPTED_SHELL, the program Node's recording ran in place
-// of node-pty) and that dials a scripted relay, a desktop connection (loopback) that opens tabs and types into them, and three paired phones
+// world a freshly started core whose tabs run the framed scripted shell (MIXDOG_TERMINAL_SCRIPTED_SHELL, the program Node's recording ran in
+// place of node-pty, one chunk per read) and that dials a scripted relay, a desktop connection (loopback) that opens tabs and types into them, and three paired phones
 // behind the relay, each the page's own terminal adapter (apps/desktop/src/renderer/remote-protocol-terminal.ts) and lane feeds
 // (apps/mobile/src/phone-lanes.ts) over its protocol client. The same steps as the recording, with the same waits; each phone's
-// termData, termActivity and termSizeOwner events are recorded the recording's way and each world is compared whole with Node's.
+// termData, termActivity and termSizeOwner events are recorded the recording's way, in one order, and each world is compared whole with Node's.
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,7 +15,7 @@ import { endCore } from './core-stop.mjs';
 import { exact } from './exact.mjs';
 import { startCore } from './phone-files-replay.mjs';
 import { assertNoPowerShellProfile, isolatedProfile } from './shell-isolation.mjs';
-import { LANE_EVENTS, LANE_REACH_CREDENTIALS, LANE_REACH_TABS, echoed, normaliseKilledExit, typed } from './terminal-lane-reach.mjs';
+import { LANE_REACH_CREDENTIALS, LANE_REACH_TABS, MARK_DONE, MARK_START, chunks, echoed, normaliseKilledExit, pushesOf, typed } from './terminal-lane-reach.mjs';
 
 /** The terminal lane's feed (remote-protocol-terminal.ts LANE_FEED): its `process/outputDelta` frames are the phone's termData. */
 const LANE_FEED = 'process:relay';
@@ -169,6 +169,9 @@ export async function replayLaneReach({ exe, golden }) {
           const { connector, phone } = await relay.openPhone(`${name}-${n}`, credential, pairing);
           const client = await within(connect(base(connector, 'phone', 'mixdog-phone')), `the phone ${name}'s connection`);
           clients.push(client);
+          // The page's view attach (apps/mobile/src/phone-view.ts): the app feed, whose terminalActivity and terminalTabs sections the
+          // adapter turns into termActivity and termSizeOwner.
+          await within(client.subscribeApp(), `the phone ${name}'s app subscription`);
           // The lanes' (un)subscriptions, so a lane change goes on once the core has answered it (the recording waited for `setRemoteLanes`'s answer).
           let pending = [];
           const call = client.call.bind(client);
@@ -178,9 +181,10 @@ export async function replayLaneReach({ exe, golden }) {
             return answer;
           };
           const lanes = createLaneFeeds(client);
-          const got = Object.fromEntries(LANE_EVENTS.map((event) => [event, []]));
+          const pushes = [];
+          let data = 0;
           const record = (event) => (payload) => {
-            got[event].push(event === 'termData' ? { payload, droppable: phone.laneDroppable[got.termData.length] } : { payload });
+            pushes.push(event === 'termData' ? { event, payload, droppable: phone.laneDroppable[data++] } : { event, payload });
             changed();
           };
           const ctx = {
@@ -199,7 +203,8 @@ export async function replayLaneReach({ exe, golden }) {
           return {
             router,
             phone,
-            got,
+            pushes,
+            data: () => data,
             /** The page's `setRemoteLanes`: the lanes it reads now (remote-shim-phone.ts publishLanes). */
             async lanes(read) {
               if (read) ctx.activeLanes.add('terminal');
@@ -210,8 +215,7 @@ export async function replayLaneReach({ exe, golden }) {
               await within(Promise.all(answers), `the phone ${name}'s lane ${read ? 'subscription' : 'unsubscription'}`);
             },
             text: (tab) =>
-              got.termData
-                .filter((entry) => entry.payload.id === tab)
+              pushesOf(pushes, 'termData', tab)
                 .map((entry) => entry.payload.data)
                 .join(''),
           };
@@ -224,11 +228,13 @@ export async function replayLaneReach({ exe, golden }) {
           else reading.delete(name);
         };
         const barrier = (name) => within(all[name].router.call('termProfiles', []), `the answer to ${name}'s termProfiles`);
-        /** The recording's `reached`: `text` reached every phone reading the lane on `tab`; each other phone has had a call answered after. */
-        const reached = async (tab, text) => {
-          await until(() => [...reading].every((name) => all[name].text(tab).includes(text)), `${[...reading].join(', ')} to get ${JSON.stringify(text)} on ${tab}`);
+        /** The recording's `reachedWhen`: `holds` for every phone reading the lane; each other phone has had a call answered after. */
+        const reachedWhen = async (holds, what) => {
+          await until(() => [...reading].every((name) => holds(all[name])), `${[...reading].join(', ')} to get ${what}`);
           for (const name of Object.keys(all)) if (!reading.has(name)) await barrier(name);
         };
+        const reached = (tab, text) => reachedWhen((phone) => phone.text(tab).includes(text), `${JSON.stringify(text)} on ${tab}`);
+        const pushed = (kind, tab, wanted, what) => reachedWhen((phone) => pushesOf(phone.pushes, kind, tab).some((push) => wanted(push.payload)), what);
         const desktopTypes = async (tab, line) => {
           desktop.notify('terminal/input', { tabId: tab, data: typed(line) });
           await reached(tab, echoed(line));
@@ -260,6 +266,28 @@ export async function replayLaneReach({ exe, golden }) {
         await ask('terminal/dispose', { tabId: LANE_REACH_TABS.ends });
         for (const name of Object.keys(all)) await barrier(name);
 
+        await ask('terminal/ensure', { tabId: LANE_REACH_TABS.command, options: { cwd } });
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.command, data: chunks(MARK_START, 'lane-cmd-1\\nlane-cmd-2\\n', MARK_DONE) });
+        await reached(LANE_REACH_TABS.command, 'lane-cmd-1\r\nlane-cmd-2\r\n');
+        await pushed('termActivity', LANE_REACH_TABS.command, (payload) => payload.state === 'finished', 'the command tab finished');
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.command, data: typed('@exit 0') });
+        await reached(LANE_REACH_TABS.command, EXITED);
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.command });
+        for (const name of Object.keys(all)) await barrier(name);
+
+        await ask('terminal/ensure', { tabId: LANE_REACH_TABS.split, options: { cwd } });
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.split, data: chunks('lane-sp', 'lit\\n') });
+        await reached(LANE_REACH_TABS.split, 'lane-split\r\n');
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.split, data: typed('@exit 0') });
+        await reached(LANE_REACH_TABS.split, EXITED);
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.split });
+        for (const name of Object.keys(all)) await barrier(name);
+
+        all.p2.router.fire('termResize', [LANE_REACH_TABS.desktop, 100, 30, true]);
+        await pushed('termSizeOwner', LANE_REACH_TABS.desktop, (payload) => payload.cols === 100, "p2's size claim");
+        all.p2.router.fire('termResize', [LANE_REACH_TABS.desktop, 0, 0, true]);
+        await pushed('termSizeOwner', LANE_REACH_TABS.desktop, (payload) => payload.cols === 0, "p2's release of the size");
+
         all.p2.router.fire('termWrite', [LANE_REACH_TABS.phone, typed('lane-ph-2')]);
         await reached(LANE_REACH_TABS.phone, echoed('lane-ph-2'));
         await within(all.p2.router.call('termDispose', [LANE_REACH_TABS.phone]), "the answer to p2's termDispose");
@@ -271,12 +299,12 @@ export async function replayLaneReach({ exe, golden }) {
         await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-5');
 
         const phones = normaliseKilledExit(
-          Object.fromEntries(Object.entries(all).map(([name, phone]) => [name, { ...exact(phone.got), closedByDesktop: exact(phone.phone.closedByDesktop) }])),
+          Object.fromEntries(Object.entries(all).map(([name, phone]) => [name, { pushes: exact(phone.pushes), closedByDesktop: exact(phone.phone.closedByDesktop) }])),
           LANE_REACH_TABS.phone
         );
         for (const [name, phone] of Object.entries(all)) {
-          if (phone.phone.laneDroppable.length !== phone.got.termData.length) {
-            differences.push(`${recorded.name}: ${name} got ${phone.phone.laneDroppable.length} terminal lane output frame(s) for ${phone.got.termData.length} termData event(s)`);
+          if (phone.phone.laneDroppable.length !== phone.data()) {
+            differences.push(`${recorded.name}: ${name} got ${phone.phone.laneDroppable.length} terminal lane output frame(s) for ${phone.data()} termData event(s)`);
           }
         }
         await ask('terminal/dispose', { tabId: LANE_REACH_TABS.desktop });
