@@ -90,7 +90,7 @@ pub(crate) fn apply_launch(spec: &mut ExecSpec, launch: git_launch::Launch) {
 pub async fn start_git(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
     let (outcome, program) = launch_once(exec, lane, spec.clone(), cancel).await;
     // `forgetMissingGit`: only an ENOENT start, and only when the program it named is gone (a missing cwd reports ENOENT too).
-    let missing = matches!(&outcome, Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT" }));
+    let missing = matches!(&outcome, Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }));
     if missing && git_launch::forget_missing(&program) {
         return launch_once(exec, lane, spec, cancel).await.0;
     }

@@ -149,15 +149,6 @@ fn env_json(env: &Env) -> Value {
     Value::Object(env.iter().map(|(key, value)| (key.clone(), Value::String(value.clone()))).collect())
 }
 
-/// `object`'s entries in the order `order` lists its keys, the keys `order` lacks after them.
-fn in_key_order(object: &Value, order: &Exact) -> Value {
-    let object = object.as_object().expect("an environment object");
-    let keys: Vec<&str> = order.entries().iter().map(|(key, _)| key.as_str()).collect();
-    let mut entries: Vec<(&String, &Value)> = object.iter().collect();
-    entries.sort_by_key(|(key, _)| keys.iter().position(|k| k == key).unwrap_or(keys.len()));
-    Value::Object(entries.into_iter().map(|(key, value)| (key.clone(), value.clone())).collect())
-}
-
 fn layout_json(layout: &Option<Layout>) -> Value {
     match layout {
         None => Value::Null,
@@ -188,16 +179,33 @@ fn child_launch(env: &Env) -> (String, Env, bool) {
 fn node_error(failure: &ScmFailure) -> Value {
     let code = match failure {
         ScmFailure::Unavailable { .. } => "ENOENT",
-        ScmFailure::Spawn { code } => code,
+        ScmFailure::Spawn { code, .. } => code,
         other => panic!("not a failed start: {other:?}"),
     };
     json!({"$exact": "error", "name": "Error", "message": format!("spawn {code}"), "code": code, "props": {}})
 }
 
+/// The recording's `<ms>`: a duration the run measured, written as the marker once it is one (a finite number ≥ 0).
+fn measured(ms: f64) -> Value {
+    assert!(ms.is_finite() && ms >= 0.0, "a measured duration: {ms}");
+    json!("<ms>")
+}
+
+/// `runChildTimed`'s `timing` of a start, its measurements normalised as the recording's.
+fn timing_json(timing: &crate::exec::SpawnTiming) -> Value {
+    json!({"queueMs": measured(timing.queue_ms), "spawnMs": measured(timing.spawn_ms)})
+}
+
+/// `runGitOffThread`'s settlement: the run, or the failed start as Node's runner rejects it, its `timing` on the error.
 fn settled(outcome: &Result<ExecOutput, ScmFailure>, resolved: impl FnOnce(&ExecOutput) -> Value) -> Value {
     match outcome {
         Ok(output) => json!({"resolved": resolved(output)}),
-        Err(failure) => json!({"rejected": node_error(failure)}),
+        Err(failure) => {
+            let mut error = node_error(failure);
+            let ScmFailure::Spawn { timing, .. } = failure else { panic!("a refused start carries its timing: {failure:?}") };
+            error["props"] = json!({"timing": timing_json(timing)});
+            json!({"rejected": error})
+        }
     }
 }
 
@@ -221,20 +229,45 @@ fn child_env(spec: &EnvSpec) -> Env {
     env
 }
 
+/// A failure Node's retry test threw from its start function: the error the process manager reports for it, and the error
+/// itself as the recorder writes it (its message and code are the test script's own).
+struct Thrown {
+    error: ProcessError,
+    node: Value,
+}
+
+/// The recorder's `enoent()`: `spawn ENOENT`, code ENOENT.
+fn enoent(program: &str) -> Option<Thrown> {
+    Some(Thrown {
+        error: ProcessError::ProgramNotFound { program: program.to_owned() },
+        node: json!({"$exact": "error", "name": "Error", "message": "spawn ENOENT", "code": "ENOENT", "props": {}}),
+    })
+}
+
 /// The start function of Node's retry tests: it records each start (program and environment) and fails it as `fail` says, or
 /// lets it exit 0.
 struct ScriptedStarts {
-    fail: Box<dyn Fn(&str) -> Option<ProcessError> + Send + Sync>,
+    fail: Box<dyn Fn(&str) -> Option<Thrown> + Send + Sync>,
     seen: Mutex<Vec<(String, Env)>>,
+    thrown: Mutex<Vec<Value>>,
 }
 
 impl ScriptedStarts {
-    fn new(fail: impl Fn(&str) -> Option<ProcessError> + Send + Sync + 'static) -> Arc<Self> {
-        Arc::new(Self { fail: Box::new(fail), seen: Mutex::default() })
+    fn new(fail: impl Fn(&str) -> Option<Thrown> + Send + Sync + 'static) -> Arc<Self> {
+        Arc::new(Self { fail: Box::new(fail), seen: Mutex::default(), thrown: Mutex::default() })
     }
 
     fn seen(&self) -> Vec<(String, Env)> {
         self.seen.lock().unwrap().clone()
+    }
+
+    /// `startGit`'s settlement: Node's `startGit` rethrows its start's error unchanged, so a rejection of the core's `start_git`
+    /// is the last error the script threw, once the core's failure is that error's (its libuv code).
+    fn outcome(&self, outcome: &Result<ExecOutput, ScmFailure>) -> Value {
+        let Err(failure) = outcome else { return json!({"resolved": true}) };
+        let thrown = self.thrown.lock().unwrap().last().cloned().expect("a rejection follows a thrown start");
+        assert_eq!(node_error(failure)["code"], thrown["code"], "the core's failure is the start's own");
+        json!({"rejected": thrown})
     }
 }
 
@@ -244,7 +277,10 @@ impl ProcessManager for ScriptedStarts {
         let CommandSpec::Argv { program, .. } = &request.command else { panic!("git starts as an argument vector") };
         self.seen.lock().unwrap().push((program.clone(), child_env(&request.env)));
         match (self.fail)(program) {
-            Some(error) => Err(error),
+            Some(Thrown { error, node }) => {
+                self.thrown.lock().unwrap().push(node);
+                Err(error)
+            }
             None => Ok(SpawnedProcess { handle: request.handle, pid: 1 }),
         }
     }
@@ -486,20 +522,21 @@ fn case4_a_resolved_binary_that_is_gone_is_resolved_again_and_that_spawn_retried
         let first = git_command();
         mixdog_testkit::remove_dir_all(Path::new(root).join("Git"));
         let gone = first.clone();
-        let starts = ScriptedStarts::new(move |program| (program == gone).then(|| ProcessError::ProgramNotFound { program: program.to_owned() }));
+        let starts = ScriptedStarts::new(move |program| if program == gone { enoent(program) } else { None });
         let outcome = runtime().block_on(start_git(&Exec::new(starts.clone()), lane(), ExecSpec::new("git", root), &CancellationToken::new()));
         let seen = starts.seen();
         let commands: Vec<Value> = seen.iter().map(|(command, env)| json!({"command": command, "childEnv": env_json(env)})).collect();
+        let settled = starts.outcome(&outcome);
         let result = match scene["mode"].as_str() {
             Some("startGit") => json!({
                 "resolvedBefore": first,
-                "result": if outcome.is_ok() { json!("ran") } else { node_error(outcome.as_ref().unwrap_err()) },
+                "result": if outcome.is_ok() { json!("ran") } else { settled["rejected"].clone() },
                 "spawnedCommands": commands,
                 "secondChildEnvIsCallerEnv": seen.get(1).is_some_and(|(_, env)| *env == super::process_env()),
                 "resolutionAfterRetry": git_command(),
             }),
             _ => json!({
-                "outcome": if outcome.is_ok() { json!({"status": 0}) } else { node_error(outcome.as_ref().unwrap_err()) },
+                "outcome": if outcome.is_ok() { json!({"status": 0}) } else { settled["rejected"].clone() },
                 "spawnedCommands": seen.iter().map(|(command, _)| command.clone()).collect::<Vec<_>>(),
             }),
         };
@@ -542,28 +579,33 @@ fn case5_only_a_missing_binary_retries_and_only_once() {
     if let Some(scene) = scene() {
         let root = scene["root"].as_str().expect("the scene's root");
         let rt = runtime();
-        let run = |fail: fn(&str) -> ProcessError| {
-            let starts = ScriptedStarts::new(move |program| Some(fail(program)));
+        let run = |fail: fn(&str) -> Option<Thrown>| {
+            let starts = ScriptedStarts::new(fail);
             let outcome = rt.block_on(start_git(&Exec::new(starts.clone()), lane(), ExecSpec::new("git", root), &CancellationToken::new()));
-            json!({"calls": starts.seen().len(), "outcome": settled(&outcome, |_| json!(true))})
+            json!({"calls": starts.seen().len(), "outcome": starts.outcome(&outcome)})
         };
-        let enoent: fn(&str) -> ProcessError = |program| ProcessError::ProgramNotFound { program: program.to_owned() };
         let binary = git_command();
         let in_place = run(enoent);
         let stays = git_command();
-        let denied = run(|_| ProcessError::Io { os_code: Some(ELEVATION_REQUIRED) });
+        // The test's `Object.assign(new Error('denied'), { code: 'EACCES' })`: the OS error libuv names EACCES.
+        let denied = run(|_| {
+            Some(Thrown {
+                error: ProcessError::Io { os_code: Some(ELEVATION_REQUIRED) },
+                node: json!({"$exact": "error", "name": "Error", "message": "denied", "code": "EACCES", "props": {}}),
+            })
+        });
         mixdog_testkit::remove_dir_all(Path::new(root).join("Git"));
         let gone = run(enoent);
         answer(&json!({"binary": binary, "enoentWithBinaryInPlace": in_place, "resolutionAfter": stays, "otherSpawnFailure": denied, "goneAndRetryFails": gone}));
         return;
     }
-    let mut expected = recorded(5, "only a missing binary retries, and only once");
+    let expected = recorded(5, "only a missing binary retries, and only once");
     let mut roots = Roots::default();
     let root = roots.add(8);
     tree(&root, expected.get("files"));
     let env: Env = vec![("PATH".into(), join(&root, &["Git", "cmd"]))];
     let ran = in_child(CASE5, &env, &json!({"root": root}));
-    let mut actual = json!({
+    let actual = json!({
         "files": files(&expected, "files"),
         "env": env_json(&env),
         "binary": ran["binary"],
@@ -572,42 +614,7 @@ fn case5_only_a_missing_binary_retries_and_only_once() {
         "otherSpawnFailure": ran["otherSpawnFailure"],
         "goneAndRetryFails": ran["goneAndRetryFails"],
     });
-    // Excluded in the manifest: the message of `otherSpawnFailure` is the test script's own text ('denied'); the core words the
-    // refused start as Node's runner does (`spawn EACCES`, case 6's `spawn EFTYPE`). Its code and the call count are compared.
-    actual["otherSpawnFailure"]["outcome"]["rejected"]["message"] = json!("");
-    blank_error_message(&mut expected, &["otherSpawnFailure", "outcome", "rejected"]);
     roots.compare(&actual, &expected, "case 5");
-}
-
-fn blank_error_message(value: &mut Exact, path: &[&str]) {
-    let Some((first, rest)) = path.split_first() else {
-        let Exact::Error { message, .. } = value else { panic!("an error at the excluded path") };
-        message.clear();
-        return;
-    };
-    let Exact::Object(entries) = value else { panic!("an object on the excluded path") };
-    let (_, inner) = entries.iter_mut().find(|(key, _)| key == first).expect("the excluded path");
-    blank_error_message(inner, rest);
-}
-
-/// Removes the declared exclusion `key` (a run measurement) from the object at `path`.
-fn drop_key(value: &mut Exact, path: &[&str], key: &str) {
-    let target = match value {
-        Exact::Error { props, .. } if path.is_empty() => props,
-        Exact::Object(entries) if path.is_empty() => entries,
-        Exact::Object(entries) => {
-            let (_, inner) = entries.iter_mut().find(|(name, _)| name == path[0]).expect("the excluded path");
-            return drop_key(inner, &path[1..], key);
-        }
-        Exact::Error { props, .. } => {
-            let (_, inner) = props.iter_mut().find(|(name, _)| name == path[0]).expect("the excluded path");
-            return drop_key(inner, &path[1..], key);
-        }
-        other => panic!("no object at the excluded path: {other:?}"),
-    };
-    let before = target.len();
-    target.retain(|(name, _)| name != key);
-    assert_eq!(target.len() + 1, before, "the excluded key {key} is recorded");
 }
 
 /// The recorder's machine variables, given whole to every started child.
@@ -630,14 +637,14 @@ fn case6_the_git_runner_falls_back_to_the_git_path_names_once_the_resolved_one_i
             spec.max_output = 1_000_000;
             rt.block_on(start_git(&exec, lane(), spec, &CancellationToken::new()))
         };
-        let resolved = |output: &ExecOutput| json!({"code": output.code, "stdout": output.stdout_text(), "stderr": output.stderr_text()});
+        let resolved = |output: &ExecOutput| json!({"code": output.code, "stdout": output.stdout_text(), "stderr": output.stderr_text(), "timing": timing_json(&output.timing)});
         let first = settled(&version(), resolved);
         mixdog_testkit::remove_dir_all(Path::new(stale).join("Git"));
         let after = settled(&version(), resolved);
         answer(&json!({"first": first, "afterRemoval": after}));
         return;
     }
-    let mut expected = recorded(6, "the git runner falls back to the git PATH names once the resolved one is removed");
+    let expected = recorded(6, "the git runner falls back to the git PATH names once the resolved one is removed");
     let mut roots = Roots::default();
     let stale = roots.add(9);
     tree(&stale, expected.get("staleFiles"));
@@ -658,9 +665,6 @@ fn case6_the_git_runner_falls_back_to_the_git_path_names_once_the_resolved_one_i
             "real": standin_starts(&join(&fallback, &["Git", "mingw64", "bin", "git.exe"])),
         },
     });
-    // Excluded in the manifest: the runner's spawn timings (Node's worker-pool queue and spawn measurements, `<ms>`).
-    drop_key(&mut expected, &["first", "rejected"], "timing");
-    drop_key(&mut expected, &["afterRemoval", "resolved"], "timing");
     roots.compare(&actual, &expected, "case 6");
 }
 
@@ -696,8 +700,8 @@ fn case8_the_direct_binary_sees_the_environment_the_launcher_would_give_it() {
         // Node's reference run: `git` as PATH names it, the launcher, with the caller's environment.
         let via = rt.block_on(exec.run(spec(), &CancellationToken::new()));
         let direct = rt.block_on(start_git(&exec, lane(), spec(), &CancellationToken::new()));
-        let (command, launcher_env, _) = child_launch(&super::process_env());
-        answer(&json!({"viaLauncher": sync_result(&via), "direct": sync_result(&direct), "command": command, "launcherEnvironment": env_json(&launcher_env)}));
+        let (command, _, _) = child_launch(&super::process_env());
+        answer(&json!({"viaLauncher": sync_result(&via), "direct": sync_result(&direct), "command": command}));
         return;
     }
     let expected = recorded(8, "the direct binary sees the environment the launcher would give it");
@@ -719,9 +723,9 @@ fn case8_the_direct_binary_sees_the_environment_the_launcher_would_give_it() {
         "env": env_json(&env),
         "args": args,
         "command": ran["command"],
-        // An environment is a set of variables (Windows hands a child its block sorted): the core's in Node's key order,
-        // any variable Node's lacks after them.
-        "launcherEnvironment": in_key_order(&ran["launcherEnvironment"], expected.get("launcherEnvironment")),
+        // `gitChildEnv(env)` of the recorded environment object, as the recorder computed it (in the child the environment is the
+        // block Windows sorted).
+        "launcherEnvironment": env_json(&child_launch(&env).1),
         "viaLauncher": ran["viaLauncher"],
         "direct": ran["direct"],
         "sameLines": direct == launcher,

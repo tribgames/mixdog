@@ -251,9 +251,14 @@ impl Scm {
                     ),
                 ))
             }
-            Err(ScmFailure::Unavailable { .. }) => Err(ScmFailure::refused(
+            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::refused(
                 "INSTALL_UNAVAILABLE",
                 format!("{manager} is unavailable. Install {label} from {homepage} and try again."),
+            )),
+            // `run` (`cli-run.ts`) answers any other refused start with execFile's message as stderr, its last line the detail.
+            Err(ScmFailure::Spawn { code, .. }) => Err(ScmFailure::refused(
+                "INSTALL_FAILED",
+                format!("{program} could not install {label}: {}", crate::exec::spawn_message(program, code)),
             )),
             Err(other) => Err(other),
         }
@@ -268,7 +273,8 @@ impl Scm {
         match self.git.exec().run(spec, cancel).await {
             Ok(output) => Ok((output.success(), output.stderr_text())),
             Err(ScmFailure::Unavailable { .. }) => Ok((false, "ENOENT".to_owned())),
-            Err(ScmFailure::TimedOut { .. }) => Ok((false, String::new())),
+            // `runGh` keeps only the child's stderr: a start the system refused has none.
+            Err(ScmFailure::TimedOut { .. } | ScmFailure::Spawn { .. }) => Ok((false, String::new())),
             Err(other) => Err(other),
         }
     }

@@ -227,14 +227,20 @@ impl GhRunner for ProcessGh {
         spec.time_limit = Some(RUN_LIMIT);
         spec.max_output = MAX_OUTPUT_BYTES;
         let uncertain = if command.mutation { WRITE_UNCERTAIN } else { "" };
+        let program = spec.program.clone();
         match self.exec.run(spec, cancel).await {
             Ok(output) => Ok(GhOutput {
                 code: output.code,
                 stdout: output.stdout_text(),
                 stderr: output.stderr_text(),
             }),
-            Err(ScmFailure::Unavailable { .. }) => Err(ScmFailure::Unavailable {
+            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::Unavailable {
                 capability: "gh".into(),
+            }),
+            // `runGithubProcess`: a refused start has no stderr, so execFile's message is the text, a write's with its notice.
+            Err(ScmFailure::Spawn { code, .. }) => Err(ScmFailure::Command {
+                domain: GITHUB_DOMAIN,
+                text: format!("{}{uncertain}", bounded(&crate::exec::spawn_message(&program, code))),
             }),
             Err(ScmFailure::TimedOut { .. }) => Err(ScmFailure::Command {
                 domain: GITHUB_DOMAIN,
@@ -479,6 +485,53 @@ mod tests {
         drop(first);
         assert!(waiting.await.unwrap().is_ok());
         assert!(queue.busy_keys() <= 1);
+    }
+
+    /// A process manager whose every start the system refuses for access (libuv's EPERM on Windows, EACCES elsewhere).
+    struct Refused;
+
+    #[async_trait]
+    impl mixdog_core_api::domain::process::ProcessManager for Refused {
+        async fn spawn(&self, _request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::PermissionDenied)
+        }
+        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn resize_pty(&self, _handle: &mixdog_protocol::ProcessHandle, _size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Err(mixdog_core_api::domain::process::ProcessError::UnknownHandle)
+        }
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// `runGithubProcess`: a start the system refused rejects with execFile's own message (`spawn <file> <code>`, no stderr), a
+    /// write's followed by the notice that it was not retried.
+    #[tokio::test]
+    async fn a_refused_gh_start_answers_execfiles_message_and_a_writes_notice() {
+        let gh = ProcessGh::with_program(Arc::new(Exec::new(Arc::new(Refused))), "C:\\gh\\gh.exe");
+        let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
+        let cwd = std::env::temp_dir();
+        let cancel = CancellationToken::new();
+        let read = GhCommand::read(vec!["repo".into(), "view".into()], None);
+        let mut write = read.clone();
+        write.mutation = true;
+        let text = |failure: ScmFailure| match failure {
+            ScmFailure::Command { text, .. } => text,
+            other => panic!("not a command failure: {other:?}"),
+        };
+        assert_eq!(text(run_text(&gh, &read, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}"));
+        assert_eq!(text(run_text(&gh, &write, &cwd, &cancel).await.unwrap_err()), format!("spawn C:\\gh\\gh.exe {code}{WRITE_UNCERTAIN}"));
     }
 
     #[test]

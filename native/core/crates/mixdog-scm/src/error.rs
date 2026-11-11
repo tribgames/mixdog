@@ -38,7 +38,7 @@ pub enum ScmFailure {
     /// The operating system refused to start the program for a reason other than its absence; Node threw `spawn <CODE>` with that
     /// libuv code (`UNKNOWN` for a file the loader cannot run).
     #[error("spawn {code}")]
-    Spawn { code: &'static str },
+    Spawn { code: &'static str, timing: crate::exec::SpawnTiming },
     #[error("{command} timed out after {millis}ms")]
     TimedOut { command: String, millis: u64 },
     #[error("{command} exceeded {limit} output bytes")]
@@ -184,7 +184,7 @@ impl From<ScmFailure> for CoreError {
                 capability: capability.into(),
                 detail: Arc::from(""),
             },
-            ScmFailure::Spawn { code } => CoreError::DomainError {
+            ScmFailure::Spawn { code, .. } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(code.into()),
                 message: Some(format!("spawn {code}").into()),
