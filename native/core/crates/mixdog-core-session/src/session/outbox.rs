@@ -46,6 +46,8 @@ pub(crate) struct Durable {
     pub class: Class,
     pub stage: Stage,
     pub bytes: usize,
+    /// Stored in one commit with the next durable record ([`Outbox::join_next`]).
+    pub joined: bool,
 }
 
 /// What happens when an entry is released, or fails.
@@ -164,6 +166,7 @@ impl Outbox {
                 class,
                 stage: Stage::Encoding,
                 bytes: 0,
+                joined: false,
             }
         });
         self.entries.push_back(Entry {
@@ -185,6 +188,18 @@ impl Outbox {
             entry.needs = Some(needs);
         }
         id
+    }
+
+    /// The durable records of `ids` (one step's, in accept order) are stored in one commit: a room post's rows and the `updatedAt`
+    /// it stamps land, and are projected, together, so nothing reads the one without the other. Only the step's own durable
+    /// records join: the last of them joins nothing, so a group never waits on a later step.
+    pub fn join(&mut self, ids: &[u64]) {
+        let durable: Vec<u64> = ids.iter().copied().filter(|id| self.get_mut(*id).is_some_and(|entry| entry.durable.is_some())).collect();
+        for id in durable.iter().take(durable.len().saturating_sub(1)) {
+            if let Some(durable) = self.get_mut(*id).and_then(|entry| entry.durable.as_mut()) {
+                durable.joined = true;
+            }
+        }
     }
 
     fn index(&self, id: u64) -> Option<usize> {
@@ -211,10 +226,30 @@ impl Outbox {
         self.usage(class).bytes += bytes;
     }
 
-    /// The next encoded records in accept order, stopping at the first still encoding.
-    pub fn handoff(&mut self) -> Vec<(u64, CommitRecord, usize)> {
+    /// The next encoded records in accept order, stopping at the first still encoding; a joined group goes only once every record
+    /// of it is encoded. Each with whether it is joined to the next.
+    pub fn handoff(&mut self) -> Vec<(u64, CommitRecord, usize, bool)> {
+        let (mut ready, mut seen) = (0, 0);
+        for entry in &self.entries {
+            let Some(durable) = &entry.durable else {
+                continue;
+            };
+            match durable.stage {
+                Stage::Encoding => break,
+                Stage::Encoded(_) => {
+                    seen += 1;
+                    if !durable.joined {
+                        ready = seen;
+                    }
+                }
+                Stage::Handed | Stage::Acked(_) => {}
+            }
+        }
         let mut out = Vec::new();
         for entry in &mut self.entries {
+            if out.len() == ready {
+                break;
+            }
             let Some(durable) = entry.durable.as_mut() else {
                 continue;
             };
@@ -233,6 +268,7 @@ impl Outbox {
                             encoded,
                         },
                         durable.bytes,
+                        durable.joined,
                     ));
                 }
                 Stage::Handed | Stage::Acked(_) => {}
@@ -279,6 +315,12 @@ impl Outbox {
     pub fn remove(&mut self, id: u64) -> Option<Entry> {
         let index = self.index(id)?;
         let entry = self.entries.remove(index)?;
+        // The durable record before it, joined to it, now joins what this one joined.
+        if let Some(removed) = &entry.durable
+            && let Some(before) = self.entries.iter_mut().take(index).rev().find_map(|entry| entry.durable.as_mut())
+        {
+            before.joined = before.joined && removed.joined;
+        }
         if let Some(durable) = &entry.durable {
             let (class, bytes) = (durable.class, durable.bytes);
             let usage = self.usage(class);

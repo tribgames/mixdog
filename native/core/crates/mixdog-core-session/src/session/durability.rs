@@ -29,6 +29,8 @@ pub(crate) enum ToDurability {
         generation: u64,
         record: CommitRecord,
         bytes: usize,
+        /// Stored in one batch with the next record.
+        joined: bool,
     },
     /// "Retry storage".
     Retry,
@@ -88,7 +90,8 @@ pub(crate) struct DurabilityTask {
     log: Slot,
     rx: mpsc::Receiver<ToDurability>,
     tx: mpsc::Sender<FromDurability>,
-    queue: VecDeque<(u64, u64, CommitRecord, usize)>,
+    /// `(entry id, generation, record, bytes, joined to the next)`.
+    queue: VecDeque<(u64, u64, CommitRecord, usize, bool)>,
     dropped_generation: Option<u64>,
     retry: bool,
     pending: bool,
@@ -146,9 +149,9 @@ impl DurabilityTask {
                 }
                 msg = self.rx.recv() => match msg {
                     None => return,
-                    Some(ToDurability::Append { id, generation, record, bytes }) => {
+                    Some(ToDurability::Append { id, generation, record, bytes, joined }) => {
                         if self.dropped_generation.is_none_or(|dropped| generation > dropped) {
-                            self.queue.push_back((id, generation, record, bytes));
+                            self.queue.push_back((id, generation, record, bytes, joined));
                         }
                     }
                     Some(ToDurability::Retry) => self.retry = true,
@@ -182,18 +185,34 @@ impl DurabilityTask {
             return;
         }
         let generation = self.queue[0].1;
+        // A batch ends where a joined group does: the records of a group still arriving wait for the rest of it, and the batch's
+        // size splits only between groups.
+        let complete = self
+            .queue
+            .iter()
+            .take_while(|(_, g, ..)| *g == generation)
+            .enumerate()
+            .filter(|(_, (.., joined))| !joined)
+            .last()
+            .map_or(0, |(last, _)| last + 1);
+        if complete == 0 {
+            return;
+        }
         let mut ids = Vec::new();
         let mut batch = Vec::new();
         let mut bytes = 0;
-        while let Some((_, g, _, size)) = self.queue.front() {
-            if *g != generation || (!batch.is_empty() && bytes + size > self.batch_bytes) {
+        let mut in_group = false;
+        while let Some((_, _, _, size, _)) = self.queue.front() {
+            if ids.len() == complete || (!in_group && !batch.is_empty() && bytes + size > self.batch_bytes) {
                 break;
             }
-            let (id, _, record, size) = self.queue.pop_front().expect("front exists");
+            let (id, _, record, size, joined) = self.queue.pop_front().expect("front exists");
             bytes += size;
+            in_group = joined;
             ids.push(id);
-            batch.push(record);
+            batch.push((record, joined));
         }
+        let (batch, joins): (Vec<CommitRecord>, Vec<bool>) = batch.into_iter().unzip();
         let store = self.store.clone();
         let thread = self.thread.clone();
         let slot = self.log.clone();
@@ -212,9 +231,9 @@ impl DurabilityTask {
             }
             Err(_) => {
                 // The lane is full: the batch goes back to the front, in order.
-                for (id, record) in ids.into_iter().zip(restore).rev() {
+                for ((id, record), joined) in ids.into_iter().zip(restore).zip(joins).rev() {
                     let size = record.encoded.bytes();
-                    self.queue.push_front((id, generation, record, size));
+                    self.queue.push_front((id, generation, record, size, joined));
                 }
             }
         }
@@ -239,7 +258,7 @@ impl DurabilityTask {
                     },
                     Err(error) => {
                         self.dropped_generation = Some(generation);
-                        self.queue.retain(|(_, g, _, _)| *g > generation);
+                        self.queue.retain(|(_, g, ..)| *g > generation);
                         FromDurability::Failed { generation, error }
                     }
                 }

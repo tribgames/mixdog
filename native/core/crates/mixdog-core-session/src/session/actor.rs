@@ -1831,12 +1831,13 @@ impl SessionActor {
     /// Hands encoded records to the durability task in order, releases what is ready, and
     /// publishes the released frames and the storage state.
     fn pump(&mut self) {
-        for (id, record, bytes) in self.outbox.handoff() {
+        for (id, record, bytes, joined) in self.outbox.handoff() {
             let msg = ToDurability::Append {
                 id,
                 generation: self.generation,
                 record,
                 bytes,
+                joined,
             };
             // The window bounds unacked records below the channel's capacity.
             if self.ch.dur_tx.try_send(msg).is_err() {
@@ -4145,26 +4146,39 @@ impl SessionActor {
             PlanKind::StartRun(input, op_ref) => {
                 self.start_run(input, op_ref, Some(reply), plan.prompt);
             }
-            PlanKind::Records(records, extra) => {
-                let last = records.len().saturating_sub(1);
-                let mut reply = Some(reply);
-                for (index, (record, class, display, notes)) in records.into_iter().enumerate() {
-                    let mut effects = Vec::new();
-                    if index == last {
-                        effects.extend(reply.take());
-                        effects.extend(
-                            plan.after.map(|publish| Effect::RecomputePrompts { publish }),
-                        );
-                    }
-                    self.accept_record(record, class, display, notes, effects);
-                }
-                for change in extra {
-                    self.accept_view(change, Vec::new());
-                }
-                if let Some(prompt) = plan.prompt {
-                    self.persist_prompt(prompt);
-                }
+            PlanKind::Records(records, extra) => self.apply_records(plan.after, plan.prompt, reply, records, extra, false),
+            PlanKind::OneCommit(records) => self.apply_records(plan.after, plan.prompt, reply, records, Vec::new(), true),
+        }
+    }
+
+    fn apply_records(
+        &mut self,
+        after: Option<bool>,
+        prompt: Option<String>,
+        reply: Effect,
+        records: Vec<(Record, Class, Display, Vec<Note>)>,
+        extra: Vec<Change>,
+        one_commit: bool,
+    ) {
+        let last = records.len().saturating_sub(1);
+        let mut reply = Some(reply);
+        let mut step = Vec::with_capacity(records.len());
+        for (index, (record, class, display, notes)) in records.into_iter().enumerate() {
+            let mut effects = Vec::new();
+            if index == last {
+                effects.extend(reply.take());
+                effects.extend(after.map(|publish| Effect::RecomputePrompts { publish }));
             }
+            step.push(self.accept_record_entry(record, class, display, notes, effects));
+        }
+        if one_commit {
+            self.outbox.join(&step);
+        }
+        for change in extra {
+            self.accept_view(change, Vec::new());
+        }
+        if let Some(prompt) = prompt {
+            self.persist_prompt(prompt);
         }
     }
 
@@ -4715,8 +4729,9 @@ impl SessionActor {
         set.insert("updatedAt".into(), json!(self.deps.clock.now_ms()));
         let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
         records.push((meta, Class::Normal, Display::None, Vec::new()));
-        // A row's prompt joins the prompt history as it is applied.
-        Ok(Plan { kind: PlanKind::Records(records, Vec::new()), value, after: None, prompt: None })
+        // A row's prompt joins the prompt history as it is applied. The rows and `updatedAt` are one commit, as Node's one save of the
+        // log: the log's row never shows the new message with the old `updatedAt`.
+        Ok(Plan { kind: PlanKind::OneCommit(records), value, after: None, prompt: None })
     }
 
     /// The session store's `setup-ui` action (`set({ setupUiRequest: { id, at: Date.now() } })`):
@@ -5429,6 +5444,8 @@ enum PlanKind {
     StartRun(TurnInput, Option<OpRef>),
     /// Records with their class, display and accept-time notes, then view-only changes.
     Records(Vec<(Record, Class, Display, Vec<Note>)>, Vec<Change>),
+    /// [`PlanKind::Records`] stored in one commit: a reader (the index's row, a client) never sees a part of them without the rest.
+    OneCommit(Vec<(Record, Class, Display, Vec<Note>)>),
 }
 
 /// `queue{dequeue, delivered}`.
