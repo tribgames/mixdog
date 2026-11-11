@@ -170,9 +170,17 @@ await record('one process holds it once; release frees it; intact() follows the 
 
 const excluded = {
   'only the process that took the lock knows it owns the data dir':
-    "Node's process-global `daemonOwnerLockHeldHere()`; the core has no ambient owner flag: ownership is the `CoreOwnership` value acquire returns, held by the daemon and handed to what needs it",
+    "not observable outside the process: the flag's one reader is the gone-row sweep's gate (Node " +
+    'src/session-runtime/services/agent-tool/terminal-reaper/gone-rows.mjs:109 `ownsDataDir = daemonOwnerLockHeldHere`, :160 ' +
+    '`if (!ownsDataDir()) return 0`), whose only outside effect is that a process not owning the data dir (the `--plain` REPL) ' +
+    "never prunes the worker index. The core has no such second process: its agent registry is composed only after " +
+    '`ownership::acquire` succeeds (native/core/crates/mixdog-app-server-daemon/src/startup.rs:119), and a second start on ' +
+    'the data dir is refused `AlreadyOwned` (startup.rs:296), as the replayed case "a held lock refuses every other process" shows',
   'releasing the lock ends this process ownership of the data dir':
-    "Node's process-global `daemonOwnerLockHeldHere()` after `release()`; the core releases by dropping the `CoreOwnership` value, with no flag left to read",
+    "not observable outside the process: `daemonOwnerLockHeldHere()` after `release()` is read only by the same sweep gate " +
+    '(gone-rows.mjs:160); a released Node owner stops pruning, and a core that drops its `CoreOwnership` has ended (the value ' +
+    'lives for the core\'s life, startup.rs:296 "L is held for the core\'s life"); the release itself is replayed in ' +
+    '"one process holds it once; release frees it"',
 };
 
 const finalDir = join(FIXTURES_ROOT, 'daemon-owner-lock-cases');
