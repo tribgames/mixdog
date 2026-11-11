@@ -14,7 +14,14 @@
         }
       },
       "result": {
-        "initial": null,
+        "initial": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768
+        },
         "saved": [
           {
             "tokens": 16384,
@@ -166,7 +173,9 @@
             }
           },
           {
-            "value": "<undefined>",
+            "value": {
+              "$exact": "undefined"
+            },
             "error": {
               "$exact": "error",
               "name": "TypeError",
@@ -175,7 +184,9 @@
             }
           },
           {
-            "value": "NaN",
+            "value": {
+              "$exact": "NaN"
+            },
             "error": {
               "$exact": "error",
               "name": "TypeError",
@@ -184,7 +195,9 @@
             }
           },
           {
-            "value": "Infinity",
+            "value": {
+              "$exact": "Infinity"
+            },
             "error": {
               "$exact": "error",
               "name": "TypeError",
@@ -202,7 +215,14 @@
             }
           }
         ],
-        "otherModel": null,
+        "otherModel": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768
+        },
         "filesAfterSaves": {
           "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json": "{\n  \"tokens\": 262144\n}\n"
         },
@@ -901,7 +921,14 @@
           },
           {
             "event": "read-configured",
-            "configuredContextWindow": null
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            }
           },
           {
             "event": "gate-released"

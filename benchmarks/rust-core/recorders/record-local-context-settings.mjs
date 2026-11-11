@@ -41,14 +41,14 @@ const attempt = (fn) => {
 
 await rec.run('persist-validate-reset', `${SRC}:10`, { entry: { id: entry.id, contextWindow: entry.contextWindow, maxContextWindow: entry.maxContextWindow } }, () => {
   const dataDir = caseDir('ctx-persist');
-  const out = { initial: localContextSettings(entry, dataDir).configuredContextWindow, saved: [] };
+  const out = { initial: localContextSettings(entry, dataDir), saved: [] };
   for (const tokens of [16384, 32768, entry.maxContextWindow]) {
     saveLocalContext(entry, tokens, dataDir);
     const model = localProviderCatalogStatus({ dataDir }).models.find((row) => row.id === entry.id);
     out.saved.push({ tokens, model });
   }
-  out.invalid = [0, 511, 8192, 16383, 1.5, '16384', undefined, NaN, Infinity, entry.maxContextWindow + 1].map((value) => ({ value: typeof value === 'number' && !Number.isFinite(value) ? String(value) : value ?? '<undefined>', ...attempt(() => saveLocalContext(entry, value, dataDir)) }));
-  out.otherModel = localContextSettings({ ...entry, id: 'another-model' }, dataDir).configuredContextWindow;
+  out.invalid = [0, 511, 8192, 16383, 1.5, '16384', undefined, NaN, Infinity, entry.maxContextWindow + 1].map((value) => ({ value, ...attempt(() => saveLocalContext(entry, value, dataDir)) }));
+  out.otherModel = localContextSettings({ ...entry, id: 'another-model' }, dataDir);
   out.filesAfterSaves = filesOf(dataDir);
   saveLocalContext(entry, null, dataDir);
   out.afterReset = localContextSettings(entry, dataDir);
@@ -80,7 +80,7 @@ await rec.run('apply-waits-for-inference-then-exposes-capacity', `${SRC}:55`, { 
   steps.push({ event: 'change-requested', tokens: 16384 });
   const change = setLocalProviderContext(entry.id, 16384, { dataDir });
   await rec.clock.advance(1, { what: 'one millisecond while the inference holds the slot' });
-  steps.push({ event: 'read-configured', configuredContextWindow: localContextSettings(entry, dataDir).configuredContextWindow });
+  steps.push({ event: 'read-configured', settings: localContextSettings(entry, dataDir) });
   steps.push({ event: 'gate-released' });
   finish();
   await Promise.all([inference, change]);
