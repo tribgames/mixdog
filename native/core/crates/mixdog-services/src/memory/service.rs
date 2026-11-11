@@ -57,8 +57,8 @@ pub trait MemoryModule: Send + Sync {
     }
     /// The `memory` tool, including `ingest_session`.
     async fn memory(&self, args: Value) -> String;
-    /// The `recall` tool.
-    async fn recall(&self, args: Value) -> String;
+    /// The `recall` tool for a request `cancel` ends.
+    async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String;
 }
 
 /// The memory runtime over the local Postgres. `memory` serves the curated
@@ -101,12 +101,7 @@ impl LocalMemory {
         run(&ctx, args).await
     }
 
-    /// The `recall` tool's outcome, with the error flag the text alone does not carry.
-    pub async fn recall_outcome(&self, args: &Value) -> RecallOutcome {
-        self.recall.recall(args).await
-    }
-
-    /// The `recall` tool's outcome for a request `cancel` ends (the turn's stop: Node's request signal, `tool-routes.mjs:19-46`).
+    /// The `recall` tool's outcome, with the error flag the text alone does not carry, for a request `cancel` ends (the turn's stop: Node's request signal, `tool-routes.mjs:19-46`).
     pub async fn recall_outcome_cancellable(&self, args: &Value, cancel: &tokio_util::sync::CancellationToken) -> RecallOutcome {
         self.recall.recall_cancellable(args, cancel).await
     }
@@ -138,8 +133,8 @@ impl MemoryModule for LocalMemory {
         self.memory_reply(&args).await.text
     }
 
-    async fn recall(&self, args: Value) -> String {
-        self.recall_outcome(&args).await.text
+    async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
+        self.recall_outcome_cancellable(&args, cancel).await.text
     }
 }
 
@@ -284,7 +279,7 @@ impl MemoryService {
     }
 
     /// `recall(query, args)` of the session runtime.
-    async fn recall(&self, params: &Value) -> Result<Value, CoreError> {
+    async fn recall(&self, params: &Value, cancel: &tokio_util::sync::CancellationToken) -> Result<Value, CoreError> {
         let thread = params.get("threadId").and_then(Value::as_str);
         let args = params.get("args").filter(|args| args.is_object()).cloned().unwrap_or_else(|| json!({}));
         let base_query = params
@@ -343,10 +338,10 @@ impl MemoryService {
             }
             scoped.insert("includeRaw".into(), json!(base_args.get("includeRaw") != Some(&Value::Bool(false))));
             scoped.insert("includeArchived".into(), json!(base_args.get("includeArchived") != Some(&Value::Bool(false))));
-            result = self.memory.recall(Value::Object(scoped)).await;
+            result = self.memory.recall(Value::Object(scoped), cancel).await;
         }
         if is_empty_recall_text(&result) {
-            result = self.memory.recall(Value::Object(base_args)).await;
+            result = self.memory.recall(Value::Object(base_args), cancel).await;
         }
         Ok(Value::String(result))
     }
@@ -357,7 +352,7 @@ impl DomainService for MemoryService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             "memory/memoryControl" => Ok(Reply::Value(self.memory_control(&req.params).await?)),
-            "memory/recall" => Ok(Reply::Value(self.recall(&req.params).await?)),
+            "memory/recall" => Ok(Reply::Value(self.recall(&req.params, &req.ctx.cancel).await?)),
             _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "memory/*".into() }),
         }
     }

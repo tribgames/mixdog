@@ -139,8 +139,8 @@ async fn recall_matches_recorded_goldens() {
     for case in &cases {
         let name = case["name"].as_str().expect("name");
         let outcome = match case["tool"].as_str() {
-            Some("search_memories") => recall.search_memories(&case["args"]).await,
-            _ => recall.recall(&case["args"]).await,
+            Some("search_memories") => recall.search_memories(&case["args"], &tokio_util::sync::CancellationToken::new()).await,
+            _ => recall.recall_cancellable(&case["args"], &tokio_util::sync::CancellationToken::new()).await,
         };
         let expected = case["text"].as_str().expect("text");
         if outcome.text != expected {

@@ -108,7 +108,7 @@ mod pg {
                 loaded = Some(search);
             }
             let args = search.get("args").to_plain().expect("JSON args");
-            let outcome = recall.recall(&args).await;
+            let outcome = recall.recall_cancellable(&args, &tokio_util::sync::CancellationToken::new()).await;
             let label = search.try_get("label").map_or_else(|| args.to_string(), |l| l.as_str().to_owned());
             same(&format!("{name}: search {at} ({label})"), search.get("result"), &object(vec![("text", string(outcome.text))]));
         }

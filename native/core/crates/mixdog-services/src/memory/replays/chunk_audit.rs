@@ -87,7 +87,7 @@ mod pg {
         let pg = memory_db().await;
         insert_entries(&pg.db, &held).await;
         let args = session.get("options").to_plain().expect("JSON options");
-        let outcome = recall(&pg.db, now_ms).search_memories(&args).await;
+        let outcome = recall(&pg.db, now_ms).search_memories(&args, &tokio_util::sync::CancellationToken::new()).await;
         same(what, session.get("result"), &object(vec![("text", string(outcome.text))]));
     }
 
