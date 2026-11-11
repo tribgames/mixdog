@@ -2,9 +2,7 @@
   "command": "node benchmarks/rust-core/recorders/record-config-concurrency-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "after every step the whole config file the core leaves: setProfile through each runtime's own Settings (Config opened when Node made the runtime), peer writes through Config::update, direct saves through Config::save_agent_config with Node's two configs; the alias patch through create_config_patch, whole",
   "excluded": {
-    "a setProfile": "difference: the first settings save over the test's hand-written agent section rewrites it whole in Node (default-valued compaction, autoClear and skills dropped; agents, providers, modelSettings, webSearchRoute: null and profile.experienceLevel added); the core writes only the changed profile field",
-    "alias patch": "difference: createConfigPatch reads the legacy aliases (autoClear.thresholdMs, compaction.enabled) as their current keys, so Node answers []; the core answers remove thresholdMs, set idleMs 90000, remove compaction.enabled, set compaction.auto false",
-    "save title after secrets load": "difference: saveConfigAsync with no baseConfig writes the whole stored form in Node (every provider entry, mcpServers, default: null, onboarding); the core has no base-less save and its save_agent_config writes only the changed fields"
+    "save title after secrets load": "no client reaches it: saveConfig/saveConfigAsync without baseConfig (the whole-section save) has no caller in the product at b6f10295a (every provider-admin save and the config writers pass a baseline or a patch); only this test calls it, so the core has no such save"
   },
   "fileCount": 1,
   "files": [
@@ -43,7 +41,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-config-concurrency-cases.mjs",
-  "recorderSha256": "5f1d43804179de3bb113f891c9d69d67665f971f3a554250de637dc12a3852da",
+  "recorderSha256": "fba798d1ccf19d1bdded0d0424419eb6aa2c9ee307cdc4b989d8eac5c5ed4325",
   "set": "config-concurrency-cases",
   "totalBytes": 57822
 }

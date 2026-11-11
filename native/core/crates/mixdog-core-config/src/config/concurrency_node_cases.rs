@@ -19,6 +19,9 @@ use super::SettingsEnv;
 use super::patch::ChangeOp;
 use super::patch::create_config_patch;
 
+/// Names the separation backup folder only; the compared file does not carry it.
+const NOW_MS: i64 = 1_700_000_000_000;
+
 fn fixture(name: &str) -> Value {
     let path = format!("{}/../../fixtures/config-concurrency-cases/{name}", env!("CARGO_MANIFEST_DIR"));
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
@@ -53,6 +56,9 @@ async fn every_recorded_settings_write_is_nodes() {
         // Each step starts from the file Node left before it, so one step's difference does not carry into the next.
         std::fs::write(&path, previous["file"].to_string()).unwrap();
         config.reload().await.unwrap();
+        // The daemon's boot separation (Node's version-stamped `ensureDefaultsSeparated` in its first `loadConfig`); a
+        // no-op once the file carries the stamp.
+        config.separate_defaults(NOW_MS).await.unwrap();
         match name {
             "a setProfile" | "b setProfile" | "c setProfile" => {
                 runtime().set_profile(&step["profile"]).await.unwrap();
