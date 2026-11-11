@@ -398,16 +398,20 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       const deadline = new Promise((_, reject) => {
         timer = realSetTimeout(() => reject(new RecorderError(`recorder: case ${id} did not settle within ${CASE_DEADLINE_MS} ms`)), CASE_DEADLINE_MS);
       });
+      // Only what `fn` itself returns or throws is the case's answer. Every recorder-side failure (the case deadline, a clock step's deadline, a
+      // ws-world wait, a recorder's own setup or teardown failure, which a recorder throws as RecorderError) stops the recording; so does a value
+      // the helper cannot hold (`view` throws outside the answer's try).
+      let outcome;
       try {
-        const result = await Promise.race([fn({ net: hub, clock }), deadline]);
-        row.result = view(result);
+        outcome = { result: await Promise.race([fn({ net: hub, clock }), deadline]) };
       } catch (error) {
-        // Every recorder-side failure (the case deadline, a clock step's deadline, a ws-world wait, a recorder's own deadline) stops the recording.
         if (error instanceof RecorderError) throw error;
-        row.error = view(error);
+        outcome = { error };
       } finally {
         realClearTimeout(timer);
       }
+      if ('result' in outcome) row.result = view(outcome.result);
+      else row.error = view(outcome.error);
       current = null;
       if (calls.length) row.calls = calls;
       // Declared real-clock paths (the recorder's `maskRow`, each named in its manifest exclusions) are replaced by a marker here, never by a global rewrite.
