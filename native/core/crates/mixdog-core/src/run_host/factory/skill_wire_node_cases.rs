@@ -12,8 +12,8 @@
 //!   for OpenAI and Anthropic, the whole transcript part of the body, against Node's;
 //! * `skillToolContent` (the MCP caller's Skill): the same tool once on `openai-oauth`.
 //!
-//! A session is compared as Node's whole session object against the header's same keys (the header also holds the
-//! thread's own metadata, which Node keeps outside the session).
+//! A session is compared as the header's whole value against Node's whole session object, less only what `thread/start`
+//! itself wrote to the header (the thread's own metadata, which Node keeps outside the session).
 
 use std::sync::OnceLock;
 use std::sync::Weak;
@@ -353,8 +353,11 @@ fn tools_of(provider: &str, tools: Vec<ToolDefinition>) -> Value {
 
 /// The manifest's declared difference: a tool the test defines with no `description` reaches Node's wire with the key
 /// absent (`undefined` drops from JSON), while the core's `ToolDefinition::description` is a string and the codec sends
-/// `""`. Every product tool has a description, so only the test's own description-less tools (named from its input) lose
-/// the empty key here.
+/// `""`. No product source reaches a request without one: MCP tools are normalised to `""` (`mcp/client.mjs:1647`, `:323`),
+/// internal and plugin tools too (`session/manager/tool-resolution.mjs:35`, `runtime-core/tool-bridge.mjs:238`), the
+/// builtin tools (`tools/builtin/builtin-tools.mjs`) and `Skill` (`runtime-core/tool-defs.mjs:216`) are static with one.
+/// Only a session handed description-less tools directly, as this test does, carries none; those tools (named from its
+/// input) lose the empty key here.
 fn without_absent_descriptions(value: Value, undescribed: &[String]) -> Value {
     match value {
         Value::Array(items) => Value::Array(items.into_iter().map(|item| without_absent_descriptions(item, undescribed)).collect()),
@@ -368,9 +371,10 @@ fn without_absent_descriptions(value: Value, undescribed: &[String]) -> Value {
     }
 }
 
-/// Node's session object against the header's same keys.
-fn session_of(header: &mixdog_store::schema::record::Header, node: &Value) -> Value {
-    Value::Object(node.as_object().expect("session").keys().filter_map(|key| header.get(key).map(|value| (key.clone(), value.clone()))).collect())
+/// The core's whole session: the header less what `thread/start` itself wrote and nothing since changed (the thread's own
+/// metadata, which Node keeps outside the session). Every other key, including one the core adds, is compared.
+fn session_of(header: &mixdog_store::schema::record::Header, fresh: &mixdog_store::schema::record::Header) -> Value {
+    Value::Object(header.iter().filter(|(key, value)| fresh.get(key.as_str()) != Some(*value)).map(|(key, value)| (key.clone(), value.clone())).collect())
 }
 
 struct World {
@@ -382,6 +386,8 @@ struct World {
     run: Arc<WireRun>,
     root: String,
     dir: tempfile::TempDir,
+    /// Each thread's header as `thread/start` left it.
+    fresh: Mutex<std::collections::HashMap<ThreadId, mixdog_store::schema::record::Header>>,
 }
 
 impl World {
@@ -404,7 +410,7 @@ impl World {
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         let bridge = Arc::new(Bridge(bridge));
         let root = dir.path().to_string_lossy().replace('\\', "/");
-        Self { rig, directory, threads, catalog, bridge, run, root, dir }
+        Self { rig, directory, threads, catalog, bridge, run, root, dir, fresh: Mutex::new(Default::default()) }
     }
 
     /// The product's `Skill` tool over this directory's threads, reading `transcript`.
@@ -418,8 +424,14 @@ impl World {
         let reply = self.directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let mut started = self.header(&id).await;
         let mut session = json!({ "provider": provider, "tools": tools, "messages": [], "toolSpec": "full" });
         ToolSurface { host: self.bridge.as_ref(), clock: &Fixed }.apply(&mut session, "full", &[], &ApplyOptions::default());
+        // A key the session holds is the session's, whatever `thread/start` wrote under it.
+        for key in session.as_object().expect("session").keys() {
+            started.shift_remove(key);
+        }
+        lock(&self.fresh).insert(id.clone(), started);
         let mut set = session.as_object().expect("session").clone();
         set.shift_remove("messages");
         self.threads.patch_header(&id, set, Vec::new()).await.expect("the session on the header");
@@ -449,7 +461,7 @@ impl World {
     /// Node's session object against the thread: the header's same keys, and `messages` the thread's transcript.
     async fn session(&self, id: &ThreadId, node: &Value) -> Value {
         let header = self.header(id).await;
-        let mut session = session_of(&header, node);
+        let mut session = self.whole(id, &header);
         if node.get("messages").is_some() {
             let transcript: Vec<Value> = self.rig.store.records(id).into_iter().filter_map(|(_, record)| match record {
                 Record::Item(item) => match &item.body {
@@ -490,6 +502,10 @@ impl World {
         let [ToolPart::Text(text)] = output.parts.as_slice() else { panic!("one text part") };
         let injected: Vec<Value> = output.follow_up_messages.iter().map(|message| json!({ "role": "user", "content": message.text.replace(&self.root, "<root>"), "meta": message.meta })).collect();
         (json!(text.replace(&self.root, "<root>")), json!(injected))
+    }
+
+    fn whole(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header) -> Value {
+        session_of(header, lock(&self.fresh).get(id).expect("a started thread"))
     }
 
     fn masked(&self, value: Value) -> Value {
@@ -561,11 +577,25 @@ async fn skill_dependencies_reach_the_next_request_as_in_node() {
         // The manifest's `excluded` loop-session keys: the agentLoop's transcript array (`messages`, compared whole as
         // each request's input), the in-memory prefix guard, which Node never stores (serialize.mjs:59-81), and the
         // per-turn MCP reconcile and todo cycle this replay's assembly does not run (the mcp-fold and todo-list sets).
-        want_session.as_object_mut().expect("session").retain(|key, _| {
-            !["id", "compaction", "messages", "_providerPrefixGuardState", "deferredMcpToolNames", "deferredLateToolCatalog", "todoCheck"].contains(&key.as_str())
-        });
+        const EXCLUDED: [&str; 7] = ["id", "compaction", "messages", "_providerPrefixGuardState", "deferredMcpToolNames", "deferredLateToolCatalog", "todoCheck"];
+        want_session.as_object_mut().expect("session").retain(|key, _| !EXCLUDED.contains(&key.as_str()));
         let header = world.header(&loop_id).await;
-        let mut got_session = world.masked(session_of(&header, &want_session));
+        let mut got_session = world.whole(&loop_id, &header);
+        got_session.as_object_mut().expect("session").retain(|key, _| !EXCLUDED.contains(&key.as_str()));
+        // The core runs the real turn pipeline, which writes its per-turn bookkeeping to the header; Node's test runs `agentLoop` alone
+        // and its turn commit keeps them elsewhere (ask-turn-execute.mjs:122). Declared in the manifest; any other extra key fails.
+        const TURN_BOOKKEEPING: [&str; 30] = [
+            "usageMetricsTurnId", "turnHop", "turnBotChain", "transcriptEpoch", "title", "titleUpdatedAt", "turnCoverage", "reasoningUsage", "totalInputTokens",
+            "totalOutputTokens", "totalToolCalls", "tokensCumulative", "totalCachedReadTokens", "totalCacheWriteTokens", "totalUncachedInputTokens", "usageReadout",
+            "lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastUncachedInputTokens", "lastContextTokens",
+            "lastContextTokensUpdatedAt", "lastContextTokensStaleAfterCompact", "lastIterationIndex", "_repeatFailGuard", "_repeatFailHistory",
+            "_repeatArgShapeFailGuard", "closeProvenance", "lastTurnCompletedAt",
+        ];
+        got_session.as_object_mut().expect("session").retain(|key, _| want_session.get(key).is_some() || {
+            assert!(TURN_BOOKKEEPING.contains(&key.as_str()), "{provider}: the core's session holds {key}, which Node's does not and the manifest does not declare");
+            false
+        });
+        let mut got_session = world.masked(got_session);
         // The send time is each side's own clock: both record one, as a number.
         for side in [&mut got_session, &mut want_session] {
             let sent = side.as_object_mut().expect("session").remove("lastProviderSendAt");
@@ -590,5 +620,5 @@ async fn skill_dependencies_reach_the_next_request_as_in_node() {
         _ => None,
     }).collect();
     assert_eq!(Value::Array(items), want_messages, "skillToolContent: the transcript");
-    assert_eq!(world.masked(session_of(&header, &want_session)), want_session, "skillToolContent: the session");
+    assert_eq!(world.masked(world.whole(&id, &header)), want_session, "skillToolContent: the session");
 }

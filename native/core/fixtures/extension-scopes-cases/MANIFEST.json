@@ -1,6 +1,7 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-extension-scopes-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "normalize: the whole normalized scopes and each lookup's roots; within: each answer; skills: each answer; set: each step's whole config and the unknown-kind error; mcpTools: each server answer, and each filter's MCP tool names in order through the core's live hub (`McpHub::tools_for_cwd`, the session's MCP tools; the test's non-MCP `read` passes Node's filter untouched and never enters the core's MCP filter, core run_host/session_tools.rs:302); live: each filter's whole sorted name list through the live hub",
+  "declared": "mcpTools: the test's non-MCP `read` is in Node's recorded filter names and not in the replay's: Node's filterMcpToolsForCwd returns a tool with no MCP server untouched (runtime-core/extension-scopes.mjs:36-43), and the core's filter is the hub's, over MCP tools only (run_host/session_tools.rs:302), so the replay compares each filter's names less the names that do not start with `mcp__`. live: both sides drop the `__mixdog_` feature tools and sort the names, as the recorder does (record-extension-scopes-cases.mjs:118-121). Servers are served by a mock process whose tools are exactly the recorded ones; readiness is awaited by the server's state notification",
   "excluded": {},
   "fileCount": 1,
   "files": [
@@ -39,7 +40,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-extension-scopes-cases.mjs",
-  "recorderSha256": "322949535884f6dde4213b9b4af63017d13448b4213b4a737e2e7774c52dc077",
+  "recorderSha256": "31059b6fc13b5b3d38d2c2b36d1acb8827603012cec0f0ae814f9bbeaf6ebbb8",
   "set": "extension-scopes-cases",
   "totalBytes": 9621
 }

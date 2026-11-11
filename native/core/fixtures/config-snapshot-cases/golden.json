@@ -888,6 +888,12 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"heartbeat\":true}}"
         },
         {
+          "op": "listener",
+          "seen": [
+            true
+          ]
+        },
+        {
           "op": "observe",
           "loaded": {
             "providers": {
@@ -2624,6 +2630,10 @@
               "value": true
             }
           ]
+        },
+        {
+          "op": "quiet",
+          "epochMoved": false
         },
         {
           "op": "appendConfig",
@@ -4754,7 +4764,8 @@
         },
         {
           "op": "tick",
-          "ms": 59999
+          "ms": 59999,
+          "epochMoved": false
         },
         {
           "op": "observe",
@@ -4929,7 +4940,8 @@
         },
         {
           "op": "tick",
-          "ms": 1
+          "ms": 1,
+          "epochMoved": true
         },
         {
           "op": "observe",
@@ -5276,11 +5288,13 @@
         },
         {
           "op": "tick",
-          "ms": 89999
+          "ms": 89999,
+          "epochMoved": false
         },
         {
           "op": "tick",
-          "ms": 1
+          "ms": 1,
+          "epochMoved": true
         },
         {
           "op": "observe",
@@ -5824,7 +5838,8 @@
         },
         {
           "op": "tick",
-          "ms": 60000
+          "ms": 60000,
+          "epochMoved": true
         },
         {
           "op": "observe",

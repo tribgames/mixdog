@@ -103,10 +103,12 @@ function scenario(provider) {
       : anthropic.buildSystemBlocks(session.messages.filter((message) => message.role === 'system'), { type: 'ephemeral', ttl: '1h' }, { type: 'ephemeral', ttl: '1h' });
     push(label, { op: 'request', name, provider: session.provider, tools: json(tools), wireTools: json(wire), anthropicSystem: json(system) });
   };
-  const load = (label, args, name) => {
+  // `status` is what the runtime's `mcpStatus()` getter answers (knowledge-tools.mjs:76); Node reads it once and does not
+  // wait for a server that is still connecting (tool-catalog.mjs:945-964).
+  const load = (label, args, name, status = null) => {
     const session = sessions[label];
-    const result = toolCatalog.renderToolSearch(args, session, session.deferredSurfaceMode || 'lead');
-    push(label, { op: 'load', name, args, result });
+    const result = toolCatalog.renderToolSearch(args, session, session.deferredSurfaceMode || 'lead', status ? { mcpStatus: () => status } : {});
+    push(label, { op: 'load', name, args, status: json(status), result });
   };
 
   open('lead');
@@ -116,6 +118,13 @@ function scenario(provider) {
   load('lead', { names: ['nope_tool'] }, 'missing');
   load('lead', {}, 'empty');
   load('lead', { query: 'fetch a page' }, 'query');
+  // A server still connecting ('disconnected'), one that failed, and both, with a missing name and with none.
+  const connecting = { servers: [{ name: 'late', status: 'disconnected' }, { name: 'github', status: 'connected' }] };
+  const failing = { servers: [{ name: 'broken', status: 'failed' }] };
+  load('lead', { names: ['nope_tool'] }, 'missingWhileConnecting', connecting);
+  load('lead', { names: ['nope_tool'] }, 'missingAfterFailure', failing);
+  load('lead', { names: ['nope_tool', 'web_fetch'] }, 'missingBoth', { servers: [...connecting.servers, ...failing.servers] });
+  load('lead', {}, 'emptyWhileConnecting', { servers: [...connecting.servers, ...failing.servers] });
   request('lead', 'afterLoad');
 
   // Late MCP: the baseline snapshot, then a connect and a disconnect.

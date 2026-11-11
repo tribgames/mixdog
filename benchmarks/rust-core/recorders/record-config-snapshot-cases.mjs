@@ -55,6 +55,7 @@ Object.assign(keychain, {
 
 const cfg = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
 const shared = await importFrom(tree, 'src/runtime/shared/config.mjs');
+const { configInputEpoch } = await importFrom(tree, 'src/runtime/shared/config-epoch.mjs');
 const { createConfigSnapshot } = await importFrom(tree, 'src/runtime/agent/orchestrator/config-snapshot.mjs');
 const { forgetProviderAuth } = await importFrom(tree, 'src/session-runtime/services/provider-admin.mjs');
 
@@ -128,9 +129,17 @@ await record('another process’s config write is read fresh by every config-cha
   writeAgent({ heartbeat: false });
   snapshot = () => cfg.getConfigSnapshot();
   observe();
-  writeAgent({ heartbeat: true });
-  await until(() => read().heartbeat === true);
-  observe();
+  // The test's listener (config-snapshot.test.mjs:197): each notification reads the config fresh.
+  const seen = [];
+  const unsubscribe = shared.subscribeConfigChange(() => seen.push(read().heartbeat));
+  try {
+    writeAgent({ heartbeat: true });
+    await until(() => seen.length > 0);
+    steps.push({ op: 'listener', seen: plain(seen) });
+    observe();
+  } finally {
+    unsubscribe();
+  }
 });
 
 await record('another process’s config write reaches the snapshot through the config watch', async () => {
@@ -185,6 +194,10 @@ await record('a config caught mid-write keeps the last good config until the wri
     });
     await sleep(1000);
     observe();
+    // Nothing re-checks while the file stays torn: no pass, no rebuild (config-snapshot.test.mjs:263-267).
+    const epoch = configInputEpoch();
+    await sleep(600);
+    steps.push({ op: 'quiet', epochMoved: configInputEpoch() > epoch });
     step('appendConfig', { text: complete.slice(complete.length - 8) }, () => writeSync(fd, complete.slice(complete.length - 8)));
   } finally {
     closeSync(fd);
@@ -246,7 +259,13 @@ await record('a credential file that cannot be stat’ed is not read as unchange
 
 // The fake clock cases: Date and setTimeout are mocked from NOW, as the test's `mock.timers`.
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
-const tick = (ms) => step('tick', { ms }, () => mock.timers.tick(ms));
+// `epochMoved`: whether the tick told the config inputs' listeners (config-snapshot.test.mjs:380-382, :400-402).
+const tick = (ms) => {
+  const epoch = configInputEpoch();
+  steps.push({ op: 'tick', ms });
+  mock.timers.tick(ms);
+  steps[steps.length - 1].epochMoved = configInputEpoch() > epoch;
+};
 
 await record('an access token with no refresh token stops counting at its expiry, with no file changing', async () => {
   useDataDir({ silent: true });
@@ -325,7 +344,12 @@ writeSetManifest(stage, {
       "after each step, the whole config a read returns (loadConfig with secrets, `loaded`), once the snapshot took the step in, " +
       "compared as its change from the read over an empty data dir (`stored`: createConfigPatch(base, loaded); the core's " +
       "create_config_patch from its own loaded config over an empty data dir on its side): the " +
-      "core's loaded config lays no defaults on, Node's carries them",
+      "core's loaded config lays no defaults on, Node's carries them. Also the config listener's first read (`listener`, " +
+      "test :197), whether each clock tick told the config inputs' listeners (`epochMoved`, test :380-402) and that a torn file " +
+      "moves nothing (`quiet`, test :263-267). A listener's notification count is not compared: the core's change cell " +
+      'coalesces ticks (`Config::changes`), where Node tells once per file event. A torn in-place write makes no core notification (the reload fails, the last good document stays), so the pass over its first bytes is not awaited; the completing write is. The replay waits for each rebuild\'s notification and accepts, between ' +
+      "the recorded moments, a rebuild equal to the last observation or to the empty-data-dir base: the core reads the file by path, and a foreign " +
+      "replace (temp file renamed over it, as `foreignWrite` does) can be read while the path is empty on Windows",
     isolated: 'an in-memory keychain and a fresh HOME; the fake clock cases start at 2026-03-01T10:00:00.000Z',
     excluded,
   },

@@ -172,6 +172,12 @@ writeSetManifest(stage, {
       "the test's non-MCP `read` passes Node's filter untouched and never enters the core's MCP filter, core run_host/session_tools.rs:302); " +
       "live: each filter's whole sorted name list through the live hub",
     excluded,
+    declared:
+      "mcpTools: the test's non-MCP `read` is in Node's recorded filter names and not in the replay's: Node's filterMcpToolsForCwd returns a " +
+      "tool with no MCP server untouched (runtime-core/extension-scopes.mjs:36-43), and the core's filter is the hub's, over MCP tools only " +
+      "(run_host/session_tools.rs:302), so the replay compares each filter's names less the names that do not start with `mcp__`. " +
+      "live: both sides drop the `__mixdog_` feature tools and sort the names, as the recorder does (record-extension-scopes-cases.mjs:118-121). " +
+      "Servers are served by a mock process whose tools are exactly the recorded ones; readiness is awaited by the server's state notification",
   },
 });
 commitStage(stage, finalDir);
