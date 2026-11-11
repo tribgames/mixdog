@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,10 +66,13 @@
   "recorderSha256": "122a77e71f4025414cde7499c678cc77860444866f468cc887f788bf63ca41d4",
   "replay": {
     "compare": "mixdog-core-agents home_agent: compare agentHomeSessionId / agentIdOfHomeSession / isAgentHomeSessionId for each recorded input; the session id pattern; the role prompt fields and the scratch decision in mixdog-core-session",
-    "entry": "Drive these public items on o1: mixdog-core-base/src/rooms/ids.rs:27 agent_home_session_id; mixdog-core-base/src/rooms/ids.rs:33 agent_id_of_home_session; mixdog-core-agents/src/agents/home_agent.rs:88 home_agent.",
+    "entry": "Drive these public items on o1: mixdog-core-base/src/rooms/ids.rs:27 agent_home_session_id; mixdog-core-base/src/rooms/ids.rs:33 agent_id_of_home_session; mixdog-store/src/agent_mode.rs:28 agent_id_of_home_session; mixdog-core-agents/src/agents/home_agent.rs:88 home_agent.",
+    "existsButNotPublicOnO1": [
+      "the scratch decision (isScratchSession) exists: mixdog-core-session/src/session/thread_switches.rs:999 `is_scratch`, pub(crate): a replay reaches it through the thread switch, not by a call",
+      "home_agent.rs:52 `decide` is private (the role prompt decision is reached through home_agent)"
+    ],
     "missingOnO1": [
-      "isAgentHomeSessionId: no function of that meaning",
-      "the role prompt fields and the scratch decision: home_agent.rs:52 `decide` is private"
+      "the role prompt fields: no counterpart found"
     ],
     "normalised": {},
     "protocolMethods": [],
@@ -83,6 +86,11 @@
         "line": 33,
         "name": "agent_id_of_home_session",
         "path": "native/core/crates/mixdog-core-base/src/rooms/ids.rs"
+      },
+      {
+        "line": 28,
+        "name": "agent_id_of_home_session",
+        "path": "native/core/crates/mixdog-store/src/agent_mode.rs"
       },
       {
         "line": 88,
