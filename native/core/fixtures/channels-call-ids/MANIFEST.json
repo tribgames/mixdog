@@ -1,6 +1,5 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-channels-call-ids.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
-  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
     "notRun": "the daemon behind handleCall (scripted: it returns {call: n}); the remote intent files (no remoteIntentPath is given)",
     "runs": "createChannelTransport (channel-transport.mjs): its HTTP server, client registry, call dispatch (call-dispatch.mjs: callId idempotency cache keyed by caller owner and callId, rpc-call-identity.mjs) over real loopback fetch"
@@ -20,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -53,10 +56,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channels-call-ids.mjs",
-  "recorderSha256": "f6b88de6d2d8c4362093b91e68bb555ef858f45b66d855e6ea5db21210359c19",
-  "replay": "the `channel/call` protocol method (mixdog-app-protocol methods.rs:102), reached through ChannelService::call (mixdog-services channels/service.rs:138; `req.op` is the callId, service.rs:107): two connections with different owners send the same op, name and payload, then a retry, then a changed payload; compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection's owner",
+  "recorderSha256": "0115f01b4dcace8edbce7d2291019b5f6ae12d505015621ee25ca31e07794085",
+  "replay": "The `channel/call` request a client makes: DomainService::call (mixdog-services channels/service.rs:138) -> call_tool (:94; `req.op` is the callId) -> CallDispatch::dispatch (channels/call.rs:190, pub; cache keyed by owner + call id, CallIdConflict on a different payload). Replay: two connections with different owners send the same op, name and payload, then a retry, then a changed payload (and the case-95 shape with one client); compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection's owner",
   "set": "channels-call-ids",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 24363,
-  "uuidsNormalised": "none"
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
