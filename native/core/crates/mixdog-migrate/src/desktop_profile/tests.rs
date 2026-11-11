@@ -798,6 +798,8 @@ fn crash_child() {
     let Some(dir) = std::env::var_os(CHILD_ROOT) else {
         return;
     };
+    // A killed process leaves its writes with the OS, flushed or not: the kill is what is tested.
+    mixdog_store::fsio::elide_syncs();
     let kill_at: usize = std::env::var(CHILD_KILL_AT).unwrap().parse().unwrap();
     let seen = Arc::new(AtomicUsize::new(0));
     let hook: FaultHook = Arc::new(move |_| {
@@ -874,6 +876,8 @@ fn kill_and_resume_each_point(corpus: &Path, points: &[String], worker: usize) {
 
 #[test]
 fn the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run() {
+    // The trees compared are read back from the running OS; a flush to the device changes none of them.
+    mixdog_store::fsio::elide_syncs();
     let corpus = corpus_root();
     let work = Work::new();
 
@@ -1085,6 +1089,8 @@ fn kill_and_resume_each_late_point(
 }
 
 fn kill_every_late_point(resume: impl Fn(usize) -> Resume + Sync) {
+    // The trees compared are read back from the running OS; a flush to the device changes none of them.
+    mixdog_store::fsio::elide_syncs();
     let corpus = corpus_root();
     let points = late_points(&corpus);
     std::thread::scope(|scope| {

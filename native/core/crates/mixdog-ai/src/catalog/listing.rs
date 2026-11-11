@@ -341,7 +341,7 @@ mod tests {
         let models_dev = project_models_dev(&json(MODELS_DEV));
         let rosters = rosters();
         let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
-        let golden = json(GOLDEN);
+        let golden = json(&GOLDEN);
         let cases = golden["enriched"].as_array().unwrap();
         assert!(cases.len() >= 13);
         for case in cases {

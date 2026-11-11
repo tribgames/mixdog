@@ -151,7 +151,7 @@ async fn a_text_file_is_read_in_windows_that_join_to_the_whole() {
 /// phone reads it in windows); the file is made from the recorded text and mtime.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
     let steps = golden["scenarios"]["main"]["steps"].as_array().unwrap();
     let recorded = steps.iter().find(|step| step["call"] == "readProjectFile" && step["params"][1] == "toolong.txt").unwrap()["frame"]["value"].clone();
     let text = recorded["content"].as_str().unwrap().to_owned();
@@ -301,7 +301,7 @@ const PHONE_FILES_NOW_MS: &str = "1780819750000";
 async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
     // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
     unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
     let recorded_root = golden["root"].as_str().unwrap();
     let env = env();
     env.service.set_phone_grants(
@@ -698,7 +698,7 @@ async fn watch_refuses_a_relative_path_even_when_it_exists_from_the_working_dire
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
     let drive = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
     let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}"));
     let env = env();
@@ -1747,7 +1747,7 @@ async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String
 
 #[tokio::test(flavor = "multi_thread")]
 async fn recorded_start_calls_resolve_the_folder_node_did() {
-    let fixture: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat/host.json")).unwrap();
+    let fixture: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat/host.json")).unwrap();
     let mut replayed = 0;
     for case in fixture["cases"].as_array().unwrap().iter().filter(|case| case["group"] == "start" && case["call"] != "startTask") {
         let name = case["name"].as_str().unwrap();
@@ -1813,7 +1813,7 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
                     Some("PROJECT_UNAVAILABLE") => {
                         assert_eq!(node_error["name"], "Error", "{name}");
                         assert!(node_error.get("code").is_none(), "{name}: the stand-in store's error carries no code");
-                        let files: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+                        let files: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
                         let strict = files["scenarios"]["relay"]["steps"].as_array().unwrap().iter().map(|step| &step["frame"]).find(|frame| frame["errorCode"] == "PROJECT_UNAVAILABLE").unwrap();
                         assert_eq!(strict["error"], node_message, "{name}: one text in both recordings");
                         assert_eq!((code.as_deref(), message.as_deref()), (strict["errorCode"].as_str(), strict["error"].as_str()), "{name}: the whole error");

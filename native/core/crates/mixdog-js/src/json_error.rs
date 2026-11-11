@@ -285,11 +285,11 @@ mod tests {
 
     /// `[input, message]` rows written by Node (`testdata/json_error.mjs`); the first row names
     /// the Node version, a `null` message means the input parses.
-    const ROWS: &str = include_str!("../testdata/json_error.json");
+    const ROWS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("testdata/json_error.json");
 
     #[test]
     fn the_message_is_the_one_node_raises() {
-        let rows: Vec<(String, Option<String>)> = serde_json::from_str(ROWS).expect("fixture");
+        let rows: Vec<(String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
         assert!(rows.len() > 5000);
         for (input, expected) in &rows[1..] {
             assert_eq!(v8_json_parse_error(input), *expected, "{input:?}");
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn it_rejects_exactly_what_the_parser_rejects() {
-        let rows: Vec<(String, Option<String>)> = serde_json::from_str(ROWS).expect("fixture");
+        let rows: Vec<(String, Option<String>)> = serde_json::from_str(&ROWS).expect("fixture");
         for (input, _) in &rows[1..] {
             assert_eq!(v8_json_parse_error(input).is_none(), crate::json_parse(input).is_ok(), "{input:?}");
         }

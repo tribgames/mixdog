@@ -338,7 +338,7 @@ fn recorded_texts(kind: &str) -> Vec<(mixdog_ai::transport::Exchange, String, St
     use mixdog_rt::Liveness;
 
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
     let transports = &golden["transports"];
     let timer = if kind == "responseTimeout" { Duration::from_millis(transports["timeoutMs"].as_u64().unwrap()) } else { Duration::from_secs(60) };
     [

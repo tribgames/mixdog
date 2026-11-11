@@ -106,7 +106,7 @@ fn tools_of(target: &Value) -> Vec<ToolDefinition> {
 }
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/inheritance-fit/golden.json")).expect("fixture")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-fit/golden.json")).expect("fixture")
 }
 
 fn inherit_target(target: &Value) -> InheritTarget {

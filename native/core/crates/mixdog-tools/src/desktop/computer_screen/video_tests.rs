@@ -35,7 +35,7 @@ use super::video::VideoPath;
 use super::video::VideoScreen;
 use super::video::VideoSink;
 
-const RECORDING: &str = include_str!("../../../../../fixtures/screen-control/video/scenarios.json");
+const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/screen-control/video/scenarios.json");
 const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/video/MANIFEST.json");
 
 /// The recorder's fake frame, carried whole.
@@ -441,7 +441,7 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
 
 #[test]
 fn every_recorded_video_scenario_replays_to_nodes_whole_trace() {
-    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
+    let recording: Value = serde_json::from_str(&RECORDING).expect("the recording parses");
     let scenarios = recording["scenarios"].as_array().expect("scenarios");
     manifest_names(MANIFEST, scenarios);
     for scenario in scenarios {
@@ -606,7 +606,7 @@ fn race(scenario: &Value) -> (Vec<Value>, Value) {
 
 #[test]
 fn no_entry_comes_between_a_runs_check_and_its_update_on_a_multi_threaded_runtime() {
-    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
+    let recording: Value = serde_json::from_str(&RECORDING).expect("the recording parses");
     let scenarios: Vec<&Value> = recording["scenarios"]
         .as_array()
         .expect("scenarios")

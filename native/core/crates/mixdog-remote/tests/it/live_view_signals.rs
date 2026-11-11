@@ -16,10 +16,10 @@ use mixdog_remote::webrtc::signal::sdp_fingerprints;
 use serde_json::Value;
 use serde_json::json;
 
-const SIGNALS: &str = include_str!("../../../../fixtures/live-view/signals.json");
+const SIGNALS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view/signals.json");
 
 fn recorded() -> Value {
-    serde_json::from_str(SIGNALS).expect("the recording is JSON")
+    serde_json::from_str(&SIGNALS).expect("the recording is JSON")
 }
 
 fn list<'a>(recorded: &'a Value, name: &str) -> &'a [Value] {

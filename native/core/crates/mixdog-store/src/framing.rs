@@ -284,7 +284,7 @@ mod tests {
     }
 
     fn doc() -> Doc {
-        serde_json::from_str(include_str!("schema/vectors/frames.json")).expect("frames.json")
+        serde_json::from_str(mixdog_testkit::fixture!("src/schema/vectors/frames.json")).expect("frames.json")
     }
 
     #[test]
