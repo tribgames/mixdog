@@ -2807,7 +2807,7 @@ mod tests {
     async fn a_models_mcp_call_after_the_cwd_left_its_plugins_scope_gets_nodes_result() {
         use mixdog_core_api::domain::provider::{Content, ContentPart};
         let mut checked = 0;
-        let text = include_str!("../../../../fixtures/mcp-cwd-scope/golden.json");
+        let text = mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json");
         let runs = [(0, mixdog_protocol::Origin::Local), (1, mixdog_protocol::Origin::Local), (2, mixdog_protocol::Origin::Local), (3, mixdog_protocol::Origin::Local), (4, mixdog_protocol::Origin::Local), (0, mixdog_protocol::Origin::Relay)];
         for (case_index, origin) in runs {
             let sandbox = tempfile::tempdir().unwrap();
@@ -3373,14 +3373,14 @@ mod tests {
     /// them back with (`message_of` -> `row_of`) and restored.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_prompts_loaded_skills_are_its_rows_chips_as_node_stores_and_restores_them() {
-        const GOLDEN: &str = include_str!("../../../../fixtures/applied-skills/golden.json");
-        let count = serde_json::from_str::<Value>(GOLDEN).expect("golden")["cases"].as_array().expect("cases").len();
+        let golden_text: &str = mixdog_testkit::fixture!("../../fixtures/applied-skills/golden.json");
+        let count = serde_json::from_str::<Value>(golden_text).expect("golden")["cases"].as_array().expect("cases").len();
         let mut compared = 0;
         for index in 0..count {
             let sandbox = tempfile::tempdir().unwrap();
             let data = sandbox.path().join("mixdog_data_dir");
             let escaped = serde_json::to_string(&sandbox.path().to_string_lossy().replace('\\', "/")).unwrap();
-            let golden: Value = serde_json::from_str(&GOLDEN.replace("<SANDBOX>", &escaped[1..escaped.len() - 1])).expect("golden");
+            let golden: Value = serde_json::from_str(&golden_text.replace("<SANDBOX>", &escaped[1..escaped.len() - 1])).expect("golden");
             let case = &golden["cases"][index];
             let label = case["name"].as_str().expect("name");
             let want_rows = case["userRows"].as_array().expect("userRows");

@@ -359,7 +359,7 @@ async fn an_mcp_tool_hook_runs_in_its_sessions_scope_only() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_mcp_tool_hook_outside_the_plugins_scope_runs_as_nodes_does() {
     use mixdog_mcp::hook_runner::run_mcp_tool_handler;
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
     let recorded = &golden["hook"];
     assert_eq!(recorded["ran"], json!([recorded["name"]]), "Node's hook reached the server once");
     let answer = recorded["result"].as_str().unwrap();
