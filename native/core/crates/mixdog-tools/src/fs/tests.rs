@@ -338,9 +338,13 @@ async fn replay_fs_search(scenario: &str) {
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
         use mixdog_workspace::localfs::deadline_script::Script;
         let tool = call["tool"].as_str().unwrap();
-        let script = call.get("server").map(|server| match server["afterFiles"].as_u64() {
-            Some(n) => Script::AfterFiles(n as usize),
-            None => Script::Silent,
+        // The stand-in's script: a deadline after so many files, a server that never answers, a full queue; an empty one
+        // leaves the real server to answer.
+        let script = call.get("server").and_then(|server| match server["afterFiles"].as_u64() {
+            Some(n) => Some(Script::AfterFiles(n as usize)),
+            None if server["silent"] == true => Some(Script::Silent),
+            None if server["saturated"] == true => Some(Script::QueueFull),
+            None => None,
         });
         mixdog_workspace::localfs::deadline_script::set(&ws, script);
         advanced.store(matches!(script, Some(Script::Silent)), std::sync::atomic::Ordering::SeqCst);
@@ -588,6 +592,13 @@ async fn grep_renders_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_answers_a_search_past_its_deadline_as_node_does() {
     replay_fs_search("grep-timeout").await;
+}
+
+/// A search-server queue that is full refuses grep's, glob's and find's searches as Node's server does, and each tool
+/// answers the refusal as Node's does; with room again the same searches answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn searches_refused_by_a_full_queue_answer_as_node_does() {
+    replay_fs_search("search-saturated").await;
 }
 
 /// A grep over far more matches than its window: the scan produces exactly the anchor stream's bound (`limit: 10`:
@@ -2265,11 +2276,11 @@ async fn a_scan_of_the_filesystem_root_skips_the_kernel_trees() {
     let listed = |entries: Vec<mixdog_core_api::domain::fs::DirEntry>| {
         entries.into_iter().map(|e| super::common::display_under(e.path.as_path(), root.as_path())).collect::<Vec<_>>()
     };
-    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, super::search::root_scan_prunes(&root, true), None).await.unwrap();
+    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, super::search::root_scan_prunes(&root, true), None, None).await.unwrap();
     assert!(walked.complete);
     assert_eq!(listed(walked.entries), ["home/u/a.txt", "procfs.txt"]);
     let proc_root = AbsPath::new(root.as_path().join("proc")).unwrap();
-    let walked = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None).await.unwrap();
+    let walked = super::search::walk_entries_pruned(&ctx, &proc_root, false, |_| true, super::search::root_scan_prunes(&proc_root, true), None, None).await.unwrap();
     assert_eq!(walked.entries.len(), 1);
 }
 
@@ -2286,7 +2297,7 @@ async fn glob_and_find_see_files_past_fifty_thousand_entries() {
     assert!(glob.ends_with("[entries 1-100 of 50001; offset:100 for more]"), "{}", &glob[glob.len().saturating_sub(200)..]);
     let (_, find) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "last-one" })).await);
     assert_eq!(find, "zz/last-one.txt");
-    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, Vec::new(), Some(super::search::GLOB_ACCUM_CAP)).await.unwrap();
+    let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, Vec::new(), Some(super::search::GLOB_ACCUM_CAP), None).await.unwrap();
     assert!(walked.capped && walked.entries.len() == 50_000);
 }
 

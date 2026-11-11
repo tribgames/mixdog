@@ -11,6 +11,10 @@
 //                      scanned: their lines, cut at the window's collection stop (offset + limit + 1), `complete: false,
 //                      partial: true, timeout: true`.
 //   { silent: true }   the server never answers a search and ignores `{cancel}`: Node's own deadline timer decides.
+//   { saturated: true } every search finds the server's queue full and is answered as serve_search/server.rs:370-383
+//                      answers it (`error: "native search queue saturated"`, `saturated: true`, and the scheduler's
+//                      telemetry, taken from the real server's answer to the same request); it is reported as
+//                      `saturated`, not compared: the real server's queue cannot be filled on cue.
 // Every request it answers itself is also sent to the real server as it is, and the real server's answer is reported
 // beside the stand-in's answer to the same request under a deadline that never passes (`compare`, without the fields
 // that time the two runs: `queueMs`, `handlerMs`, `scheduler`, and the request `id`), for the recorder to require
@@ -37,6 +41,13 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
   const held = new Map();
   const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
   const settle = (entry) => {
+    if (entry.script.saturated) {
+      if (!entry.real) return;
+      held.delete(Number(entry.request.id));
+      report({ event: 'answer', id: entry.request.id, saturated: true });
+      send({ id: entry.request.id, error: 'native search queue saturated', saturated: true, scheduler: entry.real.scheduler });
+      return;
+    }
     if (!entry.whole || !entry.real) return;
     held.delete(Number(entry.request.id));
     report({ event: 'compare', real: untimed(entry.real), standin: untimed(answerOf(entry.request, entry.whole, null)) });
@@ -66,8 +77,14 @@ if (at > 0 && process.env.STANDIN_PIPE && process.env.STANDIN_REAL_BIN) {
   createInterface({ input: process.stdin }).on('line', (line) => {
     const message = JSON.parse(line);
     // No deadline set: the real server answers.
-    if (script.afterFiles === undefined && !script.silent) {
+    if (script.afterFiles === undefined && !script.silent && !script.saturated) {
       real.stdin.write(`${line}\n`);
+      return;
+    }
+    if (script.saturated && (Array.isArray(message.args) || typeof message.fuzzy === 'string')) {
+      report({ event: 'saturated', id: message.id });
+      held.set(Number(message.id), { request: message, script });
+      real.stdin.write(`${JSON.stringify({ ...message, id: REAL_ID + Number(message.id) })}\n`);
       return;
     }
     if (message.cancel !== undefined) {
