@@ -12,6 +12,8 @@ const rec = await startRecording({
   compare: 'Serve each case\'s `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.',
   exclusions: [
     "gemini-stream.test.mjs:118's `deferToolCalls: false` run (leaked-call-dispatched) is not recorded: no product caller of createGeminiTextLeakGuard passes false - `git grep -n \"createGeminiTextLeakGuard(\\|deferToolCalls\" b6f10295a -- src ':!*.test.mjs'` finds the two callers, antigravity-stream.mjs:80 (deferToolCalls: true, :85) and gemini-sdk-request.mjs:9 (deferToolCalls: true, :14); the default `false` (gemini-stream.mjs:331) is reached by tests only",
+    '`response.candidates[].index` is not compared: the aggregation\'s own sort key (gemini-stream.mjs:159, :196); no reader of the aggregated response reads it (`[.?]index\\b` over gemini.mjs, gemini-response.mjs, antigravity-response.mjs, antigravity-stream.mjs, gemini-sdk-request.mjs finds none)',
+    '`response.candidates[].content.role` is not compared: the aggregation writes it (gemini-stream.mjs:176) and the readers of the aggregated response read only `content.parts` (gemini-response.mjs:23, antigravity-response.mjs:53); mergeGeminiHops (gemini.mjs:133) copies it into a merged response read the same way',
   ],
   replay: "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
 });
@@ -89,5 +91,18 @@ await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:197`,
   await clock.advance(0, { until: armed, what: 'first-chunk window armed' });
   await clock.advance(25, { what: 'first-chunk window (25 ms)' });
   return pending;
+});
+// The idle phase of the same watchdogs (gemini-rest-stream/watchdogs.mjs:55-61, no test of its own): one payload with visible text, then the
+// endpoint holds the response open and writes nothing more; the idle timer, re-armed by the payload, runs on the virtual clock and the
+// recorder advances it by exactly PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS (300000 ms with the scrubbed environment) once it is re-armed.
+const idleServed = { status: 200, contentType: 'text/event-stream', chunks: [frames([cand([{ text: 'partial' }])])], hold: true };
+await rec.run('idle-window-after-a-payload-names-phase', 'src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs:55', { served: idleServed, options: { label: 'fixture' }, advanceMs: 300000 }, async ({ net, clock }) => {
+  net.reply = () => idleServed;
+  const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const seen = { progress: [], text: [] };
+  const pending = consumeGeminiRestStreamResponse(response, { label: 'fixture', onStreamDelta: (kind) => seen.progress.push(kind), onTextDelta: (delta) => seen.text.push(delta) }).then((value) => ({ response: value }), (error) => ({ error }));
+  await clock.advance(0, { until: () => seen.progress.length === 1, what: 'the payload decoded and the idle window re-armed' });
+  await clock.advance(300000, { what: 'idle window (300000 ms)' });
+  return { ...(await pending), ...seen };
 });
 await rec.finish();

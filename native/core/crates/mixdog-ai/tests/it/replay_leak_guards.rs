@@ -2,7 +2,9 @@
 //! turns: the leaked stream (`onTextDelta` / `onToolCall` observed, in order), then the transcript the agent keeps.
 //! Every route (Anthropic, Gemini, the compat Chat and Responses wires) replays through `DefaultProviderBuilder::build`
 //! and the broker's send: the visible text and the dispatched calls interleaved (`TextDelta` / `ToolCallDone`), both
-//! results whole, the transcript, and both requests as they arrived.
+//! results whole, the transcript, and both requests as they arrived. The transcript is built from the core's first result
+//! as the recorder builds it from Node's (the history, the assistant turn, a `done` tool result per call, `continue`), and
+//! the second send sends that transcript. The recovered ids come from the recording's random bytes (`RecorderDraws`).
 
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::RequestOptions;
@@ -24,8 +26,9 @@ fn entry(key: &str, value: Exact) -> (String, Exact) {
     (key.to_owned(), value)
 }
 
-/// The n-th send of the case: its messages, model and tools; `opts` holds only the observing callbacks.
-fn request(case: &Case, n: usize) -> ModelRequest {
+/// The n-th send of the case with `messages` (Node transcript messages): its model and tools; `opts` holds only the
+/// observing callbacks.
+fn request(case: &Case, n: usize, messages: &[Exact]) -> ModelRequest {
     let args = case.args_of("#send", n);
     for (key, value) in args[3].entries() {
         // `compatWireApi: "responses"`: the custom provider's protocol (see `provider`).
@@ -35,7 +38,7 @@ fn request(case: &Case, n: usize) -> ModelRequest {
     let without_state = |m: &Exact| Exact::Object(m.entries().iter().filter(|(k, _)| k != "providerState").cloned().collect());
     ModelRequest {
         model: args[1].as_str().to_owned(),
-        messages: args[0].as_array().iter().map(|m| replay_world::message(&without_state(m))).collect(),
+        messages: messages.iter().map(|m| replay_world::message(&without_state(m))).collect(),
         tools: args[2].as_array().iter().map(replay_world::tool).collect(),
         options: RequestOptions::default(),
     }
@@ -60,21 +63,6 @@ fn observed(events: &[StreamEvent]) -> Exact {
             })
             .collect(),
     )
-}
-
-/// The random bytes Node's guards drew for the recovered ids (`randomBytes(8)`, the hex after `_leaked_`), in the
-/// order the calls were dispatched. The Gemini guard's id is a hash of the call, no draw.
-fn leaked_draws(case: &Case) -> Vec<Vec<u8>> {
-    case.result()
-        .get("events")
-        .as_array()
-        .iter()
-        .filter_map(|e| e.try_get("tool"))
-        .map(|t| t.get("id").as_str())
-        .filter(|id| !id.starts_with("gemini_"))
-        .filter_map(|id| id.split_once("_leaked_").map(|(_, hex)| hex.to_owned()))
-        .map(|hex| (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex")).collect())
-        .collect()
 }
 
 /// The provider the route's recorded constructor builds, as the registry builds it. Node's custom gateway on the
@@ -222,16 +210,36 @@ fn route_result(route: &str, events: &[StreamEvent], requested: &str) -> Exact {
     Exact::Object(out)
 }
 
-/// The n-th send's request; a transcript message's `providerState` is the session state the agent hands the send
-/// (`opts.providerState` in the core), not part of the message.
-fn send_request(case: &Case, n: usize) -> ModelRequest {
-    let mut request = request(case, n);
-    for message in case.args_of("#send", n)[0].as_array() {
+/// The n-th send's request over `messages`; a transcript message's `providerState` is the session state the agent hands
+/// the send (`opts.providerState` in the core), not part of the message.
+fn send_request(case: &Case, n: usize, messages: &[Exact]) -> ModelRequest {
+    let mut request = request(case, n, messages);
+    for message in messages {
         if let Some(state) = message.try_get("providerState") {
             request.options.provider_state = Some(serde_json::from_value(crate::provider_cases::plain(state)).expect("a provider state"));
         }
     }
     request
+}
+
+/// The transcript the recorder builds from the first result (record-leak-guards.mjs `viaProvider`): the history, the
+/// assistant turn (`content`, then `toolCalls`, `providerState`, `providerReplay` where present), a `done` result per call,
+/// and the follow-up `continue`.
+fn transcript(history: &[Exact], first: &Exact) -> Vec<Exact> {
+    let text = |s: &str| Exact::String(s.to_owned());
+    let mut assistant = vec![entry("role", text("assistant")), entry("content", first.get("content").clone())];
+    for key in ["toolCalls", "providerState", "providerReplay"] {
+        if first.try_get(key).is_some_and(|v| v != &Exact::Undefined && v != &Exact::Array(Vec::new())) {
+            assistant.push(entry(key, first.get(key).clone()));
+        }
+    }
+    let mut out = history.to_vec();
+    out.push(Exact::Object(assistant));
+    if let Some(Exact::Array(calls)) = first.try_get("toolCalls") {
+        out.extend(calls.iter().map(|c| Exact::Object(vec![entry("role", text("tool")), entry("toolCallId", c.get("id").clone()), entry("content", text("done"))])));
+    }
+    out.push(Exact::Object(vec![entry("role", text("user")), entry("content", text("continue"))]));
+    out
 }
 
 /// One case's two sends against `endpoint`, compared with Node's.
@@ -241,12 +249,20 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
     let builder = replay_world::builder(&endpoint, home.path(), Vec::new()).await;
     let (name, config) = provider(case);
     let adapter = replay_world::adapter(&builder, &name, &config).await;
-    // Node's guard drew each recovered id from randomBytes(8): the replay mints the recorded ones, in order.
-    mixdog_ai::random::script(leaked_draws(case));
+    let recorded = case.result();
+    for (key, _) in recorded.entries() {
+        assert!(matches!(key.as_str(), "events" | "first" | "transcript" | "second"), "{}: a recorded property this replay does not read: {key}", case.id);
+    }
     let mut results = Vec::new();
     let mut firsts = Vec::new();
+    let mut messages = case.args_of("#send", 0)[0].as_array().to_vec();
+    let history = messages.clone();
     for n in 0..2 {
-        let request = send_request(case, n);
+        if n == 1 {
+            messages = transcript(&history, &results[0]);
+            assert_exact(&format!("{}: transcript", case.id), recorded.get("transcript"), &Exact::Array(messages.clone()));
+        }
+        let request = send_request(case, n, &messages);
         let model = request.model.clone();
         let cancel = CancellationToken::new();
         // The recorder's frozen `Date.now`, which stamps the session state's `updatedAt`.
@@ -262,24 +278,9 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
             _ => route_result(route, &events.events, &model),
         });
     }
-    let recorded = case.result();
     assert_exact(&format!("{}: events", case.id), recorded.get("events"), &observed(&firsts));
-    assert_exact(&format!("{}: first", case.id), &replay_anthropic::comparable(recorded.get("first")), &results[0]);
-    // The transcript the agent keeps: the first turn's text, calls, replay and state, the tool's answer, the next
-    // user turn.
-    let first = &results[0];
-    let mut assistant = vec![entry("role", Exact::String("assistant".into())), entry("content", first.get("content").clone())];
-    for key in ["toolCalls", "providerReplay", "providerState"] {
-        if first.try_get(key).is_some_and(|v| v != &Exact::Undefined) {
-            assistant.push(entry(key, first.get(key).clone()));
-        }
-    }
-    let kept = recorded.get("transcript").as_array();
-    let mut transcript = vec![kept[0].clone(), Exact::Object(assistant)];
-    transcript.extend(kept[2..].iter().cloned());
-    assert_exact(&format!("{}: transcript", case.id), recorded.get("transcript"), &Exact::Array(transcript));
-    assert_exact(&format!("{}: transcript sent", case.id), recorded.get("transcript"), &case.args_of("#send", 1)[0]);
-    assert_exact(&format!("{}: second", case.id), &replay_anthropic::comparable(recorded.get("second")), &results[1]);
+    assert_exact(&format!("{}: first", case.id), &replay_anthropic::comparable(set, recorded.get("first")), &results[0]);
+    assert_exact(&format!("{}: second", case.id), &replay_anthropic::comparable(set, recorded.get("second")), &results[1]);
     set.assert_requests(case, &endpoint.arrivals(), None);
 }
 
@@ -287,6 +288,10 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
 async fn every_case_replays_as_nodes() {
     use futures::FutureExt as _;
     let set = CaseSet::load("leak-guards");
+    // Node's guards drew each recovered id from `randomBytes(8)` of the recording process, in order over the whole
+    // recording: the core's draws are those bytes, computed as the recorder drew them.
+    let mut draws = crate::provider_case::RecorderDraws::default();
+    mixdog_ai::random::script((0..64).map(|_| draws.bytes(8)));
     let mut failures = Vec::new();
     for case in &set.cases {
         let endpoint = Endpoint::start().await;
