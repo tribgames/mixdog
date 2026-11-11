@@ -1,0 +1,124 @@
+{
+  "set": "provider-mimo-oauth",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "lists-models-with-bearer-and-source-header",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth.test.mjs:16",
+      "input": {
+        "credential": {
+          "apiKey": "sk-1",
+          "uid": "u",
+          "baseUrl": "https://mimo.invalid/v1"
+        }
+      },
+      "result": {
+        "models": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "mimo-v2.6-pro",
+            "provider": "mimo-oauth",
+            "contextWindow": 1048576,
+            "outputTokens": 131072,
+            "created": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro",
+            "pricingProvider": "xiaomi",
+            "supportsVision": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://mimo.invalid",
+          "path": "/v1/models",
+          "headers": {
+            "host": "mimo.invalid",
+            "connection": "keep-alive",
+            "authorization": "Bearer sk-1",
+            "x-mimo-source": "mimocode-cli",
+            "accept": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "user-agent": "node",
+            "accept-encoding": "gzip, deflate"
+          },
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"data\":[{\"id\":\"mimo-v2.6-pro\"}]}"
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "https://raw.githubusercontent.com",
+          "path": "/BerriAI/litellm/main/model_prices_and_context_window.json",
+          "headers": {
+            "host": "raw.githubusercontent.com",
+            "connection": "keep-alive",
+            "accept": "*/*",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "user-agent": "node",
+            "accept-encoding": "gzip, deflate"
+          },
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"data\":[{\"id\":\"mimo-v2.6-pro\"}]}"
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "https://models.dev",
+          "path": "/api.json",
+          "headers": {
+            "host": "models.dev",
+            "connection": "keep-alive",
+            "accept": "*/*",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "user-agent": "node",
+            "accept-encoding": "gzip, deflate"
+          },
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"data\":[{\"id\":\"mimo-v2.6-pro\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "send-without-credentials-asks-sign-in",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth.test.mjs:41",
+      "input": {
+        "credential": null
+      },
+      "error": {
+        "name": "Error",
+        "message": "[mimo-oauth] credentials not found — open /providers in mixdog to sign in first"
+      }
+    }
+  ]
+}
