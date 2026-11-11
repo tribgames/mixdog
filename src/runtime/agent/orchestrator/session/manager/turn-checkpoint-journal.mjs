@@ -35,13 +35,17 @@
 // writer produced, so recovery/projection semantics are unchanged. A crash-torn
 // trailing line is discarded: replay stops at the first unparsable record and
 // keeps the durable prefix.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   appendFileSync,
+  closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -843,88 +847,199 @@ function applyInterruptionDelta(state, delta) {
  * has no usable head record. */
 export function replayTurnJournal(header, journalPath = header ? turnJournalPath(header.sessionId) : null) {
   if (!header) return null;
-  let raw;
+  const replay = journalReplayOf(header, journalPath);
+  if (!replay || replay.foreign || !replay.head) return header;
+  return {
+    ...header,
+    turnMessages: replay.messages,
+    ...(replay.sealed ? { sealed: true } : {}),
+    ...(replay.fullTranscript ? { fullTranscript: true } : {}),
+    interruption: interruptionSnapshotFromState(replay.interruption),
+    contextState: replay.contextState,
+    updatedAt: replay.updatedAt,
+  };
+}
+
+// What a journal's records amount to when applied to `header`, in order.
+function newJournalReplay(header) {
+  // Nothing here is shared with `header`: the replay outlives the read.
+  return {
+    messages: structuredClone(header.turnMessages),
+    sealed: header.sealed === true,
+    fullTranscript: header.fullTranscript === true,
+    contextState: structuredClone(header.contextState ?? null),
+    interruption: interruptionStateFromSnapshot(structuredClone(header.interruption)),
+    updatedAt: Number(header.updatedAt) || 0,
+    head: false,
+    expected: 0,
+    // The head record is of another turn or epoch: nothing replays.
+    foreign: false,
+    // A gap in the sequence ended the durable prefix: nothing after it replays.
+    ended: false,
+  };
+}
+
+function applyJournalLine(replay, header, line) {
+  if (!line || replay.foreign || replay.ended) return;
+  let record;
   try {
-    raw = readFileSync(journalPath, 'utf8');
+    record = JSON.parse(line);
   } catch {
-    return header;
+    return;
   }
-  let messages = header.turnMessages.slice();
-  let sealed = header.sealed === true;
-  let fullTranscript = header.fullTranscript === true;
-  let contextState = header.contextState ?? null;
-  const state = interruptionStateFromSnapshot(header.interruption);
-  let updatedAt = Number(header.updatedAt) || 0;
-  let head = false;
   // Records are sequence-numbered per turn, so replay is exact under the two
   // things a crash-safe append lane can produce: a DUPLICATE (the exit
   // handler re-writes an operation that may already have landed) and a TORN
   // fragment. Duplicates are skipped, unparsable lines are skipped, and a
   // real gap ends the durable prefix — a missing delta must never let later
   // (relative) deltas apply out of order.
-  let expected = 0;
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let record;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!record || typeof record !== 'object') continue;
-    const seq = Number(record.s);
-    if (!Number.isInteger(seq) || seq < 0) continue;
-    if (seq < expected) continue;
-    if (seq > expected) break;
-    expected = seq + 1;
-    if (!head) {
-      // A header rewritten for a newly marked sensitive value starts a new
-      // journal epoch; the journal it replaces never replays onto it.
-      if (
-        record.t !== 'h' ||
-        record.turnToken !== header.turnToken ||
-        (Number(record.e) || 0) !== (Number(header.journalEpoch) || 0)
-      ) {
-        return header;
-      }
-      head = true;
-      continue;
-    }
-    if (record.t === 'm') {
-      const index = Number(record.i);
-      if (Number.isInteger(index) && index >= 0 && index <= messages.length) {
-        messages[index] = record.m;
-      }
-    } else if (record.t === 'seal') {
-      sealed = true;
-    } else if (record.t === 'full' && Array.isArray(record.ms)) {
-      // Legacy journals (before checkpoints named their base) replaced the
-      // whole context this way; read them so they are not misread as a turn.
-      messages = record.ms.slice();
-      fullTranscript = true;
-    } else if (record.t === 'len') {
-      const next = Number(record.n);
-      if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
-        messages.length = next;
-      }
-    } else if (record.t === 'x') {
-      applyInterruptionDelta(state, record.d);
-    } else if (record.t === 'c') {
-      contextState = record.c ?? null;
-    }
-    const at = Number(record.at);
-    if (Number.isFinite(at) && at > updatedAt) updatedAt = at;
+  if (!record || typeof record !== 'object') return;
+  const seq = Number(record.s);
+  if (!Number.isInteger(seq) || seq < 0) return;
+  if (seq < replay.expected) return;
+  if (seq > replay.expected) {
+    replay.ended = true;
+    return;
   }
-  if (!head) return header;
-  return {
-    ...header,
-    turnMessages: messages,
-    ...(sealed ? { sealed: true } : {}),
-    ...(fullTranscript ? { fullTranscript: true } : {}),
-    interruption: interruptionSnapshotFromState(state),
-    contextState,
-    updatedAt,
-  };
+  replay.expected = seq + 1;
+  if (!replay.head) {
+    // A header rewritten for a newly marked sensitive value starts a new
+    // journal epoch; the journal it replaces never replays onto it.
+    if (
+      record.t !== 'h' ||
+      record.turnToken !== header.turnToken ||
+      (Number(record.e) || 0) !== (Number(header.journalEpoch) || 0)
+    ) {
+      replay.foreign = true;
+      return;
+    }
+    replay.head = true;
+    return;
+  }
+  const { messages } = replay;
+  if (record.t === 'm') {
+    const index = Number(record.i);
+    if (Number.isInteger(index) && index >= 0 && index <= messages.length) {
+      messages[index] = record.m;
+    }
+  } else if (record.t === 'seal') {
+    replay.sealed = true;
+  } else if (record.t === 'full' && Array.isArray(record.ms)) {
+    // Legacy journals (before checkpoints named their base) replaced the
+    // whole context this way; read them so they are not misread as a turn.
+    replay.messages = record.ms.slice();
+    replay.fullTranscript = true;
+  } else if (record.t === 'len') {
+    const next = Number(record.n);
+    if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
+      messages.length = next;
+    }
+  } else if (record.t === 'x') {
+    applyInterruptionDelta(replay.interruption, record.d);
+  } else if (record.t === 'c') {
+    replay.contextState = record.c ?? null;
+  }
+  const at = Number(record.at);
+  if (Number.isFinite(at) && at > replay.updatedAt) replay.updatedAt = at;
+}
+
+// A journal is read from where the last read of the same journal stopped, so
+// a read costs what was appended since, not what the journal has grown to: a
+// live turn's checkpoint is read for every transcript read of its session and
+// each of those replayed all of its records.
+//
+// Why a resumed replay equals a whole one. The journal has three writers, all
+// in this file: an append (appendFile/appendFileSync, _runJournalOp*), the
+// open of a turn or of a re-anchored turn (writeFile with truncation, in
+// place, under the checkpoint lock, in _runJournalOp* and the exit
+// handler), and the removal or set-aside of the file (unlink, rename). Only an
+// append leaves the bytes already read as they were. Every open writes a
+// first record with a new g, and is the only writer that rewrites bytes, so
+// the first record is the identity of what follows it: a replay resumes only
+// when the file's first record is the one the last read began with, on the
+// same inode, for the same header content, at an offset the file still
+// reaches, with the last bytes of the last read unchanged. A removal or
+// set-aside leaves no file, or a new one that an open wrote. Anything else
+// (a journal of before g, or a first record longer than the guard) is
+// replayed from the start. A journal that is gone is read as none, as before.
+const JOURNAL_RESUME_LIMIT = 16;
+const JOURNAL_GUARD_BYTES = 1024;
+const _journalReplays = new Map(); // journal path → { ino, key, offset, first, last, replay }
+
+function readJournalBytes(fd, length, position) {
+  const bytes = Buffer.allocUnsafe(length);
+  let got = 0;
+  while (got < length) {
+    const n = readSync(fd, bytes, got, length - got, position + got);
+    if (n === 0) break;
+    got += n;
+  }
+  return got === length ? bytes : bytes.subarray(0, got);
+}
+
+// The replay of `journalPath` onto `header` as of its bytes now: a copy the
+// caller may keep, or null when the journal cannot be read.
+function journalReplayOf(header, journalPath) {
+  let fd;
+  try {
+    fd = openSync(journalPath, 'r');
+  } catch {
+    _journalReplays.delete(journalPath);
+    return null;
+  }
+  try {
+    const stat = fstatSync(fd, { bigint: true });
+    const key = createHash('sha1').update(JSON.stringify(header)).digest('hex');
+    let held = _journalReplays.get(journalPath);
+    _journalReplays.delete(journalPath);
+    if (
+      held &&
+      !(
+        held.ino === stat.ino &&
+        held.key === key &&
+        stat.size >= BigInt(held.offset) &&
+        readJournalBytes(fd, held.first.length, 0).equals(held.first) &&
+        readJournalBytes(fd, held.last.length, held.offset - held.last.length).equals(held.last)
+      )
+    ) {
+      held = null;
+    }
+    const from = held ? held.offset : 0;
+    const bytes = readJournalBytes(fd, Number(stat.size) - from, from);
+    const whole = bytes.lastIndexOf(0x0a) + 1;
+    const replay = held ? held.replay : newJournalReplay(header);
+    // Every whole line is kept; a last line with no newline yet (a torn write,
+    // or one being written) is applied to the copy handed back, and read
+    // again with what follows it.
+    for (const line of bytes.toString('utf8', 0, whole).split('\n')) applyJournalLine(replay, header, line);
+    const applied = bytes.subarray(0, whole);
+    // A copy of the 1 KB: a view would keep the whole journal's buffer alive in the table.
+    const first =
+      held && held.first.length >= JOURNAL_GUARD_BYTES
+        ? held.first
+        : Buffer.from(Buffer.concat([held?.first ?? Buffer.alloc(0), applied]).subarray(0, JOURNAL_GUARD_BYTES));
+    const firstRecord = first.subarray(0, first.indexOf(0x0a) + 1).toString('utf8');
+    // Only a journal whose first record names its write (`g`) is resumed.
+    if (/^\{[^\n]*"g":"/.test(firstRecord)) {
+      _journalReplays.set(journalPath, {
+        ino: stat.ino,
+        key,
+        offset: from + whole,
+        first,
+        last: Buffer.from(Buffer.concat([held?.last ?? Buffer.alloc(0), applied]).subarray(-JOURNAL_GUARD_BYTES)),
+        replay,
+      });
+    }
+    while (_journalReplays.size > JOURNAL_RESUME_LIMIT) _journalReplays.delete(_journalReplays.keys().next().value);
+    const copy = structuredClone(replay);
+    if (whole < bytes.length) applyJournalLine(copy, header, bytes.toString('utf8', whole));
+    return copy;
+  } catch {
+    _journalReplays.delete(journalPath);
+    return null;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
@@ -995,7 +1110,9 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
       cursor = seeded ? seeded.cursor : null;
       contextStateKey = contextState == null ? null : JSON.stringify(contextState);
       seq = 0;
-      const openLines = [line({ t: 'h', turnToken, ...(epoch ? { e: epoch } : {}), at: Date.now() })];
+      // `g` names this write of the journal: every open writes a new one, so no
+      // two journals share a first record (see journalReplayOf).
+      const openLines = [line({ t: 'h', turnToken, ...(epoch ? { e: epoch } : {}), g: randomUUID(), at: Date.now() })];
       const seededDelta = seeded?.changed ? interruptionRecord(seeded.delta) : null;
       if (seededDelta && Object.keys(seededDelta).length)
         openLines.push(line({ t: 'x', d: seededDelta, at: Date.now() }));
