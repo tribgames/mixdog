@@ -203,6 +203,18 @@ impl SessionSearchDb {
         Ok(())
     }
 
+    /// One statement on `session_search.messages` that waits out a scrub's `VACUUM FULL` (an exclusive lock held for
+    /// seconds on a large table) instead of failing at the cluster's 5 s `lock_timeout`, as Node's session-search
+    /// connection, which sets no lock timeout, waits.
+    async fn waiting(&self, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
+        let mut client = self.db.client().await?;
+        let tx = client.transaction().await?;
+        tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+        let rows = tx.query(sql, params).await?;
+        tx.commit().await?;
+        Ok(rows)
+    }
+
     /// Over a handle whose schema was created by whoever opened it (a deferred handle creates it when it opens).
     pub fn over(db: Db) -> Self {
         Self { db }
@@ -215,8 +227,12 @@ impl SessionSearchDb {
         if rows.is_empty() {
             return Ok(0);
         }
-        let client = self.db.client().await?;
-        insert_rows(&**client, &rows).await
+        let mut client = self.db.client().await?;
+        let tx = client.transaction().await?;
+        tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+        let stored = insert_rows(&*tx, &rows).await?;
+        tx.commit().await?;
+        Ok(stored)
     }
 
     /// In one transaction: every stored row of `session_id` whose content
@@ -264,7 +280,8 @@ impl SessionSearchDb {
         let tx = client.transaction().await?;
         // The cluster commits asynchronously (`synchronous_commit = off`): a kill could lose this
         // commit, and with it the record of the owed scrub, while the plain rows stay.
-        tx.batch_execute("SET LOCAL synchronous_commit = on").await?;
+        // Another mark's scrub may hold the table (`waiting`).
+        tx.batch_execute("SET LOCAL synchronous_commit = on; SET LOCAL lock_timeout = 0").await?;
         let stored = tx
             .query(
                 "SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
@@ -310,7 +327,7 @@ impl SessionSearchDb {
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<()> {
-        self.db.execute("DELETE FROM session_search.messages WHERE session_id = $1", &[&session_id]).await?;
+        self.waiting("DELETE FROM session_search.messages WHERE session_id = $1", &[&session_id]).await?;
         self.db.execute("DELETE FROM session_search.backfill WHERE session_id = $1", &[&session_id]).await?;
         Ok(())
     }
@@ -318,8 +335,7 @@ impl SessionSearchDb {
     /// Every session id that still has search rows or a backfill stamp.
     pub async fn session_ids(&self) -> Result<BTreeSet<String>> {
         let rows = self
-            .db
-            .query(
+            .waiting(
                 "SELECT DISTINCT session_id FROM session_search.messages
                  UNION SELECT session_id FROM session_search.backfill",
                 &[],
@@ -352,8 +368,7 @@ impl SessionSearchDb {
             return Ok(Vec::new());
         };
         let rows = self
-            .db
-            .query(
+            .waiting(
                 &format!(
                     "WITH q AS (SELECT to_tsquery('simple', $1) AS query),
                      hits AS (

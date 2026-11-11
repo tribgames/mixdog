@@ -259,6 +259,34 @@ async fn ingest_search_redact_and_delete() {
     assert!(!db.session_ids().await.expect("ids").contains("s1"));
 }
 
+/// A search and an append arriving while a scrub's `VACUUM FULL` holds the table's exclusive lock wait for it past the
+/// cluster's 5 s `lock_timeout` and then succeed, as Node's session search (no lock timeout) waits. The lock is held
+/// here by an explicit `LOCK TABLE`, released only after a bound longer than that timeout.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn a_search_and_an_append_wait_out_the_scrubs_exclusive_lock() {
+    let pg = TestPg::start().await;
+    let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
+    db.append("s1", &[json!({ "role": "user", "content": "Deploy the staging cluster" })]).await.expect("append");
+    let holder = pg.db(Schema::SessionSearch).await;
+    let mut client = holder.client().await.expect("holder");
+    let tx = client.transaction().await.expect("tx");
+    tx.batch_execute("LOCK TABLE session_search.messages IN ACCESS EXCLUSIVE MODE").await.expect("lock");
+    let search = tokio::spawn({
+        let db = db.clone();
+        async move { db.search("staging", 10).await }
+    });
+    let append = tokio::spawn({
+        let db = db.clone();
+        async move { db.append("s2", &[json!({ "role": "user", "content": "Deploy the staging cluster too" })]).await }
+    });
+    tx.batch_execute("SELECT pg_sleep(6)").await.expect("hold past the lock timeout");
+    tx.commit().await.expect("release");
+    // Either order after the release: the append may commit before the search reads.
+    assert!(!search.await.expect("join").expect("the search waited").is_empty());
+    assert_eq!(append.await.expect("join").expect("the append waited"), 1);
+}
+
 /// Every `file@offset` under `root` that holds the bytes of `value`.
 fn holders(root: &std::path::Path, value: &str) -> Vec<String> {
     let mut found = Vec::new();
