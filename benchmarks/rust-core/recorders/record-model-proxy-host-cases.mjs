@@ -107,29 +107,42 @@ function pcModules(available, keys = {}) {
   const live = new Map();
   const keyReads = [];
   const inits = [];
-  return {
+  const modules = {
     keyReads, probeAuth: () => 'present', inits, live,
     loadConfig: (options) => { if (JSON.stringify(options) !== '{"secrets":"presence"}') throw new RecorderError(`loadConfig options ${JSON.stringify(options)}`); return { providers: structuredClone(available) }; },
+    // registry.mjs `_initProvidersUnsynchronized`, over the real classes: the enabled entries build (a custom provider
+    // whose config does not build is skipped); a registered OAuth instance the config does not explicitly disable and
+    // whose credential is not absent (`probeAuth`, the PC's `oauthCredentialProbeState`) is preserved; with nothing
+    // left the init refuses and the registry is kept as it was, else it is replaced.
     initProviders: async (config) => {
       inits.push(structuredClone(config));
-      live.clear();
-      const enabled = Object.entries(config).filter(([, entry]) => entry.enabled === true);
-      if (!enabled.length) throw Object.assign(new Error('all providers disabled in config'), { code: 'PROVIDERS_NONE_ENABLED' });
-      for (const [name, entry] of enabled) {
-        // registry.mjs initProviders: a custom provider whose config does not build is skipped, the rest build.
+      const next = new Map();
+      for (const [name, entry] of Object.entries(config)) {
+        if (entry.enabled !== true) continue;
         const custom = entry.type === 'custom' && name.startsWith('custom-');
         const instance = await realInstance(name, entry).catch((error) => { if (custom) return null; throw error; });
         if (!instance) continue;
         instance.send = async () => ({ content: `${name}:${entry.apiKey ?? 'no-key'}` });
-        live.set(name, instance);
+        next.set(name, instance);
       }
+      for (const name of OAUTH_PROVIDER_NAMES) {
+        if (next.has(name) || !live.has(name)) continue;
+        const entry = config[name];
+        if (entry && entry.enabled !== true && entry.credentialProbeUnavailable !== true) continue;
+        if (modules.probeAuth(name, entry ?? {}) === 'absent') continue;
+        next.set(name, live.get(name));
+      }
+      if (!next.size) throw Object.assign(new Error('all providers disabled in config'), { code: 'PROVIDERS_NONE_ENABLED' });
+      live.clear();
+      for (const [name, instance] of next) live.set(name, instance);
     },
     getProvider: (name) => live.get(name), getAllProviders: () => live,
     readApiKey: async (name) => { keyReads.push(name); return keys[name] ?? null; },
     finalizeProviderRequestTools: (tools) => tools,
   };
+  return modules;
 }
-const send = (channel, name, args = {}) => new ModelProxyProvider(name, {}, channel).send(args.messages ?? [], args.model ?? 'gpt', args.tools, args.options ?? {});
+const send =(channel, name, args = {}) => new ModelProxyProvider(name, {}, channel).send(args.messages ?? [], args.model ?? 'gpt', args.tools, args.options ?? {});
 const providerConfigOf = (channel) => channel.request({ provider: '', method: 'providerConfig' });
 /** Waits for the timers the step is known to arm (each the event that says the code is now waiting on it), advances the virtual clock by each, and waits for the promise. */
 async function driven(virtual, label, promise, timersMs) {
@@ -433,8 +446,6 @@ await run('a call payload over the request cap is refused before any provider ru
 await run('the last disabled or removed provider is not advertised even when the registry preserves its instance', async () => {
   const available = { openai: { enabled: true } };
   const modules = pcModules(available);
-  const init = modules.initProviders;
-  modules.initProviders = async (config) => { if (!Object.values(config).some((entry) => entry.enabled === true)) throw Object.assign(new Error('all disabled'), { code: 'PROVIDERS_NONE_ENABLED' }); return init(config); };
   const runtime = createModelProxyRuntime(modules);
   const log = [];
   log.push({ step: 'enabled', config: await runtime.providerConfig() });
@@ -497,8 +508,6 @@ await run('proxy readiness distinguishes missing credentials, transient probes, 
   const modules = pcModules(available);
   let state = 'present';
   modules.probeAuth = () => state;
-  const init = modules.initProviders;
-  modules.initProviders = async (config) => { if (config['openai-oauth'].credentialProbeUnavailable) return; return init(config); };
   const runtime = createModelProxyRuntime(modules);
   const { channel } = connect(runtime);
   const read = async () => (await providerConfigOf(channel)).providers['openai-oauth'];

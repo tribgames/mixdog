@@ -42,6 +42,8 @@ pub mod proxy_providers;
 pub mod model_proxy_pc;
 #[cfg(test)]
 mod model_proxy_trust_replay_tests;
+#[cfg(test)]
+mod model_proxy_host_config_replay_tests;
 pub mod agent_dispatch;
 pub mod dispatch_sessions;
 mod failed_turn_rewind;
