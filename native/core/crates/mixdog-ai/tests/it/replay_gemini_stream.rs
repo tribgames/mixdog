@@ -42,8 +42,8 @@ use crate::provider_case::Endpoint;
 use crate::provider_case::Recorded;
 use crate::provider_case::plain;
 use crate::provider_case::within;
+use crate::provider_case::ErrorSide;
 use crate::replay_errors::Left;
-use crate::replay_errors::compare_error;
 
 const SET: &str = "gemini-stream";
 
@@ -152,7 +152,7 @@ async fn every_case_consumes_as_nodes() {
                 "error" => {
                     let left = Left { error: error.as_ref(), cancelled: false, exhausted: false, events: &events };
                     assert!(error.is_some(), "{what}: the core ended cleanly: {events:?}");
-                    recorded.checked(|error| compare_error(&what, error, &left));
+                    recorded.assert_error(&what, ErrorSide::Send(&left));
                 }
                 "progress" => recorded.assert_eq(
                     &what,
@@ -201,12 +201,16 @@ fn assert_response(what: &str, recorded: &Recorded<'_>, events: &[StreamEvent]) 
                     recorded_parts.assert_eq(&format!("{what}: {path}.parts"), &parts);
                 }
             }
-            // STOP and no finish are both a delivered turn (`Completed { stop: None }`, see `RESULT_FIELDS`).
-            "finishReason" => value.checked(|finish| {
+            // A delivered turn (`Completed { stop: None }`) is Node's STOP (see `RESULT_FIELDS`); the core's other ends are
+            // no finish this set's responses carry.
+            "finishReason" => {
                 let _ = result_field(&path);
-                assert_eq!(finish.as_str(), "STOP", "{what}: {path}: a finish this set's responses do not carry");
-                assert_eq!(stops, [None], "{what}: {path}");
-            }),
+                let finish = match stops.as_slice() {
+                    [None] => "STOP",
+                    other => panic!("{what}: {path}: the core ended {other:?}"),
+                };
+                value.assert_eq(&format!("{what}: {path}"), &Exact::String(finish.into()));
+            }
             _ => {}
         }
     }

@@ -9,18 +9,23 @@
 //!   resolved), `requests` (each as it arrived, with its scripted `reply`), `clock` (the recorded advances). A recorded
 //!   property the driver does not read fails the load.
 //! - [`Case::recorded`]: the outcome (Node's result, or the error it threw) as a [`Recorded`] value. Reading it marks
-//!   nothing; only a comparing call does ([`Recorded::assert_eq`], [`Recorded::assert_as`], [`Recorded::checked`]): the
-//!   replay hands in the core's actual, the driver compares it with the recorded value at that path whole and marks the
-//!   path. Dropping the set fails the test, naming them, when a case has a recorded property no comparison covered (a
-//!   path is covered by a comparison of it or of what holds it, or by a manifest exclusion), unless the case was named
-//!   [`CaseSet::not_replayed`] (or [`CaseSet::only`]) with the reason.
+//!   nothing; only a comparison the driver itself makes does, and it marks exactly the path it compared whole:
+//!   [`Recorded::assert_eq`] (the replay hands in the core's actual; the manifest's exclusion lines are the only members
+//!   left out, at any depth), [`Recorded::assert_json`] (the same, an `undefined` member as its absence),
+//!   [`Recorded::assert_filtered`] (an array less the items of a kind a named exclusion line declares) and
+//!   [`Recorded::assert_error`] (an error, every field through `ERROR_FIELDS`). Dropping the set fails the test, naming
+//!   them, when a case was not compared or has a recorded property no comparison covered (a path is covered by a
+//!   comparison of it or of what holds it, or by a manifest exclusion), unless the case was named
+//!   [`CaseSet::not_replayed`] with the reason (another group's branch replays it). A set has one replay test, so its
+//!   own drop holds every case: no run depends on another test having run.
 //! - [`Replay`]: every replay module lists its test functions in its `REPLAYS`; a set whose replay compared every case is
 //!   registered at run time when the set is dropped, and `every_provider_set_has_a_comparing_replay` runs the listed
 //!   entries and fails naming each recorded set no entry compared.
-//! - [`CaseSet::excludes`]`(name)` / [`CaseSet::compared`]: the one way a replay leaves a recorded property out: a
-//!   manifest exclusion line ``` `name` is not compared: <reason> ```.
+//! - [`CaseSet::excludes`]`(name)`: the one way a replay leaves a recorded property out: a manifest exclusion line
+//!   ``` `name` is not compared: <reason> ``` (a bare property name holds at any depth).
 //! - [`RecorderDraws`]: the recording process's random bytes, uuids and `Math.random`, computed as the recorders draw them,
-//!   to script the core's random sources (`mixdog_ai::random`).
+//!   to script the core's random sources (`mixdog_ai::random`); a replay that scripts them runs under
+//!   `mixdog_ai::random::run_scoped` (its runtime, paused by `tokio::time::pause()`), whose threads alone see the scripts.
 //! - [`Endpoint::start`] opens the endpoint (plain HTTP/1.1 and WebSocket on 127.0.0.1) and holds the paused clock for
 //!   its lifetime: run the test as `#[tokio::test(start_paused = true)]` (current-thread); time then moves only by
 //!   [`Endpoint::advance`] with a recorded step, never by tokio's auto-advance; [`Endpoint::assert_clock`] compares the
@@ -89,6 +94,9 @@ pub const DEADLINE: Duration = Duration::from_secs(60);
 /// The recorders' `Date.now()` at running-clock 0 (`T0`, provider-case-recorder.mjs: `2026-11-09T12:00:00Z`).
 pub const T0_MS: u64 = 1_794_225_600_000;
 
+/// The recorders' `process.pid` (provider-case-recorder.mjs: `installDeterministicWorld({ pid: 4242 })`).
+pub const RECORDER_PID: u32 = 4242;
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The recording
 // ---------------------------------------------------------------------------------------------------------------------
@@ -132,6 +140,8 @@ pub struct Case {
     pub clock_origin_ms: u64,
     /// The paths of each case's outcome a comparison covered (shared with the set, see [`CaseSet`]'s drop).
     compared: Marks,
+    /// The set manifest's exclusion lines, which a whole comparison leaves out ([`Recorded::assert_eq`]).
+    exclusions: Arc<Vec<String>>,
 }
 
 /// Per case id, the outcome paths a comparing call marked (`""`: the whole outcome).
@@ -172,7 +182,7 @@ pub struct CaseSet {
     pub manifest: Exact,
     pub cases: Vec<Case>,
     /// The manifest's exclusions, the only rules a replay applies.
-    exclusions: Vec<String>,
+    exclusions: Arc<Vec<String>>,
     /// `clockStartMs` of the recording, where the recorder wrote one: its `T0`.
     pub clock_start_ms: Option<u64>,
     /// The paths of each case's outcome a comparison covered; a case named [`CaseSet::not_replayed`] is covered whole.
@@ -249,6 +259,10 @@ impl CaseSet {
         }
         let shared = recording.try_get("shared").map(|s| s.as_array().to_vec()).unwrap_or_default();
         let compared: Marks = Arc::default();
+        let exclusions: Arc<Vec<String>> = Arc::new(match manifest.try_get("exclusions") {
+            Some(Exact::Array(items)) => items.iter().map(|e| e.as_str().to_owned()).collect(),
+            _ => Vec::new(),
+        });
         let mut running_ms = 0;
         let cases = recording
             .get("cases")
@@ -316,19 +330,17 @@ impl CaseSet {
                     clock,
                     clock_origin_ms,
                     compared: compared.clone(),
+                    exclusions: exclusions.clone(),
                     id,
                 }
             })
             .collect();
-        let exclusions = match manifest.try_get("exclusions") {
-            Some(Exact::Array(items)) => items.iter().map(|e| e.as_str().to_owned()).collect(),
-            _ => Vec::new(),
-        };
         Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, compared, checked }
     }
 
-    /// Names cases this replay does not replay, with the reason (another branch's work, a test of their own); they count as
-    /// covered. Every id must be one of the set's.
+    /// Names cases no replay of this branch compares, with the reason (another group's branch replays them); they count
+    /// as covered. Every id must be one of the set's. The set's one replay names them: a set is never split over
+    /// several tests of this branch, so its drop alone holds every one of its cases to a comparison.
     pub fn not_replayed(&self, ids: &[&str], reason: &str) {
         assert!(!reason.trim().is_empty(), "{}: a reason for {ids:?}", self.set);
         for id in ids {
@@ -336,26 +348,10 @@ impl CaseSet {
         }
     }
 
-    /// Every case but `id`, named not replayed by this test: `reason` says which test replays them.
-    pub fn only(&self, id: &str, reason: &str) -> &Case {
-        let others: Vec<&str> = self.cases.iter().map(|c| c.id.as_str()).filter(|other| *other != id).collect();
-        self.not_replayed(&others, reason);
-        self.case(id)
-    }
-
     /// Whether the manifest declares `name` (a recorded property) not compared: an exclusion line reading
     /// ``` `name` is not compared: <reason> ```. The one way a replay leaves a recorded property out.
     pub fn excludes(&self, name: &str) -> bool {
-        let prefix = format!("`{name}` is not compared: ");
-        self.exclusions.iter().any(|line| line.starts_with(&prefix))
-    }
-
-    /// `value` (an object) without the keys the manifest declares not compared, each looked up as `<path><key>`.
-    pub fn compared(&self, path: &str, value: &Exact) -> Exact {
-        match value {
-            Exact::Object(entries) => Exact::Object(entries.iter().filter(|(k, _)| !self.excludes(&format!("{path}{k}"))).cloned().collect()),
-            other => panic!("{}: {path}: an object: {other:?}", self.set),
-        }
+        excluded(&self.exclusions, name)
     }
 
     pub fn case(&self, id: &str) -> &Case {
@@ -476,6 +472,63 @@ impl CaseSet {
     }
 }
 
+/// Whether the exclusion lines declare `name` not compared: a line ``` `<name>` is not compared: <reason> ```, or one
+/// naming the last segments of `name` (a bare property name holds wherever the property is recorded:
+/// `sends[].result.stopDetails` under `` `stopDetails` ``).
+fn excluded(exclusions: &[String], name: &str) -> bool {
+    exclusions.iter().any(|line| {
+        line.strip_prefix('`')
+            .and_then(|rest| rest.split_once("` is not compared: "))
+            .is_some_and(|(declared, _)| declared == name || name.ends_with(&format!(".{declared}")))
+    })
+}
+
+/// `path` with every array index written `[]`, as an exclusion line names it.
+fn generic_of(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut in_index = false;
+    for c in path.chars() {
+        match c {
+            '[' => {
+                in_index = true;
+                out.push('[');
+            }
+            ']' => {
+                in_index = false;
+                out.push(']');
+            }
+            _ if in_index => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// `value` (at `generic`) without the members the exclusion lines declare not compared, at any depth.
+fn without_excluded(value: &Exact, generic: &str, exclusions: &[String]) -> Exact {
+    let child = |key: &str| if generic.is_empty() { key.to_owned() } else { format!("{generic}.{key}") };
+    match value {
+        Exact::Object(entries) => Exact::Object(
+            entries
+                .iter()
+                .filter(|(key, _)| !excluded(exclusions, &child(key)))
+                .map(|(key, inner)| (key.clone(), without_excluded(inner, &child(key), exclusions)))
+                .collect(),
+        ),
+        Exact::Array(items) => Exact::Array(items.iter().map(|item| without_excluded(item, &format!("{generic}[]"), exclusions)).collect()),
+        other => other.clone(),
+    }
+}
+
+/// `JSON.stringify`'s view of a value: an object member holding `undefined` is not written.
+fn json_form(value: &Exact) -> Exact {
+    match value {
+        Exact::Object(entries) => Exact::Object(entries.iter().filter(|(_, v)| *v != Exact::Undefined).map(|(k, v)| (k.clone(), json_form(v))).collect()),
+        Exact::Array(items) => Exact::Array(items.iter().map(json_form).collect()),
+        other => other.clone(),
+    }
+}
+
 /// Whether `mark` is `path` or a path inside it (`""` holds every path).
 fn within_path(mark: &str, path: &str) -> bool {
     path.is_empty() || mark == path || mark.strip_prefix(path).is_some_and(|rest| rest.starts_with('.') || rest.starts_with('['))
@@ -578,29 +631,56 @@ impl<'c> Recorded<'c> {
             .collect()
     }
 
-    /// `got` equals the recorded value whole; marks the path.
+    /// The recorded value without the members the manifest declares not compared (at any depth below this path).
+    fn declared(&self) -> Exact {
+        without_excluded(self.value, &generic_of(&self.path), &self.case.exclusions)
+    }
+
+    /// `got` equals the recorded value whole, but for the members the manifest declares not compared; marks the path.
+    /// The only lossy step is the manifest's own, which also covers what it leaves out.
     #[track_caller]
     pub fn assert_eq(&self, what: &str, got: &Exact) {
-        assert_exact(what, self.value, got);
+        assert_exact(what, &self.declared(), got);
         self.case.mark(&self.path);
     }
 
-    /// `got` equals `view` of the recorded value whole (the replay's declared view: the manifest's exclusions, one
-    /// representation for both sides); marks the path.
+    /// As [`Recorded::assert_eq`], both sides as `JSON.stringify` writes them: an object member holding `undefined` is
+    /// the member's absence (the product's value went to the wire as JSON); marks the path.
     #[track_caller]
-    pub fn assert_as(&self, what: &str, view: impl FnOnce(&Exact) -> Exact, got: &Exact) {
-        assert_exact(what, &view(self.value), got);
+    pub fn assert_json(&self, what: &str, got: &Exact) {
+        assert_exact(what, &json_form(&self.declared()), &json_form(got));
         self.case.mark(&self.path);
     }
 
-    /// A field-by-field comparison of the recorded value with the core's (through `ERROR_FIELDS` / `RESULT_FIELDS`, where
-    /// the core holds it in another shape): `compare` asserts every field of it; its path is marked once it returned.
+    /// A recorded array whose items of one kind the manifest declares not compared (`exclusion`, a line the manifest
+    /// must hold): the items `keep` holds, in order, equal `got` whole; marks the path.
     #[track_caller]
-    pub fn checked<T>(&self, compare: impl FnOnce(&'c Exact) -> T) -> T {
-        let out = compare(self.value);
+    pub fn assert_filtered(&self, what: &str, exclusion: &str, keep: impl Fn(&Exact) -> bool, got: &Exact) {
+        assert!(excluded(&self.case.exclusions, exclusion), "{what}: the manifest declares no `{exclusion}` exclusion");
+        let kept = Exact::Array(self.declared().as_array().iter().filter(|item| keep(item)).cloned().collect());
+        assert_exact(what, &kept, got);
         self.case.mark(&self.path);
-        out
     }
+
+    /// A recorded error (an `Exact::Error`) against the core's, every field through `ERROR_FIELDS` as the table maps it
+    /// (`replay_errors::compare_error`, or the error-contract set's own table comparison for an error built outside a
+    /// send): a field the comparison does not know fails it. Marks the path once every field compared.
+    #[track_caller]
+    pub fn assert_error(&self, what: &str, core: ErrorSide<'_>) {
+        match core {
+            ErrorSide::Send(left) => crate::replay_errors::compare_error(what, self.value, left),
+            ErrorSide::Contract(built) => crate::replay_gemini_error_contract::compare_error(what, self.value, built),
+        }
+        self.case.mark(&self.path);
+    }
+}
+
+/// The core's side of a recorded error ([`Recorded::assert_error`]).
+pub enum ErrorSide<'a> {
+    /// What left the provider layer of a send.
+    Send(&'a crate::replay_errors::Left<'a>),
+    /// An error the Gemini error contract built from one response.
+    Contract(&'a crate::replay_gemini_error_contract::Built),
 }
 
 /// One replay entry of a module's `REPLAYS`: the set it replays and its test function (a `#[tokio::test]` builds its own
@@ -1731,7 +1811,7 @@ fn every_recorded_error_field_is_in_the_table() {
             _ => {}
         }
     }
-    const SETS: [&str; 24] = [
+    const SETS: [&str; 25] = [
         "anthropic-api-key-fetch-rest",
         "anthropic-replay-blocks",
         "anthropic-server-fallback",
@@ -1756,6 +1836,7 @@ fn every_recorded_error_field_is_in_the_table() {
         "openai-compat-stream-lifecycle",
         "session-provider-replay",
         "gemini-send-retry",
+        "retry-stages",
     ];
     let mut missing = Vec::new();
     for set in SETS {
@@ -1811,7 +1892,7 @@ const REPLAYED_ELSEWHERE: &[&str] = &[
 
 /// Every module's replay entries ([`Replay`]), in one list.
 fn registry() -> Vec<&'static Replay> {
-    let lists: [&'static [Replay]; 16] = [
+    let lists: [&'static [Replay]; 17] = [
         crate::replay_anthropic_api_key_fetch::REPLAYS,
         crate::replay_anthropic_replay_blocks::REPLAYS,
         crate::replay_anthropic_server_fallback::REPLAYS,
@@ -1826,6 +1907,7 @@ fn registry() -> Vec<&'static Replay> {
         crate::replay_leak_guards::REPLAYS,
         crate::replay_openai_ws_delta::REPLAYS,
         crate::replay_openai_ws_handshake::REPLAYS,
+        crate::replay_retry_stages::REPLAYS,
         crate::replay_session_provider_replay::REPLAYS,
         crate::replay_transport_policy::REPLAYS,
     ];
@@ -1881,7 +1963,18 @@ fn a_set_named_but_never_compared_does_not_count() {
 /// The synthetic set of the driver's own checks: the real manifest of `anthropic-replay-blocks` and one case whose result
 /// is `{x, y}`.
 fn two_property_set() -> CaseSet {
-    let manifest = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("MANIFEST.json"));
+    synthetic_set(Exact::Object(vec![("x".into(), Exact::Number(1.0)), ("y".into(), Exact::Number(2.0))]), &[])
+}
+
+/// A set of one case `a` whose result is `result`, under the real manifest of `anthropic-replay-blocks` with
+/// `exclusions` as its exclusion lines.
+fn synthetic_set(result: Exact, exclusions: &[&str]) -> CaseSet {
+    let Exact::Object(mut manifest) = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("MANIFEST.json")) else {
+        panic!("a manifest")
+    };
+    manifest.retain(|(key, _)| key != "exclusions");
+    manifest.push(("exclusions".into(), Exact::Array(exclusions.iter().map(|line| Exact::String((*line).into())).collect())));
+    let manifest = Exact::Object(manifest);
     let recording = Exact::Object(vec![
         ("set".into(), Exact::String("provider-anthropic-replay-blocks".into())),
         ("nodeCommit".into(), manifest.get("product").get("commit").clone()),
@@ -1891,11 +1984,70 @@ fn two_property_set() -> CaseSet {
                 ("id".into(), Exact::String("a".into())),
                 ("source".into(), Exact::String("synthetic".into())),
                 ("input".into(), Exact::Object(Vec::new())),
-                ("result".into(), Exact::Object(vec![("x".into(), Exact::Number(1.0)), ("y".into(), Exact::Number(2.0))])),
+                ("result".into(), result),
             ])]),
         ),
     ]);
     CaseSet::from_recording("anthropic-replay-blocks", manifest, recording, true)
+}
+
+fn object(entries: &[(&str, Exact)]) -> Exact {
+    Exact::Object(entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
+}
+
+/// A whole comparison leaves out only what the manifest declares: a declared member, at any depth, is neither compared
+/// nor left uncovered, and the parent's mark stands for the rest; an actual that lacks an undeclared member is a
+/// difference, so no projection of the recorded value can stand in for it.
+#[test]
+fn a_whole_comparison_leaves_out_only_declared_members() {
+    let result = object(&[("x", Exact::Number(1.0)), ("inner", object(&[("y", Exact::Number(2.0)), ("stopDetails", Exact::Number(3.0))]))]);
+    let without = object(&[("x", Exact::Number(1.0)), ("inner", object(&[("y", Exact::Number(2.0))]))]);
+    let set = synthetic_set(result.clone(), &["`stopDetails` is not compared: synthetic"]);
+    set.cases[0].recorded().assert_eq("declared", &without);
+    drop(set);
+
+    let lossy = std::panic::catch_unwind(|| {
+        let set = synthetic_set(result.clone(), &[]);
+        set.cases[0].recorded().assert_eq("undeclared", &without);
+    })
+    .map_err(panic_text)
+    .expect_err("an undeclared member left out is a difference");
+    assert!(lossy.contains("stopDetails"), "{lossy}");
+
+    let filtered = std::panic::catch_unwind(|| {
+        let set = synthetic_set(object(&[("deltas", Exact::Array(vec![Exact::String("text".into()), Exact::String("transport".into())]))]), &[]);
+        let keep = |item: &Exact| item.as_str() != "transport";
+        set.cases[0].recorded().get("deltas").assert_filtered("deltas", "onStreamDelta('transport')", keep, &Exact::Array(vec![Exact::String("text".into())]));
+    })
+    .map_err(panic_text)
+    .expect_err("a filter needs its exclusion line");
+    assert!(filtered.contains("declares no `onStreamDelta('transport')` exclusion"), "{filtered}");
+}
+
+/// An error is marked compared only by its table comparison: a recorded field the table does not hold fails it, and
+/// the case is then left unconsumed at the set's drop.
+#[test]
+fn an_error_is_compared_only_through_every_field() {
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+    use mixdog_core_api::domain::provider::ProviderError;
+    let recorded = Exact::Error {
+        name: "Error".into(),
+        message: "boom".into(),
+        code: None,
+        cause: None,
+        props: vec![("fieldNoTableHolds".into(), Exact::Bool(true))],
+    };
+    let mut core = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+    core.message = "boom".into();
+    let left = crate::replay_errors::Left { error: Some(&core), cancelled: false, exhausted: false, events: &[] };
+    let set = synthetic_set(object(&[("error", recorded)]), &[]);
+    let field = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| set.cases[0].recorded().get("error").assert_error("error", ErrorSide::Send(&left))))
+        .map_err(panic_text)
+        .expect_err("a field the table does not hold fails the comparison");
+    assert!(field.contains("fieldNoTableHolds"), "{field}");
+    let unconsumed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(set))).map_err(panic_text).expect_err("the case was not consumed");
+    assert!(unconsumed.contains("recorded cases no replay compared: [\"a\"]"), "{unconsumed}");
 }
 
 fn panic_text(panic: Box<dyn std::any::Any + Send>) -> String {

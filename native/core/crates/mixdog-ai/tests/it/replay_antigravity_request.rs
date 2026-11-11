@@ -510,8 +510,13 @@ fn value(case: &Case, a: &mut Answers) -> Exact {
 
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "antigravity-request", run: every_case_builds_as_nodes }];
 
+/// Run in the replay's own scope (`run_scoped`): its scripted draws are its own.
 #[test]
 fn every_case_builds_as_nodes() {
+    mixdog_ai::random::run_scoped(async { every_case() });
+}
+
+fn every_case() {
     let set = CaseSet::load("antigravity-request");
     assert_eq!(set.cases.len(), 30, "the recorded cases");
     // The recorder ran the cases in this order in one fresh process (its warn-once set starts empty).
@@ -531,7 +536,7 @@ fn every_case_builds_as_nodes() {
             let built = Exact::Array(answers.builds.iter().map(|b| b.sent.clone()).collect());
             let got = obj(vec![("value", value(case, &mut answers)), ("built", built)]);
             assert!(answers.unions.is_empty(), "every actionInputUnionFor answer is shown");
-            case.recorded().assert_as(&format!("{}: result", case.id), json_form, &json_form(&got));
+            case.recorded().assert_json(&format!("{}: result", case.id), &got);
         });
         if let Err(panic) = checked {
             failures.push(format!("{}: {}", case.id, panic_text(&panic)));

@@ -30,6 +30,8 @@ use serde_json::Value;
 use serde_json::json;
 
 use crate::provider_case::CaseSet;
+use crate::provider_case::ErrorSide;
+use crate::provider_case::Recorded;
 use crate::provider_case::assert_exact;
 use crate::provider_case::error_field;
 use crate::provider_case::error_field_unread;
@@ -37,7 +39,7 @@ use crate::provider_case::plain;
 use crate::provider_cases;
 
 /// One error the core built for a recorded call, with what it was built from.
-struct Built {
+pub struct Built {
     error: ProviderError,
     /// The body the response served, parsed (`data`), when it was JSON.
     served: Option<Value>,
@@ -239,19 +241,8 @@ fn kind_of(error: &ProviderError) -> Exact {
 
 const CONTRACT_KEYS: [&str; 5] = ["code", "retryAfterMs", "resetAt", "quotaScope", "resetAtMinusClock"];
 
-/// An error of the recording in the whole comparison, on both sides: it is compared field by field ([`compare_error`]).
-const COMPARED: &str = "<error, compared through ERROR_FIELDS>";
-
-/// The recorded tree with each error replaced by [`COMPARED`].
-fn errors_compared(value: &Exact) -> Exact {
-    match value {
-        Exact::Error { .. } => Exact::String(COMPARED.into()),
-        Exact::Object(entries) => Exact::Object(entries.iter().map(|(k, v)| (k.clone(), errors_compared(v))).collect()),
-        Exact::Array(items) => Exact::Array(items.iter().map(errors_compared).collect()),
-        other => other.clone(),
-    }
-}
-
+/// The recorded result walked in order: each answer the core gave is compared with the recorded value at its path, whole
+/// (an error through its table, [`compare_error`]); a path no answer covers is left to the set's drop.
 struct Walk<'a> {
     case: &'a str,
     now: SystemTime,
@@ -260,43 +251,47 @@ struct Walk<'a> {
 }
 
 impl Walk<'_> {
-    fn node(&mut self, key: &str, recorded: &Exact) -> Exact {
-        match (key, recorded) {
-            ("clockStartMs", _) => Exact::Number(ms_of(self.now)),
+    fn node(&mut self, key: &str, recorded: &Recorded<'_>) {
+        let what = format!("{}: {}", self.case, recorded.path());
+        match (key, recorded.raw()) {
+            ("clockStartMs", _) => recorded.assert_eq(&what, &Exact::Number(ms_of(self.now))),
             // The response the error carries is the one handed in (`err.headers === res.headers`): the core reads the
             // response's own headers.
-            ("headersIsTheResponsesOwn", _) => Exact::Bool(true),
-            ("stampMs", _) => Exact::Number(mixdog_js::time::date_parse("2099-01-01T00:00:00Z")),
+            ("headersIsTheResponsesOwn", _) => recorded.assert_eq(&what, &Exact::Bool(true)),
+            ("stampMs", _) => recorded.assert_eq(&what, &Exact::Number(mixdog_js::time::date_parse("2099-01-01T00:00:00Z"))),
             ("kind", Exact::Object(_)) => {
                 let index = self.answers.kinds.pop_front().expect("a kind call");
-                kind_of(&self.answers.built[index].error)
+                recorded.assert_eq(&what, &kind_of(&self.answers.built[index].error));
             }
             ("isCapacity", _) => {
                 let index = self.answers.capacity.pop_front().expect("a capacity call");
-                Exact::Bool(self.answers.built[index].error.kind == ErrorKind::Overloaded)
+                recorded.assert_eq(&what, &Exact::Bool(self.answers.built[index].error.kind == ErrorKind::Overloaded));
             }
-            ("policy", Exact::Object(entries)) => Exact::Object(
-                entries
-                    .iter()
-                    .map(|(reason, _)| {
-                        let code = self.answers.policy.pop_front().expect("a policy call");
-                        (reason.clone(), code.map_or(Exact::Null, |c| Exact::String(c.into())))
-                    })
-                    .collect(),
-            ),
+            ("policy", Exact::Object(entries)) => {
+                let answered = Exact::Object(
+                    entries
+                        .iter()
+                        .map(|(reason, _)| {
+                            let code = self.answers.policy.pop_front().expect("a policy call");
+                            (reason.clone(), code.map_or(Exact::Null, |c| Exact::String(c.into())))
+                        })
+                        .collect(),
+                );
+                recorded.assert_eq(&what, &answered);
+            }
             (_, Exact::Error { .. }) => {
                 let index = self.answers.errors.pop_front().expect("an error call");
-                let built = &self.answers.built[index];
-                compare_error(&format!("{}: {key}", self.case), recorded, built);
+                recorded.assert_error(&what, ErrorSide::Contract(&self.answers.built[index]));
                 self.error_at += 1;
-                Exact::String(COMPARED.into())
             }
             (_, Exact::Object(entries)) if entries.iter().all(|(k, _)| CONTRACT_KEYS.contains(&k.as_str())) => {
                 let error = self.answers.contracts.pop_front().expect("a contract call");
-                contract_fields(&error, recorded, self.now)
+                recorded.assert_eq(&what, &contract_fields(&error, recorded.raw(), self.now));
             }
-            (_, Exact::Object(entries)) => {
-                Exact::Object(entries.iter().map(|(k, v)| (k.clone(), self.node(k, v))).collect())
+            (_, Exact::Object(_)) => {
+                for (key, inner) in recorded.entries() {
+                    self.node(key, &inner);
+                }
             }
             (other, value) => panic!("{}: no answer for {other} = {value:?}", self.case),
         }
@@ -329,8 +324,8 @@ fn retry_info_ms(details: &Exact) -> Option<f64> {
     None
 }
 
-/// One recorded error against the core's, every field through the table.
-fn compare_error(what: &str, recorded: &Exact, built: &Built) {
+/// One recorded error against the core's, every field through the table (the driver's [`Recorded::assert_error`]).
+pub fn compare_error(what: &str, recorded: &Exact, built: &Built) {
     let Exact::Error { name, message, code, cause, props } = recorded else { panic!("{what}: not an error") };
     assert!(cause.is_none(), "{what}: a cause");
     let error = &built.error;
@@ -464,9 +459,8 @@ fn every_case_answers_as_nodes() {
     for case in &set.cases {
         let answers = answer(case);
         let mut walk = Walk { case: &case.id, now: now(), answers, error_at: 0 };
-        let actual = walk.node("", case.recorded().raw());
+        walk.node("", &case.recorded());
         assert!(walk.answers.contracts.is_empty() && walk.answers.errors.is_empty(), "{}: every call answered", case.id);
         assert!(walk.answers.kinds.is_empty() && walk.answers.capacity.is_empty() && walk.answers.policy.is_empty(), "{}", case.id);
-        case.recorded().assert_as(&format!("provider-gemini-error-contract {}: result", case.id), errors_compared, &actual);
     }
 }

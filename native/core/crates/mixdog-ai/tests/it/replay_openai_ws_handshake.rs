@@ -19,11 +19,12 @@ use hyper::header::HeaderName;
 use hyper::header::HeaderValue;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 
+use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
+use crate::provider_case::ErrorSide;
 use crate::provider_case::within;
 use crate::replay_errors::Left;
-use crate::replay_errors::compare_error;
 use crate::replay_world::Events;
 
 const SET: &str = "openai-ws-handshake";
@@ -39,9 +40,8 @@ fn caller_headers(upgrade: &Exact) -> Vec<(String, String)> {
         .collect()
 }
 
-async fn replay(id: &str) {
-    let set = CaseSet::load(SET);
-    let case = set.only(id, "each case has its own test function in this file");
+async fn replay(case: &Case) {
+    let id = case.id.as_str();
     let recorded = case.recorded();
     let events = recorded.get("events").raw().as_array();
     let endpoint = Endpoint::start().await;
@@ -88,20 +88,17 @@ async fn replay(id: &str) {
     };
     let cancel = CancellationToken::new();
     let (sent, got) = within("the send", crate::replay_world::send_with(&*adapter, request, &cancel, Events::default())).await;
-    recorded.get("outcome").get("error").checked(|error| compare_error(&format!("{SET} {id} error"), error, &Left::of(&sent, &got)));
+    recorded.get("outcome").get("error").assert_error(&format!("{SET} {id} error"), ErrorSide::Send(&Left::of(&sent, &got)));
 }
 
-pub const REPLAYS: &[crate::provider_case::Replay] = &[
-    crate::provider_case::Replay { set: SET, run: unexpected_response_preserves_status_headers_body },
-    crate::provider_case::Replay { set: SET, run: non_json_body_keeps_status_and_headers },
-];
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: every_case_replays_as_nodes }];
 
+/// Every case of the set, in one test: the set's drop holds each to its comparison.
 #[tokio::test(start_paused = true)]
-async fn unexpected_response_preserves_status_headers_body() {
-    replay("unexpected-response-preserves-status-headers-body").await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn non_json_body_keeps_status_and_headers() {
-    replay("non-json-body-keeps-status-and-headers").await;
+async fn every_case_replays_as_nodes() {
+    let set = CaseSet::load(SET);
+    assert_eq!(set.cases.len(), 2, "the recorded cases");
+    for case in &set.cases {
+        replay(case).await;
+    }
 }

@@ -82,7 +82,6 @@ async fn every_api_key_case_replays_as_nodes() {
         }
         let recorded = case.recorded();
         let what = format!("{id}: result");
-        let comparable = |r: &Exact| replay_anthropic::comparable(&set, r);
         match id {
             "eligible-families-default-fallback" => {
                 let want = recorded.get("sends").items();
@@ -93,16 +92,16 @@ async fn every_api_key_case_replays_as_nodes() {
                     if let Some(off) = want.try_get("serverFallback") {
                         assert_eq!(case.args_of("AnthropicProvider#send", k)[3].try_get("serverFallback"), Some(off.raw()), "{what}: send {k} option");
                     }
-                    want.get("result").assert_as(&format!("{what} {k}"), comparable, &result_of(got));
+                    want.get("result").assert_eq(&format!("{what} {k}"), &result_of(got));
                 }
             }
             "beta-header-gated-and-deduplicated" => {
-                recorded.get("on").assert_as(&format!("{what}: on"), comparable, &result_of(&results[0]));
-                recorded.get("off").assert_as(&format!("{what}: off"), comparable, &result_of(&results[1]));
+                recorded.get("on").assert_eq(&format!("{what}: on"), &result_of(&results[0]));
+                recorded.get("off").assert_eq(&format!("{what}: off"), &result_of(&results[1]));
             }
             _ => {
                 assert_eq!(results.len(), 1, "{what}: one send");
-                recorded.get("result").assert_as(&what, comparable, &result_of(&results[0]));
+                recorded.get("result").assert_eq(&what, &result_of(&results[0]));
             }
         }
         set.assert_requests(case, &endpoint.arrivals(), None);

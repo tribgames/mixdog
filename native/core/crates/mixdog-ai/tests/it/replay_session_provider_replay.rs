@@ -25,8 +25,10 @@ async fn the_anthropic_client_headers_arrive_in_the_sdk_spelling() {
     use mixdog_core_api::domain::keepalive::TransportKind;
     use mixdog_core_api::domain::provider::WireRequest;
     let set = CaseSet::load(SET);
-    let case = set.only("openai-to-anthropic-tool-pair", "the set's other cases: group B's replay, not in this branch");
+    let others: Vec<&str> = set.ids().into_iter().filter(|id| *id != "openai-to-anthropic-tool-pair").collect();
+    set.not_replayed(&others, "the set's other cases: group B's replay, not in this branch");
     set.not_replayed(&["openai-to-anthropic-tool-pair"], "this test compares the SDK header layer of its request only; the send's replay is group B's, not in this branch");
+    let case = set.case("openai-to-anthropic-tool-pair");
     let recorded = &case.requests[0];
     let endpoint = Endpoint::start().await;
     endpoint.serve(case);

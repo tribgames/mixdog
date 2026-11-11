@@ -25,12 +25,13 @@ use crate::provider_case::Replay;
 use crate::provider_case::T0_MS;
 use crate::provider_case::within;
 use crate::provider_cases::plain;
+use crate::provider_case::ErrorSide;
 use crate::replay_errors::Left;
-use crate::replay_errors::compare_error;
 use crate::replay_world;
 
 pub const REPLAYS: &[Replay] = &[Replay { set: "gemini-send-retry", run: every_case_replays_as_nodes }];
 
+/// On the paused clock; every draw of the replay runs on the test's thread, whose scope holds its scripts.
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("gemini-send-retry");
@@ -120,7 +121,7 @@ async fn every_case_replays_as_nodes() {
         set.assert_requests(case, &endpoint.arrivals(), None);
 
         let recorded = case.recorded();
-        recorded.get("error").checked(|error| compare_error(&format!("{what} error"), error, &Left::of(&sent, &events)));
+        recorded.get("error").assert_error(&format!("{what} error"), ErrorSide::Send(&Left::of(&sent, &events)));
         let stages = Exact::Array(
             events
                 .stages
