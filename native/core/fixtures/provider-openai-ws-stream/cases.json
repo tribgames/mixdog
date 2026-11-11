@@ -1,6 +1,7 @@
 {
   "set": "provider-openai-ws-stream",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "text-call-and-usage-in-one-result",
@@ -83,6 +84,9 @@
         "result": {
           "content": "Hello world",
           "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
           "responseItems": [
             {
               "type": "function_call",
@@ -132,6 +136,12 @@
               }
             }
           ],
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
           "usage": {
             "inputTokens": 12,
             "outputTokens": 3,
@@ -146,8 +156,17 @@
               }
             }
           },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
           "endTurn": false,
           "responseId": "resp_1",
+          "serviceTier": {
+            "$exact": "undefined"
+          },
           "generationMs": 0
         },
         "text": [
@@ -184,7 +203,17 @@
           "emittedToolCall": true
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "call-id-only-in-completed-bundle-is-salvaged",
@@ -222,6 +251,9 @@
         "result": {
           "content": "",
           "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
           "responseItems": [
             {
               "type": "function_call",
@@ -251,7 +283,25 @@
               }
             }
           ],
-          "responseId": "resp_1"
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "responseId": "resp_1",
+          "serviceTier": {
+            "$exact": "undefined"
+          }
         },
         "text": [],
         "tools": [
@@ -277,7 +327,17 @@
           "emittedToolCall": true
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "unsalvageable-call-fails",
@@ -306,49 +366,55 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "OpenAI OAuth WS function_call salvage failed: missing call_id/name for item_id=fc_lost",
-          "partialContent": "",
-          "partialToolCalls": [
-            {
-              "id": "",
-              "name": "",
-              "arguments": {},
-              "_pendingItemId": "fc_lost",
-              "_deferred": true
-            }
-          ],
-          "pendingToolUse": false,
-          "partialModel": "gpt-fixture",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": true,
-            "toolCallsComplete": 1,
-            "toolCallsDispatched": 1,
-            "dispatchAmbiguous": true,
-            "pendingToolInput": false,
-            "userAbort": false,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": true,
-            "sideEffectDispatched": true,
-            "replayUnsafe": true,
-            "replaySafe": false,
-            "successEligible": false
-          },
-          "partialToolCall": true,
-          "emittedToolCall": true,
-          "toolCallEmitted": true,
-          "unsafeToRetry": true
+          "props": {
+            "partialContent": "",
+            "partialToolCalls": [
+              {
+                "id": "",
+                "name": "",
+                "arguments": {},
+                "_pendingItemId": "fc_lost",
+                "_deferred": true
+              }
+            ],
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 1,
+              "toolCallsDispatched": 1,
+              "dispatchAmbiguous": true,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": true,
+              "sideEffectDispatched": true,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "partialToolCall": true,
+            "emittedToolCall": true,
+            "toolCallEmitted": true,
+            "unsafeToRetry": true
+          }
         },
         "text": [],
         "tools": [],
@@ -365,7 +431,17 @@
           "responseFailedPayload": null
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "leaked-tool-call-recovered-once",
@@ -402,6 +478,15 @@
         "result": {
           "content": "Sure. ",
           "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "responseItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
           "toolCalls": [
             {
               "id": "call_leaked_ff49be67d5edff28",
@@ -411,7 +496,25 @@
               }
             }
           ],
-          "responseId": "resp_1"
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "responseId": "resp_1",
+          "serviceTier": {
+            "$exact": "undefined"
+          }
         },
         "text": [
           "Sure. "
@@ -441,7 +544,17 @@
           "emittedToolCall": true
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "max-output-tokens-truncated-success",
@@ -473,10 +586,34 @@
         "result": {
           "content": "partial",
           "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "responseItems": {
+            "$exact": "undefined"
+          },
+          "providerReplay": {
+            "$exact": "undefined"
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "$exact": "undefined"
+          },
           "stopReason": "length",
           "truncated": true,
           "incompleteReason": "max_output_tokens",
-          "responseId": "resp_1"
+          "responseId": "resp_1",
+          "serviceTier": {
+            "$exact": "undefined"
+          }
         },
         "text": [
           "partial"
@@ -495,7 +632,17 @@
           "emittedText": true
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "response-failed-rejects-with-frame",
@@ -523,49 +670,58 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "OpenAI OAuth WS response.failed: boom",
-          "responseFailed": {
-            "type": "response.failed",
-            "response": {
-              "error": {
-                "message": "boom",
-                "code": "server_error",
-                "status": 503
-              }
-            }
-          },
-          "providerErrorCode": "server_error",
-          "status": 503,
-          "httpStatus": 503,
           "code": "server_error",
-          "partialContent": "",
-          "pendingToolUse": false,
-          "partialModel": "gpt-fixture",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": false,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": false,
-            "userAbort": false,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": false,
-            "sideEffectDispatched": false,
-            "replayUnsafe": false,
-            "replaySafe": true,
-            "successEligible": false
+          "props": {
+            "responseFailed": {
+              "type": "response.failed",
+              "response": {
+                "error": {
+                  "message": "boom",
+                  "code": "server_error",
+                  "status": 503
+                }
+              }
+            },
+            "providerErrorCode": "server_error",
+            "status": 503,
+            "httpStatus": 503,
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
           }
         },
         "text": [],
@@ -590,7 +746,17 @@
           }
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "response-done-cancelled-rejects",
@@ -614,36 +780,45 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "OpenAI OAuth WS response.done unexpected status: cancelled",
-          "responseDoneStatus": "cancelled",
-          "partialContent": "",
-          "pendingToolUse": false,
-          "partialModel": "gpt-fixture",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": false,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": false,
-            "userAbort": false,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": false,
-            "sideEffectDispatched": false,
-            "replayUnsafe": false,
-            "replaySafe": true,
-            "successEligible": false
+          "props": {
+            "responseDoneStatus": "cancelled",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
           }
         },
         "text": [],
@@ -659,7 +834,17 @@
           "responseFailedPayload": null
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "close-before-terminal-keeps-partial-state",
@@ -694,42 +879,51 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
-          "wsCloseCode": 1006,
-          "wsCloseReason": "gone",
-          "partialContent": "half",
-          "pendingToolUse": true,
-          "partialModel": "gpt-fixture",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": true,
-            "textObservedChars": 4,
-            "reasoningEmitted": false,
-            "toolCallsStarted": true,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": true,
-            "userAbort": false,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": true,
-            "observedOutput": true,
-            "sideEffectDispatched": false,
-            "replayUnsafe": true,
-            "replaySafe": false,
-            "successEligible": false
-          },
-          "liveTextEmitted": true,
-          "emittedText": true,
-          "partialToolCall": true,
-          "unsafeToRetry": true
+          "props": {
+            "wsCloseCode": 1006,
+            "wsCloseReason": "gone",
+            "partialContent": "half",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": true,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 4,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": true,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "liveTextEmitted": true,
+            "emittedText": true,
+            "partialToolCall": true,
+            "unsafeToRetry": true
+          }
         },
         "text": [
           "half"
@@ -750,7 +944,17 @@
           "startedToolCall": true
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "close-after-finished-call-carries-it",
@@ -810,64 +1014,67 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
-          "wsCloseCode": 1006,
-          "wsCloseReason": "gone",
-          "partialContent": "",
-          "partialToolCalls": [
-            {
-              "id": "call_done",
-              "name": "read",
-              "arguments": {
-                "path": "a.txt"
-              }
-            }
-          ],
-          "partialProviderReplay": {
-            "version": 1,
-            "provider": "openai-responses",
-            "items": [
+          "props": {
+            "wsCloseCode": 1006,
+            "wsCloseReason": "gone",
+            "partialContent": "",
+            "partialToolCalls": [
               {
-                "type": "function_call",
-                "id": "fc_done",
-                "call_id": "call_done",
+                "id": "call_done",
                 "name": "read",
-                "arguments": "{\"path\":\"a.txt\"}"
+                "arguments": {
+                  "path": "a.txt"
+                }
               }
-            ]
-          },
-          "pendingToolUse": true,
-          "partialModel": "gpt-fixture",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": true,
-            "toolCallsComplete": 1,
-            "toolCallsDispatched": 1,
-            "dispatchAmbiguous": true,
-            "pendingToolInput": true,
-            "userAbort": false,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": true,
-            "sideEffectDispatched": true,
-            "replayUnsafe": true,
-            "replaySafe": false,
-            "successEligible": false
-          },
-          "partialToolCall": true,
-          "emittedToolCall": true,
-          "toolCallEmitted": true,
-          "unsafeToRetry": true
+            ],
+            "partialProviderReplay": {
+              "version": 1,
+              "provider": "openai-responses",
+              "items": [
+                {
+                  "type": "function_call",
+                  "id": "fc_done",
+                  "call_id": "call_done",
+                  "name": "read",
+                  "arguments": "{\"path\":\"a.txt\"}"
+                }
+              ]
+            },
+            "pendingToolUse": true,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 1,
+              "toolCallsDispatched": 1,
+              "dispatchAmbiguous": true,
+              "pendingToolInput": true,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": true,
+              "sideEffectDispatched": true,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "partialToolCall": true,
+            "emittedToolCall": true,
+            "toolCallEmitted": true,
+            "unsafeToRetry": true
+          }
         },
         "text": [],
         "tools": [
@@ -897,7 +1104,17 @@
           "emittedToolCall": true
         },
         "closes": []
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "external-abort-tags-user-abort",
@@ -919,32 +1136,35 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
           "message": "stop",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": false,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": false,
-            "userAbort": true,
-            "stallObserved": false,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": false,
-            "sideEffectDispatched": false,
-            "replayUnsafe": false,
-            "replaySafe": false,
-            "successEligible": false
+          "props": {
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": true,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": false,
+              "successEligible": false
+            }
           }
         },
         "text": [],
@@ -966,7 +1186,17 @@
             "aborted"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "external-abort-tags-watchdog-abort",
@@ -988,32 +1218,36 @@
       },
       "result": {
         "error": {
+          "$exact": "error",
           "name": "AgentStallAbortError",
           "message": "stalled",
-          "streamOutcome": {
-            "version": 1,
-            "provider": "openai-responses",
-            "transport": "ws",
-            "terminalObserved": false,
-            "continuation": true,
-            "declaredContinuation": false,
-            "textEmitted": false,
-            "textObservedChars": 0,
-            "reasoningEmitted": false,
-            "toolCallsStarted": false,
-            "toolCallsComplete": 0,
-            "toolCallsDispatched": 0,
-            "dispatchAmbiguous": false,
-            "pendingToolInput": false,
-            "userAbort": false,
-            "stallObserved": true,
-            "truncatedStream": false,
-            "visibleOutput": false,
-            "observedOutput": false,
-            "sideEffectDispatched": false,
-            "replayUnsafe": false,
-            "replaySafe": true,
-            "successEligible": false
+          "props": {
+            "name": "AgentStallAbortError",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
           }
         },
         "text": [],
@@ -1035,7 +1269,840 @@
             "aborted"
           ]
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prestream-watchdog-closes-silent-socket-first-byte-timeout",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:231",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "frames": [],
+        "timeouts": {
+          "preResponseCreatedMs": 20
+        },
+        "advanceMs": [
+          20
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "WS stream: no first server event within 20ms",
+          "props": {
+            "wsCloseCode": 4000,
+            "firstByteTimeout": true,
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "stateFirstByteTimeout": true,
+        "closes": [
+          [
+            4000,
+            "first_byte_timeout"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "inter-chunk-stall-after-output-rejects-as-continuation",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:245",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "kept"
+          }
+        ],
+        "timeouts": {
+          "preResponseCreatedMs": 5000,
+          "interChunkMs": 20,
+          "firstMeaningfulMs": 5000
+        },
+        "advanceMs": [
+          20
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "WS stream: inter-chunk inactivity for 20ms",
+          "code": "ESTREAMSTALL",
+          "props": {
+            "streamStalled": true,
+            "partialContent": "kept",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 4,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "liveTextEmitted": true,
+            "emittedText": true,
+            "unsafeToRetry": true
+          }
+        },
+        "closes": [
+          [
+            4000,
+            "inter_chunk_timeout"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "silent-thinking-past-semantic-idle-until-first-output",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:275",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.in_progress",
+            "response": {
+              "id": "resp_1"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "reasoning",
+              "id": "rs_1",
+              "summary": []
+            }
+          }
+        ],
+        "keepalivesEveryMs": 60000,
+        "keepalivesForMs": 360000,
+        "thenFrames": [
+          {
+            "type": "response.output_item.done",
+            "item": {
+              "type": "reasoning",
+              "id": "rs_1",
+              "summary": []
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "answer"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture",
+              "usage": {
+                "input_tokens": 1,
+                "output_tokens": 1
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "answer"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "whileThinking": {
+          "closes": [],
+          "progress": [
+            "transport",
+            "transport"
+          ]
+        },
+        "result": {
+          "content": "answer",
+          "model": "gpt-fixture",
+          "reasoningItems": {
+            "$exact": "undefined"
+          },
+          "responseItems": [
+            {
+              "type": "reasoning",
+              "id": "rs_1",
+              "summary": []
+            },
+            {
+              "type": "message",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "answer"
+                }
+              ]
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "openai-responses",
+            "items": [
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": []
+              },
+              {
+                "type": "message",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "answer"
+                  }
+                ]
+              }
+            ]
+          },
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "citations": {
+            "$exact": "undefined"
+          },
+          "webSearchCalls": {
+            "$exact": "undefined"
+          },
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "input_tokens": 1,
+              "output_tokens": 1
+            }
+          },
+          "stopReason": {
+            "$exact": "undefined"
+          },
+          "incompleteReason": {
+            "$exact": "undefined"
+          },
+          "responseId": "resp_1",
+          "serviceTier": {
+            "$exact": "undefined"
+          },
+          "generationMs": 360000
+        },
+        "progress": [
+          "transport",
+          "transport",
+          "reasoning",
+          "text",
+          "semantic"
+        ],
+        "text": [
+          "answer"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "no-output-aborted-at-first-output-deadline",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:298",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "reasoning",
+              "id": "rs_1",
+              "summary": []
+            }
+          }
+        ],
+        "keepalivesForMs": 584999,
+        "advanceMsAfter": 1
+      },
+      "result": {
+        "closesBeforeDeadline": [],
+        "error": {
+          "$exact": "error",
+          "name": "StreamStalledError",
+          "message": "Responses WS stream timed out after 585000ms of inactivity",
+          "code": "ESTREAMSTALL",
+          "props": {
+            "name": "StreamStalledError",
+            "streamStalled": true,
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "wsCloseCode": 4000,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "closes": [
+          [
+            4000,
+            "first_output_timeout"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "semantic-idle-applies-after-first-output",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:313",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "kept"
+          }
+        ],
+        "keepalivesForMs": 299999,
+        "advanceMsAfter": 1
+      },
+      "result": {
+        "closesBeforeIdle": [],
+        "error": {
+          "$exact": "error",
+          "name": "StreamStalledError",
+          "message": "Responses WS stream timed out after 300000ms of inactivity",
+          "code": "ESTREAMSTALL",
+          "props": {
+            "name": "StreamStalledError",
+            "streamStalled": true,
+            "partialContent": "kept",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "gpt-fixture",
+            "wsCloseCode": 4000,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 4,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "liveTextEmitted": true,
+            "emittedText": true,
+            "unsafeToRetry": true
+          }
+        },
+        "closes": [
+          [
+            4000,
+            "semantic_idle_timeout"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reopened-stream-aborts-at-original-request-deadline",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:337",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "sessionId": "sess_ws_retry_deadline",
+        "firstFrames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "reasoning",
+              "id": "rs_1",
+              "summary": []
+            }
+          }
+        ],
+        "firstKeepalivesForMs": 400000,
+        "firstClose": [
+          1006,
+          "gone"
+        ],
+        "retryFrames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          }
+        ]
+      },
+      "result": {
+        "startedAtMs": 1794226845040,
+        "firstOut": {
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "OpenAI OAuth WS closed before response.completed (code=1006, reason=gone)",
+            "props": {
+              "wsCloseCode": 1006,
+              "wsCloseReason": "gone",
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "partialProviderReplay": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": "gpt-fixture",
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-responses",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          }
+        },
+        "retryKeepaliveMs": 184999,
+        "retryClosesBeforeDeadline": [],
+        "retry": {
+          "error": {
+            "$exact": "error",
+            "name": "StreamStalledError",
+            "message": "Responses WS stream timed out after 585000ms of inactivity",
+            "code": "ESTREAMSTALL",
+            "props": {
+              "name": "StreamStalledError",
+              "streamStalled": true,
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "partialProviderReplay": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": "gpt-fixture",
+              "wsCloseCode": 4000,
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-responses",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": true,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          }
+        },
+        "retryCloses": [
+          [
+            4000,
+            "first_output_timeout"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs.updateSessionStage",
+          "args": [
+            "sess_ws_retry_deadline",
+            "requesting"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs.updateSessionStage",
+          "args": [
+            "sess_ws_retry_deadline",
+            "requesting"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ws-retry-after-output-stays-under-semantic-idle",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:360",
+      "input": {
+        "policy": {
+          "PROVIDER_FIRST_OUTPUT_TIMEOUT_MS": 585000,
+          "PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS": 300000
+        },
+        "sessionId": "sess_ws_retry_after_output",
+        "markDelta": "reasoning",
+        "advanceMsBeforeRetry": 10000,
+        "retryFrames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          }
+        ],
+        "keepalivesForMs": 299999,
+        "advanceMsAfter": 1
+      },
+      "result": {
+        "closesBeforeIdle": [],
+        "retry": {
+          "error": {
+            "$exact": "error",
+            "name": "StreamStalledError",
+            "message": "Responses WS stream timed out after 300000ms of inactivity",
+            "code": "ESTREAMSTALL",
+            "props": {
+              "name": "StreamStalledError",
+              "streamStalled": true,
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "partialProviderReplay": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": "gpt-fixture",
+              "wsCloseCode": 4000,
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-responses",
+                "transport": "ws",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": true,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          }
+        },
+        "closes": [
+          [
+            4000,
+            "semantic_idle_timeout"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs.updateSessionStage",
+          "args": [
+            "sess_ws_retry_after_output",
+            "requesting"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs.markSessionStreamDelta",
+          "args": [
+            "sess_ws_retry_after_output",
+            "reasoning"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs.updateSessionStage",
+          "args": [
+            "sess_ws_retry_after_output",
+            "requesting"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._streamResponse",
+          "args": [
+            {
+              "unrecordable": "exact: a EventEmitter at $.entry.socket has no exact form (give classes.EventEmitter)"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
