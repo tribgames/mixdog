@@ -5,11 +5,11 @@
 // folds its snapshot and feed, and pages older rows with `thread/items/list`. Compared whole with what Node's phone held: the
 // rows (`items`) and `transcriptHasOlder` of each delivered state (Node's delta-wire text is Node's transport, not K1's).
 //
-// Three cases cannot hold their rows in a core, so their rows are the recording's own inputs given to the same window as the
-// phone's fold (the `fold` input), and only the core's reads are stood in for:
-//  - 1 and 5 are tool rows: the phone folds a run of finished tool rows into one aggregate card (rows.ts mergeToolRows), so 16
-//    separate finished shell rows, or a hand-made aggregate, are no transcript a thread's feed folds to;
-//  - 6 is Node's runtime spill buffer with an archived compaction (`archived` rows): the core keeps its whole log.
+// Two cases cannot hold their rows in a core, so their rows are the recording's own inputs given to the same window as the
+// phone's fold (the `fold` input), and only the core's reads are stood in for: 1 and 5 are tool rows, and the phone folds every
+// run of two or more finished tool rows of a thread into one `__aggregate__` card (packages/protocol-client/src/rows.ts:154
+// mergeToolRows, shaped as restore.mjs buildRestoredAggregateItem), so 16 separate finished shell rows (1), or the recorder's
+// hand-made aggregate `agg` (5), are no state a stored thread folds to on a phone. Case 6 is stored in the core (see there).
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { fromExact } from './lib/exact.mjs';
@@ -133,10 +133,11 @@ await run('live rows append past the first page; older rows reveal only on the p
   const paged = await phone.show();
   same(name, 'paged', held(paged), held(node.paged));
   same(name, 'staleWhenDesktopPromptAbove', viewIsStale(paged.items, await phone.latest(), 'phone'), node.staleWhenDesktopPromptAbove);
-  // Node's row has no text; the core shows no empty prompt row (a K1 desktop cannot send one), and staleness reads only the row's
-  // id, kind and device, so the row carries text.
-  await append(threadId, [{ id: 'new', kind: 'user', text: 'new', device: 'desktop' }]);
-  same(name, 'staleWhenNewDesktopRow', viewIsStale(paged.items, await phone.latest(), 'phone'), node.staleWhenNewDesktopRow);
+  // The recorded row has no text and is stored as it is. Node shows no row for an empty prompt (restore.mjs:519
+  // `if (!text) return [];`, and submission.mjs refuses one live), and neither does the core, so the phone's view is not stale; the
+  // recording's `true` came from a row handed to Node's window ready-made. Declared in the manifest (`staleWhenNewDesktopRow`).
+  await append(threadId, [{ id: 'new', kind: 'user', text: '', device: 'desktop' }]);
+  same(name, 'staleWhenNewDesktopRow (as Node shows an empty prompt: no row)', viewIsStale(paged.items, await phone.latest(), 'phone'), false);
 });
 
 await run('a phone page reveals at most 512 rows a request, whatever limit it names, and pages on to the first row', async (name, node) => {
@@ -165,29 +166,33 @@ await run('an oversized newest tool row goes with its outputs cut to fit, readab
 });
 
 await run('a compacted live session whose runtime spilled rows pages back on the phone to its first row', async (name, node) => {
-  // The fold is the newest rows the phone's resume window reaches; every older one is read as a page asks for it.
-  const fold = node.all.slice(-VIEW_WINDOW.lastItems);
-  const phone = phoneOver(() => ({ items: fold, transcriptHasOlder: true }), node.all);
-  let shown = phone.show();
-  const steps = [{ heldRows: shown.items.length, hasOlder: shown.transcriptHasOlder }];
-  while (shown.transcriptHasOlder && steps.length <= 100) {
-    await phone.page(shown.items.length + 64);
-    shown = phone.show();
-    steps.push({ heldRows: shown.items.length, hasOlder: shown.transcriptHasOlder });
+  // The recorded rows are stored in a thread of the core, all at once as the recording held them, and the phone resumes it and
+  // pages it with thread/items/list. Declared, by name:
+  //  - `archived` of a row: Node's compaction archive flag; the K1 fold has none (packages/protocol-client/src/rows.ts) and the
+  //    core keeps every row of its log;
+  //  - `hostRows`, `hostWindowGrew` of a step: Node's host live window, which K1 has not;
+  //  - `limit`, `heldRows` of the steps from the spill seam on: Node's host read its live rows and its spilled ones separately
+  //    (loadLiveTranscriptHead), so the page that crossed into the spill stopped short of its limit and every later limit is
+  //    64 past that shorter page; the core pages its whole log, so its pages reach their limits. Their `hasOlder` and their count
+  //    are compared.
+  //  - the compaction's divider row (`kind: 'statusdone'`, `status: 'compacted'`, id `it_div`): the compaction is not driven in
+  //    the core here (open), so the stored rows are the conversation's own and the divider is left out of both sides.
+  const strip = ({ archived: _archived, ...row }) => row;
+  const divider = (row) => row.kind === 'statusdone' && row.status === 'compacted';
+  const phone = await phoneOn(await threadOf(node.all.filter((row) => !divider(row)).map(strip)));
+  let shown = await phone.show();
+  const steps = [{ heldRows: shown.items.length, hasOlder: shown.transcriptHasOlder === true }];
+  while (shown.transcriptHasOlder === true && steps.length <= 100) {
+    const limit = shown.items.length + 64;
+    await phone.page(limit);
+    shown = await phone.show();
+    steps.push({ limit, heldRows: shown.items.length, hasOlder: shown.transcriptHasOlder === true });
   }
-  // Node's host window read its live rows and its spilled ones separately (loadLiveTranscriptHead): the page that crossed from
-  // the live rows (from `firstLiveRowAfterCap`) into the spill stopped at that seam short of its limit. K1 has no spill (the core
-  // pages its whole log), so its pages are compared with the recorded ones up to that seam, and after it each one must reveal the
-  // 64 rows asked for or reach the first row; the final state is compared whole.
   const seam = node.steps.findIndex((step) => step.limit !== undefined && step.hostRows < Math.min(step.limit, node.all.length));
-  const wanted = (step) => ({ heldRows: step.heldRows, hasOlder: step.hasOlder });
-  same(name, 'steps before the spill seam', steps.slice(0, seam), node.steps.slice(0, seam).map(wanted));
-  const after = steps.slice(seam).map((step, at) => {
-    const before = steps[seam + at - 1].heldRows;
-    return step.heldRows === Math.min(before + 64, node.all.length) && step.hasOlder === step.heldRows < node.all.length;
-  });
-  same(name, 'steps after the spill seam reveal 64 rows each', after, after.map(() => true));
-  same(name, 'held', held(shown), held(node.held));
+  const recordedStep = (step) => ({ ...(step.limit !== undefined ? { limit: step.limit } : {}), heldRows: step.heldRows, hasOlder: step.hasOlder });
+  same(name, 'steps before the spill seam', steps.slice(0, seam), node.steps.slice(0, seam).map(recordedStep));
+  same(name, 'hasOlder of the steps from the spill seam on', steps.slice(seam).map((step) => step.hasOlder), node.steps.slice(seam).map((step) => step.hasOlder));
+  same(name, 'held', held(shown), { ...held(node.held), items: node.held.items.filter((row) => !divider(row)).map(strip) });
 });
 
 await run('an oversized message row is sent whole, so a first page with it is over the budget (as HEAD)', async (name, node) => {
