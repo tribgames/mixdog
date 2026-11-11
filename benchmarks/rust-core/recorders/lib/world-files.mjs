@@ -5,13 +5,14 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** `{ '<name>/<path>': Buffer }` of every file under each folder of `roots` (`{ name: absolute folder }`), `/`-separated, but those
- *  at or under a `skip` path (`<name>/<path>`). */
+ *  at or under a `skip` entry's path (`<name>/<path>`), or, for an entry with `prefix`, whose path starts with it. */
 export function worldFiles(roots, skip = []) {
   const files = new Map();
+  const skipped = (path) => skip.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`) || (entry.prefix && path.startsWith(entry.path)));
   const walk = (dir, at) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = `${at}/${entry.name}`;
-      if (skip.some((skipped) => path === skipped || path.startsWith(`${skipped}/`))) continue;
+      if (skipped(path)) continue;
       if (entry.isDirectory()) walk(join(dir, entry.name), path);
       else {
         try {

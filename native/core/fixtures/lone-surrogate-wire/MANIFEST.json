@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 562499,
+      "bytes": 562840,
       "path": "golden.json",
-      "sha256": "909d3ff1ea6bc7a531577c1d487a7df480d2f9611a74f6e3f87ffaccbc70f415"
+      "sha256": "12bd3f200c8c55061fd664a5f8153489febeb95f66c599ff43d50ee57e5e58e2"
     }
   ],
   "inputs": [
@@ -25,15 +25,15 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-cases.mjs",
-      "sha256": "d6cbd78e3d203683bd077259d7ca00e7c5e52517f4b18708bd03dbaadf1c197e"
+      "sha256": "5187613759f889f6fff38217c0f6b8a893190a788ae941213ce24c47a1b117b6"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "ebbd7673c77ac4dee2f26ceb628516108e7815b003a1a96812d76ab9040fac05"
+      "sha256": "70d55eb1e01fbde476cd61952a6f65871f8fe590ba70dafc3bfef3c7cd768db7"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lsp-echo-stub.mjs",
-      "sha256": "eb1b00ad4689d4cccb4951e85e0e03a11dc3da5171f8d2b0a8b5e35f0ca63c1c"
+      "sha256": "2272789ca7d4a91fd647839acd2dca952a9636a2096807192a95211b69177aff"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -57,7 +57,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/world-files.mjs",
-      "sha256": "e73847305a7826c827a4a2869303caf445e18334808af7b0289a917c0e4feafb"
+      "sha256": "585b8e526733fc177cf7dfe6a7223d6fcdcb2c9f7c5ea06cfe2536e8f5a75623"
     },
     {
       "path": "native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json",
@@ -65,10 +65,17 @@
     }
   ],
   "inventorySweep": {
-    "check": "a request's client failure detail equals loneRefusal of `<method>.params<pointer>` whole (permissionRefusal for relayOnly); a notification is followed by a request of a method no table has, answered only after the notification was read; for each, no request reached the local server (nor the language server, which reports there) and worldFiles are unchanged",
+    "check": "a desktop request's client failure detail equals loneRefusal of `<method>.params<pointer>` whole; a phone-only request's answer frame is that refusal's JSON-RPC error with the phone's id; a notification is followed by the barrier, read after it; for each, no request reached the local server, the language server reported no message (it reports every request and notification it receives but the handshake), and worldFiles are unchanged across the barrier",
     "inventory": "native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json",
+    "languageServerLifecycle": {
+      "methods": [
+        "shutdown",
+        "exit"
+      ],
+      "reason": "the language server's closing handshake: the core shuts down a language server idle for 30 s on its own timer (Node: apps/desktop/src/main/language-server-process.ts LANGUAGE_SERVER_IDLE_MS), so it may reach the stub during any call of the sweep; these reports, and only these, are left out of the sweep's requests"
+    },
     "methodTable": "native/core/crates/mixdog-app-protocol/schema/method_table.json",
-    "relayOnly": {
+    "phoneOnly": {
       "methods": [
         "browser/stream",
         "browser/webrtcSignal",
@@ -77,7 +84,7 @@
         "transfer/grant/mint",
         "transfer/redeemGrant"
       ],
-      "reason": "only a paired phone may call these (the method table: origins without local): a desktop call is refused for its origin before the lone unit is read (lone-surrogate-wire-cases.mjs permissionRefusal); the refusal naming the field for a phone is mixdog-app-server tests::inventory_rule every_request_field_of_the_inventory_reaches_the_core_or_is_refused_as_classed"
+      "reason": "only a paired phone may call these (the method table: origins without local): they are sent by a phone paired through the replay's relay (lib/phone-relay-core.mjs openRawPhone), so the lone unit is what is refused; the answer is the JSON-RPC error frame of loneRefusal (code, message, data)"
     }
   },
   "mapping": {
@@ -219,7 +226,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "e4acfe7b2050c7f4942ae2990302a2bb4e249c4b81da315e7cb2ed96a8485a75",
+  "recorderSha256": "4207a2b5db90c1a69b2d3b098a0bb1fa3494a3b361020bbb694f269aba8a66de",
   "refusedByRule": {
     "cases": [
       {
@@ -549,6 +556,7 @@
           {
             "method": "POST",
             "received": {
+              "kind": "request",
               "method": "textDocument/rename",
               "params": {
                 "newName": "x\ud83d",
@@ -644,6 +652,7 @@
           {
             "method": "POST",
             "received": {
+              "kind": "request",
               "method": "workspace/symbol",
               "params": {
                 "query": "m\ud83d"
@@ -733,6 +742,7 @@
           {
             "method": "POST",
             "received": {
+              "kind": "request",
               "method": "workspace/executeCommand",
               "params": {
                 "arguments": [],
@@ -969,12 +979,31 @@
     }
   ],
   "set": "lone-surrogate-wire",
-  "totalBytes": 562499,
+  "totalBytes": 562840,
   "worldFiles": {
+    "barrier": "before each look at the files (before and after the call): on the desktop connection, config/setTheme with the theme config/getTheme answered at the first look, which mixdog-core-config writes through the config's one writer (Config::update on its write lane, written even when unchanged, as Node's updateConfig) and answers once written; a config write the refused call queued is written before it, and frames of one connection are read in order. Its answer must name the theme",
     "skip": [
       {
         "path": "core/data/daemon-owner.lock",
         "reason": "the core's ownership of its data folder: an OS-held exclusive lock for its whole life (Node's daemon-owner.lock likewise), so its bytes cannot be read while it runs; written once at the start"
+      },
+      {
+        "path": "core/home/backups/user-data",
+        "reason": "the barrier's own config write (worldFiles.barrier) adds a pre- and a post-config-write copy of the config here each time, as every config write does (Node's user-data-backup likewise); a config write by the refused call would change the config file itself (mixdog-config.json), which is compared"
+      },
+      {
+        "path": "core/data/daemon.log",
+        "reason": "the core's diagnostic log: lines from its own timers and events (a language server it stops when idle, for one), not stored state; a refused call is answered before any service runs, so it logs nothing a service would"
+      },
+      {
+        "path": "core/data/modelsdev-catalog.json",
+        "prefix": true,
+        "reason": "the models.dev catalog cache with its lock and temporary file: refreshed by the core on its own schedule from models.dev (not a stand-in server), as Node's catalog refresh does; no client call writes it"
+      },
+      {
+        "path": "core/data/client-versions.json",
+        "prefix": true,
+        "reason": "the last answer of each provider CLI's live version lookup (mixdog-ai client_versions.rs, Node's live CLI versions): written when a lookup the core started on its own answers, from the providers' sites (not a stand-in server); no client call writes it"
       }
     ]
   }
