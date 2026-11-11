@@ -16,7 +16,7 @@ pub mod google;
 pub mod grok;
 pub mod hosted;
 #[cfg(test)]
-mod hosted_wire_tests;
+pub(crate) mod hosted_wire_tests;
 pub(crate) mod js_value;
 pub mod leak;
 #[cfg(test)]
@@ -29,6 +29,8 @@ pub mod local;
 pub mod openai;
 #[cfg(test)]
 mod served_model_wire_tests;
+#[cfg(test)]
+mod timing_wire_tests;
 #[cfg(test)]
 pub(crate) mod wire_fixtures;
 

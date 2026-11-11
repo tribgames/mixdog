@@ -40,16 +40,6 @@ impl AccountOf for DefaultAccount {
     }
 }
 
-/// The ledger rows with the first-output time left out: no adapter reports where generation starts in its stream
-/// (`Completed::generation_ms` is never set), so every Rust row has none where Node's has one.
-fn without_ttft(rows: &Value) -> Value {
-    let mut rows = rows.clone();
-    for row in rows.as_array_mut().expect("rows") {
-        row.as_object_mut().expect("row").shift_remove("ttftMs");
-    }
-    rows
-}
-
 #[test]
 fn a_turn_the_fallback_model_answers_is_booked_and_reported_as_node_does() {
     // The recorder ran with TZ=Asia/Seoul: a row's day is that local day.
@@ -81,7 +71,7 @@ async fn replay_fallbacks() {
         let rows = Arc::new(Rows::default());
         let ledger = rows.clone();
         let mut deps = AccountingDeps::new(empty_pricing().await, Arc::new(move || Some(ledger.clone() as Arc<dyn UsageSink>)));
-        deps.now = Arc::new(|| 1_700_000_000_000);
+        deps.now = hub.clock();
         deps.new_id = Arc::new(|| "<req>".to_owned());
         deps.account = Arc::new(DefaultAccount);
         let adapter = AccountedAdapter::wrap(inner, "anthropic-oauth", Arc::new(deps));
@@ -90,6 +80,6 @@ async fn replay_fallbacks() {
         assert_same_requests(&hub.sent(), &recorded, &[], &name);
         assert_same_result(&core_result(&events, &request.model), &node_result(&recorded.result), &format!("{name}: result"));
         assert_same_events(&events, &recorded, &name);
-        assert_eq!(without_ttft(&Value::Array(rows.0.lock().unwrap().clone())), without_ttft(&recorded.result["rows"]), "{name}: usage rows");
+        assert_eq!(Value::Array(rows.0.lock().unwrap().clone()), recorded.result["rows"], "{name}: usage rows");
     }
 }

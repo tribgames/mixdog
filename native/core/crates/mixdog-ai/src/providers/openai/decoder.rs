@@ -154,6 +154,8 @@ pub struct ResponsesDecoder {
     outcome: ResponseOutcome,
     /// Some semantic event arrived (`watchdogs.semanticSeen()`): from then on an item boundary is progress.
     semantic_seen: bool,
+    /// The first output item was added (`state.firstOutputAt`).
+    output_started: bool,
     /// `toolInFlight` and what it is made of.
     flight: ToolFlight,
     /// The ids of the reasoning items collected with encrypted content (`replayItems.hasReasoning`).
@@ -420,6 +422,7 @@ impl ResponsesDecoder {
             refusals: Refusals::default(),
             outcome: ResponseOutcome::default(),
             semantic_seen: false,
+            output_started: false,
             flight: ToolFlight::default(),
             reasoning_ids: HashSet::new(),
             compat: false,
@@ -586,6 +589,12 @@ impl ResponsesDecoder {
             "codex.rate_limits" => out.push(StreamEvent::ProviderKeepalive),
             "response.output_item.added" => {
                 let item = event.get("item").unwrap_or(&Value::Null);
+                // The first item starts the generation in the HTTP/SSE and socket collectors (response-events.mjs:49,
+                // openai-ws-response-state.mjs:160); the compatible collector keeps no such time.
+                if self.collector() != Collector::Compat && !self.output_started {
+                    self.output_started = true;
+                    out.push(StreamEvent::OutputStarted);
+                }
                 self.item_added(item, out);
                 self.flight.item_added(self.collector(), item);
                 // `onItemAdded` (`openai-ws-stream/event-switch.mjs`, `onOutputItemAdded`): a call in flight, else a

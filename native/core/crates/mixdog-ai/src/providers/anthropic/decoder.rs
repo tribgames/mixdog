@@ -172,6 +172,8 @@ pub(crate) struct AnthropicDecoder {
     skipped: HashSet<u64>,
     /// The server-side fallbacks the stream reported (`turn.fallbackEvents`), as `parseAnthropicFallbackBlock` records them.
     fallbacks: Vec<Value>,
+    /// An output block opened (`turn.firstOutputAt`).
+    output_started: bool,
     /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
     /// that answers or a `fallback` block hands the turn to the fallback model.
     model: String,
@@ -208,6 +210,7 @@ impl AnthropicDecoder {
             leaked_dispatched: 0,
             skipped: HashSet::new(),
             fallbacks: Vec::new(),
+            output_started: false,
         }
     }
 
@@ -384,6 +387,14 @@ impl AnthropicDecoder {
         Ok(())
     }
 
+    /// The first output block opening starts the generation (`turn.firstOutputAt ||= Date.now()`).
+    fn output_started(&mut self, out: &mut Vec<StreamEvent>) {
+        if !self.output_started {
+            self.output_started = true;
+            out.push(StreamEvent::OutputStarted);
+        }
+    }
+
     /// The turn is now attributed to `model`; a change is reported.
     fn serve(&mut self, model: &str, out: &mut Vec<StreamEvent>) {
         if self.model != model {
@@ -405,7 +416,10 @@ impl AnthropicDecoder {
                 _ => String::new(),
             };
             let (from, to) = (model_of("from"), model_of("to"));
-            if !from.is_empty() && !to.is_empty() {
+            if from.is_empty() || to.is_empty() {
+                // Not a fallback Node can read: an output block opening like any other (content-block-start.mjs:72).
+                self.output_started(out);
+            } else {
                 let trigger = block.get("trigger").filter(|t| t.is_object());
                 let text_of = |key: &str| {
                     trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty())
@@ -419,6 +433,11 @@ impl AnthropicDecoder {
                 out.push(StreamEvent::Progress(ProgressKind::Semantic));
             }
             return;
+        }
+        // Any output block opening starts the generation, a thinking block above all (content-block-start.mjs:69-72):
+        // a block with a type.
+        if crate::providers::js_value::truthy(block.get("type").unwrap_or(&Value::Null)) {
+            self.output_started(out);
         }
         let text_of = |field: &str| block.get(field).and_then(Value::as_str).unwrap_or("").to_owned();
         match block.get("type").and_then(Value::as_str).unwrap_or("") {
