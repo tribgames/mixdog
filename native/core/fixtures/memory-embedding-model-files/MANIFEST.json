@@ -54,8 +54,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs",
-  "recorderSha256": "3919a748e9c050932660324b2ceb9aa88460ca79f731c53922f45eca65016512",
+  "recorderSha256": "d85aefcb4856f79a1bde93a2c2a4adf227f957b6a905ad9dc03c1e99ed5e747d",
   "replay": "mixdog-services memory/embed/install.rs (pub): HUB (:16), required_files (:26), model_path (:30), missing (:65), installed (:81), install (:131; the hub download goes through Fetch::file :111). A replay serves the recorded hub requests from a scripted server and compares the requests sent (url, init) in order and the files left in the cache",
+  "rustWork": "The Rust install (mixdog-services memory/embed/install.rs:131 install, :140 body) cannot be pointed at the arbitrary config.json / vocab.txt downloads these recordings hold, and its request order differs from Node's. Rust: tokenizer.json, tokenizer_config.json (each only when unusable), then the graph's `_data` weights, then the graph. Node, as recorded: only the files its readiness check found missing or damaged, in this order per session: the external weights `onnx/model.onnx_data`, then the graph `onnx/model.onnx` (cold cache); `tokenizer_config.json` and `config.json` / `vocab.txt` as the sessions that start from those file sets request them (see each session's steps[].requests, in order). Work for the Rust side: decide whether config.json / vocab.txt belong in the install (Rust has no counterpart today) and the tokenizer-first order; a replay compares requests in the recorded order only for the sessions whose files Rust also downloads",
   "set": "memory-embedding-model-files",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
   "totalBytes": 11898,
