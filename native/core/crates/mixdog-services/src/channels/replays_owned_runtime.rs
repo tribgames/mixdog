@@ -121,8 +121,8 @@ fn rig() -> Rig {
     let runtime = ChannelRuntime::new(scheduler, store, services.clone(), agent.clone());
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(ToolDispatch::new(runtime.clone(), work.clone(), Box::new(|| false)))), work);
     let observed = log.clone();
-    calls.observe_binding(Arc::new(move |enabled, session| {
-        observed.lock().unwrap().push(json!(["remote", if enabled { "acquired" } else { "released" }, session]));
+    calls.observe_binding(Arc::new(move |remote| {
+        observed.lock().unwrap().push(json!(["remote", if remote.acquired { "acquired" } else { "released" }, remote.pinned_session_id]));
     }));
     // The registration reports the binding as it stands (none): not a change.
     log.lock().unwrap().clear();

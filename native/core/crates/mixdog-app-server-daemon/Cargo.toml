@@ -80,6 +80,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 # The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
 # `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
 mixdog-core = { workspace = true, features = ["count-work"] }
@@ -117,6 +118,9 @@ mixdog-core-run = { workspace = true, features = ["replay-controls", "test-suppo
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-agent = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-services = { workspace = true, features = ["test-support"] }

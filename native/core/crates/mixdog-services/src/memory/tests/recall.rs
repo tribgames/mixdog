@@ -18,8 +18,8 @@ use crate::memory::recall::{QueryEmbedder, Recall, RecallDeps};
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
 
-pub(super) const SEED: &str = include_str!("../../../../../fixtures/tools/memory/recall/seed.json");
-pub(super) const CASES: &str = include_str!("../../../../../fixtures/tools/memory/recall/cases.json");
+pub(super) const SEED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/recall/seed.json");
+pub(super) const CASES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/recall/cases.json");
 
 type Param<'a> = &'a (dyn ToSql + Sync);
 
@@ -107,8 +107,8 @@ fn first_difference(expected: &str, got: &str) -> String {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn recall_matches_recorded_goldens() {
-    let seed: Value = serde_json::from_str(SEED).expect("seed");
-    let cases: Vec<Value> = serde_json::from_str(CASES).expect("cases");
+    let seed: Value = serde_json::from_str(&SEED).expect("seed");
+    let cases: Vec<Value> = serde_json::from_str(&CASES).expect("cases");
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &serde_json::json!({ "model": "Xenova/multilingual-e5-small" })).await.expect("schema");

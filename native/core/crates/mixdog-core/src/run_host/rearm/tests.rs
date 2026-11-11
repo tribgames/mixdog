@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::*;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/rearm/golden.json")).expect("fixture")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/rearm/golden.json")).expect("fixture")
 }
 
 fn header(session: &Value) -> Header {

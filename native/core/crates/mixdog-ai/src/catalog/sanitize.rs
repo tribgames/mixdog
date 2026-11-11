@@ -421,7 +421,7 @@ mod tests {
     use super::*;
 
     fn golden() -> Value {
-        serde_json::from_str(include_str!("../../fixtures/sanitize/golden.json")).expect("golden parses")
+        serde_json::from_str(mixdog_testkit::fixture!("fixtures/sanitize/golden.json")).expect("golden parses")
     }
 
     /// A listed row as the golden's JSON states it.

@@ -115,6 +115,7 @@ fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let (state, _) = CoreState::open(tokens().sqlite_writer_thread, tokens().interactive_io, &dir.path().join("core.sqlite")).unwrap();
     let schedules = Arc::new(StateScheduleStore::new(state.clone(), Arc::new(SystemClock)));
+    let owned = Arc::new(crate::channels::routines_db::OwnedRoutines::new(state.clone()));
     let webhooks = Arc::new(StateWebhookStore::new(state, Arc::new(SystemClock)));
     let records = Arc::new(StoreRoutineRecords::new(schedules.clone(), webhooks.clone()));
     let routines = RoutineRuntime::new(Arc::new(FakeHost::default()), records, Arc::new(SystemClock), Tz::UTC);
@@ -125,6 +126,7 @@ fn rig() -> Rig {
     let admin = ChannelAdmin::new(AdminDeps {
         schedules,
         webhooks,
+        owned,
         routines,
         runtime,
         settings: Arc::new(Unused),

@@ -14,7 +14,7 @@ use mixdog_mcp::result::normalize_parts;
 use serde_json::Value;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../golden/node.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("tests/golden/node.json")).unwrap()
 }
 
 fn spiller() -> (tempfile::TempDir, Spiller) {
