@@ -715,8 +715,8 @@ impl super::call::ChannelCallHandler for Observed {
 
 /// record-channel-remote-restore.mjs (b6f10295a with node-fix-restore-deleted-session.patch): the boot restore of a
 /// pinned session through the daemon's real dispatch (`BridgeCalls` over `ToolDispatch` over the runtime, as compose
-/// wires `channel/call`), for a stored session that exists and one that was deleted; then the bot's send and the
-/// Remote state a client is shown. The stored sessions are the ones the recording's session list returned.
+/// wires `channel/call`), for a stored session that exists, one that was deleted and one whose record cannot be read
+/// (kept and restored); then the bot's send and the Remote state a client is shown.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores_it() {
     let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-remote-restore/golden.json")).unwrap();
@@ -729,11 +729,14 @@ async fn a_pinned_session_is_restored_through_the_real_dispatch_as_node_restores
         std::fs::write(&path, case["checkpoints"][0]["file"]["text"].as_str().unwrap()).unwrap();
         let handler = Arc::new(Observed { inner: BridgeCalls::new(ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false))), calls: Mutex::new(Vec::new()) });
         let calls = CallDispatch::new(handler.clone(), e.work.clone());
-        let stored: Vec<String> = case["list"]["sessions"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
-        calls.bind_session_exists(Arc::new(move |id: String| {
-            let exists = stored.contains(&id);
-            Box::pin(async move { exists })
-        }));
+        // The record the recorder left for the pinned session, as the store's lookup reads it: there, removed, or torn.
+        let known = match case["record"].as_str().unwrap() {
+            "live" => Some(true),
+            "deleted" => Some(false),
+            "unreadable" => None,
+            other => panic!("{name}: record {other}"),
+        };
+        calls.bind_session_presence(Arc::new(move |_| Box::pin(async move { known })));
         let shown = Arc::new(Mutex::new((false, None::<String>)));
         let sink = shown.clone();
         calls.observe_binding(Arc::new(move |enabled, session| *sink.lock().unwrap() = (enabled, session.map(str::to_owned))));

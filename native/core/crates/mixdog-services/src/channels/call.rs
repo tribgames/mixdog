@@ -146,12 +146,13 @@ pub struct CallDispatch {
     cancel: CancellationToken,
     /// Where a manual Remote ON is persisted for the next start ([`Self::load_intent`]).
     intent_file: std::sync::OnceLock<IntentFile>,
-    /// Whether a stored session still exists ([`Self::bind_session_exists`]); the restore drops a pin to a deleted one.
-    session_exists: std::sync::OnceLock<SessionExists>,
+    /// What is known of a stored session ([`Self::bind_session_presence`]); the restore drops a pin only to one known gone.
+    session_presence: std::sync::OnceLock<SessionPresence>,
 }
 
-/// Answers whether the stored session with this id still exists.
-pub type SessionExists = Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, bool> + Send + Sync>;
+/// What is known of the stored session with this id: `Some(true)` present, `Some(false)` known to be gone, `None`
+/// when its record could not be read.
+pub type SessionPresence = Arc<dyn Fn(String) -> futures::future::BoxFuture<'static, Option<bool>> + Send + Sync>;
 
 fn is_soft_error(result: &Value) -> bool {
     result["isError"] == Value::Bool(true)
@@ -173,13 +174,13 @@ impl CallDispatch {
             binding_turn: mixdog_rt::Gate::new(),
             cancel: CancellationToken::new(),
             intent_file: std::sync::OnceLock::new(),
-            session_exists: std::sync::OnceLock::new(),
+            session_presence: std::sync::OnceLock::new(),
         })
     }
 
     /// Binds the stored-session lookup the restore asks before it activates a pin.
-    pub fn bind_session_exists(&self, exists: SessionExists) {
-        let _ = self.session_exists.set(exists);
+    pub fn bind_session_presence(&self, presence: SessionPresence) {
+        let _ = self.session_presence.set(presence);
     }
 
     /// Binds the intent file and pins the session it holds (`createChannelTransport`'s boot read).
@@ -227,21 +228,29 @@ impl CallDispatch {
             return false;
         }
         // A pin outlives the session it names: binding Remote to a deleted session would announce Remote enabled
-        // for a session no list shows, so such a pin is dropped and the log says so.
-        if let Some(exists) = self.session_exists.get()
-            && !exists(intent.session_id.clone()).await
-        {
-            {
-                let mut binding = self.binding.lock().unwrap();
-                if !current(&binding) {
-                    return false;
+        // for a session no list shows, so such a pin is dropped and the log says so. Only a session known to be gone
+        // drops it: a record that could not be read is no proof, so the pin is kept and restored, and the log says so.
+        if let Some(presence) = self.session_presence.get() {
+            let known = presence(intent.session_id.clone()).await;
+            if known == Some(false) {
+                {
+                    let mut binding = self.binding.lock().unwrap();
+                    if !current(&binding) {
+                        return false;
+                    }
+                    *binding = Binding::default();
                 }
-                *binding = Binding::default();
+                file.log(&format!("remote intent restore skipped session={}: the session no longer exists", intent.session_id));
+                file.clear("pinned session deleted").await;
+                self.binding_changed();
+                return false;
             }
-            file.log(&format!("remote intent restore skipped session={}: the session no longer exists", intent.session_id));
-            file.clear("pinned session deleted").await;
-            self.binding_changed();
-            return false;
+            if !current(&self.binding.lock().unwrap()) {
+                return false;
+            }
+            if known.is_none() {
+                file.log(&format!("remote intent restore kept session={}: the session record could not be read", intent.session_id));
+            }
         }
         let args = json!({"active": true, "sessionId": intent.session_id, "transcriptPath": intent.transcript_path, "restore": true});
         // Node's restore has no client (`clientToken: null`).

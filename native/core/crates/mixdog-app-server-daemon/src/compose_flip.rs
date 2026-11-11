@@ -2906,11 +2906,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     channel_calls
         .load_intent(mixdog_services::channels::intent::IntentFile::new(&b.runtime_root, b.tokens.maintenance_io, b.log.line_log()))
         .await;
-    // The restore drops a pin whose session was deleted (`storedSessionExists`: unknown, deleted or unreadable is gone).
+    // The restore drops a pin only to a session known to be deleted (`storedSessionPresence`); an unreadable record keeps it.
     let restore_directory = directory.clone();
-    channel_calls.bind_session_exists(Arc::new(move |id: String| {
+    channel_calls.bind_session_presence(Arc::new(move |id: String| {
         let directory = restore_directory.clone();
-        Box::pin(async move { directory.stored_header(&mixdog_core_api::ids::ThreadId::from(id.as_str())).await.is_some() })
+        Box::pin(async move { directory.stored_presence(&mixdog_core_api::ids::ThreadId::from(id.as_str())).await })
     }));
     builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls.clone())))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.

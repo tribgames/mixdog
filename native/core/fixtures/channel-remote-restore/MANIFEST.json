@@ -3,16 +3,17 @@
   "exclusions": [
     "logs keeps only the lines starting \"remote intent \" or \"channel remote intent \", as channel-remote-intent does",
     "calls keeps the name, arguments and answer of handleCall, not its third argument (the HTTP client registry context)",
-    "inbound: the router is wired as daemon.mjs wires it (getSessionId always null: channel-remote session pinning is retired), so the session service it is handed is never reached; `submitted` shows that",
-    "send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead",
+    "inbound: the router is wired as daemon.mjs wires it (daemon.mjs:924-929, getSessionId always null: channel-remote session pinning is retired) and the sink it is installed in returns once it routed (daemon.mjs:930-933), so in b6f10295a no channel notification reaches any session through the daemon, a live one included: the live case shows that (`submitted` empty, \"session=none\"); it is the same for every case, not a consequence of the restore",
+    "send: the HTTP status and body of the transport /call, which the core answers over its own channel/call wire instead. b6f10295a has no bot send: the channels runtime dispatches only activate_channel_bridge, reload_config and rename_schedule (runtime/channels/lib/tool-dispatch.mjs:1-3,29-96), so `reply` is \"unknown tool\" for every case, the live one included",
+    "what differs by the restore is the Remote binding itself: the checkpoints, the logs and session.list remoteSession (a binding to a session the list does not show is the defect the patch removes)",
     "list: the session ids and remoteSession of session.list; remoteSession keeps enabled, sessionId and cwd (daemonPid and updatedAt are the process and the clock)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4432,
+      "bytes": 7069,
       "path": "golden.json",
-      "sha256": "bf9dc0afa8bd3e1f84efe9d45a45343d082917ea229df8df28ba1ff9593a1550"
+      "sha256": "f7b2635421db4221b010847eb071bb7cc39b0cf2128f314bbde3def35acec308"
     }
   ],
   "inputs": [
@@ -36,26 +37,28 @@
     "patch": {
       "file": "benchmarks/rust-core/recorders/node-patches/node-fix-restore-deleted-session.patch",
       "paths": [
+        "src/runtime/agent/orchestrator/session/store-summary-reader.mjs",
         "src/standalone/channel-transport.mjs",
         "src/standalone/channel-transport/remote-binding-restore.test.mjs",
         "src/standalone/channel-transport/remote-binding.mjs",
+        "src/standalone/daemon-stored-session-views.mjs",
         "src/standalone/daemon.mjs"
       ],
-      "sha256": "f908c5193352228a5d56c9889b85da1f95ab97f2d20bc97c575c4ca4744b29c0"
+      "sha256": "e409ee5c2641b53a39a6a95eb4099340009ac58b8ff7b8b3f139ef4822f2cda6"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 4
+      "filesDifferingFromCommit": 6
     },
-    "srcSha256": "6086affcaa4c2250b501c871bc4e410382d8ee397e36ccc1e7cd3d3c14717438",
+    "srcSha256": "ea117cfb2375ccc30bd1c4cce321877bf366e21649ad8b8c6c872ab1c61848f8",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-channel-remote-restore.mjs",
-  "recorderSha256": "2722448de335aaa3eb4b0baa3398e0efcca54c01f993ac31db5a8e41e45d0dbd",
+  "recorderSha256": "28c619bc775d4f315ee02a6bd41536811555df619def950e52e2f0e6a1e48d3c",
   "set": "channel-remote-restore",
-  "totalBytes": 4432
+  "totalBytes": 7069
 }
