@@ -319,30 +319,6 @@ mod tests {
         );
     }
 
-    /// One stored image attached under two names is one image: a confirmed rejection heals both
-    /// copies out of the transcript (`imageIdentity` leaves the filename out).
-    #[test]
-    fn one_stored_image_under_two_names_is_healed_as_one() {
-        let stored = |name: &str| ContentPart::File {
-            source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef("blob-1".into()),
-            mime_type: "image/png".into(),
-            filename: Some(name.into()),
-            text: None,
-        };
-        let messages = vec![AgentMessage::user_content(Content::Parts(vec![stored("a.png"), stored("b.png")]))];
-        let mut error = ProviderError::new(
-            mixdog_core_api::domain::provider::ErrorKind::ImageRejected,
-            mixdog_core_api::domain::provider::DeliveryState::Accepted,
-        );
-        error.status = Some(400);
-        error.code = Some("invalid_image".into());
-        let strip = latest_turn_strip(&messages, &error).unwrap();
-        assert!(strip.persist, "a confirmed rejection of one image is healed");
-        let healed = with_images_stripped(&messages, &strip);
-        let placeholder = ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), None);
-        assert_eq!(healed[0].message.content, Content::Parts(vec![placeholder.clone(), placeholder]));
-    }
-
     #[test]
     fn thinking_and_empty_text_blocks_are_dropped_from_the_turn() {
         let mut assistant = AgentMessage::assistant("t", Vec::new());
