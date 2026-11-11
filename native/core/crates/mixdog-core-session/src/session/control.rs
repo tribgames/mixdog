@@ -243,9 +243,21 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// Where the thread's moved live facts republish its roster row (the directory's, bound once by the composition).
+    pub live_rows: LiveRowsCell,
 }
 
+/// The directory's binding of [`super::thread_edges::LiveRows`], shared by every cell.
+pub(crate) type LiveRowsCell = Arc<std::sync::OnceLock<Arc<super::thread_edges::LiveRows>>>;
+
 impl ControlCell {
+    /// The live facts the roster lays over the thread's row moved (its turn, the approval it shows).
+    pub fn live_changed(&self) {
+        if let Some(rows) = self.live_rows.get() {
+            rows.changed(&self.thread);
+        }
+    }
+
     /// The attaches counted now.
     pub fn attached(&self) -> usize {
         self.subscribers.load(std::sync::atomic::Ordering::SeqCst) & COUNT
@@ -470,6 +482,7 @@ impl ControlCell {
 
     pub fn publish_run(&self, run: Option<Arc<ActiveRun>>) {
         self.run.store(run);
+        self.live_changed();
     }
 }
 

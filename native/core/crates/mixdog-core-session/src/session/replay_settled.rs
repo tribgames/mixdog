@@ -2,7 +2,9 @@
 //! names the replay's listener). The replay sends `settle <n>` after each of its inputs; the core answers `settled <n>` once every
 //! conversation has nothing in flight: no session actor is inside a step or has a message waiting on its control, inbox or producer
 //! lanes, none has a record its store has not acknowledged (the Postgres / SQLite writes included) or a job not yet reported, and
-//! every turn is parked on an input only the replay gives (the model's answer, the user's decision: mixdog-ai `replay_bytes`).
+//! every turn is parked on an input only the replay gives (the model's answer, the user's decision: mixdog-ai `replay_bytes`), and
+//! the work the writes start outside the actors is done: the index projector, the catalog's row edges and a live row's
+//! republication ([`watch`]), so a roster row is on the app feed before the replay moves the clock.
 //! Bytes the replay wrote that the core has not read yet are outside this; the byte barrier covers them.
 
 use std::io::BufRead;
@@ -70,8 +72,25 @@ fn waiting<T>(sender: &mpsc::WeakSender<T>) -> bool {
     sender.upgrade().is_some_and(|sender| sender.capacity() < sender.max_capacity())
 }
 
+/// Work outside the actors a replay waits for as well: what it names while in flight, `None` once idle.
+type Source = Box<dyn Fn() -> Option<&'static str> + Send + Sync>;
+
+/// Registers work outside the actors (the index projector, the catalog's row edges, a live row's republication); call
+/// [`changed`] when it may have gone idle.
+pub(crate) fn watch(busy: impl Fn() -> Option<&'static str> + Send + Sync + 'static) {
+    if let Some(control) = control() {
+        control.sources.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(Box::new(busy));
+    }
+}
+
+/// A watched source may have gone idle.
+pub(crate) fn changed() {
+    evaluate();
+}
+
 struct Control {
     lanes: Mutex<Vec<Weak<Lane>>>,
+    sources: Mutex<Vec<Source>>,
     /// The replay's `settle <n>` not yet answered, the stream to answer on, and the last `waiting` reason sent for it.
     pending: Mutex<(Option<u64>, TcpStream, Option<String>)>,
 }
@@ -107,7 +126,7 @@ fn connect() -> Option<Control> {
         })
         .expect("the replay's settled signal thread");
     mixdog_ai::transport::replay_bytes::on_change(evaluate);
-    Some(Control { lanes: Mutex::new(Vec::new()), pending: Mutex::new((None, stream, None)) })
+    Some(Control { lanes: Mutex::new(Vec::new()), sources: Mutex::new(Vec::new()), pending: Mutex::new((None, stream, None)) })
 }
 
 /// Starts the signal at the session service's start, so the replay's first `settle` has an answer before any conversation exists.
@@ -126,6 +145,7 @@ fn evaluate() {
         lanes.retain(|lane| lane.strong_count() > 0);
         lanes.iter().filter_map(Weak::upgrade).find_map(|lane| lane.unsettled())
     }
+    .or_else(|| control.sources.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find_map(|busy| busy()).map(str::to_owned))
     .or_else(|| mixdog_ai::transport::replay_bytes::unparked().map(|(running, of)| format!("{running} of {of} turns running, not parked on an input")));
     match unsettled {
         None => {
