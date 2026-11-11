@@ -21,7 +21,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -58,7 +57,6 @@
           "then": []
         }
       ],
-      "attempts": 2,
       "events": [
         [
           "x50",
@@ -106,7 +104,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "p10",
@@ -157,7 +154,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "p10",
@@ -241,7 +237,6 @@
           ]
         }
       ],
-      "attempts": 2,
       "events": [
         [
           "k10",
@@ -325,7 +320,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -379,7 +373,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -430,7 +423,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -480,7 +472,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -527,7 +518,6 @@
           "then": []
         }
       ],
-      "attempts": 2,
       "events": [
         [
           "a",
@@ -596,7 +586,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -645,7 +634,6 @@
           "immediate": "i0"
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "i0",
@@ -686,7 +674,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "y",
@@ -736,7 +723,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -783,7 +769,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "i",
@@ -857,7 +842,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "x",
@@ -889,7 +873,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -937,7 +920,6 @@
           ]
         }
       ],
-      "attempts": 3,
       "events": [
         [
           "k",
@@ -994,7 +976,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "k",
@@ -1051,7 +1032,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "k",
@@ -1107,7 +1087,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "w",
@@ -1166,7 +1145,6 @@
           ]
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "k",
@@ -1206,7 +1184,6 @@
           "then": []
         }
       ],
-      "attempts": 1,
       "events": [
         [
           "a",
@@ -1219,6 +1196,179 @@
         [
           "c",
           1
+        ]
+      ]
+    },
+    {
+      "name": "a-self-requeuing-immediate-runs-once-a-turn",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i",
+              "again": 3
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "c",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "a-self-requeuing-immediate-lets-due-timers-fire-between-turns",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i",
+              "again": 3,
+              "step": true
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 12,
+          "then": []
+        },
+        {
+          "timeout": "c",
+          "ms": 13,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "i",
+          11
+        ],
+        [
+          "b",
+          12
+        ],
+        [
+          "i",
+          12
+        ],
+        [
+          "c",
+          13
+        ],
+        [
+          "i",
+          13
+        ]
+      ]
+    },
+    {
+      "name": "an-immediate-from-a-timers-promise-continuation",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "promise": "p",
+              "then": [
+                {
+                  "immediate": "pi"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "ib"
+            }
+          ]
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "p",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "pi",
+          10
+        ],
+        [
+          "ib",
+          10
+        ],
+        [
+          "c",
+          11
         ]
       ]
     }

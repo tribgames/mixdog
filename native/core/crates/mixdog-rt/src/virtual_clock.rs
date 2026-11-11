@@ -6,12 +6,13 @@
 //! `hello <pid>`, waits for `start <token> <wall-ms> <settle-ms>` and answers `now <wall-ms>`. Virtual time V starts at 0; the wall
 //! clock reads wall-ms + V and moves only by `advance`.
 //!
-//! `advance <ms>` runs Node's idle event loop over `ms`: it turns at each timer list's expiry up to V+ms, in order, with V set to
-//! that expiry, and fires there what Node's `processTimers` fires, one timer at a time (timers armed meanwhile join their lists),
-//! then the immediates of the turn (its check phase, below). After each timer and immediate, and at V+ms, it waits for the
-//! settle point below (RT-C and RT-W parked with empty queues, no lane job queued or
-//! running); then it answers `now <wall-ms>`. So everything those timers made runnable, across both runtimes and the lanes, has
-//! run until it waits on a later timer, on real I/O, or on a task that does.
+//! `advance <ms>` runs Node's idle event loop over `ms`: it turns at each timer list's expiry before V+ms, in order, and once at
+//! V+ms, with V set to that instant; a turn fires what Node's `processTimers` fires there, one timer at a time (timers armed
+//! meanwhile join their lists), then its check phase: the immediates queued before that phase began (below). After each timer
+//! and immediate it waits for the settle point below (RT-C and RT-W parked with empty queues, no lane job queued or running);
+//! then it answers `now <wall-ms>`, or `now <wall-ms> immediates <n>` when n immediates queued by immediates wait for the next
+//! turn: `advance 0` is that turn, at the same V. So everything those timers made runnable, across both runtimes and the
+//! lanes, has run until it waits on a later timer, on real I/O, on the next turn's check phase, or on a task that does.
 //!
 //! Real I/O (sockets, children, PTY, dedicated threads) completes in real time: before advancing past it, wait for its observable,
 //! a message on your own connection or `wait <deadline-ms> <line>`.
@@ -108,8 +109,11 @@
 //! `interval_at_unrefed` are those of an `unref()`ed Node timer. `mixdog_rt::time::immediate()` is `await new Promise((r) =>
 //! setImmediate(r))` and `check_phase()` the start of a task Node runs as `setImmediate(f)`: each is queued when made and fired by
 //! [`check_phase`] after the timers of the turn, one at a time with a settle after each; the immediates they queue run in the
-//! next turn, at the same V. An immediate queued between commands (by real I/O, or work an answer left behind) runs once the core
-//! is idle, from a thread of the clock's own; `advance` and `wait` answer only with no immediate left. The recording
+//! next turn (an immediate that queues itself again runs once a turn, never holding an `advance` at one V). An immediate queued
+//! between commands (by real I/O, or work an answer left behind) runs once the core is idle, from a thread of the clock's own,
+//! or in the check phase an `advance` or a `wait`'s answer runs first; the immediates that phase queues no answer reports:
+//! Node runs them in its next turn at once, so a replay that resumes after real I/O sends `advance 0` (a turn at the same V,
+//! a no-op when nothing is queued) until it answers no `immediates`, before advancing time. The recording
 //! `native/core/fixtures/node-timer-order` (`benchmarks/rust-core/recorders/record-node-timer-order.mjs`, real Node timers on an
 //! idle loop turned at each list's expiry) is replayed case for case by `tests/virtual_clock.rs` `node_timer_order`.
 //!
@@ -219,6 +223,10 @@ struct Clock {
     immediates: Mutex<VecDeque<Arc<Slot>>>,
     /// Wakes the check driver ([`drive_checks`]) when an immediate is queued.
     immediate_queued: Condvar,
+    /// A check phase is firing immediates ([`check_phase`]).
+    checking: AtomicBool,
+    /// An immediate was queued outside a check phase: the check driver owes it one.
+    checks_owed: AtomicBool,
     /// Held by whoever runs Node's loop phases (an `advance`, a `wait`'s answer, the check driver): one at a time.
     turn: Mutex<()>,
     log: Mutex<Log>,
@@ -537,7 +545,13 @@ pub(crate) fn wake_from(start: u64, period: Duration, refed: bool) -> Armed {
 pub(crate) fn immediate() -> Arc<Slot> {
     let clock = clock();
     let slot = Arc::new(Slot::default());
-    lock(&clock.immediates).push_back(slot.clone());
+    let mut immediates = lock(&clock.immediates);
+    immediates.push_back(slot.clone());
+    // One queued by an immediate waits for the next turn of an advance; any other is owed a check phase between commands.
+    if !clock.checking.load(SeqCst) {
+        clock.checks_owed.store(true, SeqCst);
+    }
+    drop(immediates);
     clock.immediate_queued.notify_all();
     slot
 }
@@ -641,6 +655,8 @@ pub(crate) fn start(on_control: impl FnOnce() + Send + 'static, on_work: impl Fn
         timers: Mutex::new(Timers::default()),
         immediates: Mutex::new(VecDeque::new()),
         immediate_queued: Condvar::new(),
+        checking: AtomicBool::new(false),
+        checks_owed: AtomicBool::new(false),
         turn: Mutex::new(()),
         log: Mutex::new(Log::default()),
         logged: Condvar::new(),
@@ -800,8 +816,8 @@ fn move_to(clock: &Clock, to: u64, during: &str) {
     settle(clock, during);
 }
 
-/// Runs Node's idle loop over `ms` and returns the wall clock it ends at.
-fn advance(clock: &Clock, ms: u64) -> u64 {
+/// Runs Node's idle loop over `ms`: the wall clock it ends at, and the immediates still queued for the next turn.
+fn advance(clock: &Clock, ms: u64) -> (u64, usize) {
     let during = format!("advance {ms}");
     let now = clock.now.load(SeqCst);
     let Some((target, wall)) = now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| wall_holds(*wall)) else {
@@ -809,44 +825,61 @@ fn advance(clock: &Clock, ms: u64) -> u64 {
     };
     let _turn = lock(&clock.turn);
     settle(clock, &during);
-    check_phase(clock, &during);
-    // An idle Node loop over `ms`: it turns at each list's expiry, in order, fires what `processTimers` fires there, then runs
-    // the turn's check phase.
+    owed_check_phase(clock, &during);
+    // An idle Node loop over `ms`: a turn at each list's expiry, in order, and one at the target: the timers phase
+    // (`processTimers`) fires what is due, then the check phase the immediates queued before it began. Immediates queued
+    // by immediates wait for the next turn; the answer counts those left when the target's turn is done.
     loop {
-        let next = lock(&clock.timers).queue.first().map(|&(expiry, _, _)| expiry).filter(|expiry| *expiry <= target);
+        let next = lock(&clock.timers).queue.first().map(|&(expiry, _, _)| expiry).filter(|expiry| *expiry < target);
         let Some(expiry) = next else { break };
         if expiry > clock.now.load(SeqCst) {
             move_to(clock, expiry, &during);
         }
-        while fire_next(clock) {
-            settle(clock, &during);
-        }
+        timers_phase(clock, &during);
         check_phase(clock, &during);
     }
     if clock.now.load(SeqCst) < target {
         move_to(clock, target, &during);
-        check_phase(clock, &during);
     }
-    wall
+    timers_phase(clock, &during);
+    check_phase(clock, &during);
+    (wall, lock(&clock.immediates).len())
 }
 
-/// Node's check phase (`processImmediate`), from the settle point: fires the immediates queued so far, oldest first, settling
-/// after each; those they queue wait for the next loop turn, at the same V: its timers phase (`processTimers`), then its check
-/// phase, until no immediate is left.
-fn check_phase(clock: &Clock, during: &str) {
-    loop {
-        let queued = std::mem::take(&mut *lock(&clock.immediates));
-        if queued.is_empty() {
-            return;
-        }
-        for slot in queued {
-            slot.fire();
-            settle(clock, during);
-        }
-        while fire_next(clock) {
-            settle(clock, during);
-        }
+/// The check phase owed to immediates queued between commands (by real I/O, or by work an answer left waiting), if the check
+/// driver has not run it yet; immediates queued by immediates wait for an advance's next turn.
+fn owed_check_phase(clock: &Clock, during: &str) {
+    let owed = {
+        let _immediates = lock(&clock.immediates);
+        clock.checks_owed.swap(false, SeqCst)
+    };
+    if owed {
+        check_phase(clock, during);
     }
+}
+
+/// Node's timers phase at V (`processTimers`): every timer due, in Node's order, settling after each.
+fn timers_phase(clock: &Clock, during: &str) {
+    while fire_next(clock) {
+        settle(clock, during);
+    }
+}
+
+/// Node's check phase (`processImmediate`), from the settle point: fires the immediates queued before it began, oldest
+/// first, settling after each; those they queue wait for the next loop turn.
+fn check_phase(clock: &Clock, during: &str) {
+    let queued = {
+        let mut immediates = lock(&clock.immediates);
+        // This phase serves every immediate queued so far: none is owed one any more.
+        clock.checks_owed.store(false, SeqCst);
+        clock.checking.store(true, SeqCst);
+        std::mem::take(&mut *immediates)
+    };
+    for slot in queued {
+        slot.fire();
+        settle(clock, during);
+    }
+    clock.checking.store(false, SeqCst);
 }
 
 /// Runs the check phase of immediates queued between commands (by real I/O, or by work an answer left waiting on one) once the
@@ -854,12 +887,17 @@ fn check_phase(clock: &Clock, during: &str) {
 fn drive_checks(clock: &'static Clock) {
     const DURING: &str = "the check phase between commands";
     loop {
-        drop(clock.immediate_queued.wait_while(lock(&clock.immediates), |queued| queued.is_empty()).unwrap_or_else(PoisonError::into_inner));
-        // Unbounded and without the turn: real work may run for as long as it takes; an advance meanwhile drains the queue.
+        drop(
+            clock
+                .immediate_queued
+                .wait_while(lock(&clock.immediates), |queued| queued.is_empty() || !clock.checks_owed.load(SeqCst))
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        // Unbounded and without the turn: real work may run for as long as it takes; an advance meanwhile runs the owed phase.
         let _ = quiesce(clock, None);
         let _turn = lock(&clock.turn);
         settle(clock, DURING);
-        check_phase(clock, DURING);
+        owed_check_phase(clock, DURING);
     }
 }
 
@@ -1078,13 +1116,16 @@ fn read(clock: &'static Clock, mut reader: BufReader<TcpStream>, commands: &mpsc
 fn serve(clock: &'static Clock, commands: &mpsc::Receiver<Command>, mut stream: TcpStream) {
     for command in commands {
         let reply = match command {
-            Command::Advance(ms) => format!("now {}", advance(clock, ms)),
+            Command::Advance(ms) => match advance(clock, ms) {
+                (wall, 0) => format!("now {wall}"),
+                (wall, left) => format!("now {wall} immediates {left}"),
+            },
             Command::Wait { within, line } => match wait_log(clock, Duration::from_millis(within), &line) {
                 Ok(seen) => {
                     let during = format!("wait for {line:?}");
                     let _turn = lock(&clock.turn);
                     settle(clock, &during);
-                    check_phase(clock, &during);
+                    owed_check_phase(clock, &during);
                     format!("seen {seen}")
                 }
                 Err(missed) => missed,

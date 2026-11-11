@@ -61,7 +61,51 @@ const CASES = [
   { name: 'clearing-an-unrefed-interval-keeps-its-list', core: true, script: [{ interval: 'w', ms: 50, times: 99, unref: true }, t('k', 60, [{ clear: 'w' }, t('v', 50)]), t('r', 70, [t('s', 40)])] },
   { name: 'clearing-a-refed-timer-recreates-its-list', core: true, script: [t('a', 100), t('k', 10, [{ clear: 'a' }, t('b', 100)]), t('m', 20, [t('c', 90)])] },
   { name: 'fractions-of-a-millisecond-are-cut', core: true, script: [t('a', 1.7), t('b', 1), t('c', 0.4)] },
+  { name: 'a-self-requeuing-immediate-runs-once-a-turn', core: true, script: [t('a', 10, [{ immediate: 'i', again: 3 }]), t('b', 10), t('c', 11)] },
+  { name: 'a-self-requeuing-immediate-lets-due-timers-fire-between-turns', core: true, script: [t('a', 10, [{ immediate: 'i', again: 3, step: true }]), t('b', 12), t('c', 13)] },
+  { name: 'an-immediate-from-a-timers-promise-continuation', core: true, script: [t('a', 10, [{ promise: 'p', then: [{ immediate: 'pi' }] }]), t('b', 10, [{ immediate: 'ib' }]), t('c', 11)] },
 ];
+
+// Why `a-promise-queued-before-a-tick` is excluded: the only queue that overtakes a promise job is process.nextTick's, and no
+// product code queues on it. queueMicrotask enqueues on the same microtask queue as a promise continuation, first in first
+// out (HTML `queueMicrotask`, V8 `EnqueueMicrotask`), so its order against one is the order the two were queued, which the
+// core's tasks keep (a task spawned first runs first); none of its sites has a priority a core path could reproduce.
+const NEXT_TICK_EVIDENCE = {
+  searches: [
+    'rg -n "process\\.nextTick" src  (tree b6f10295a)',
+    'rg -n "queueMicrotask" src -g "!**/*.test.mjs"  (tree b6f10295a)',
+  ],
+  processNextTick: { product: [], tests: ['src/runtime/tidy/install.test.mjs:418'] },
+  queueMicrotask: {
+    rule: 'same FIFO queue as promise jobs: ordered by queueing, no priority over a promise continuation',
+    product: [
+      'src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs:260',
+      'src/runtime/agent/orchestrator/providers/cursor-wire.mjs:98',
+      'src/runtime/agent/orchestrator/runtime-core/goal-deadlines.mjs:240',
+      'src/runtime/agent/orchestrator/runtime-core/goal-deadlines.mjs:246',
+      'src/runtime/agent/orchestrator/session/store/session-log-writer.mjs:1177',
+      'src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs:602',
+      'src/runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs:431',
+      'src/runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs:595',
+      'src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs:292',
+      'src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs:350',
+      'src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs:357',
+      'src/runtime/shared/turn-boundary-signal.mjs:44',
+      'src/runtime/shared/worktrees/git-head.mjs:353',
+      'src/standalone/session-transport/routes.mjs:237',
+    ],
+    // The TUI runs in the client, not in the core: no core path is its counterpart.
+    client: [
+      'src/tui/components/PromptInput.jsx:335,420,425',
+      'src/tui/components/TextEntryPanel.jsx:125,163,319,325',
+      'src/tui/components/prompt-input/immediate-render.mjs:13',
+      'src/tui/session/agent-job-feed/pending-resume.mjs:128',
+      'src/tui/session/draft-store.mjs:72',
+      'src/tui/session/frame-batched-store.mjs:14,61',
+      'src/tui/session/transcript-spill/spill-writer.mjs:166',
+    ],
+  },
+};
 
 /** One case in this process: the events, or the reason the run missed its millisecond. */
 function runCase(spec) {
@@ -109,13 +153,24 @@ function runCase(spec) {
         armed(action.interval, handle);
       } else if ('clear' in action) clearTimeout(handles.get(action.clear));
       else if ('tick' in action) process.nextTick(() => log(action.tick));
-      else if ('promise' in action) Promise.resolve().then(() => log(action.promise));
+      else if ('promise' in action)
+        Promise.resolve().then(() => {
+          log(action.promise);
+          run(action.then ?? []);
+        });
       else if ('immediate' in action) {
         immediates += 1;
         setImmediate(() => {
           immediates -= 1;
           log(action.immediate);
           run(action.then ?? []);
+          // `again`: queues itself again that many more times; `step`: each run lasts until the loop's next millisecond,
+          // so the next turn is a millisecond later and runs the timers due there before this immediate's next run.
+          if (action.step) {
+            current += 1;
+            while (now() < current);
+          }
+          if (action.again > 0) run([{ ...action, again: action.again - 1 }]);
         });
       } else throw new Error(`unknown action ${JSON.stringify(action)}`);
     }
@@ -165,13 +220,14 @@ if (args.has('case')) {
       else if (child.status === 3 && attempts < ATTEMPTS) continue;
       else throw new Error(`case ${spec.name}, attempt ${attempts}: exit ${child.status}: ${child.stdout}${child.stderr}`);
     }
-    cases.push({ name: spec.name, core: spec.core, script: spec.script, attempts, events: result });
+    // The attempts a case took vary from run to run: the manifest keeps them, the golden only what Node did.
+    cases.push({ name: spec.name, core: spec.core, script: spec.script, events: result, attempts });
     console.log(`${spec.name}: ${result.map(([name, at]) => `${name}@${at}`).join(' ')} (attempt ${attempts})`);
   }
   if (!only) {
     const finalDir = join(FIXTURES_ROOT, 'node-timer-order');
     const stage = stageSet(finalDir);
-    writeJson(join(stage, 'golden.json'), { node: process.version, cases });
+    writeJson(join(stage, 'golden.json'), { node: process.version, cases: cases.map(({ attempts: _, ...spec }) => spec) });
     writeSetManifest(stage, {
       set: 'node-timer-order',
       recorder: 'benchmarks/rust-core/recorders/record-node-timer-order.mjs',
@@ -182,6 +238,7 @@ if (args.has('case')) {
         ...recorderProvenance(import.meta.url),
         attempts: Object.fromEntries(cases.map((spec) => [spec.name, spec.attempts])),
         exclusions: Object.fromEntries(cases.filter((spec) => spec.core !== true).map((spec) => [spec.name, spec.core])),
+        nextTickEvidence: NEXT_TICK_EVIDENCE,
       },
     });
     commitStage(stage, finalDir);
