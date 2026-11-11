@@ -1,13 +1,17 @@
 // A native stand-in for an external program the product spawns by name (`llama-server.exe`, `nvidia-smi.exe`): the product starts a real
 // executable with the real command line; this one hands its own path and its arguments, unchanged, to the scripted stand-in
 // (standin.mjs) run by the recording Node (STANDIN_NODE, STANDIN_SCRIPT), inherits the standard output and error and exits with the child's code.
-// Lifetimes are tied by events: the child runs in a kill-on-close job object (it cannot outlive this process) and reads a pipe this process holds
-// open on its standard input (it ends when that pipe closes); the wait for the child ends with the recorder's deadline for the case
-// (STANDIN_DEADLINE_MS), with a message on the standard error.
+// Lifetimes are owned by the recorder and tied by events: this process connects to the recorder's lifeline pipe (STANDIN_LIFELINE, a named
+// pipe the recording Node listens on and never writes to) and exits when that pipe reaches its end - the recorder is gone, however it ended.
+// The child runs in a kill-on-close job object whose only handle this process holds (it cannot outlive this process) and reads a pipe this
+// process holds open on its standard input (it ends when that pipe closes). No deadline of its own: the recorder's case deadline ends the
+// recorder, and with it this process and the child.
 using System;
 using System.Diagnostics;
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 static class Launcher
 {
@@ -70,6 +74,24 @@ static class Launcher
 
     static int Main(string[] args)
     {
+        // The lifeline first: if the recorder is already gone, nothing is started.
+        var lifeline = new NamedPipeClientStream(".", Environment.GetEnvironmentVariable("STANDIN_LIFELINE"), PipeDirection.In);
+        try
+        {
+            lifeline.Connect(10000);
+        }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine("stand-in: the recorder's lifeline pipe could not be reached: " + error.Message);
+            return 125;
+        }
+        new Thread(() =>
+        {
+            var buffer = new byte[1];
+            try { while (lifeline.Read(buffer, 0, 1) > 0) { } } catch (Exception) { }
+            // The recorder closed its end: this process exits, the job's last handle closes and the child is killed with it.
+            Environment.Exit(125);
+        }) { IsBackground = true }.Start();
         var self = Process.GetCurrentProcess().MainModule.FileName;
         var line = new StringBuilder(Quote(Environment.GetEnvironmentVariable("STANDIN_SCRIPT"))).Append(' ').Append(Quote(self));
         foreach (var arg in args) line.Append(' ').Append(Quote(arg));
@@ -78,13 +100,7 @@ static class Launcher
         using (var child = Process.Start(info))
         {
             if (!AssignProcessToJobObject(job, child.Handle)) throw new InvalidOperationException("AssignProcessToJobObject failed: " + Marshal.GetLastWin32Error());
-            var deadline = int.Parse(Environment.GetEnvironmentVariable("STANDIN_DEADLINE_MS"));
-            if (!child.WaitForExit(deadline))
-            {
-                Console.Error.WriteLine("stand-in " + self + ": the child did not exit within " + deadline + " ms (the recorder deadline for the case); it is killed");
-                child.Kill();
-                return 124;
-            }
+            child.WaitForExit();
             return child.ExitCode;
         }
     }
