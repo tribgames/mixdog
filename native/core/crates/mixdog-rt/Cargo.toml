@@ -12,10 +12,12 @@ workspace = true
 test-support = []
 # A replay's clock (virtual_clock.rs): RT-C and RT-W stand still until a replay advances them. Never in an ordinary build; build.rs
 # fails a release-profile build with it.
-virtual-clock = ["tokio/test-util"]
+virtual-clock = ["tokio/test-util", "dep:chrono"]
 
 [dependencies]
 arc-swap = { workspace = true }
+# The replay's clock refuses a wall clock chrono's `DateTime<Utc>` (`utc_now!`) cannot hold.
+chrono = { workspace = true, optional = true }
 crossbeam-channel = { workspace = true }
 # The driver features are named here so RT-C and RT-W always have time and I/O drivers
 # (`enable_all`), regardless of what other crates in the build enable.

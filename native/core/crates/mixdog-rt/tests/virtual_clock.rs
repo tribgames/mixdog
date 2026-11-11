@@ -373,6 +373,10 @@ fn core() {
         "same-runtime" => same_runtime(),
         "io-wake" => io_wake(),
         "thread-wake" => thread_wake(),
+        "wall-clock" => {
+            let wall = virtual_clock::system_now().duration_since(std::time::UNIX_EPOCH).expect("after the epoch");
+            mixdog_rt::node_stderr!("wall-clock {}", wall.as_millis());
+        }
         _ => {}
     }
     event("ready");
@@ -858,22 +862,31 @@ fn a_controller_that_closes_during_an_advance_ends_the_core() {
     ended_by_a_closed_connection(core, "with `advance 100` unanswered");
 }
 
-/// Numbers past 2^53 - 1, as given or as the wall clock an advance would answer, end the core with its exit code.
+/// Numbers past 2^53 - 1, and a wall clock past the last millisecond its readers hold, as given or as an advance would answer,
+/// end the core with its exit code. At that last millisecond the core reads its wall clock.
 #[test]
 fn numbers_past_the_wire_bound_end_the_core() {
     let max = virtual_clock::MAX_MS;
-    let cases: [(&str, String, Option<&str>, String); 5] = [
+    let wall_max = virtual_clock::max_wall_ms();
+    assert!(std::time::UNIX_EPOCH.checked_add(ms(wall_max)).is_some() && wall_max < max, "{wall_max}");
+    // The second review's case: on Windows `SystemTime` ends before 2^53 - 1 ms.
+    #[cfg(windows)]
+    assert!(std::time::UNIX_EPOCH.checked_add(ms(max)).is_none());
+    let cases: [(&str, String, Option<&str>, String); 6] = [
         ("wall-ms u64::MAX", format!("start {TOKEN} {} 30000", u64::MAX), None, format!("{} is past {max} ms", u64::MAX)),
         ("settle-ms past u64", format!("start {TOKEN} {WALL} 18446744073709551616"), None, format!("18446744073709551616 is past {max} ms")),
-        ("advance past the bound", format!("start {TOKEN} {max} 30000"), Some("advance 1"), format!("advance 1: wall-ms {max} + V 0 + 1 is past {max} ms")),
+        ("wall-ms 2^53 - 1", format!("start {TOKEN} {max} 30000"), None, format!("wall-ms {max} is past {wall_max} ms, the largest wall clock this core's readers hold")),
+        ("advance past the readers' bound", format!("start {TOKEN} {wall_max} 30000"), Some("advance 1"), format!("advance 1: wall-ms {wall_max} + V 0 + 1 is past {wall_max} ms")),
         ("advance u64::MAX", format!("start {TOKEN} {WALL} 30000"), Some("advance 18446744073709551615"), format!("{} is past {max} ms", u64::MAX)),
         ("wait deadline", format!("start {TOKEN} {WALL} 30000"), Some("wait 9007199254740992 event never"), format!("9007199254740992 is past {max} ms")),
     ];
     for (name, start, command, cause) in cases {
-        let (core, mut control) = handshake("idle", &[]);
+        let (core, mut control) = handshake("wall-clock", &[]);
         control.send(&start);
         if let Some(command) = command {
-            assert_eq!(control.line(&start), format!("now {}", start.rsplit(' ').nth(1).expect("wall-ms")), "{name}");
+            let wall = start.rsplit(' ').nth(1).expect("wall-ms");
+            assert_eq!(control.line(&start), format!("now {wall}"), "{name}");
+            core.until_line(&format!("wall-clock {wall}"));
             control.send(command);
         }
         let (code, stderr) = core.ended();
