@@ -188,7 +188,13 @@ impl GoogleAdapter {
 
     fn authorized(wire: &WireRequest, authorization: &Authorization) -> WireRequest {
         let mut request = wire.clone();
-        request.headers.extend(authorization.headers.iter().cloned());
+        // A header the codec gave a slot keeps its place in the head; any other goes last.
+        for (name, value) in &authorization.headers {
+            match request.headers.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
+                Some(slot) => slot.1.clone_from(value),
+                None => request.headers.push((name.clone(), value.clone())),
+            }
+        }
         request
     }
 

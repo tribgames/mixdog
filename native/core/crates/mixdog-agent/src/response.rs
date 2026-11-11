@@ -128,6 +128,7 @@ impl ResponseBuilder {
             | StreamEvent::Citation(_)
             | StreamEvent::ProviderKeepalive
             | StreamEvent::Notice { .. }
+            | StreamEvent::ResponseId(_)
             | StreamEvent::Progress(_)
             | StreamEvent::ChunkProgress(_) => {}
         }

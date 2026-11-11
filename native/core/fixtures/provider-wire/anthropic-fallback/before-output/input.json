@@ -1,5 +1,21 @@
 {
   "provider": "anthropic-oauth",
+  "config": {},
+  "credential": {
+    "file": "anthropic-oauth-credentials.json",
+    "document": {
+      "claudeAiOauth": {
+        "accessToken": "fixture-access-token",
+        "refreshToken": "fixture-refresh-token",
+        "expiresAt": 4000000000000,
+        "scopes": [
+          "user:inference",
+          "user:profile"
+        ],
+        "subscriptionType": "max"
+      }
+    }
+  },
   "model": "claude-opus-5",
   "messages": [
     {
@@ -15,5 +31,14 @@
   "opts": {
     "sessionId": "fallback-session",
     "sourceType": "lead"
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

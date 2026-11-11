@@ -1,5 +1,9 @@
 {
   "provider": "openrouter",
+  "config": {
+    "apiKey": "fixture-key",
+    "preconnect": false
+  },
   "model": "openai/gpt-5",
   "messages": [
     {
@@ -12,5 +16,14 @@
     }
   ],
   "tools": null,
-  "opts": {}
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

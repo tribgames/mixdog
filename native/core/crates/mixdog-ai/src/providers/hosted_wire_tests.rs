@@ -1,59 +1,38 @@
 //! A provider's own web search on the wire, per provider, against Node's recordings (`fixtures/provider-wire/hosted-search`):
 //! the request `sendCandidate` makes (native-web-search.mjs:63-77) is built as the hosted sender builds it, with the tool
-//! read by the production reader ([`super::hosted::web_search_from_node`]), encoded by the provider's real codec and
-//! compared with the bytes Node sent; the recorded answer (the search call, its sources and a citation as each wire
-//! reports them) is decoded by the same codec and compared whole with Node's result.
+//! read by the production reader ([`super::hosted::web_search_from_node`]), and sent by the provider the production
+//! builder builds from the recorded configuration over the recorder's hub; every request is compared whole with Node's,
+//! the recorded answer (the search call, its sources and a citation as each wire reports them) whole with Node's result,
+//! and the stream callbacks in order.
 
 use std::sync::Arc;
 
-use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
-use mixdog_core_api::domain::provider::StreamEvent;
-use mixdog_core_api::domain::provider::WireCodec;
 use serde_json::Value;
 
-use super::anthropic::AnthropicCodec;
-use super::anthropic::AnthropicConfig;
-use super::anthropic::Flavor;
 use super::anthropic::ModelCaps;
-use super::google::auth::antigravity::ENDPOINT;
-use super::google::codec::GEMINI_ORIGIN;
-use super::google::codec::GoogleCodec;
 use super::google::traits::ModelTraits;
 use super::google::traits::ThinkingControl;
 use super::hosted::web_search_from_node;
-use super::openai::codec::OpenAiCodec;
 use super::openai::config::CodexIdentity;
 use super::openai::config::ModelFacts;
 use super::openai::config::ModelFactsSource;
-use super::openai::config::OpenAiConfig;
-use super::openai::config::WireContext;
+use super::wire_fixtures::Hub;
+use super::wire_fixtures::Inputs;
 use super::wire_fixtures::Recorded;
+use super::wire_fixtures::assert_same_events;
+use super::wire_fixtures::assert_same_requests;
 use super::wire_fixtures::assert_same_result;
+use super::wire_fixtures::attempt;
+use super::wire_fixtures::built;
 use super::wire_fixtures::core_result;
 use super::wire_fixtures::load;
 use super::wire_fixtures::node_result;
 use super::wire_fixtures::scenarios;
-
-struct Ctx;
-impl WireContext for Ctx {
-    fn request_id(&self) -> String {
-        "0".repeat(32)
-    }
-    fn now_unix_ms(&self) -> u64 {
-        0
-    }
-    fn turn_state(&self, _: &str, _: &str) -> Option<String> {
-        None
-    }
-    fn var(&self, _: &str) -> Option<String> {
-        None
-    }
-}
 
 /// The catalog row of gpt-5.2: reasoning with summaries, verbosity, a 24 h cache lifetime.
 struct Gpt;
@@ -80,66 +59,31 @@ impl ModelTraits for Gemini {
     }
 }
 
-fn anthropic_config(base: &str) -> AnthropicConfig {
-    let mut config = AnthropicConfig::new(Arc::new(|_: &str| {
-        Some(ModelCaps {
-            adaptive_thinking: true,
-            manual_thinking: false,
-            ladder_stated: false,
-            effort_levels: vec!["low".into(), "medium".into(), "high".into()],
-            max_output_tokens: Some(16384),
-            fast_mode: false,
-            context_window: None,
-            thinking_display_updates: false,
-        })
-    }));
-    config.base_url = base.to_owned();
-    config
-}
-
-fn codec(provider: &str) -> Box<dyn WireCodec> {
-    let codex = || CodexIdentity {
-        installation_id: "i".into(),
-        user_agent: "ua".into(),
-        version: "0.166.0".into(),
-        beta_features: "b".into(),
-    };
-    match provider {
-        "openai" => Box::new(OpenAiCodec::new(OpenAiConfig::api_key(true, Arc::new(Gpt), Arc::new(Ctx)), TransportKind::Http1)),
-        "openai-oauth" => {
-            Box::new(OpenAiCodec::new(OpenAiConfig::codex(false, false, codex(), Arc::new(Gpt), Arc::new(Ctx)), TransportKind::Http1))
-        }
-        "anthropic" => Box::new(AnthropicCodec::new(Flavor::ApiKey, anthropic_config("https://api.anthropic.com"))),
-        "anthropic-oauth" => Box::new(AnthropicCodec::new(Flavor::OAuth, anthropic_config("https://api.anthropic.com"))),
-        "gemini" => Box::new(GoogleCodec::gemini(GEMINI_ORIGIN, Arc::new(Gemini))),
-        "antigravity-oauth" => Box::new(GoogleCodec::antigravity(ENDPOINT, "fixture-project", "2.19.1", Arc::new(Gemini))),
-        "grok-oauth" => super::grok::codec(super::grok::CLIENT_VERSION_FLOOR).into_box(),
-        other => panic!("no codec for {other}"),
-    }
-}
-
-trait IntoBox {
-    fn into_box(self) -> Box<dyn WireCodec>;
-}
-
-impl IntoBox for Arc<dyn WireCodec> {
-    fn into_box(self) -> Box<dyn WireCodec> {
-        struct Shared(Arc<dyn WireCodec>);
-        impl WireCodec for Shared {
-            fn transport(&self) -> TransportKind {
-                self.0.transport()
-            }
-            fn encode(&self, request: &ModelRequest) -> Result<mixdog_core_api::domain::provider::WireRequest, mixdog_core_api::domain::provider::ProviderError> {
-                self.0.encode(request)
-            }
-            fn decoder(&self, request: &ModelRequest) -> Box<dyn mixdog_core_api::domain::provider::WireDecoder> {
-                self.0.decoder(request)
-            }
-            fn classify(&self, response: &mixdog_core_api::domain::provider::ErrorResponse) -> mixdog_core_api::domain::provider::ProviderError {
-                self.0.classify(response)
-            }
-        }
-        Box::new(Shared(self))
+/// What the recorder's providers read beside their configuration: Node's catalog for claude-sonnet-4-6 (adaptive
+/// thinking with effort, 16k output), the Gemini traits, the gpt-5.2 row, and the recording machine's Codex identity
+/// (its OS in the user agent; declared in the manifest).
+fn inputs() -> Inputs {
+    Inputs {
+        caps: Arc::new(|_: &str| {
+            Some(ModelCaps {
+                adaptive_thinking: true,
+                manual_thinking: false,
+                ladder_stated: false,
+                effort_levels: vec!["low".into(), "medium".into(), "high".into()],
+                max_output_tokens: Some(16384),
+                fast_mode: false,
+                context_window: None,
+                thinking_display_updates: false,
+            })
+        }),
+        traits: Arc::new(Gemini),
+        facts: Arc::new(Gpt),
+        codex: CodexIdentity {
+            installation_id: "i".into(),
+            user_agent: "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown".into(),
+            version: "0.166.0".into(),
+            beta_features: "remote_compaction_v2".into(),
+        },
     }
 }
 
@@ -172,43 +116,20 @@ fn request(recorded: &Recorded) -> ModelRequest {
     }
 }
 
-fn decoded(codec: &dyn WireCodec, request: &ModelRequest, served: &str) -> Vec<StreamEvent> {
-    let mut decoder = codec.decoder(request);
-    let mut events = decoder.feed(served.as_bytes()).expect("recorded stream");
-    events.extend(decoder.finish().expect("recorded stream ends"));
-    events
-}
-
-/// The JSON of a body with the given top-level keys removed, for the fields a send draws at random.
-fn without(body: &str, keys: &[&str]) -> Value {
-    let mut value: Value = serde_json::from_str(body).unwrap();
-    for key in keys {
-        value.as_object_mut().unwrap().shift_remove(*key);
-    }
-    value
-}
-
-#[test]
-fn every_provider_sends_its_hosted_search_as_node_does() {
+#[tokio::test]
+async fn every_provider_sends_its_hosted_search_as_node_does() {
     let names = scenarios("hosted-search");
     assert_eq!(names.len(), 7, "{names:?}");
     for name in names {
         let recorded = load("hosted-search", &name);
-        let codec = codec(&name);
-        let request = request(&recorded);
-        let wire = codec.encode(&request).unwrap_or_else(|e| panic!("{name}: {e:?}"));
-        let posts = recorded.posts("");
-        assert_eq!(posts.len(), 1, "{name}: one send");
-        let post = posts[0];
-        assert_eq!(wire.url, format!("{}{}", post["origin"].as_str().unwrap(), post["path"].as_str().unwrap()), "{name}: url");
-        let sent = String::from_utf8(wire.body).unwrap();
-        let node = post["bodyText"].as_str().unwrap();
-        match name.as_str() {
-            // Drawn per send: Antigravity's request id (`agent-<randomUUID>`).
-            "antigravity-oauth" => assert_eq!(without(&sent, &["requestId"]), without(node, &["requestId"]), "{name}: body"),
-            _ => assert_eq!(sent, node, "{name}: body bytes"),
-        }
-        let events = decoded(codec.as_ref(), &request, post["served"].as_str().unwrap());
+        let hub = Hub::new(&recorded);
+        let (adapter, _dir) = built(&recorded, hub.clone(), inputs()).await;
+        let request = Arc::new(request(&recorded));
+        let events = attempt(adapter.as_ref(), request.clone()).await.unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        // Drawn per send: Antigravity's request id (`agent-<randomUUID>`).
+        let drawn: &[&str] = if name == "antigravity-oauth" { &["requestId"] } else { &[] };
+        assert_same_requests(&hub.sent(), &recorded, drawn, &name);
         assert_same_result(&core_result(&events, &request.model), &node_result(&recorded.result), &format!("{name}: result"));
+        assert_same_events(&events, &recorded, &name);
     }
 }

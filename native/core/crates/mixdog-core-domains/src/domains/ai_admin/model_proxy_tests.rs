@@ -184,11 +184,12 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::Notice { .. } => "Notice",
         E::ServedModel(_) => "ServedModel",
         E::ProviderMetadata(_) => "ProviderMetadata",
+        E::ResponseId(_) => "ResponseId",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 22] = [
+const STREAM_EVENT_VARIANTS: [&str; 23] = [
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -210,6 +211,7 @@ const STREAM_EVENT_VARIANTS: [&str; 22] = [
     "Notice",
     "ServedModel",
     "ProviderMetadata",
+    "ResponseId",
     "Completed",
 ];
 
@@ -247,6 +249,7 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::Notice { message: "m".into(), warn: true },
         p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
         p::StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": [{ "trigger": "refusal" }] })),
+        p::StreamEvent::ResponseId("resp_1".into()),
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();

@@ -1,5 +1,8 @@
 {
   "provider": "gemini",
+  "config": {
+    "apiKey": "fixture-key"
+  },
   "model": "gemini-2.5-pro",
   "messages": [
     {
@@ -26,5 +29,10 @@
     "toolChoice": "auto",
     "fast": false,
     "modelParameters": {}
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
 }

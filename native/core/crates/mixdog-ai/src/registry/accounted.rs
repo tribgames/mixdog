@@ -250,7 +250,7 @@ impl ProviderAdapter for AccountedAdapter {
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None, served: None, fallback: false }),
+                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None }),
                 group,
                 now: Arc::clone(&self.deps.now),
             })),
@@ -302,6 +302,8 @@ struct Open {
     served: Option<String>,
     /// The stream reported a server-side fallback (`providerMetadata.anthropicFallbacks`, usage-accounting.mjs:121).
     fallback: bool,
+    /// The provider's id for the response (`result.responseId`, usage-accounting.mjs:130, :158).
+    response_id: Option<String>,
 }
 
 struct AccountedStream {
@@ -331,12 +333,17 @@ impl ModelStream for AccountedStream {
                 open.fallback = metadata.get("anthropicFallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
                 Some(Ok(StreamEvent::ProviderMetadata(metadata)))
             }
+            Some(Ok(StreamEvent::ResponseId(id))) => {
+                open.response_id = Some(id.clone());
+                Some(Ok(StreamEvent::ResponseId(id)))
+            }
             Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms })) => {
                 let open = self.open.take()?;
                 let done = Completed {
                     facts: open.usage.as_ref().map(Facts::from),
                     model: open.served.clone(),
                     fallback: open.fallback,
+                    response_id: open.response_id.clone(),
                     pricing_model: pricing_model.clone(),
                     stream_ended_at: (self.now)(),
                     ..Completed::default()

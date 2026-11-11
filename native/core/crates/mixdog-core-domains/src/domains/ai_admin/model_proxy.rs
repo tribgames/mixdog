@@ -405,6 +405,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
         E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
         E::ProviderMetadata(value) => w::ProxyEvent::ProviderMetadata { value: value.clone() },
+        E::ResponseId(id) => w::ProxyEvent::ResponseId { id: id.clone() },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -464,6 +465,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::Notice { message, warn } => E::Notice { message, warn },
         w::ProxyEvent::ServedModel { model } => E::ServedModel(model),
         w::ProxyEvent::ProviderMetadata { value } => E::ProviderMetadata(value),
+        w::ProxyEvent::ResponseId { id } => E::ResponseId(id),
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,

@@ -356,6 +356,8 @@ impl AnthropicDecoder {
                     return Ok(());
                 };
                 self.saw_message_start = true;
+                // The semantic message boundary (anthropic-sse.mjs:149-151).
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
                 // `onMessageStart`: `if (message.model) turn.model = message.model` (turn-events/message-events.mjs:17).
                 if let Some(model) = message.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
                     self.serve(model, out);
@@ -529,7 +531,11 @@ impl AnthropicDecoder {
                         json.push_str(piece);
                         out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: piece.to_owned() });
                     }
-                    Some(Block::NativeCall { json, .. }) => json.push_str(piece),
+                    Some(Block::NativeCall { json, .. }) => {
+                        json.push_str(piece);
+                        // A server tool's input is reported once more (content-block-delta.mjs:79-82).
+                        out.push(StreamEvent::Progress(ProgressKind::Tool));
+                    }
                     _ => {}
                 }
                 // Node reports every input_json_delta, whatever block it lands on.

@@ -21,5 +21,31 @@
     "generationMs": 0,
     "pricingModel": "zai-org/glm-5-maas"
   },
-  "dispatchedToolCalls": []
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer is 42."
+    },
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    }
+  ]
 }

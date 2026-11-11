@@ -37,5 +37,23 @@
     },
     "pricingModel": "claude-sonnet-4-6"
   },
-  "dispatchedToolCalls": []
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer is 42."
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    }
+  ]
 }

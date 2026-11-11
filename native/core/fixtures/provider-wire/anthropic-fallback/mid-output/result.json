@@ -104,6 +104,36 @@
     "stopReason": "end_turn"
   },
   "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "textDelta",
+      "text": "Partial "
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "textDelta",
+      "text": "answer."
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    }
+  ],
   "rows": [
     {
       "ts": 1700000000000,

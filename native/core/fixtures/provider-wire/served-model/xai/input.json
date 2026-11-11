@@ -1,5 +1,10 @@
 {
   "provider": "xai",
+  "config": {
+    "apiKey": "fixture-key",
+    "preconnect": false,
+    "apiMode": "chat"
+  },
   "model": "grok-4",
   "messages": [
     {
@@ -14,5 +19,14 @@
   "tools": null,
   "opts": {
     "sessionId": "fixture-session"
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
 }

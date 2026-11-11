@@ -45,5 +45,19 @@
       "promptTokens": 20
     }
   },
-  "dispatchedToolCalls": []
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    }
+  ]
 }

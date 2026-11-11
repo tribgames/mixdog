@@ -1,5 +1,21 @@
 {
   "provider": "anthropic-oauth",
+  "config": {},
+  "credential": {
+    "file": "anthropic-oauth-credentials.json",
+    "document": {
+      "claudeAiOauth": {
+        "accessToken": "fixture-access-token",
+        "refreshToken": "fixture-refresh-token",
+        "expiresAt": 4000000000000,
+        "scopes": [
+          "user:inference",
+          "user:profile"
+        ],
+        "subscriptionType": "max"
+      }
+    }
+  },
   "model": "claude-sonnet-4-6",
   "messages": [
     {
@@ -32,5 +48,10 @@
     "toolChoice": "required",
     "fast": false,
     "modelParameters": {}
-  }
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta"
+  ]
 }

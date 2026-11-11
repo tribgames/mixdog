@@ -104,5 +104,35 @@
       }
     }
   },
-  "dispatchedToolCalls": []
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "semantic"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "tool"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "tool"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "tool"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "tool"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    }
+  ]
 }
