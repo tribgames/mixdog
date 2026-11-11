@@ -211,6 +211,8 @@ pub enum AgentError {
     Admission(String),
     /// A message could not be committed to the transcript.
     Commit(crate::env::CommitError),
+    /// A committed row did not reach the store before the next step needed it; the text is the error as Node throws it.
+    NotDurable(String),
 }
 
 #[derive(Debug)]
@@ -256,7 +258,7 @@ impl std::fmt::Display for AgentError {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
-            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) => f.write_str(message),
+            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::NotDurable(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
                 f,
@@ -811,6 +813,7 @@ impl Run {
     pub(crate) async fn until_durable(&self, ticket: Ticket) -> Result<(), AgentError> {
         or_cancelled(&self.cancel, self.env.sink.durable(ticket))
             .await
-            .ok_or(AgentError::Aborted)
+            .ok_or(AgentError::Aborted)?
+            .map_err(|failure| AgentError::NotDurable(failure.0))
     }
 }

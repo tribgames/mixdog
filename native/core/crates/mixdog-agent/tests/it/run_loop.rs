@@ -328,6 +328,8 @@ struct Sink {
     stalled: std::sync::atomic::AtomicBool,
     /// A store that cannot classify a message: every commit is refused.
     refused: std::sync::atomic::AtomicBool,
+    /// A store whose row write failed: the durability wait reports it.
+    unsaved: std::sync::atomic::AtomicBool,
 }
 #[async_trait]
 impl TranscriptSink for Sink {
@@ -345,10 +347,14 @@ impl TranscriptSink for Sink {
     fn message_id(&self) -> String {
         format!("m{}", self.ids.fetch_add(1, Ordering::Relaxed) + 1)
     }
-    async fn durable(&self, _ticket: Ticket) {
+    async fn durable(&self, _ticket: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
         if self.stalled.load(Ordering::Relaxed) {
             std::future::pending::<()>().await;
         }
+        if self.unsaved.load(Ordering::Relaxed) {
+            return Err(mixdog_agent::env::NotDurable("Session t: the conversation is not saved to disk, so the next turn cannot start (disk full)".into()));
+        }
+        Ok(())
     }
 }
 
@@ -1810,6 +1816,23 @@ async fn abort_does_not_wait_for_stalled_storage() {
     assert_eq!(dump(&failure.transcript), ["user:go", "assistant[echo#c1]:"]);
 }
 
+/// A row the store did not take is no acknowledgement: the turn fails with the store's text before the request or the tools it gated.
+#[tokio::test]
+async fn a_row_that_did_not_land_fails_the_turn_before_the_next_step() {
+    let h = Harness::new(vec![]);
+    h.sink.unsaved.store(true, Ordering::Relaxed);
+    let mut cfg = config();
+    cfg.first_request_after = Some(Ticket(1));
+    let failure = h.run(cfg, vec![], vec![AgentMessage::user("go")]).run().await.expect_err("not saved");
+    assert!(matches!(&failure.error, AgentError::NotDurable(text) if text.ends_with("(disk full)")), "{:?}", failure.error);
+    assert!(h.provider.requests().is_empty(), "no request without the row on disk");
+
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)])]);
+    h.sink.unsaved.store(true, Ordering::Relaxed);
+    let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("not saved");
+    assert!(matches!(failure.error, AgentError::NotDurable(_)), "{:?}", failure.error);
+}
+
 /// A sink that logs, in order, each commit and each durability wait with how many requests had been sent then.
 struct OrderedSink {
     provider: Arc<Scripted>,
@@ -1828,8 +1851,9 @@ impl TranscriptSink for OrderedSink {
     fn message_id(&self) -> String {
         format!("m{}", self.tickets.load(Ordering::SeqCst) + 1)
     }
-    async fn durable(&self, ticket: Ticket) {
+    async fn durable(&self, ticket: Ticket) -> Result<(), mixdog_agent::env::NotDurable> {
         self.log.lock().unwrap().push(("durable", ticket.0, self.provider.requests().len()));
+        Ok(())
     }
 }
 
