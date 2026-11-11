@@ -6,6 +6,7 @@
 // meets: the registered-projects rule and one-file permissions) needs a relay-origin connection, which only the relay leg opens: it runs
 // behind a scripted relay and a paired phone (lib/phone-relay-core.mjs).
 import { spawn, spawnSync } from 'node:child_process';
+import { endCore, spawnCore } from './core-stop.mjs';
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -165,7 +166,7 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
   const manifest = join(exe, '..', 'js-runtime.json');
   if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
-  const child = spawn(exe, ['serve'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+  const { child, job } = await spawnCore(exe, ['serve'], { env });
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   // The core is up when it has written its discovery file. The watch is registered before the first look, so a write between the look and
@@ -193,16 +194,16 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
       stirred = false;
       if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
       try {
-        return { child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
+        return { exe, child, job, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
       } catch {
         if (late) throw new Error(`mixdogd did not write its discovery file ${file} within ${START_DEADLINE_MS / 1000} s:\n${stderr}`);
         if (!stirred) await new Promise((resolve) => (wake = resolve));
       }
     }
   } catch (error) {
-    // What could not be ended is reported with the start's own failure, not waited for.
-    await killTree(child).catch((ending) => {
-      error.message += `\nand ending it failed: ${ending.message}`;
+    // What could not be ended cleanly is reported with the start's own failure.
+    await endCore({ exe, child, job, env }).catch((ending) => {
+      error.message += `\nand ending it: ${ending.message}`;
     });
     throw error;
   } finally {
@@ -308,10 +309,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         if (relay || window) throw new Error('restart is replayed on a loopback phone with no window');
         client.close?.();
         // A stop the app itself performs (its own quit): the memory database shuts down cleanly, so the next start does not run crash recovery.
-        const exited = exitWithin(core.child, 120_000, `the core (pid ${core.child.pid}) asked to stop`);
-        const stopped = spawnSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', timeout: 60_000, windowsHide: true });
-        if (stopped.error || stopped.status !== 0) throw new Error(`mixdogd ctl stop failed: ${stopped.error?.message ?? `exit ${stopped.status}: ${stopped.stderr}`}`);
-        await exited;
+        await endCore({ ...core, ms: 120_000 });
         Object.assign(core, await startCore(exe, coreRoot, relay, false));
         base.connector = createWsConnector(async () => core.endpoint);
         client = await answered("the phone's connection after the restart (initialize)", connect({ ...base, connector: base.connector }));
@@ -391,8 +389,8 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   } finally {
     client?.close?.();
     window?.client.close?.();
-    // A core that cannot be ended fails the replay with its pid instead of holding it.
-    await killTree(core.child);
+    // The core is stopped as the app's quit stops it, with its PostgreSQL; one that needed force fails the replay naming what was forced.
+    await endCore(core);
   }
 }
 
