@@ -196,7 +196,7 @@ export async function startRecording({ recorderUrl, set, entry, replay, dataFile
         recorder: recorderProvenance(recorderUrl).recorder,
         command: `node ${recorderProvenance(recorderUrl).recorder} --tree <exact export of ${NODE_COMMIT}>`,
         identity,
-        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, exclusions: [...exclusions, 'the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)', 'JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack'] },
+        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, ...(net ? { replayExclusions: { 'request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)': 'written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded' } } : {}), exclusions: [...exclusions, 'the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)', 'JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack'] },
       });
       commitStage(stage, finalDir);
       rmSync(dataDir, { recursive: true, force: true });

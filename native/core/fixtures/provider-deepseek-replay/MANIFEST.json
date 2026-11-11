@@ -28,7 +28,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "00955e5967f8c2416a12816c31400ab39bba726cf62d5b2c2a8aa738a2747d00"
+      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -52,6 +52,9 @@
   "recorder": "benchmarks/rust-core/recorders/record-deepseek-replay.mjs",
   "recorderSha256": "51ed4ef11ff0f75492e0575011e59094f5f7674d9c341660e6f97acdecea9a08",
   "replay": "mixdog-ai providers::compat chat decode (decode.rs:286-292, :530-537) and encode: feed `input.chunks` / the `requests[*].reply` SSE and compare `result` (reasoningContent and whether reasoning_content is present), the second request body (assistant message reasoning_content \"\") and the replayed messages.",
+  "replayExclusions": {
+    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+  },
   "set": "provider-deepseek-replay",
   "totalBytes": 9887
 }
