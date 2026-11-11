@@ -558,6 +558,8 @@ enum Shown {
     SearchUsage(Value),
     /// A stage the client shows as its status, with its detail.
     Stage(String, Option<Value>),
+    ModelRequest(u32, mixdog_app_protocol::v2::thread::ModelRequestPhase, Option<Vec<Value>>),
+    ToolBatch(u32, mixdog_app_protocol::v2::thread::ToolBatchPhase, Option<(u32, u32, u64)>),
 }
 
 /// What the interrupted request had produced that the transcript does not hold yet
@@ -594,6 +596,10 @@ struct PortObserver {
     /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
     /// abort's own step, so a call that settles after the abort is closed as cancelled).
     cancel: tokio_util::sync::CancellationToken,
+    /// The turn's provider requests so far (`model_request_<n>`, `tool_batch_<n>`).
+    requests: std::sync::atomic::AtomicU32,
+    /// The tool calls the current request's response streamed, `{ id, name, arguments }`.
+    streamed_calls: Mutex<Vec<Value>>,
 }
 
 impl PortObserver {
@@ -668,7 +674,32 @@ impl RunObserver for PortObserver {
                 lock(&self.observed).tools = false;
                 self.progress.stage("connecting");
             }
-            RunEvent::Stage(Stage::Streaming) => self.progress.stage("streaming"),
+            RunEvent::Stage(Stage::Streaming) => {
+                self.progress.stage("streaming");
+                let _ = self.out.send(Shown::Stage("streaming".to_owned(), None));
+            }
+            RunEvent::Stage(Stage::Requesting) => {
+                let _ = self.out.send(Shown::Stage("requesting".to_owned(), None));
+            }
+            RunEvent::ProviderSendStarted => {
+                let index = self.requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                lock(&self.streamed_calls).clear();
+                let _ = self.out.send(Shown::ModelRequest(index, mixdog_app_protocol::v2::thread::ModelRequestPhase::Started, None));
+            }
+            RunEvent::ToolCallObserved(call) => {
+                lock(&self.streamed_calls).push(serde_json::json!({ "id": call.id, "name": call.name, "arguments": call.arguments }));
+            }
+            RunEvent::ToolPhase(phase) => {
+                let index = self.requests.load(std::sync::atomic::Ordering::Relaxed).max(1);
+                let _ = self.out.send(match phase {
+                    mixdog_agent::env::ToolPhase::Started => Shown::ToolBatch(index, mixdog_app_protocol::v2::thread::ToolBatchPhase::Started, None),
+                    mixdog_agent::env::ToolPhase::Completed { iteration, calls, elapsed_ms } => Shown::ToolBatch(
+                        index,
+                        mixdog_app_protocol::v2::thread::ToolBatchPhase::Completed,
+                        Some((iteration, u32::try_from(calls).unwrap_or(u32::MAX), elapsed_ms)),
+                    ),
+                });
+            }
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
             RunEvent::TextDelta(text) => {
@@ -699,6 +730,11 @@ impl RunObserver for PortObserver {
             }
             RunEvent::Usage { iteration, usage, delta } => {
                 self.end_reasoning();
+                // The request's completion, with the calls its response streamed, before its usage (Node observes each call as
+                // it streams, then the usage that completes the request).
+                let calls = std::mem::take(&mut *lock(&self.streamed_calls));
+                let index = self.requests.load(std::sync::atomic::Ordering::Relaxed).max(1);
+                let _ = self.out.send(Shown::ModelRequest(index, mixdog_app_protocol::v2::thread::ModelRequestPhase::Completed, (!calls.is_empty()).then_some(calls)));
                 *lock(&self.last_send_tools) = delta.send_tools.clone();
                 let _ = self.out.send(Shown::Usage(mixdog_core_session::session::UsageReport::from_event(iteration, usage, delta)));
             }
@@ -1158,6 +1194,8 @@ async fn drive(
                 Shown::Check(check) => shown_port.send_check(check).await,
                 Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
                 Shown::Stage(stage, detail) => shown_port.stage(stage, detail).await,
+                Shown::ModelRequest(index, phase, calls) => shown_port.model_request(index, phase, calls).await,
+                Shown::ToolBatch(index, phase, completed) => shown_port.tool_batch(index, phase, completed).await,
                 Shown::Pass(pass) => shown_port.compact_pass(pass).await,
                 Shown::ToolStream => shown_port.tool_stream().await,
                 Shown::CompactUsage(report) => shown_port.compact_usage(report).await,
@@ -1174,7 +1212,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), requests: std::sync::atomic::AtomicU32::new(0), streamed_calls: Mutex::new(Vec::new()) });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -1285,7 +1323,7 @@ async fn drive(
                 termination: output.termination,
                 iterations: output.iterations,
                 tool_calls_total: output.tool_calls_total,
-                stop_reason: output.response.stop.as_ref().map(|s| format!("{s:?}")),
+                stop_reason: output.response.stop.as_ref().map(super::message_row::stop_name),
             }))
         }
         Err(failure) => {
@@ -2145,7 +2183,7 @@ mod tests {
             handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
             let frames = |method: &str| -> Vec<Value> { rig.feeds.frames(id.as_str()).into_iter().filter(|(_, m, _)| m == method).map(|(_, _, params)| params).collect() };
             eventually_on_awaiting(|| format!("{how}: the turn's end"), &[handle.stepped()], || (!frames("turn/completed").is_empty()).then_some(())).await;
-            let stages = frames("thread/stage/updated");
+            let stages: Vec<Value> = frames("thread/stage/updated").into_iter().filter(|p| p["stage"] == "reconnecting").collect();
             assert_eq!(stages, [json!({ "threadId": id, "stage": "reconnecting", "detail": { "message": switching } })], "{how}: the switching status, once");
             let changed: Vec<Value> = frames("thread/providerAccount/changed").into_iter().filter(|p| p.to_string().contains("\"k2\"")).collect();
             assert_eq!(changed.len(), 1, "{how}: the account change, once: {changed:?}");

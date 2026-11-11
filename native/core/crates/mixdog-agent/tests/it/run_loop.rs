@@ -1139,25 +1139,22 @@ async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
                 turn(steps)
             }
         }]);
-        let begun = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut config = config();
-        let counter = begun.clone();
-        config.request_begin = Some(Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }));
-        let ended = h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
-        // `onProviderSendStarted` is the request hook, which runs before the request's first event.
-        let mut stream: Vec<JsonValue> = (0..begun.load(Ordering::SeqCst)).map(|_| json!(["onProviderSendStarted"])).collect();
+        let ended = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
+        let mut stream: Vec<JsonValue> = Vec::new();
         for event in h.observer.events() {
             stream.extend(callbacks_of(event));
         }
-        // Two events of the loop's own have no Node callback: `Stage(Streaming)` when the stream opens and the send's
-        // `Usage` when it ends (Node's loop keeps its usage in the result and makes no `onUsage` call; the recording
-        // shows neither). They are part of the compared stream at their place, so any other event, or either one
-        // anywhere else, is a difference.
+        // Events of the loop's own with no callback in this recording: the two `Stage(Requesting)` of the send (Node's
+        // admission scheduler and provider adapter raise them, and the recording's scripted `send` is neither),
+        // `Stage(Streaming)` when the stream opens, and the send's `Usage` when it ends (Node's loop keeps its usage in the
+        // result and makes no `onUsage` call). They are part of the compared stream at their place, so any other event,
+        // or one of them anywhere else, is a difference.
         let mut node: Vec<JsonValue> = scenario["observed"].as_array().expect("observed").clone();
+        for _ in 0..2 {
+            node.insert(1, json!(["no Node callback", "Stage(Requesting)"]));
+        }
         if scenario["outcome"]["content"].is_string() {
-            node.insert(1, json!(["no Node callback", "Stage(Streaming)"]));
+            node.insert(3, json!(["no Node callback", "Stage(Streaming)"]));
             node.push(json!(["no Node callback", "Usage"]));
         }
         if JsonValue::Array(stream.clone()) != JsonValue::Array(node.clone()) {
@@ -1177,6 +1174,7 @@ fn callbacks_of(event: RunEvent) -> Vec<JsonValue> {
         RunEvent::TextDelta(text) => vec![json!(["onStreamDelta", "text"]), json!(["onTextDelta", text])],
         RunEvent::Stage(Stage::Notice { message, tone }) => vec![json!(["onStageChange", "notice", { "tone": tone.as_str(), "message": message }])],
         RunEvent::Usage { .. } => vec![json!(["no Node callback", "Usage"])],
+        RunEvent::ProviderSendStarted => vec![json!(["onProviderSendStarted"])],
         other => vec![json!(["no Node callback", format!("{other:?}")])],
     }
 }

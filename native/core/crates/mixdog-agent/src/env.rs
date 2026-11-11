@@ -137,6 +137,8 @@ impl Tone {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Stage {
     Connecting,
+    /// `onStageChange('requesting')`: the send was admitted, and again as the provider makes its attempt.
+    Requesting,
     Streaming,
     /// A provider ping or comment: informational only.
     WaitingOnProvider,
@@ -357,6 +359,19 @@ pub enum RunEvent {
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
+    /// `onProviderSendStarted` (`send-phase.mjs:183`): the loop sends the transcript, once per send whatever its retries.
+    ProviderSendStarted,
+    /// `onAssistantToolCallObserved` (`send-phase.mjs:140`): the provider streamed a complete tool call.
+    ToolCallObserved(ToolCall),
+    /// `onToolPhaseStarted` / `onToolPhaseCompleted` (`tool-phase.mjs:54`, `:95`): the batch's calls run once the
+    /// assistant message that carries them is committed, and are all settled.
+    ToolPhase(ToolPhase),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum ToolPhase {
+    Started,
+    Completed { iteration: u32, calls: usize, elapsed_ms: u64 },
 }
 
 /// What `recoverPartialToolCalls` traces (`traceLoop(state, 'partial_tool_recovery', ...)`).

@@ -4057,6 +4057,7 @@ dependencies = [
  "mixdog-services",
  "mixdog-spawn",
  "mixdog-store",
+ "mixdog-testkit",
  "mixdog-workspace",
  "mixdog-workspace-hack",
  "serde_json",

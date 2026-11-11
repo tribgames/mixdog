@@ -1268,6 +1268,8 @@ impl Run {
         // The tools start only once the assistant item that carries their
         // calls is on disk.
         self.until_durable(ticket).await?;
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Started));
+        let tools_started_ms = self.env.clock.now_ms();
         let results_from = self.messages.len();
         self.process_tool_batch(&calls, allowed).await?;
         // A turn recovered from a stream cut that dropped an in-flight tool
@@ -1276,12 +1278,14 @@ impl Run {
             self.push(notice).await?;
         }
         self.settle_turn_limits(overrun).await?;
+        let elapsed_ms = u64::try_from(self.env.clock.now_ms() - tools_started_ms).unwrap_or(0);
         self.last_batch_later = calls
             .iter()
             .any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }
 
