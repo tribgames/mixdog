@@ -47,7 +47,7 @@ export function openSet(setName, recorderUrl, { clock = true } = {}) {
         writeFileSync(path, text);
       }
       writeSetManifest(stage, {
-        set: setName, recorder, command: `node ${recorder} --tree <export of ${COMMIT} with node_modules>`, identity,
+        set: setName, recorder, command: `node ${process.execArgv.length ? `${process.execArgv.join(" ")} ` : ""}${recorder} --tree <export of ${COMMIT} with node_modules>`, identity,
         extra: { ...recorderProvenance(recorderUrl, dataFiles), cases: cases.length, entry, replay, exclusions },
       });
       commitStage(stage, finalDir);

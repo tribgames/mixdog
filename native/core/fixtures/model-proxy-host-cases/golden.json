@@ -1,0 +1,1603 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "quota requests use the PC policy with the selected provider and model, after provider guards",
+      "observed": {
+        "providers": {
+          "openai-oauth": {
+            "enabled": true
+          },
+          "anthropic-oauth": {
+            "enabled": false
+          }
+        },
+        "deniedProvider": "grok-oauth",
+        "usable": [
+          {
+            "model": "gpt-usable",
+            "answer": true
+          },
+          {
+            "model": "gpt-exhausted",
+            "answer": false
+          }
+        ],
+        "refused": [
+          {
+            "provider": "grok-oauth",
+            "rejected": {
+              "name": "Error",
+              "code": "MODEL_PROXY_PROVIDER_NOT_ALLOWED",
+              "message": "This PC does not let this server use provider \"grok-oauth\".",
+              "status": null,
+              "retryAfter": null,
+              "partialContent": null,
+              "liveTextEmitted": null,
+              "headers": null,
+              "cause": null,
+              "baseURL": null
+            }
+          },
+          {
+            "provider": "anthropic-oauth",
+            "rejected": {
+              "name": "Error",
+              "code": "MODEL_PROXY_PROVIDER_UNAVAILABLE",
+              "message": "Provider \"anthropic-oauth\" is not enabled on this PC.",
+              "status": null,
+              "retryAfter": null,
+              "partialContent": null,
+              "liveTextEmitted": null,
+              "headers": null,
+              "cause": null,
+              "baseURL": null
+            }
+          }
+        ],
+        "policyCalls": [
+          {
+            "name": "openai-oauth",
+            "providerIsTheRegistryProvider": true
+          },
+          {
+            "name": "openai-oauth",
+            "model": "gpt-usable"
+          },
+          {
+            "name": "openai-oauth",
+            "model": "gpt-exhausted"
+          }
+        ]
+      }
+    },
+    {
+      "case": "quota requests share one account-wide measurement per provider; models are judged against it, never retained",
+      "observed": {
+        "startClock": 1000,
+        "windowMs": 60000,
+        "log": [
+          {
+            "step": "concurrent on two connections",
+            "answers": [
+              true,
+              false,
+              true,
+              false
+            ],
+            "measurements": 1
+          },
+          {
+            "step": "50 other models in the window",
+            "allFalse": true,
+            "gptA": true,
+            "measurements": 1
+          },
+          {
+            "step": "clock +59999",
+            "measurements": 1
+          },
+          {
+            "step": "clock +1 (window over)",
+            "measurements": 2
+          },
+          {
+            "step": "long model name (257 chars)",
+            "answer": false,
+            "measurements": 2
+          },
+          {
+            "step": "failed measurement is not cached",
+            "failA": {
+              "rejected": {
+                "name": "Error",
+                "code": null,
+                "message": "usage fetch failed",
+                "status": null,
+                "retryAfter": null,
+                "partialContent": null,
+                "liveTextEmitted": null,
+                "headers": null,
+                "cause": null,
+                "baseURL": null
+              }
+            },
+            "failB": {
+              "rejected": {
+                "name": "Error",
+                "code": null,
+                "message": "usage fetch failed",
+                "status": null,
+                "retryAfter": null,
+                "partialContent": null,
+                "liveTextEmitted": null,
+                "headers": null,
+                "cause": null,
+                "baseURL": null
+              }
+            },
+            "measurements": 4
+          },
+          {
+            "step": "after recovery",
+            "answer": true,
+            "measurements": 5
+          }
+        ]
+      }
+    },
+    {
+      "case": "the PC runs the call with its own provider and streams every callback back in order",
+      "observed": {
+        "result": {
+          "content": "Hello again",
+          "usage": {
+            "inputTokens": 7,
+            "outputTokens": 2
+          }
+        },
+        "callbacks": [
+          [
+            "stage",
+            "streaming"
+          ],
+          [
+            "text",
+            "Hel"
+          ],
+          [
+            "text",
+            "lo"
+          ],
+          [
+            "reset",
+            5
+          ],
+          [
+            "text",
+            "again"
+          ]
+        ],
+        "pcProviderCalls": [
+          {
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "model": "claude-test",
+            "tools": [
+              {
+                "name": "read",
+                "input_schema": {}
+              }
+            ],
+            "options": [
+              "onStageChange",
+              "onTextDelta",
+              "onTextReset",
+              "sessionId",
+              "signal",
+              "toolExecutionSessionId"
+            ]
+          }
+        ],
+        "hostRunningAfter": 0
+      }
+    },
+    {
+      "case": "the provider send result reaches the daemon unchanged, wireReroute included",
+      "observed": {
+        "providerResult": {
+          "content": "ok",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1
+          },
+          "wireReroute": {
+            "from": {
+              "provider": "a",
+              "model": "m1"
+            },
+            "to": {
+              "provider": "b",
+              "model": "m2"
+            },
+            "reason": "x"
+          }
+        },
+        "wireReroute": {
+          "from": {
+            "provider": "a",
+            "model": "m1"
+          },
+          "to": {
+            "provider": "b",
+            "model": "m2"
+          },
+          "reason": "x"
+        }
+      }
+    },
+    {
+      "case": "the PC serves only the named provider and the allowed methods",
+      "observed": {
+        "unavailable": {
+          "rejected": {
+            "name": "Error",
+            "code": "MODEL_PROXY_PROVIDER_UNAVAILABLE",
+            "message": "Provider \"gemini\" is not enabled on this PC.",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "forget": {
+          "rejected": {
+            "name": "Error",
+            "code": null,
+            "message": "Model proxy method \"forgetCredentials\" is not allowed.",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "models": [
+          {
+            "id": "model-a"
+          },
+          {
+            "id": "model-b"
+          }
+        ],
+        "cachedA": {
+          "contextWindow": 1000
+        },
+        "cachedB": null,
+        "providerConfig": {
+          "providers": {
+            "openai": {
+              "enabled": true,
+              "modelProxy": {}
+            }
+          },
+          "ready": true
+        },
+        "listCalls": 1
+      }
+    },
+    {
+      "case": "the PC reports its model-specific first-response budget through the catalog and provider config",
+      "observed": {
+        "argon": {
+          "transportMs": 577000,
+          "semanticMs": 1147000
+        },
+        "fallback": {
+          "transportMs": 130000,
+          "semanticMs": 250000
+        },
+        "cachedArgon": {
+          "id": "argon",
+          "firstResponseBudget": {
+            "transportMs": 577000,
+            "semanticMs": 1147000
+          }
+        },
+        "cachedFlash": {
+          "id": "flash"
+        },
+        "cachedBare": null,
+        "config": {
+          "providers": {
+            "antigravity-oauth": {
+              "enabled": true,
+              "modelProxy": {
+                "firstResponseBudget": {
+                  "transportMs": 130000,
+                  "semanticMs": 250000
+                }
+              }
+            }
+          },
+          "ready": true
+        },
+        "forwardedBudgetForUnlisted": {
+          "transportMs": 130000,
+          "semanticMs": 250000
+        }
+      }
+    },
+    {
+      "case": "a daemon-side abort aborts the PC provider call",
+      "observed": {
+        "runningWhileCalling": 1,
+        "daemonOutcome": {
+          "rejected": {
+            "name": "Error",
+            "code": null,
+            "message": "user stop",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "pcAbortReason": {
+          "name": "AbortError"
+        },
+        "runningAfter": 0,
+        "snapshot": {
+          "requests": [],
+          "cancelled": []
+        },
+        "resolveOperationSeen": true,
+        "normalized": "timers: heartbeat counts depend on the host timers and are not compared, only the lease outcome"
+      }
+    },
+    {
+      "case": "a daemon silent past its lease makes the PC abandon every active call",
+      "observed": {
+        "leaseMs": 100,
+        "heartbeatMs": 5,
+        "runningBefore": 1,
+        "atLeastThreeFailedHeartbeats": true,
+        "runningInsideLease": 1,
+        "abortReason": {
+          "code": "MODEL_PROXY_UNAVAILABLE",
+          "message": "The remote daemon stopped answering; the model call was abandoned."
+        },
+        "runningAfter": 0,
+        "daemonOutcome": {
+          "rejected": {
+            "name": "AbortError",
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "message": "The remote daemon stopped answering; the model call was abandoned.",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "normalized": "timers: heartbeat counts depend on the host timers and are not compared, only the lease outcome"
+      }
+    },
+    {
+      "case": "disposing the host aborts and drops every active call",
+      "observed": {
+        "runningBefore": 1,
+        "runningAfterDispose": 0,
+        "abortReason": {
+          "name": "AbortError"
+        },
+        "daemonOutcome": {
+          "rejected": {
+            "name": "AbortError",
+            "code": null,
+            "message": "The desktop app is closing.",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        }
+      }
+    },
+    {
+      "case": "cold start: the daemon waits for a PC that connects late and loads its registry on demand",
+      "observed": {
+        "liveBeforeConnect": 0,
+        "config": {
+          "openai": {
+            "enabled": true,
+            "authState": "present",
+            "modelProxy": {}
+          },
+          "gemini": {
+            "enabled": false,
+            "authState": "present",
+            "modelProxy": {}
+          }
+        },
+        "keyReads": [],
+        "waitMs": 2000,
+        "normalized": "the test waited 50 ms before connecting; the recording yields five event-loop turns"
+      }
+    },
+    {
+      "case": "the daemon retries an unready PC answer instead of reading it as \"all disabled\"",
+      "observed": {
+        "config": {
+          "openai": {
+            "enabled": true,
+            "modelProxy": {}
+          }
+        },
+        "asked": 2
+      }
+    },
+    {
+      "case": "a loaded PC registry with nothing enabled is an answer, not a wait",
+      "observed": {
+        "config": {
+          "openai": {
+            "enabled": false,
+            "authState": "present",
+            "modelProxy": {}
+          }
+        }
+      }
+    },
+    {
+      "case": "only the requested provider's credential is read, on demand",
+      "observed": {
+        "result": {
+          "content": "openai:pc-openai-key"
+        },
+        "keyReads": [
+          "openai"
+        ],
+        "anthropicKeyInLastInit": null
+      }
+    },
+    {
+      "case": "server send options are reduced to the allowlist",
+      "observed": {
+        "options": {
+          "sessionId": "s1",
+          "temperature": 0.2,
+          "baseURL": "http://attacker.example",
+          "requestHeaders": {
+            "authorization": "Bearer x"
+          },
+          "extraBody": {
+            "stolen": true
+          },
+          "codexInstallationId": "pc-identity",
+          "toolExecutionSessionId": "daemon-session",
+          "_providerSeam": true
+        },
+        "seenKeys": [
+          "sessionId",
+          "signal",
+          "temperature",
+          "toolExecutionSessionId"
+        ],
+        "signalIsAbortSignal": true,
+        "toolExecutionSessionId": "",
+        "sessionId": "s1",
+        "temperature": 0.2
+      }
+    },
+    {
+      "case": "a proxied side request gets its own transport scope on the PC, disposed when the request ends",
+      "observed": {
+        "mainScope": "main-session#side:server-scope",
+        "log": [
+          {
+            "step": "success",
+            "scope": {
+              "isString": true,
+              "differsFromServerScope": true,
+              "startsWithSessionHash": true
+            },
+            "closedIsScope": true,
+            "releasedIsScope": true
+          },
+          {
+            "step": "error",
+            "fail": {
+              "rejected": {
+                "name": "Error",
+                "code": null,
+                "message": "provider down",
+                "status": null,
+                "retryAfter": null,
+                "partialContent": null,
+                "liveTextEmitted": null,
+                "headers": null,
+                "cause": null,
+                "baseURL": null
+              }
+            },
+            "scopeIsClosed": true,
+            "differsFromFirst": true,
+            "releasedEqualsClosed": true
+          },
+          {
+            "step": "cancel",
+            "closedWhileRunning": 2,
+            "cancelled": {
+              "rejected": {
+                "name": "Error",
+                "code": null,
+                "message": "user stop",
+                "status": null,
+                "retryAfter": null,
+                "partialContent": null,
+                "liveTextEmitted": null,
+                "headers": null,
+                "cause": null,
+                "baseURL": null
+              }
+            },
+            "closedAfter": 3,
+            "closedIsScope": true,
+            "releasedEqualsClosed": true,
+            "distinctScopes": 3
+          },
+          {
+            "step": "no scope named",
+            "hasTransportScope": false,
+            "closedAfter": 3
+          }
+        ],
+        "normalized": "the scope is session#<random>: only its shape is compared"
+      }
+    },
+    {
+      "case": "PC errors reach the server with only the recovery fields, credentials redacted",
+      "observed": {
+        "thrown": {
+          "name": "Error",
+          "code": "auth_failed",
+          "message": "401 from upstream for key [redacted]",
+          "status": 401,
+          "retryAfter": 3,
+          "partialContent": "half an answer",
+          "liveTextEmitted": true,
+          "headers": null,
+          "cause": null,
+          "baseURL": null,
+          "hasHeaders": false,
+          "hasCause": false,
+          "hasBaseURL": false,
+          "messageRedacted": true,
+          "messageKeepsKey": false
+        }
+      }
+    },
+    {
+      "case": "providerConfig tells a server availability and traits only; disallowed providers are refused",
+      "observed": {
+        "deniedProvider": "custom-1",
+        "advertised": {
+          "providers": {
+            "openai": {
+              "enabled": true,
+              "modelProxy": {
+                "nativePdf": true,
+                "consumesReadWindows": true
+              }
+            },
+            "mixdog-local": {
+              "enabled": true,
+              "modelProxy": {
+                "nativePdf": false,
+                "takesImages": false
+              }
+            }
+          },
+          "ready": true
+        },
+        "customSend": {
+          "rejected": {
+            "name": "Error",
+            "code": "MODEL_PROXY_PROVIDER_NOT_ALLOWED",
+            "message": "This PC does not let this server use provider \"custom-1\".",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "openaiSend": {
+          "content": "x"
+        }
+      }
+    },
+    {
+      "case": "a remote session pins its wire through the PC adapter and the pin reaches the PC send",
+      "observed": {
+        "session": {
+          "id": "s1",
+          "provider": "openrouter",
+          "model": "anthropic/claude-opus-4.8",
+          "messages": [
+            {
+              "role": "user",
+              "content": "hi"
+            },
+            {
+              "role": "assistant",
+              "content": "hello"
+            }
+          ],
+          "wireRoute": {
+            "provider": "openrouter",
+            "model": "anthropic/claude-opus-4.8",
+            "wire": "chat",
+            "profileId": "openrouter:chat",
+            "source": "legacy"
+          }
+        },
+        "pinnedRoute": {
+          "provider": "openrouter",
+          "model": "anthropic/claude-opus-4.8",
+          "wire": "chat",
+          "profileId": "openrouter:chat",
+          "source": "legacy"
+        },
+        "resolved": [
+          {
+            "model": "anthropic/claude-opus-4.8",
+            "ctx": {
+              "agent": true,
+              "legacy": true
+            }
+          }
+        ],
+        "sentToPc": [
+          {
+            "route": {
+              "provider": "openrouter",
+              "model": "anthropic/claude-opus-4.8",
+              "wire": "chat",
+              "profileId": "openrouter:chat",
+              "source": "legacy"
+            },
+            "sessionRoute": {
+              "provider": "openrouter",
+              "model": "anthropic/claude-opus-4.8",
+              "wire": "chat",
+              "profileId": "openrouter:chat",
+              "source": "legacy"
+            }
+          }
+        ],
+        "sessionWireRoute": {
+          "provider": "openrouter",
+          "model": "anthropic/claude-opus-4.8",
+          "wire": "chat",
+          "profileId": "openrouter:chat",
+          "source": "legacy"
+        },
+        "solo": {
+          "answers": [
+            null,
+            null
+          ],
+          "pcAsked": 1
+        }
+      }
+    },
+    {
+      "case": "a call is claimed and run while another is still running: there is no concurrency cap",
+      "observed": {
+        "second": {
+          "content": "second"
+        },
+        "claims": 2,
+        "runningAfterSecond": 1
+      }
+    },
+    {
+      "case": "a call payload over the request cap is refused before any provider runs",
+      "observed": {
+        "maxRequestBytes": 200,
+        "contentChars": 500,
+        "outcome": {
+          "rejected": {
+            "name": "Error",
+            "code": "MODEL_PROXY_REQUEST_TOO_LARGE",
+            "message": "The model call is larger than this PC accepts from a server.",
+            "status": 413,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "providerSent": false
+      }
+    },
+    {
+      "case": "the last disabled or removed provider is not advertised even when the registry preserves its instance",
+      "observed": {
+        "log": [
+          {
+            "step": "enabled",
+            "enabled": true
+          },
+          {
+            "step": "disabled",
+            "enabled": false,
+            "registryKeepsInstance": true,
+            "provider": "undefined"
+          },
+          {
+            "step": "removed",
+            "enabled": false,
+            "provider": "undefined"
+          }
+        ],
+        "keyReads": []
+      }
+    },
+    {
+      "case": "provider config deadline aborts a stalled request (claimed=false)",
+      "observed": {
+        "claimed": false,
+        "waitMs": 30,
+        "outcome": {
+          "rejected": {
+            "name": "ModelProxyUnavailableError",
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "message": "model proxy unavailable: the desktop provider request timed out",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "requestPublished": true
+      }
+    },
+    {
+      "case": "provider config deadline aborts a stalled request (claimed=true)",
+      "observed": {
+        "claimed": true,
+        "waitMs": 30,
+        "outcome": {
+          "rejected": {
+            "name": "ModelProxyUnavailableError",
+            "code": "MODEL_PROXY_UNAVAILABLE",
+            "message": "model proxy unavailable: the desktop provider request timed out",
+            "status": null,
+            "retryAfter": null,
+            "partialContent": null,
+            "liveTextEmitted": null,
+            "headers": null,
+            "cause": null,
+            "baseURL": null
+          }
+        },
+        "requestPublished": true
+      }
+    },
+    {
+      "case": "forced and short-budget reads do not join an older request or let it overwrite the fresh cache",
+      "observed": {
+        "log": [
+          {
+            "step": "old + forced",
+            "requestsSent": 2
+          },
+          {
+            "step": "forced answered",
+            "gemini": true
+          },
+          {
+            "step": "old answered late, cache read",
+            "gemini": true
+          },
+          {
+            "step": "long + short wait",
+            "requestsSentTotal": 4
+          }
+        ]
+      }
+    },
+    {
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+      "observed": {
+        "available": {
+          "openai": {
+            "enabled": true
+          },
+          "anthropic": {
+            "enabled": true
+          },
+          "gemini": {
+            "enabled": true
+          },
+          "deepseek": {
+            "enabled": true
+          },
+          "xai": {
+            "enabled": true
+          },
+          "opencode-go": {
+            "enabled": true
+          },
+          "openrouter": {
+            "enabled": true
+          },
+          "openai-oauth": {
+            "enabled": true
+          },
+          "anthropic-oauth": {
+            "enabled": true
+          },
+          "grok-oauth": {
+            "enabled": true
+          },
+          "muse-code-oauth": {
+            "enabled": true
+          },
+          "command-code-oauth": {
+            "enabled": true
+          },
+          "mimo-oauth": {
+            "enabled": true
+          },
+          "cursor-oauth": {
+            "enabled": true
+          },
+          "antigravity-oauth": {
+            "enabled": true
+          },
+          "mixdog-local": {
+            "enabled": true
+          },
+          "custom-00000000-0000-4000-8000-000000000000": {
+            "protocol": "openai-chat",
+            "auth": "key",
+            "type": "custom",
+            "enabled": true
+          },
+          "custom-00000000-0000-4000-8000-000000000001": {
+            "protocol": "openai-chat",
+            "auth": "none",
+            "type": "custom",
+            "enabled": true
+          },
+          "custom-00000000-0000-4000-8000-000000000010": {
+            "protocol": "openai-responses",
+            "auth": "key",
+            "type": "custom",
+            "enabled": true
+          },
+          "custom-00000000-0000-4000-8000-000000000011": {
+            "protocol": "openai-responses",
+            "auth": "none",
+            "type": "custom",
+            "enabled": true
+          },
+          "custom-00000000-0000-4000-8000-000000000020": {
+            "protocol": "anthropic",
+            "auth": "key",
+            "type": "custom",
+            "enabled": true
+          },
+          "custom-00000000-0000-4000-8000-000000000021": {
+            "protocol": "anthropic",
+            "auth": "none",
+            "type": "custom",
+            "enabled": true
+          }
+        },
+        "advertisedNames": [
+          "anthropic",
+          "anthropic-oauth",
+          "antigravity-oauth",
+          "command-code-oauth",
+          "cursor-oauth",
+          "custom-00000000-0000-4000-8000-000000000000",
+          "custom-00000000-0000-4000-8000-000000000001",
+          "custom-00000000-0000-4000-8000-000000000010",
+          "custom-00000000-0000-4000-8000-000000000011",
+          "custom-00000000-0000-4000-8000-000000000020",
+          "custom-00000000-0000-4000-8000-000000000021",
+          "deepseek",
+          "gemini",
+          "grok-oauth",
+          "mimo-oauth",
+          "mixdog-local",
+          "muse-code-oauth",
+          "openai",
+          "openai-oauth",
+          "opencode-go",
+          "openrouter",
+          "xai"
+        ],
+        "perProvider": [
+          {
+            "name": "openai",
+            "enabled": true,
+            "models": [
+              {
+                "id": "openai-model"
+              }
+            ],
+            "content": "openai:no-key"
+          },
+          {
+            "name": "anthropic",
+            "enabled": true,
+            "models": [
+              {
+                "id": "anthropic-model"
+              }
+            ],
+            "content": "anthropic:no-key"
+          },
+          {
+            "name": "gemini",
+            "enabled": true,
+            "models": [
+              {
+                "id": "gemini-model"
+              }
+            ],
+            "content": "gemini:no-key"
+          },
+          {
+            "name": "deepseek",
+            "enabled": true,
+            "models": [
+              {
+                "id": "deepseek-model"
+              }
+            ],
+            "content": "deepseek:no-key"
+          },
+          {
+            "name": "xai",
+            "enabled": true,
+            "models": [
+              {
+                "id": "xai-model"
+              }
+            ],
+            "content": "xai:no-key"
+          },
+          {
+            "name": "opencode-go",
+            "enabled": true,
+            "models": [
+              {
+                "id": "opencode-go-model"
+              }
+            ],
+            "content": "opencode-go:no-key"
+          },
+          {
+            "name": "openrouter",
+            "enabled": true,
+            "models": [
+              {
+                "id": "openrouter-model"
+              }
+            ],
+            "content": "openrouter:no-key"
+          },
+          {
+            "name": "openai-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "openai-oauth-model"
+              }
+            ],
+            "content": "openai-oauth:no-key"
+          },
+          {
+            "name": "anthropic-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "anthropic-oauth-model"
+              }
+            ],
+            "content": "anthropic-oauth:no-key"
+          },
+          {
+            "name": "grok-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "grok-oauth-model"
+              }
+            ],
+            "content": "grok-oauth:no-key"
+          },
+          {
+            "name": "muse-code-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "muse-code-oauth-model"
+              }
+            ],
+            "content": "muse-code-oauth:no-key"
+          },
+          {
+            "name": "command-code-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "command-code-oauth-model"
+              }
+            ],
+            "content": "command-code-oauth:no-key"
+          },
+          {
+            "name": "mimo-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "mimo-oauth-model"
+              }
+            ],
+            "content": "mimo-oauth:no-key"
+          },
+          {
+            "name": "cursor-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "cursor-oauth-model"
+              }
+            ],
+            "content": "cursor-oauth:no-key"
+          },
+          {
+            "name": "antigravity-oauth",
+            "enabled": true,
+            "models": [
+              {
+                "id": "antigravity-oauth-model"
+              }
+            ],
+            "content": "antigravity-oauth:no-key"
+          },
+          {
+            "name": "mixdog-local",
+            "enabled": true,
+            "models": [
+              {
+                "id": "mixdog-local-model"
+              }
+            ],
+            "content": "mixdog-local:no-key"
+          },
+          {
+            "name": "custom-00000000-0000-4000-8000-000000000000",
+            "enabled": true,
+            "models": [
+              {
+                "id": "custom-00000000-0000-4000-8000-000000000000-model"
+              }
+            ],
+            "content": "custom-00000000-0000-4000-8000-000000000000:no-key"
+          },
+          {
+            "name": "custom-00000000-0000-4000-8000-000000000001",
+            "enabled": true,
+            "models": [
+              {
+                "id": "custom-00000000-0000-4000-8000-000000000001-model"
+              }
+            ],
+            "content": "custom-00000000-0000-4000-8000-000000000001:no-key"
+          },
+          {
+            "name": "custom-00000000-0000-4000-8000-000000000010",
+            "enabled": true,
+            "models": [
+              {
+                "id": "custom-00000000-0000-4000-8000-000000000010-model"
+              }
+            ],
+            "content": "custom-00000000-0000-4000-8000-000000000010:no-key"
+          },
+          {
+            "name": "custom-00000000-0000-4000-8000-000000000011",
+            "enabled": true,
+            "models": [
+              {
+                "id": "custom-00000000-0000-4000-8000-000000000011-model"
+              }
+            ],
+            "content": "custom-00000000-0000-4000-8000-000000000011:no-key"
+          },
+          {
+            "name": "custom-00000000-0000-4000-8000-000000000020",
+            "enabled": true,
+            "models": [
+              {
+                "id": "custom-00000000-0000-4000-8000-000000000020-model"
+              }
+            ],
+            "content": "custom-00000000-0000-4000-8000-000000000020:no-key"
+          },
+          {
+            "name": "custom-00000000-0000-4000-8000-000000000021",
+            "enabled": true,
+            "models": [
+              {
+                "id": "custom-00000000-0000-4000-8000-000000000021-model"
+              }
+            ],
+            "content": "custom-00000000-0000-4000-8000-000000000021:no-key"
+          }
+        ]
+      }
+    },
+    {
+      "case": "proxy readiness distinguishes missing credentials, transient probes, and explicit disables",
+      "observed": {
+        "log": [
+          {
+            "step": "present + enabled",
+            "advertised": {
+              "enabled": true,
+              "authState": "present",
+              "modelProxy": {}
+            }
+          },
+          {
+            "step": "unreadable, preserved adapter",
+            "advertised": {
+              "enabled": true,
+              "authState": "unreadable",
+              "modelProxy": {}
+            },
+            "providerPresent": true
+          },
+          {
+            "step": "absent, persisted enable",
+            "advertised": {
+              "enabled": false,
+              "authState": "absent",
+              "modelProxy": {}
+            },
+            "provider": "undefined"
+          },
+          {
+            "step": "present, explicitly disabled",
+            "advertised": {
+              "enabled": false,
+              "authState": "present",
+              "modelProxy": {}
+            },
+            "provider": "undefined"
+          }
+        ]
+      }
+    },
+    {
+      "case": "custom environment credentials drive proxy readiness without a stored-key fallback",
+      "observed": {
+        "variable": "MIXDOG_PROXY_ENV_CREDENTIAL_TEST",
+        "available": {
+          "custom-proxy-env": {
+            "type": "custom",
+            "auth": "key",
+            "enabled": true,
+            "apiKeyEnv": "MIXDOG_PROXY_ENV_CREDENTIAL_TEST"
+          }
+        },
+        "firstAdvertised": {
+          "type": "custom",
+          "auth": "key",
+          "enabled": true,
+          "authState": "present",
+          "modelProxy": {}
+        },
+        "keyValueInConfig": false,
+        "sendWithKeyOne": "environment-key-one",
+        "sendWithKeyTwo": "environment-key-two",
+        "afterUnset": {
+          "type": "custom",
+          "auth": "key",
+          "enabled": false,
+          "authState": "absent",
+          "modelProxy": {}
+        },
+        "providerAfterUnset": "undefined",
+        "keyReads": []
+      }
+    },
+    {
+      "case": "an unreadable credential with a live adapter is advertised on the first read, not only later ones",
+      "observed": {
+        "first": {
+          "enabled": true,
+          "authState": "unreadable",
+          "modelProxy": {}
+        },
+        "second": {
+          "enabled": true,
+          "authState": "unreadable",
+          "modelProxy": {}
+        }
+      }
+    },
+    {
+      "case": "a text-only adapter's image trait is advertised, so a remote read sends it OCR text",
+      "observed": {
+        "localTraits": {
+          "nativePdf": false,
+          "takesImages": false
+        },
+        "openaiTraits": {}
+      }
+    },
+    {
+      "case": "a custom provider advertises only the ids of its hidden models",
+      "observed": {
+        "available": {
+          "custom-proxy-hidden": {
+            "type": "custom",
+            "auth": "none",
+            "enabled": true,
+            "name": "Private gateway",
+            "baseURL": "https://gateway.internal",
+            "models": [
+              {
+                "id": "row-hidden",
+                "hidden": true
+              },
+              {
+                "id": "row-visible"
+              }
+            ],
+            "modelOverrides": {
+              "override-hidden": {
+                "hidden": true
+              },
+              "override-visible": {
+                "name": "Shown"
+              }
+            }
+          }
+        },
+        "advertised": {
+          "enabled": true,
+          "type": "custom",
+          "name": "Private gateway",
+          "hiddenModels": [
+            "row-hidden",
+            "override-hidden"
+          ],
+          "authState": "present",
+          "modelProxy": {}
+        }
+      }
+    },
+    {
+      "case": "an advertised custom provider name is trimmed, redacted and capped; empty or non-string names are omitted",
+      "observed": {
+        "configured": {
+          "custom-secret": {
+            "type": "custom",
+            "enabled": true,
+            "name": "  Gateway sk-DUMMY-abcdefghijklmnop1234  "
+          },
+          "custom-long": {
+            "type": "custom",
+            "enabled": true,
+            "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+          },
+          "custom-empty": {
+            "type": "custom",
+            "enabled": true,
+            "name": "   "
+          },
+          "custom-number": {
+            "type": "custom",
+            "enabled": true,
+            "name": 42
+          },
+          "custom-object": {
+            "type": "custom",
+            "enabled": true,
+            "name": {
+              "toString": "x"
+            }
+          },
+          "custom-missing": {
+            "type": "custom",
+            "enabled": true
+          },
+          "custom-blocked": {
+            "type": "custom",
+            "enabled": true,
+            "name": "Blocked gateway"
+          },
+          "openai": {
+            "enabled": true,
+            "name": "Renamed OpenAI"
+          }
+        },
+        "blocked": "custom-blocked",
+        "advertised": {
+          "custom-secret": {
+            "enabled": true,
+            "type": "custom",
+            "name": "Gateway [redacted]",
+            "hiddenModels": [],
+            "modelProxy": {}
+          },
+          "custom-long": {
+            "enabled": true,
+            "type": "custom",
+            "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+            "hiddenModels": [],
+            "modelProxy": {}
+          },
+          "custom-empty": {
+            "enabled": true,
+            "type": "custom",
+            "hiddenModels": [],
+            "modelProxy": {}
+          },
+          "custom-number": {
+            "enabled": true,
+            "type": "custom",
+            "hiddenModels": [],
+            "modelProxy": {}
+          },
+          "custom-object": {
+            "enabled": true,
+            "type": "custom",
+            "hiddenModels": [],
+            "modelProxy": {}
+          },
+          "custom-missing": {
+            "enabled": true,
+            "type": "custom",
+            "hiddenModels": [],
+            "modelProxy": {}
+          },
+          "openai": {
+            "enabled": true,
+            "modelProxy": {}
+          }
+        },
+        "advertisedNameLengths": {
+          "custom-secret": 18,
+          "custom-long": 200,
+          "custom-empty": null,
+          "custom-number": null,
+          "custom-object": null,
+          "custom-missing": null,
+          "openai": null
+        },
+        "blockedNameLeaked": false
+      }
+    },
+    {
+      "case": "proxy credential presence follows the registry OAuth set and resolveProviderApiKey precedence",
+      "observed": {
+        "oauthSet": {
+          "oauthProbes": [
+            "unreadable",
+            "absent"
+          ],
+          "oauthReads": [
+            "cursor-oauth"
+          ]
+        },
+        "log": [
+          {
+            "step": "no environment",
+            "env": {
+              "MIXDOG_PROXY_PROBE_ENV_TEST": null,
+              "MIXDOG_AGENT_PROXY-PROBE_APIKEY": null,
+              "OPENAI_API_KEY": null
+            },
+            "results": [
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKey": "config-file-key"
+                },
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST"
+                },
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              },
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST",
+                  "apiKey": "ignored-for-env-routes"
+                },
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              },
+              {
+                "name": "proxy-probe",
+                "config": {},
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              },
+              {
+                "name": "custom-proxy-probe",
+                "config": {
+                  "type": "custom",
+                  "auth": "key",
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST"
+                },
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              }
+            ]
+          },
+          {
+            "step": "both variables set",
+            "env": {
+              "MIXDOG_PROXY_PROBE_ENV_TEST": "from-env",
+              "MIXDOG_AGENT_PROXY-PROBE_APIKEY": "from-mixdog-env",
+              "OPENAI_API_KEY": null
+            },
+            "results": [
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKey": "config-file-key"
+                },
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST"
+                },
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST",
+                  "apiKey": "ignored-for-env-routes"
+                },
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "proxy-probe",
+                "config": {},
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "custom-proxy-probe",
+                "config": {
+                  "type": "custom",
+                  "auth": "key",
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST"
+                },
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              }
+            ]
+          },
+          {
+            "step": "bare name with the MIXDOG_AGENT alias set",
+            "probe": "present"
+          },
+          {
+            "step": "named variable removed",
+            "customProbe": "absent"
+          },
+          {
+            "step": "named variable removed (all cases)",
+            "env": {
+              "MIXDOG_PROXY_PROBE_ENV_TEST": null,
+              "MIXDOG_AGENT_PROXY-PROBE_APIKEY": "from-mixdog-env",
+              "OPENAI_API_KEY": null
+            },
+            "results": [
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKey": "config-file-key"
+                },
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST"
+                },
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              },
+              {
+                "name": "proxy-probe",
+                "config": {
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST",
+                  "apiKey": "ignored-for-env-routes"
+                },
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              },
+              {
+                "name": "proxy-probe",
+                "config": {},
+                "probe": "present",
+                "resolveProviderApiKeyFound": true
+              },
+              {
+                "name": "custom-proxy-probe",
+                "config": {
+                  "type": "custom",
+                  "auth": "key",
+                  "apiKeyEnv": "MIXDOG_PROXY_PROBE_ENV_TEST"
+                },
+                "probe": "absent",
+                "resolveProviderApiKeyFound": false
+              }
+            ]
+          },
+          {
+            "step": "custom auth none",
+            "probe": "present"
+          }
+        ]
+      }
+    }
+  ]
+}
