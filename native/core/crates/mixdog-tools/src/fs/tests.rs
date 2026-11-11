@@ -434,6 +434,8 @@ async fn replay_burst(fixture: &JsonValue, ws: &Path, ctx: &ToolContext, grep: &
     use mixdog_workspace::localfs::probe;
     let holds = fixture["burst"]["holds"].as_u64().unwrap() as usize;
     let calls = fixture["calls"].as_array().unwrap();
+    // No search of the recording reached its soft deadline; a loaded machine must not make a held one reach it here.
+    mixdog_workspace::localfs::deadline_script::set(ws, Some(mixdog_workspace::localfs::deadline_script::Script::Unpassed));
     let mut oplocks: Vec<Option<OplockHold>> =
         (1..=holds).map(|n| Some(OplockHold::new(&ws.join(format!("h{n}")).join("f.ts")).unwrap())).collect();
     let mut numbers = std::collections::HashMap::new();
@@ -502,6 +504,7 @@ async fn replay_burst(fixture: &JsonValue, ws: &Path, ctx: &ToolContext, grep: &
         let at = order.iter().zip(&want).position(|(a, b)| a != b).unwrap_or(order.len().min(want.len()));
         failures.push(format!("answer order differs at {at}: want {:?}, got {:?}", &want[at..(at + 12).min(want.len())], &order[at..(at + 12).min(order.len())]));
     }
+    mixdog_workspace::localfs::deadline_script::set(ws, None);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 

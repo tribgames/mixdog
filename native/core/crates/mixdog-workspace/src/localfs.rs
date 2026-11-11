@@ -1046,6 +1046,7 @@ fn search_with(
             return streamed(producers, Box::new(held), Deadline::default(), origin(), false);
         }
         Some(deadline_script::Script::QueueFull) => return streamed(producers, Box::new(searching), Deadline::default(), origin(), true),
+        Some(deadline_script::Script::Unpassed) => return streamed(producers, Box::new(searching), Deadline::default(), origin(), false),
         Some(deadline_script::Script::AfterFiles(n)) => Some(n),
         None => None,
     };
@@ -3118,6 +3119,9 @@ pub mod deadline_script {
         /// The soft deadline passes once this many files with matches were searched, or when the search ends (a
         /// deadline that passed during its last file).
         AfterFiles(usize),
+        /// The soft deadline never passes: every search of the recording answered before its own, however long the
+        /// replay's machine takes to reach the same point.
+        Unpassed,
         /// The search never answers: it queues nothing and ends only when stopped (a server stuck past every deadline).
         Silent,
         /// Every slot is taken and the queue is full: a walk or search that stands for a search-server request is refused
